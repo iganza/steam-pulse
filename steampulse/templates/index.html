@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SteamPulse — AI Steam Review Analytics for Indie Devs</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d1a;
+      --surface:  #1a1a2e;
+      --surface2: #16213e;
+      --border:   #2a2a4a;
+      --accent:   #4fc3f7;
+      --accent2:  #7c3aed;
+      --text:     #e0e0f0;
+      --muted:    #8080a0;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #f59e0b;
+      --blue:     #60a5fa;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+    }
+
+    /* ── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    #app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 640px;
+    }
+
+    /* ── Logo ──────────────────────────────────────────────────── */
+    .logo-wrap {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .logo {
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--accent) 0%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      position: relative;
+      display: inline-block;
+    }
+    .logo::after {
+      content: '';
+      position: absolute;
+      inset: -4px -8px;
+      background: linear-gradient(135deg, rgba(79,195,247,0.15) 0%, rgba(124,58,237,0.15) 100%);
+      border-radius: 12px;
+      filter: blur(8px);
+      z-index: -1;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 0.5rem;
+      max-width: 420px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ── Inputs & Buttons ──────────────────────────────────────── */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: var(--accent);
+    }
+    input::placeholder { color: var(--muted); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.8rem 1.5rem;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+      text-decoration: none;
+    }
+    .btn:hover   { opacity: 0.88; }
+    .btn:active  { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #7c3aed);
+      color: #fff;
+      width: 100%;
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-green {
+      background: #14532d;
+      color: var(--green);
+      border: 1px solid #166534;
+    }
+    .btn-blue {
+      background: #1e3a5f;
+      color: var(--blue);
+      border: 1px solid #2563eb;
+    }
+    .btn-sm { padding: 0.55rem 1rem; font-size: 0.85rem; }
+
+    /* ── Note text ─────────────────────────────────────────────── */
+    .note {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+
+    /* ── Error / Info messages ─────────────────────────────────── */
+    .msg {
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.88rem;
+      display: none;
+    }
+    .msg.show { display: block; }
+    .msg-error { background: #2d0a0a; border: 1px solid #7f1d1d; color: #fca5a5; }
+    .msg-info  { background: #0c1a2e; border: 1px solid #1e3a5f; color: #93c5fd; }
+    .msg-warn  { background: #291900; border: 1px solid #78350f; color: #fcd34d; }
+
+    /* ── Spinner / Loading ─────────────────────────────────────── */
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1.5rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-status {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    /* ── Game header ───────────────────────────────────────────── */
+    .game-header {
+      display: flex;
+      gap: 1.25rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    .game-header img {
+      width: 184px;
+      height: 69px;
+      object-fit: cover;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
+    .game-title { font-size: 1.3rem; font-weight: 700; color: #fff; }
+
+    /* ── Sentiment badge ───────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.35rem;
+    }
+    .badge-positive  { background: #052e16; color: #6ee7b7; }
+    .badge-mixed     { background: #291900; color: #fcd34d; }
+    .badge-negative  { background: #2d0a0a; color: #fca5a5; }
+
+    /* ── Score bar ─────────────────────────────────────────────── */
+    .score-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.5rem;
+    }
+    .score-track {
+      flex: 1;
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .score-fill { height: 100%; border-radius: 3px; }
+    .score-pct { font-size: 0.8rem; color: var(--muted); min-width: 2.5rem; text-align: right; }
+
+    /* ── One-liner ─────────────────────────────────────────────── */
+    .one-liner {
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0 8px 8px 0;
+      font-style: italic;
+      color: #c8d6e5;
+      margin-bottom: 1.5rem;
+      font-size: 1rem;
+    }
+
+    /* ── Section headings ──────────────────────────────────────── */
+    .section-heading {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.6rem;
+      margin-top: 1.25rem;
+    }
+
+    /* ── Chips ─────────────────────────────────────────────────── */
+    .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .chip {
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+    .chip-green  { background: #052e16; color: #6ee7b7; border: 1px solid #166534; }
+    .chip-red    { background: #2d0a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+    .chip-blue   { background: #0c1a2e; color: #93c5fd; border: 1px solid #1e3a5f; }
+    .chip-purple { background: #1a0a2e; color: #c4b5fd; border: 1px solid #4c1d95; }
+
+    /* ── Locked / blur section ─────────────────────────────────── */
+    .locked-section {
+      position: relative;
+      margin-top: 1.25rem;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .locked-blur {
+      filter: blur(5px);
+      user-select: none;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+    .locked-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,13,26,0.5);
+      backdrop-filter: blur(2px);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .locked-icon { font-size: 1.5rem; margin-bottom: 0.35rem; }
+    .locked-label { font-size: 0.8rem; color: var(--muted); }
+
+    /* ── CTA section ───────────────────────────────────────────── */
+    .cta-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+    .cta-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    /* ── Key unlock section ────────────────────────────────────── */
+    .key-section {
+      margin-top: 1.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+    .key-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .key-row input { flex: 1; }
+
+    /* ── Full report sections ──────────────────────────────────── */
+    .action-list { list-style: none; counter-reset: actions; }
+    .action-list li {
+      counter-increment: actions;
+      display: flex;
+      gap: 0.9rem;
+      padding: 0.65rem 0;
+      border-bottom: 1px solid var(--border);
+      align-items: flex-start;
+    }
+    .action-list li:last-child { border-bottom: none; }
+    .action-list li::before {
+      content: counter(actions);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      min-width: 1.6rem;
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 50%;
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-top: 0.1rem;
+    }
+
+    .risk-list { list-style: none; }
+    .risk-list li {
+      padding: 0.4rem 0 0.4rem 1.5rem;
+      position: relative;
+      color: #c8d6e5;
+      border-bottom: 1px solid var(--border);
+    }
+    .risk-list li:last-child { border-bottom: none; }
+    .risk-list li::before {
+      content: '⚠';
+      position: absolute;
+      left: 0;
+      color: var(--yellow);
+    }
+
+    /* ── Download button ───────────────────────────────────────── */
+    .download-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .credits-note { font-size: 0.82rem; color: var(--muted); }
+
+    /* ── Chat (V2 Pro) ─────────────────────────────────────────── */
+    #chat-section {
+      width: 100%;
+      max-width: 640px;
+      margin-top: 2rem;
+      display: none;
+    }
+    .chat-messages {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      min-height: 200px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .chat-msg { border-radius: 8px; padding: 0.65rem 0.9rem; max-width: 90%; font-size: 0.9rem; }
+    .chat-msg-user {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      align-self: flex-end;
+    }
+    .chat-msg-ai {
+      background: #0c1a2e;
+      border: 1px solid #1e3a5f;
+      align-self: flex-start;
+    }
+    .chat-sql {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+    }
+    .chat-sql summary {
+      cursor: pointer;
+      color: var(--muted);
+      user-select: none;
+    }
+    .chat-sql code {
+      display: block;
+      margin-top: 0.4rem;
+      background: var(--bg);
+      padding: 0.6rem 0.8rem;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      white-space: pre-wrap;
+      color: #a5f3fc;
+      border: 1px solid var(--border);
+    }
+    .chat-input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .chat-input-row input { flex: 1; }
+
+    /* ── Pro upgrade CTA ───────────────────────────────────────── */
+    .pro-cta {
+      background: linear-gradient(135deg, #1a0a2e, #0c1a2e);
+      border: 1px solid #4c1d95;
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+      margin-top: 2rem;
+      width: 100%;
+      max-width: 640px;
+      display: none;
+    }
+
+    /* ── Divider ───────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 1.5rem 0;
+    }
+
+    /* ── State visibility ──────────────────────────────────────── */
+    .state { display: none; }
+    .state.active { display: block; }
+
+    /* ── Responsive ────────────────────────────────────────────── */
+    @media (max-width: 500px) {
+      .cta-row { grid-template-columns: 1fr; }
+      .game-header { flex-direction: column; align-items: flex-start; }
+      .game-header img { width: 100%; height: auto; }
+      .key-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       STATE 1 — INPUT
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="state-input" class="state active card">
+    <div class="logo-wrap">
+      <div class="logo">SteamPulse</div>
+      <p class="tagline">
+        Find the gaps in your genre. Understand what players actually want — before you build.
+      </p>
+    </div>
+
+    <div class="input-group">
+      <input
+        type="text"
+        id="appid-input"
+        placeholder="Steam game URL or App ID (e.g. 440 or https://store.steampowered.com/app/440/)"
+        autocomplete="off"
+      />
+      <button class="btn btn-primary" id="analyze-btn" onclick="startAnalysis()">
+        ⚡ Analyze Free
+      </button>
+      <p class="note">No account needed. First analysis free.</p>
+
+      <div id="input-error" class="msg msg-error"></div>
+      <div id="limit-msg" class="msg msg-warn" style="display:none;">
+        Free analysis limit reached. Get full access below.
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+          <a id="limit-single-btn" href="#" target="_blank" class="btn btn-green btn-sm">Buy 1 analysis — $7</a>
+          <a id="limit-pack5-btn" href="#" target="_blank" class="btn btn-blue btn-sm">5-pack — $15</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       STATE 2 — LOADING
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="state-loading" class="state card" style="text-align:center;">
+    <div class="spinner"></div>
+    <div class="loading-status" id="loading-text">Fetching reviews...</div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       STATE 3 — FREE PREVIEW
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="state-preview" class="state card">
+    <!-- Game header -->
+    <div class="game-header" id="preview-game-header">
+      <img id="preview-cover" src="" alt="" />
+      <div>
+        <div class="game-title" id="preview-game-name"></div>
+        <span class="badge" id="preview-badge"></span>
+        <div class="score-row">
+          <div class="score-track">
+            <div class="score-fill" id="preview-score-fill"></div>
+          </div>
+          <span class="score-pct" id="preview-score-pct"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- One-liner -->
+    <div class="one-liner" id="preview-one-liner"></div>
+
+    <!-- Locked sections -->
+    <div class="locked-section">
+      <div class="locked-blur">
+        <div class="section-heading" style="color:var(--red);">Top Complaints</div>
+        <div class="chips">
+          <span class="chip chip-red">difficulty spike at level 4</span>
+          <span class="chip chip-red">no save anywhere</span>
+          <span class="chip chip-red">PC performance issues</span>
+        </div>
+        <div class="section-heading" style="color:var(--blue);margin-top:1rem;">Feature Requests</div>
+        <div class="chips">
+          <span class="chip chip-blue">difficulty settings</span>
+          <span class="chip chip-blue">controller remapping</span>
+          <span class="chip chip-blue">New Game+</span>
+        </div>
+        <div class="section-heading" style="color:var(--yellow);margin-top:1rem;">Refund Risk Signals</div>
+        <ul class="risk-list">
+          <li>61% of refunders cite difficulty within first 30 min</li>
+          <li>Short average playtime before refunds</li>
+        </ul>
+        <div class="section-heading" style="color:var(--accent);margin-top:1rem;">Developer Action Items</div>
+        <ol class="action-list">
+          <li>Add difficulty option — 23% of negative reviews</li>
+          <li>Add manual save — 18% of negative reviews</li>
+          <li>PC performance pass before next update</li>
+        </ol>
+      </div>
+      <div class="locked-overlay">
+        <div class="locked-icon">🔒</div>
+        <div class="locked-label">Full report — unlock below</div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div class="cta-group">
+      <p style="font-size:0.85rem;color:var(--muted);text-align:center;">Instant access. Paste your license key below to unlock.</p>
+      <div class="cta-row">
+        <a id="preview-single-btn" href="#" target="_blank" class="btn btn-green">
+          🔑 Buy 1 analysis — $7
+        </a>
+        <a id="preview-pack5-btn" href="#" target="_blank" class="btn btn-blue">
+          📦 5-pack — $15 <span style="font-size:0.75em;opacity:0.8;">(best value)</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- License key input -->
+    <div class="key-section">
+      <div class="key-row">
+        <input
+          type="text"
+          id="license-input"
+          placeholder="XXXX-XXXX-XXXX-XXXX — paste your key here"
+          autocomplete="off"
+        />
+        <button class="btn btn-primary" id="unlock-btn" onclick="unlockReport()">Unlock</button>
+      </div>
+      <div id="key-error" class="msg msg-error" style="margin-top:0.5rem;"></div>
+      <div id="key-no-credits" class="msg msg-warn" style="margin-top:0.5rem;">
+        No credits remaining on this key. Buy more below.
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+          <a id="key-single-btn" href="#" target="_blank" class="btn btn-green btn-sm">Buy 1 analysis — $7</a>
+          <a id="key-pack5-btn" href="#" target="_blank" class="btn btn-blue btn-sm">5-pack — $15</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <button class="btn btn-secondary btn-sm" onclick="resetToInput()" style="width:auto;align-self:flex-start;">← Analyze a different game</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       STATE 4 — FULL REPORT
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="state-report" class="state card">
+    <!-- Download bar -->
+    <div class="download-bar">
+      <div>
+        <div style="font-weight:600;color:var(--text);">Full Report Unlocked ✓</div>
+        <div class="credits-note" id="report-credits-note"></div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="downloadReport()">⬇ Download Report</button>
+    </div>
+
+    <!-- Game header -->
+    <div class="game-header">
+      <img id="report-cover" src="" alt="" />
+      <div>
+        <div class="game-title" id="report-game-name"></div>
+        <span class="badge" id="report-badge"></span>
+        <div class="score-row">
+          <div class="score-track">
+            <div class="score-fill" id="report-score-fill"></div>
+          </div>
+          <span class="score-pct" id="report-score-pct"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- One-liner -->
+    <div class="one-liner" id="report-one-liner"></div>
+
+    <!-- Dev Action Items -->
+    <div class="section-heading" style="color:var(--accent);">Developer Action Items</div>
+    <ol class="action-list" id="report-actions"></ol>
+
+    <div class="divider"></div>
+
+    <!-- Praises -->
+    <div class="section-heading" style="color:var(--green);">Top Praises</div>
+    <div class="chips" id="report-praises"></div>
+
+    <!-- Complaints -->
+    <div class="section-heading" style="color:var(--red);margin-top:1.25rem;">Top Complaints</div>
+    <div class="chips" id="report-complaints"></div>
+
+    <!-- Feature Requests -->
+    <div class="section-heading" style="color:var(--blue);margin-top:1.25rem;">Feature Requests</div>
+    <div class="chips" id="report-features"></div>
+
+    <div class="divider"></div>
+
+    <!-- Refund Risk -->
+    <div class="section-heading" style="color:var(--yellow);">Refund Risk Signals</div>
+    <ul class="risk-list" id="report-risks"></ul>
+
+    <!-- Competitive -->
+    <div class="section-heading" style="color:#c4b5fd;margin-top:1.25rem;">Competitive Mentions</div>
+    <div class="chips" id="report-competitors"></div>
+
+    <div class="divider"></div>
+    <button class="btn btn-secondary btn-sm" onclick="resetToInput()" style="width:auto;">← Analyze a different game</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       PRO CHAT (V2 — hidden until pro_enabled)
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="chat-section">
+    <div style="font-size:1.1rem;font-weight:700;color:var(--accent);margin-bottom:0.75rem;text-align:center;">
+      Pro Market Intelligence
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-msg chat-msg-ai">
+        Ask me anything about the Steam catalog — genres, pricing, review trends, competitive positioning…
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="e.g. how many idle games released in 2024 with 100+ positive reviews?" />
+      <button class="btn btn-primary" style="width:auto;white-space:nowrap;" onclick="sendChat()">Send</button>
+    </div>
+    <p class="note" style="margin-top:0.5rem;">Results are from indexed catalog. Requires Pro subscription.</p>
+  </div>
+
+  <div class="pro-cta" id="pro-upgrade-cta">
+    <div style="font-size:1.2rem;font-weight:700;margin-bottom:0.5rem;">✨ Upgrade to Pro</div>
+    <p style="color:var(--muted);font-size:0.9rem;margin-bottom:1rem;">
+      Natural language queries over the full Steam catalog. Genre trends, pricing analysis, competitive positioning — all in plain English.
+    </p>
+    <a id="pro-checkout-btn" href="#" target="_blank" class="btn btn-primary" style="max-width:280px;margin:0 auto;">
+      Get Pro — $49/mo
+    </a>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════════════════ -->
+<script>
+  // ── State ──────────────────────────────────────────────────────
+  let currentAppid = null;
+  let currentResult = null;
+  let checkoutSingle = '';
+  let checkoutPack5 = '';
+  const LOADING_MESSAGES = ['Fetching reviews...', 'Analyzing with AI...', 'Almost done...'];
+  let loadingInterval = null;
+
+  // ── Init ───────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    const savedKey = localStorage.getItem('sp_license_key');
+    if (savedKey) {
+      document.getElementById('license-input').value = savedKey;
+    }
+
+    fetch('/health')
+      .then(r => r.json())
+      .then(data => {
+        if (data.pro_enabled) {
+          document.getElementById('chat-section').style.display = 'block';
+          document.getElementById('pro-upgrade-cta').style.display = 'none';
+        } else {
+          document.getElementById('pro-upgrade-cta').style.display = 'block';
+          const proUrl = data.pro_checkout_url || '';
+          if (proUrl) document.getElementById('pro-checkout-btn').href = proUrl;
+        }
+      })
+      .catch(() => {});
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────
+  function showState(id) {
+    ['state-input', 'state-loading', 'state-preview', 'state-report'].forEach(s => {
+      document.getElementById(s).classList.remove('active');
+    });
+    document.getElementById(id).classList.add('active');
+  }
+
+  function extractAppid(raw) {
+    raw = raw.trim();
+    // Try URL pattern first
+    const match = raw.match(/\/app\/(\d+)\//);
+    if (match) return parseInt(match[1]);
+    // Numeric string
+    if (/^\d+$/.test(raw)) return parseInt(raw);
+    return null;
+  }
+
+  function showMsg(id, text) {
+    const el = document.getElementById(id);
+    if (text) {
+      el.textContent = text;
+      el.classList.add('show');
+    } else {
+      el.classList.remove('show');
+    }
+  }
+
+  function sentimentClass(sentiment) {
+    const s = (sentiment || '').toLowerCase();
+    if (s.includes('negative')) return 'badge-negative';
+    if (s.includes('positive') || s.includes('overwhelmingly')) return 'badge-positive';
+    return 'badge-mixed';
+  }
+
+  function scoreColor(score) {
+    if (score >= 0.7) return '#22c55e';
+    if (score >= 0.45) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function startLoadingCycle() {
+    let i = 0;
+    document.getElementById('loading-text').textContent = LOADING_MESSAGES[0];
+    loadingInterval = setInterval(() => {
+      i = (i + 1) % LOADING_MESSAGES.length;
+      document.getElementById('loading-text').textContent = LOADING_MESSAGES[i];
+    }, 3500);
+  }
+
+  function stopLoadingCycle() {
+    if (loadingInterval) { clearInterval(loadingInterval); loadingInterval = null; }
+  }
+
+  // ── START ANALYSIS ─────────────────────────────────────────────
+  async function startAnalysis() {
+    const raw = document.getElementById('appid-input').value;
+    const appid = extractAppid(raw);
+
+    showMsg('input-error', '');
+    document.getElementById('limit-msg').style.display = 'none';
+
+    if (!appid) {
+      showMsg('input-error', 'Please enter a valid Steam App ID or game URL.');
+      return;
+    }
+
+    currentAppid = appid;
+    showState('state-loading');
+    startLoadingCycle();
+
+    try {
+      const resp = await fetch('/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appid }),
+      });
+
+      const data = await resp.json();
+
+      if (resp.status === 402) {
+        stopLoadingCycle();
+        showState('state-input');
+        document.getElementById('limit-msg').style.display = 'block';
+        if (data.checkout_url) document.getElementById('limit-single-btn').href = data.checkout_url;
+        if (data.checkout_url_pack5) document.getElementById('limit-pack5-btn').href = data.checkout_url_pack5;
+        return;
+      }
+
+      if (!resp.ok) {
+        stopLoadingCycle();
+        showState('state-input');
+        showMsg('input-error', data.detail || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      stopLoadingCycle();
+      checkoutSingle = data.checkout_single || '';
+      checkoutPack5 = data.checkout_pack5 || '';
+      renderPreview(data);
+    } catch (err) {
+      stopLoadingCycle();
+      showState('state-input');
+      showMsg('input-error', 'Network error — please try again.');
+    }
+  }
+
+  // Allow Enter key on appid input
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('appid-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') startAnalysis();
+    });
+    document.getElementById('license-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') unlockReport();
+    });
+  });
+
+  // ── RENDER PREVIEW ─────────────────────────────────────────────
+  function renderPreview(data) {
+    const appid = data.appid || currentAppid;
+    const coverUrl = data.header_image ||
+      `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`;
+
+    document.getElementById('preview-cover').src = coverUrl;
+    document.getElementById('preview-cover').alt = data.game_name || '';
+    document.getElementById('preview-game-name').textContent = data.game_name || '';
+    document.getElementById('preview-one-liner').textContent = data.one_liner || '';
+
+    const badge = document.getElementById('preview-badge');
+    badge.textContent = data.overall_sentiment || '';
+    badge.className = 'badge ' + sentimentClass(data.overall_sentiment);
+
+    const pct = Math.round((data.sentiment_score || 0) * 100);
+    const color = scoreColor(data.sentiment_score || 0);
+    document.getElementById('preview-score-fill').style.width = pct + '%';
+    document.getElementById('preview-score-fill').style.background = color;
+    document.getElementById('preview-score-pct').textContent = pct + '%';
+
+    document.getElementById('preview-single-btn').href = data.checkout_single || '#';
+    document.getElementById('preview-pack5-btn').href = data.checkout_pack5 || '#';
+    document.getElementById('key-single-btn').href = data.checkout_single || '#';
+    document.getElementById('key-pack5-btn').href = data.checkout_pack5 || '#';
+
+    // Pre-fill key from localStorage
+    const savedKey = localStorage.getItem('sp_license_key');
+    if (savedKey && !document.getElementById('license-input').value) {
+      document.getElementById('license-input').value = savedKey;
+    }
+
+    showMsg('key-error', '');
+    document.getElementById('key-no-credits').classList.remove('show');
+
+    showState('state-preview');
+  }
+
+  // ── UNLOCK REPORT ──────────────────────────────────────────────
+  async function unlockReport() {
+    const key = document.getElementById('license-input').value.trim();
+
+    showMsg('key-error', '');
+    document.getElementById('key-no-credits').classList.remove('show');
+
+    if (!key) {
+      showMsg('key-error', 'Please enter your license key.');
+      return;
+    }
+
+    const btn = document.getElementById('unlock-btn');
+    btn.disabled = true;
+    btn.textContent = 'Validating…';
+
+    try {
+      const resp = await fetch('/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ license_key: key, appid: currentAppid }),
+      });
+
+      const data = await resp.json();
+
+      if (resp.status === 403) {
+        showMsg('key-error', 'Invalid license key. Check your purchase email.');
+        return;
+      }
+
+      if (resp.status === 402) {
+        document.getElementById('key-no-credits').classList.add('show');
+        if (data.checkout_url) document.getElementById('key-single-btn').href = data.checkout_url;
+        return;
+      }
+
+      if (!resp.ok) {
+        showMsg('key-error', data.detail || 'Validation failed. Please try again.');
+        return;
+      }
+
+      // Save key
+      localStorage.setItem('sp_license_key', key);
+      currentResult = data;
+      renderFullReport(data);
+
+    } catch (err) {
+      showMsg('key-error', 'Network error — please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Unlock';
+    }
+  }
+
+  // ── RENDER FULL REPORT ─────────────────────────────────────────
+  function renderFullReport(data) {
+    const appid = data.appid || currentAppid;
+    const coverUrl = data.header_image ||
+      `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`;
+
+    document.getElementById('report-cover').src = coverUrl;
+    document.getElementById('report-cover').alt = data.game_name || '';
+    document.getElementById('report-game-name').textContent = data.game_name || '';
+    document.getElementById('report-one-liner').textContent = data.one_liner || '';
+
+    const badge = document.getElementById('report-badge');
+    badge.textContent = data.overall_sentiment || '';
+    badge.className = 'badge ' + sentimentClass(data.overall_sentiment);
+
+    const pct = Math.round((data.sentiment_score || 0) * 100);
+    const color = scoreColor(data.sentiment_score || 0);
+    document.getElementById('report-score-fill').style.width = pct + '%';
+    document.getElementById('report-score-fill').style.background = color;
+    document.getElementById('report-score-pct').textContent = pct + '%';
+
+    const creditsNote = document.getElementById('report-credits-note');
+    const rem = data.activations_remaining;
+    creditsNote.textContent = rem !== undefined
+      ? `A copy has been sent to your email. Remaining credits on your key: ${rem}`
+      : 'A copy has been sent to your email.';
+
+    // Action items
+    const actionEl = document.getElementById('report-actions');
+    actionEl.innerHTML = '';
+    (data.dev_action_items || []).forEach(item => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      actionEl.appendChild(li);
+    });
+
+    // Praises
+    renderChips('report-praises', data.top_praises || [], 'chip-green');
+    renderChips('report-complaints', data.top_complaints || [], 'chip-red');
+    renderChips('report-features', data.feature_requests || [], 'chip-blue');
+    renderChips('report-competitors', data.competitive_mentions || [], 'chip-purple');
+
+    // Risk signals
+    const risksEl = document.getElementById('report-risks');
+    risksEl.innerHTML = '';
+    (data.refund_risk_signals || []).forEach(risk => {
+      const li = document.createElement('li');
+      li.textContent = risk;
+      risksEl.appendChild(li);
+    });
+
+    showState('state-report');
+  }
+
+  function renderChips(containerId, items, chipClass) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+    if (!items.length) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">None identified</span>';
+      return;
+    }
+    items.forEach(item => {
+      const span = document.createElement('span');
+      span.className = `chip ${chipClass}`;
+      span.textContent = item;
+      el.appendChild(span);
+    });
+  }
+
+  // ── DOWNLOAD REPORT ────────────────────────────────────────────
+  function downloadReport() {
+    if (!currentResult) return;
+    const html = document.documentElement.outerHTML;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const name = (currentResult.game_name || 'report').replace(/[^a-z0-9]/gi, '_');
+    a.href = url;
+    a.download = `${name}_steampulse.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── RESET ──────────────────────────────────────────────────────
+  function resetToInput() {
+    currentAppid = null;
+    currentResult = null;
+    showState('state-input');
+    showMsg('input-error', '');
+    document.getElementById('limit-msg').style.display = 'none';
+  }
+
+  // ── PRO CHAT ───────────────────────────────────────────────────
+  async function sendChat() {
+    const input = document.getElementById('chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const messages = document.getElementById('chat-messages');
+
+    const userBubble = document.createElement('div');
+    userBubble.className = 'chat-msg chat-msg-user';
+    userBubble.textContent = msg;
+    messages.appendChild(userBubble);
+    input.value = '';
+    messages.scrollTop = messages.scrollHeight;
+
+    const licenseKey = localStorage.getItem('sp_license_key') || '';
+
+    try {
+      const resp = await fetch('/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': licenseKey ? `Bearer ${licenseKey}` : '',
+        },
+        body: JSON.stringify({ message: msg, session_id: 'default' }),
+      });
+
+      const data = await resp.json();
+      const aiBubble = document.createElement('div');
+      aiBubble.className = 'chat-msg chat-msg-ai';
+
+      if (!resp.ok) {
+        aiBubble.textContent = data.detail || 'Error — please try again.';
+      } else {
+        aiBubble.textContent = data.answer || '';
+        if (data.sql) {
+          const details = document.createElement('details');
+          details.className = 'chat-sql';
+          const summary = document.createElement('summary');
+          summary.textContent = 'View SQL';
+          const code = document.createElement('code');
+          code.textContent = data.sql;
+          details.appendChild(summary);
+          details.appendChild(code);
+          aiBubble.appendChild(details);
+        }
+      }
+
+      messages.appendChild(aiBubble);
+      messages.scrollTop = messages.scrollHeight;
+    } catch (err) {
+      const errBubble = document.createElement('div');
+      errBubble.className = 'chat-msg chat-msg-ai';
+      errBubble.textContent = 'Network error — please try again.';
+      messages.appendChild(errBubble);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+      chatInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') sendChat();
+      });
+    }
+  });
+</script>
+</body>
+</html>

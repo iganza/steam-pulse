@@ -1,0 +1,550 @@
+#+TITLE: SteamPulse — Design Decisions & Architecture
+#+DATE: 2026-03-11
+#+OPTIONS: toc:2
+
+* Overview
+
+SteamPulse is an AI-powered Steam game intelligence platform at *steampulse.io*.
+
+- *Public site*: AI-synthesized review reports for all Steam games with any reviews. SEO-driven,
+  ad-free, cross-linked. Hundreds of genre/tag/developer index pages for long-tail SEO.
+- *Premium layer*: Developer-focused. Custom analysis, fresher data, action items, refund risk
+  signals, NL chat over full catalog.
+
+One Python codebase. AWS for everything. Feature flags separate tiers.
+
+* Tech Stack
+
+| Layer    | Choice                                                                                 |
+|----------+----------------------------------------------------------------------------------------|
+| Backend  | Python 3.12, FastAPI (API only — no HTML), uvicorn, httpx                              |
+| Frontend | Next.js (React SSR/ISR) deployed via OpenNext to Lambda + CloudFront                   |
+| LLM      | =claude-3-5-haiku-20241022= (chunks), =claude-3-5-sonnet-20241022= (synthesis + chat). |
+|          | Overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                               |
+| DB       | PostgreSQL on RDS (t3.micro → scale later)                                             |
+| Hosting  | AWS Lambda (container image) + CloudFront + Route 53. No Railway, no Fargate.          |
+| Infra    | AWS CDK v2 (Python), CDK Pipelines (self-mutating, 2 envs: staging + production)       |
+| Payments | Lemon Squeezy (merchant of record, handles global VAT)                                 |
+| Email    | Resend                                                                                 |
+| Deps     | Poetry (=pyproject.toml= is source of truth — no requirements.txt)                     |
+|          |                                                                                        |
+
+* Hosting Architecture
+
+** Frontend / Backend split
+
+Two Lambda functions behind one CloudFront distribution:
+
+- *Next.js app* (OpenNext → Lambda): all UI, SSR/ISR, React components. Calls FastAPI internally.
+- *FastAPI app* (Lambda Web Adapter → Lambda): all business logic — LLM analysis, Steam data
+  fetching, payment validation, V2 chat. JSON API only, no HTML.
+
+#+BEGIN_SRC
+CloudFront (steampulse.io)
+  ├── /static/*   → S3 (Next.js + FastAPI static assets — versioned filenames)
+  ├── /api/*      → FastAPI Lambda Function URL
+  └── /*          → Next.js Lambda (via OpenNext)
+#+END_SRC
+
+OpenNext: https://opennext.js.org/ — canonical way to self-host Next.js on AWS without Vercel.
+
+** Page rendering strategy
+
+| Page type      | Next.js strategy       | Notes                                          |
+|----------------+------------------------+------------------------------------------------|
+| Game report    | SSR (on-demand)        | CloudFront caches 24h + stale-while-revalidate |
+| Genre index    | ISR (revalidate daily) | Aggregated insights, updated nightly           |
+| Tag index      | ISR (revalidate daily) |                                                |
+| Developer page | ISR (revalidate daily) |                                                |
+| Home           | ISR                    | Trending/featured games                        |
+| Compare        | SSR (on-demand)        | Dynamic game pair                              |
+
+** Template & content updates
+
+| Update type             | Mechanism                                             | Time to global |
+|-------------------------+-------------------------------------------------------+----------------|
+| Code/template change    | Deploy new Lambda + =/*= wildcard invalidation (free) | ~1 min         |
+| Single game re-analysis | Targeted =/games/{appid}/*= invalidation              | ~30 sec        |
+| Featured spot purchase  | Write to CloudFront KeyValueStore                     | Seconds        |
+
+** Featured spots via CloudFront KeyValueStore
+
+KVS holds sponsor data as JSON. CloudFront Function reads it at edge and injects a sponsor
+banner into the HTML response. No Lambda invocation, no cache invalidation needed.
+
+** Lambda Web Adapter (FastAPI)
+
+Official AWS Labs project: https://github.com/awslabs/aws-lambda-web-adapter
+FastAPI runs natively — zero code changes. One line in Dockerfile:
+
+#+BEGIN_SRC dockerfile
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 AS lambda-adapter
+FROM public.ecr.aws/lambda/python:3.12
+COPY --from=lambda-adapter /lambda-adapter /opt/extensions/lambda-adapter
+ENV PORT=8080
+#+END_SRC
+
+Use Lambda Function URLs (not API Gateway) to avoid the 29-second timeout limit.
+Initialize DB connections OUTSIDE the handler for connection reuse on warm invocations.
+
+** Cost estimate (monthly at low traffic)
+
+| Resource            | Cost/mo   |
+|---------------------+-----------|
+| Lambda (API + Next) | ~$0       |
+| CloudFront          | ~$1-5     |
+| S3 (static assets)  | ~$0.01    |
+| RDS t3.micro        | ~$15      |
+| Step Functions      | ~$0       |
+| Route 53            | ~$0.50    |
+| *Total*             | *~$20/mo* |
+
+* Repository Structure (Monorepo)
+
+Single git repo on GitHub. Frontend and backend together because:
+- CDK pipeline deploys both atomically in one PR
+- API contract between FastAPI and Next.js stays in sync
+- Single source of truth for infra, backend, and frontend
+
+#+BEGIN_SRC
+repo-root/
+  steampulse/     # Python FastAPI (API only — no HTML)
+  frontend/       # Next.js app (React SSR/ISR via OpenNext)
+  crawler/        # Python Lambda crawlers (separate Poetry group)
+  infra/          # AWS CDK v2 (Python)
+  pyproject.toml  # Python deps (backend + infra + crawler groups)
+  cdk.json        # Points to infra/app.py
+  .gitignore
+  steampulse-design.org
+#+END_SRC
+
+Split into polyrepo only if: separate teams, independent deploy cadences, or repo
+becomes unwieldy (10+ engineers). Not now.
+
+* GitHub → AWS Pipeline (CDK Pipelines)
+
+** How it works
+
+AWS CDK Pipelines listens to your GitHub repo via a *CodeStar Connection* (a GitHub App
+installed into your AWS account). On every push to =main=, GitHub notifies AWS CodePipeline
+via webhook and the pipeline runs automatically.
+
+#+BEGIN_SRC
+GitHub (your account)
+  └── push to main
+       └── CodeStar Connection (GitHub App) notifies AWS
+            └── CodePipeline kicks off
+                 ├── Source: pulls code from GitHub
+                 ├── Build: cdk synth
+                 ├── Deploy → staging (auto)
+                 └── Deploy → production (manual approval gate)
+#+END_SRC
+
+** One-time setup (manual, done once)
+
+1. In AWS Console → *Developer Tools → Connections* → Create connection → GitHub
+2. Click "Install GitHub App" → authorize access to your repo
+3. Copy the Connection ARN → store in CDK context or SSM Parameter
+
+That's it. After that, every =git push= triggers the pipeline automatically.
+
+** CDK Pipelines source (in code)
+
+#+BEGIN_SRC python
+source = CodePipelineSource.connection(
+    "your-github-username/steam-pulse",
+    "main",
+    connection_arn="arn:aws:codestar-connections:us-east-1:ACCOUNT:connection/UUID",
+)
+#+END_SRC
+
+The connection ARN is the only thing that ties CDK to your specific GitHub account.
+Store it in =cdk.json= context or AWS SSM — never hardcode in source.
+
+** Self-mutating pipeline
+
+After the *first* manual =cdk deploy= (to bootstrap the pipeline itself), all future
+infrastructure changes are deployed automatically when you push to =main=. You never
+run =cdk deploy= again unless bootstrapping a new environment.
+
+** Project structure
+
+#+BEGIN_SRC
+repo-root/
+  cdk.json              # "app": "poetry run python infra/app.py"
+  pyproject.toml        # [tool.poetry.group.infra] with aws-cdk-lib, constructs
+  infra/
+    app.py              # CDK entry point
+    pipeline_stack.py   # CDK Pipelines (self-mutating, CodePipeline engine)
+    application_stage.py
+    stacks/
+      data_stack.py     # RDS + S3, termination_protection=True
+      network_stack.py  # VPC
+      crawler_stack.py  # SQS + Lambda crawlers
+      analysis_stack.py # Step Functions state machine
+      app_stack.py      # FastAPI Lambda + Function URL + CloudFront + Route53 + ACM
+      frontend_stack.py # Next.js Lambda (OpenNext) + CloudFront behaviour
+      monitoring_stack.py
+#+END_SRC
+
+** cdk.json (repo root)
+
+#+BEGIN_SRC json
+{
+  "app": "poetry run python infra/app.py",
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:stackRelativeExports": "both"
+  }
+}
+#+END_SRC
+
+** pyproject.toml dependency groups
+
+#+BEGIN_SRC toml
+[tool.poetry.group.infra.dependencies]
+aws-cdk-lib = ">=2.180.0"
+constructs = ">=10.0.0"
+
+[tool.poetry.group.crawler.dependencies]
+# Lambda-only deps (deployed as layer)
+
+# Dockerfile:  poetry install --without crawler
+# Lambda layer: poetry export -f requirements.txt --only crawler
+#+END_SRC
+
+** CDK best practices (mandatory)
+
+- No physical resource names (let CDK generate to avoid naming conflicts)
+- No env var lookups inside constructs — pass as props or CDK context
+- Secrets in AWS Secrets Manager, referenced by ARN
+- Stateful stacks (=data_stack=) have =termination_protection=True=
+- =CodePipelineSource.connection()= for GitHub (CodeStar Connections, not PAT)
+- Bootstrap with =--termination-protection= flag
+- Run =cdk deploy= manually once; pipeline self-mutates thereafter
+
+** Two environments
+
+- *staging*: auto-deploys on every push to =main=
+- *production*: manual approval gate in pipeline before deploy
+
+* Crawler Architecture
+
+** Data sources
+
+SteamPulse needs three upstream sources, accessed via a =SteamDataSource= abstraction
+(same pattern as =BaseStorage= — swap implementations without touching crawler logic).
+
+| Source           | URL                                        | Data                          |
+|------------------+--------------------------------------------+-------------------------------|
+| Steam App List   | api.steampowered.com/ISteamApps/GetAppList | All ~100k app IDs + names     |
+| Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, price  |
+| Steam Reviews    | store.steampowered.com/appreviews/{appid}  | Review text, thumbs, playtime |
+| SteamSpy         | steamspy.com/api.php                       | Tags, owner count estimates   |
+
+** SteamDataSource abstraction
+
+The abstraction exists so the data source can be swapped without touching crawler logic
+(e.g. direct Steam API today, a different provider later if rate limits become a problem).
+
+#+BEGIN_SRC python
+class SteamDataSource(ABC):
+    async def get_app_list(self) -> list[dict]: ...
+    async def get_app_details(self, appid: int) -> dict: ...
+    async def get_reviews(self, appid: int, max_reviews: int) -> list[dict]: ...
+    async def get_steamspy_data(self, appid: int) -> dict: ...
+
+class DirectSteamSource(SteamDataSource):
+    """Default. Calls Steam Store API and SteamSpy directly."""
+#+END_SRC
+
+** Two crawler Lambda functions
+
+1. *app-crawler*: Crawls game metadata from Steam Store API + SteamSpy. ~100k games.
+   - SQS queue: =app-crawl-queue= (batch size 10)
+   - Rate: ~200 req/5min per IP — use jitter to avoid bans
+
+2. *review-crawler*: Fetches reviews for all games with at least 1 review.
+   - SQS queue: =review-crawl-queue= (batch size 1 — each game is heavyweight)
+   - Rate: paced by SQS visibility timeout (~2 min max per game)
+
+** Step Functions: Analysis Pipeline
+
+State machine triggered after review crawl completes for each game:
+
+#+BEGIN_SRC
+StartAnalysis
+  └── PrepareChunks   (Lambda: split reviews into 50-review batches)
+       └── Map (MaxConcurrency: 5)
+            └── AnalyzeChunk  (Lambda: Haiku — extract themes per chunk)
+       └── SynthesizeReport  (Lambda: Sonnet — merge chunks → structured JSON)
+            └── StoreReport   (Lambda: upsert to RDS reports table)
+                 └── InvalidateCache  (Lambda: targeted CloudFront invalidation)
+#+END_SRC
+
+Step Functions Express Workflows. Cost: ~$0.30 for entire 6k seed crawl (negligible).
+Map(MaxConcurrency=5) means a 2,000-review game (40 chunks) runs in ~8 parallel batches.
+
+* Bootstrap / Generation Strategy
+
+Games are analyzed in descending review count order. Three phases:
+
+1. *Phase 1 — Top 500* (highest review count): pre-generate immediately after first crawl.
+   Warms CloudFront cache. Covers ~80% of search traffic. ~$170 upfront.
+2. *Phase 2 — Remaining 500+ review games* (~5,500 games): batch-process in background
+   after Phase 1, or lazy on first request.
+3. *Phase 3 — Long tail* (1–499 reviews, ~90k+ games): lazy on first request only.
+
+All games get a report page. Low-review games get a "Limited data" badge and shorter analysis
+(fewer chunks = less LLM cost). Cost scales with review count, not a flat fee (~$0.34/game max).
+
+Lazy generation flow:
+- First request for unanalyzed game → FastAPI triggers Step Functions → returns status page
+- Client polls =/api/status/{job_id}= every 5s → delivers full report when analysis completes
+
+* Data Model (PostgreSQL)
+
+#+BEGIN_SRC sql
+-- All Steam games (~100k apps from crawl)
+CREATE TABLE games (
+  appid         INTEGER PRIMARY KEY,
+  name          TEXT NOT NULL,
+  slug          TEXT UNIQUE NOT NULL,
+  developer     TEXT,
+  publisher     TEXT,
+  release_date  DATE,
+  price_usd     NUMERIC(8,2),
+  review_count  INTEGER,
+  positive_pct  INTEGER,
+  steamspy_owners TEXT,
+  header_image  TEXT,
+  short_desc    TEXT,
+  crawled_at    TIMESTAMPTZ,
+  data_source   TEXT DEFAULT 'steam_direct'
+);
+
+CREATE TABLE tags (
+  id    SERIAL PRIMARY KEY,
+  name  TEXT UNIQUE NOT NULL,
+  slug  TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE game_tags (
+  appid    INTEGER REFERENCES games(appid),
+  tag_id   INTEGER REFERENCES tags(id),
+  votes    INTEGER DEFAULT 0,
+  PRIMARY KEY (appid, tag_id)
+);
+
+CREATE TABLE genres (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT UNIQUE NOT NULL,
+  slug  TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE game_genres (
+  appid    INTEGER REFERENCES games(appid),
+  genre_id INTEGER REFERENCES genres(id),
+  PRIMARY KEY (appid, genre_id)
+);
+
+CREATE TABLE reviews (
+  id              BIGSERIAL PRIMARY KEY,
+  appid           INTEGER REFERENCES games(appid),
+  steam_review_id TEXT UNIQUE,
+  author_steamid  TEXT,
+  voted_up        BOOLEAN,
+  playtime_hours  INTEGER,
+  body            TEXT,
+  posted_at       TIMESTAMPTZ,
+  crawled_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- LLM results (upserted on re-analysis)
+CREATE TABLE reports (
+  appid               INTEGER PRIMARY KEY REFERENCES games(appid),
+  report_json         JSONB NOT NULL,
+  reviews_analyzed    INTEGER,
+  analysis_version    TEXT DEFAULT '1.0',
+  is_public           BOOLEAN DEFAULT TRUE,
+  seo_title           TEXT,
+  seo_description     TEXT,
+  featured_at         TIMESTAMPTZ,
+  last_analyzed       TIMESTAMPTZ DEFAULT NOW(),
+  created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Bidirectional competitive links (from competitive_mentions in LLM output)
+CREATE TABLE game_relations (
+  appid_a  INTEGER REFERENCES games(appid),
+  appid_b  INTEGER REFERENCES games(appid),
+  relation TEXT DEFAULT 'competitive_mention',
+  PRIMARY KEY (appid_a, appid_b)
+);
+
+-- Aggregate insights for genre/tag index pages
+CREATE TABLE index_insights (
+  id           SERIAL PRIMARY KEY,
+  type         TEXT NOT NULL,   -- 'genre' | 'tag'
+  slug         TEXT NOT NULL,
+  insight_json JSONB,
+  computed_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(type, slug)
+);
+
+-- Free preview rate limiting (1 per IP)
+CREATE TABLE rate_limits (
+  ip_hash      TEXT PRIMARY KEY,
+  count        INTEGER DEFAULT 1,
+  window_start TIMESTAMPTZ DEFAULT NOW()
+);
+#+END_SRC
+
+* Report Schema
+
+** LLM synthesis output (Pass 2 — Sonnet)
+
+#+BEGIN_SRC json
+{
+  "game_name": "string",
+  "total_reviews_analyzed": 347,
+  "overall_sentiment": "Mixed|Positive|Negative|Very Positive|Overwhelmingly Positive",
+  "sentiment_score": 0.52,
+  "top_praises": ["art style", "core loop"],
+  "top_complaints": ["difficulty spike", "no save"],
+  "feature_requests": ["difficulty settings", "controller remapping"],
+  "refund_risk_signals": ["61% of refunders cite difficulty within first 30min"],
+  "competitive_mentions": ["Hades", "Dead Cells"],
+  "dev_action_items": ["Add difficulty option — cited in 23% of negative reviews"],
+  "one_liner": "Players love the art but bounce at hour 3 due to a difficulty spike.",
+  "audience_profile": {
+    "core_vs_casual": "Core (68% 20h+ playtime)",
+    "player_archetypes": ["completionists", "cozy gamers"],
+    "not_for": ["players wanting deep story"]
+  },
+  "sentiment_trend": "declining",
+  "sentiment_trend_note": "Recent reviews 12pts lower than all-time — post-update backlash",
+  "genre_context": "Outperforms average idle game sentiment by 18pts",
+  "hidden_gem_score": 0.82
+}
+#+END_SRC
+
+** Report page sections (in order)
+
+| #  | Section                   | Free? | Notes                                     |
+|----+---------------------------+-------+-------------------------------------------|
+|  1 | Hero (name, cover, badge) | ✅    |                                           |
+|  2 | The Verdict (one-liner)   | ✅    | SEO hook                                  |
+|  3 | Quick stats               | ✅    | reviews, price, release, developer        |
+|  4 | Top Praises               | ✅    | Chips — indexable keywords                |
+|  5 | Top Complaints            | ✅    | Chips — SEO gold                          |
+|  6 | Audience Profile          | ✅    | "Who this game is for"                    |
+|  7 | Developer Action Items    | 🔒    | Numbered, with % frequency                |
+|  8 | Feature Requests          | 🔒    |                                           |
+|  9 | Refund Risk Signals       | 🔒    | Most valuable for devs                    |
+| 10 | Competitive Mentions      | ✅    | Names only, cross-linked to their reports |
+| 11 | Sentiment Trend           | ✅    | improving / stable / declining badge      |
+| 12 | Genre Context             | ✅    | vs genre average                          |
+| 13 | Related Games             | ✅    | Internal SEO cross-links                  |
+
+* Site Architecture
+
+** URL structure
+
+#+BEGIN_SRC
+/                                   # Home: search + featured/trending
+/games/{appid}/{slug}               # e.g., /games/2666510/rustys-retirement
+/genre/{slug}                       # e.g., /genre/survival-horror
+/tag/{slug}                         # e.g., /tag/roguelite
+/developer/{slug}                   # e.g., /developer/klei-entertainment
+/compare/{appid1}/{appid2}          # Head-to-head comparison
+/sitemap.xml                        # Auto-generated
+#+END_SRC
+
+** SEO requirements
+
+- H1 = game name always
+- H2s = "What Players Love", "Common Complaints", "Who Should Play This"
+- Next.js SSR guarantees Googlebot sees full content on first request
+- Structured data: =VideoGame= schema + =Review= aggregate
+- Canonical URLs, 301 redirects on slug changes
+- Sitemap with =<lastmod>= set to =last_analyzed= date
+- OG tags: game cover image + one-liner
+
+** Cross-linking strategy
+
+Three directions from every page:
+1. *Horizontal*: competitive_mentions → bidirectional game→game links
+2. *Up*: breadcrumb to genre/tag index
+3. *Down*: genre/tag/developer pages link back to all games in that group
+
+** Content moat: index pages
+
+Genre, tag, and developer pages aggregate insights across all games in that group:
+- "The #1 complaint in Survival Horror is checkpoint frequency (37% of games)"
+- Hundreds of additional high-value pages beyond the game report pages.
+
+* Monetization
+
+** Decision: No display ads
+
+- Gaming audience has 40-60% ad-block rate
+- AdSense CPMs for gaming: $1-3 (not meaningful until 500k+ monthly visits)
+- Ads undermine premium conversion at exactly the wrong moment
+- The public site is a *sales funnel*, not a profit center
+
+** Revenue streams (in priority order)
+
+| Stream                    | Audience           | Type          | Notes                                      |
+|---------------------------+--------------------+---------------+--------------------------------------------|
+| Steam affiliate links     | Gamers             | Passive       | ~5% on referred purchases, zero friction   |
+| Per-analysis credits      | Developers         | Transactional | $7 single / $15 for 5-pack (Lemon Squeezy) |
+| Pro subscription ($49/mo) | Indie studios      | Recurring     | V2 — NL chat over full catalog             |
+| Sponsored genre/tag pages | Devs wanting reach | Direct sales  | $10-50 CPM equivalent, post-launch         |
+
+** Premium CTA placement
+
+1. After the Complaints section: "8 developer action items ranked by frequency →"
+2. Genre index pages: "Analyze your own game in this genre" at top
+3. Bottom of free report: "You're a developer? Run this on your own game."
+
+CTAs always speak to *developers*, never to gamers. Gamers won't pay. Developers will.
+
+- ❌ "Unlock the full report — $7"
+- ✅ "Get action items, refund signals, and feature gaps your competitors haven't fixed — $7"
+
+* API Endpoints (FastAPI)
+
+| Endpoint                    | Notes                                                        |
+|-----------------------------+--------------------------------------------------------------|
+| =POST /api/preview=         | Free tier: sentiment + one-liner only (1 per IP)            |
+| =POST /api/validate-key=    | Validates Lemon Squeezy key, returns premium JSON payload    |
+| =GET /api/status/{job_id}=  | Step Functions job polling (lazy generation flow)            |
+| =POST /api/analyze=         | Triggers Step Functions for a given appid (internal/admin)  |
+| =GET /health=               | Storage backend + pro_enabled status                         |
+| =POST /api/chat=            | V2 only (=PRO_ENABLED=true=): NL → SQL → answer             |
+
+* Environment Variables
+
+#+BEGIN_SRC
+ANTHROPIC_API_KEY       # Required
+DATABASE_URL            # PostgreSQL. Absence = in-memory storage (local dev only)
+LEMONSQUEEZY_API_KEY    # Payment validation
+RESEND_API_KEY          # Email delivery
+DATA_SOURCE             # 'steam_direct' (default) — extend here if needed later
+PRO_ENABLED             # 'true' enables /api/chat (V2)
+CF_DISTRIBUTION_ID      # CloudFront distribution ID for cache invalidations
+CF_KVS_ARN              # CloudFront KeyValueStore ARN for featured spots
+STEP_FUNCTIONS_ARN      # Analysis pipeline state machine ARN
+HAIKU_MODEL             # Override default claude-3-5-haiku-20241022
+SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
+#+END_SRC
+
+* Open Items
+
+- [ ] Lemon Squeezy webhook handler for subscription events
+- [ ] CloudFront Function code for KVS-based sponsor banner injection
+- [ ] SteamSpy rate limit: 10k req/day on free tier — cache aggressively or get paid tier
+- [ ] =hidden_gem_score= algorithm (low review count + high positive pct + low price?)
+- [ ] sitemap.xml auto-generation (trigger on new analysis completion)
+- [ ] Next.js component library choice (shadcn/ui is current best practice for React)

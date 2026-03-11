@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SteamPulse Report — {{ game_name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0d0d1a;
+      color: #e0e0f0;
+      line-height: 1.6;
+      padding: 2rem;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    header img {
+      width: 184px;
+      height: 69px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #4fc3f7;
+      margin-bottom: 0.3rem;
+    }
+
+    h1 { font-size: 1.6rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
+
+    .sentiment-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .sentiment-positive  { background: #1b4332; color: #6ee7b7; }
+    .sentiment-mixed     { background: #3b2800; color: #fcd34d; }
+    .sentiment-negative  { background: #3b0a0a; color: #fca5a5; }
+
+    .score-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .bar-track {
+      flex: 1;
+      height: 6px;
+      background: #2a2a4a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+    .bar-label { font-size: 0.85rem; color: #a0a0c0; min-width: 3rem; text-align: right; }
+
+    .one-liner {
+      background: #1a1a2e;
+      border-left: 3px solid #4fc3f7;
+      padding: 1rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      font-style: italic;
+      color: #c8d6e5;
+      margin: 1.5rem 0;
+      font-size: 1.05rem;
+    }
+
+    section { margin-bottom: 2rem; }
+
+    section h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .chip {
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+    .chip-green  { background: #052e16; color: #6ee7b7; border: 1px solid #166534; }
+    .chip-red    { background: #2d0a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+    .chip-blue   { background: #0c1a2e; color: #93c5fd; border: 1px solid #1e3a5f; }
+    .chip-purple { background: #1a0a2e; color: #c4b5fd; border: 1px solid #4c1d95; }
+
+    ol.action-list { list-style: none; counter-reset: actions; }
+    ol.action-list li {
+      counter-increment: actions;
+      display: flex;
+      gap: 1rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    ol.action-list li::before {
+      content: counter(actions);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.8rem;
+      height: 1.8rem;
+      background: #4fc3f7;
+      color: #0d0d1a;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    ul.bullet-list { list-style: none; }
+    ul.bullet-list li {
+      padding: 0.4rem 0;
+      padding-left: 1.25rem;
+      position: relative;
+      color: #c8d6e5;
+    }
+    ul.bullet-list li::before {
+      content: '⚠';
+      position: absolute;
+      left: 0;
+      color: #f59e0b;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+    .meta-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+    .meta-card .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6060a0;
+      margin-bottom: 0.25rem;
+    }
+    .meta-card .value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #e0e0f0;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #2a2a4a;
+      font-size: 0.78rem;
+      color: #404060;
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 1rem; }
+      header { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; padding: 0; }
+      .chip-green  { background: #dcfce7; color: #166534; }
+      .chip-red    { background: #fee2e2; color: #991b1b; }
+      .chip-blue   { background: #dbeafe; color: #1e40af; }
+      .chip-purple { background: #ede9fe; color: #5b21b6; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    {% if header_image %}
+    <img src="{{ header_image }}" alt="{{ game_name }} header" />
+    {% endif %}
+    <div>
+      <div class="logo">SteamPulse Report</div>
+      <h1>{{ game_name }}</h1>
+      {% set sentiment_lower = overall_sentiment | lower %}
+      {% if 'positive' in sentiment_lower %}
+        <span class="sentiment-badge sentiment-positive">{{ overall_sentiment }}</span>
+      {% elif 'negative' in sentiment_lower %}
+        <span class="sentiment-badge sentiment-negative">{{ overall_sentiment }}</span>
+      {% else %}
+        <span class="sentiment-badge sentiment-mixed">{{ overall_sentiment }}</span>
+      {% endif %}
+      <div class="score-bar" style="margin-top:0.5rem; max-width:300px;">
+        <div class="bar-track">
+          {% set pct = (sentiment_score * 100) | int %}
+          {% if pct >= 70 %}
+            {% set bar_color = '#22c55e' %}
+          {% elif pct >= 45 %}
+            {% set bar_color = '#f59e0b' %}
+          {% else %}
+            {% set bar_color = '#ef4444' %}
+          {% endif %}
+          <div class="bar-fill" style="width:{{ pct }}%; background:{{ bar_color }};"></div>
+        </div>
+        <span class="bar-label">{{ pct }}%</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="one-liner">{{ one_liner }}</div>
+
+  <!-- Key stats -->
+  <div class="meta-grid" style="margin-bottom:2rem;">
+    <div class="meta-card">
+      <div class="label">Reviews analyzed</div>
+      <div class="value">{{ total_reviews_analyzed }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Sentiment score</div>
+      <div class="value">{{ (sentiment_score * 100) | int }}%</div>
+    </div>
+    {% if competitive_mentions %}
+    <div class="meta-card">
+      <div class="label">Competitors mentioned</div>
+      <div class="value">{{ competitive_mentions | length }}</div>
+    </div>
+    {% endif %}
+    {% if dev_action_items %}
+    <div class="meta-card">
+      <div class="label">Action items</div>
+      <div class="value">{{ dev_action_items | length }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Dev Action Items -->
+  {% if dev_action_items %}
+  <section>
+    <h2 style="color:#4fc3f7;">Developer Action Items</h2>
+    <ol class="action-list">
+      {% for item in dev_action_items %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  <!-- Top Praises -->
+  {% if top_praises %}
+  <section>
+    <h2 style="color:#22c55e;">Top Praises</h2>
+    <div class="chips">
+      {% for p in top_praises %}
+      <span class="chip chip-green">{{ p }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Top Complaints -->
+  {% if top_complaints %}
+  <section>
+    <h2 style="color:#ef4444;">Top Complaints</h2>
+    <div class="chips">
+      {% for c in top_complaints %}
+      <span class="chip chip-red">{{ c }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Feature Requests -->
+  {% if feature_requests %}
+  <section>
+    <h2 style="color:#93c5fd;">Feature Requests</h2>
+    <div class="chips">
+      {% for r in feature_requests %}
+      <span class="chip chip-blue">{{ r }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Refund Risk Signals -->
+  {% if refund_risk_signals %}
+  <section>
+    <h2 style="color:#f59e0b;">Refund Risk Signals</h2>
+    <ul class="bullet-list">
+      {% for signal in refund_risk_signals %}
+      <li>{{ signal }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Competitive Mentions -->
+  {% if competitive_mentions %}
+  <section>
+    <h2 style="color:#c4b5fd;">Competitive Mentions</h2>
+    <div class="chips">
+      {% for comp in competitive_mentions %}
+      <span class="chip chip-purple">{{ comp }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <footer>
+    Generated by <strong>SteamPulse</strong> — AI-powered Steam review analytics for indie game developers.
+    &nbsp;·&nbsp; steampulse.gg
+  </footer>
+</div>
+</body>
+</html>

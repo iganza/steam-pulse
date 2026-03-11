@@ -1,0 +1,8 @@
+{
+  "app": "poetry run python infra/app.py",
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:stackRelativeExports": "both",
+    "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true
+  }
+}

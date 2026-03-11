@@ -1,8 +1,14 @@
-FROM python:3.10-slim
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 AS lambda-adapter
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY --from=lambda-adapter /lambda-adapter /opt/extensions/lambda-adapter
+ENV PORT=8080
+
 WORKDIR /app
-RUN pip install poetry
-COPY pyproject.toml poetry.lock* ./
-RUN poetry install --without crawler --no-root
-COPY . .
-RUN poetry install --without crawler
-CMD ["poetry", "run", "uvicorn", "steampulse.api:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY pyproject.toml poetry.lock ./
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --without crawler,infra,dev --no-root
+
+COPY steampulse/ ./steampulse/
+CMD ["uvicorn", "steampulse.api:app", "--host", "0.0.0.0", "--port", "8080"]

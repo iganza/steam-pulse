@@ -1,14 +1,12 @@
 """FastAPI application — V1 + V2 endpoints."""
 
 import asyncio
-import json
 import os
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .analyzer import analyze_reviews

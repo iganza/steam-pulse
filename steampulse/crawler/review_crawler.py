@@ -1,6 +1,5 @@
 """Fetches review counts from Steam and updates the games table."""
 
-from typing import Optional
 
 import httpx
 
@@ -9,7 +8,7 @@ from .db import get_connection
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 
 
-async def _fetch_review_summary(appid: int) -> Optional[dict]:
+async def _fetch_review_summary(appid: int) -> dict | None:
     """Fetch a quick review summary (total positive/negative) from the Steam API."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:

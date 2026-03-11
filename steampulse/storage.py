@@ -3,14 +3,13 @@
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import Optional
 
 TTL_SECONDS = 86400  # 24 hours
 
 
 class BaseStorage(ABC):
     @abstractmethod
-    def get_analysis(self, appid: int) -> Optional[dict]:
+    def get_analysis(self, appid: int) -> dict | None:
         ...
 
     @abstractmethod
@@ -18,7 +17,7 @@ class BaseStorage(ABC):
         ...
 
     # V2 methods — no-op in V1
-    def get_game(self, appid: int) -> Optional[dict]:
+    def get_game(self, appid: int) -> dict | None:
         return None
 
     def store_game(self, appid: int, data: dict) -> None:
@@ -38,7 +37,7 @@ class InMemoryStorage(BaseStorage):
         self._store: dict[int, dict] = {}
         self._timestamps: dict[int, float] = {}
 
-    def get_analysis(self, appid: int) -> Optional[dict]:
+    def get_analysis(self, appid: int) -> dict | None:
         if appid not in self._store:
             return None
         age = time.time() - self._timestamps.get(appid, 0)
@@ -133,7 +132,7 @@ class PostgresStorage(BaseStorage):
                 cur.execute(self.CREATE_REVIEW_SUMMARIES)
             conn.commit()
 
-    def get_analysis(self, appid: int) -> Optional[dict]:
+    def get_analysis(self, appid: int) -> dict | None:
         with self._connect() as conn:
             with conn.cursor(cursor_factory=self._extras.RealDictCursor) as cur:
                 cur.execute(
@@ -161,7 +160,7 @@ class PostgresStorage(BaseStorage):
                 )
             conn.commit()
 
-    def get_game(self, appid: int) -> Optional[dict]:
+    def get_game(self, appid: int) -> dict | None:
         with self._connect() as conn:
             with conn.cursor(cursor_factory=self._extras.RealDictCursor) as cur:
                 cur.execute("SELECT * FROM games WHERE appid = %s", (appid,))

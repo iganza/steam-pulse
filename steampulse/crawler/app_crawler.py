@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from typing import Optional
 
 import httpx
 
@@ -12,7 +11,7 @@ APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 STEAMSPY_URL = "https://steamspy.com/api.php"
 
 
-async def _fetch_steam_details(appid: int) -> Optional[dict]:
+async def _fetch_steam_details(appid: int) -> dict | None:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
             APPDETAILS_URL,
@@ -27,11 +26,11 @@ async def _fetch_steam_details(appid: int) -> Optional[dict]:
 
     d = data[key]["data"]
 
-    price_usd: Optional[float] = None
+    price_usd: float | None = None
     if not d.get("is_free") and d.get("price_overview"):
         price_usd = d["price_overview"].get("final", 0) / 100.0
 
-    metacritic_score: Optional[int] = None
+    metacritic_score: int | None = None
     if d.get("metacritic"):
         metacritic_score = d["metacritic"].get("score")
 

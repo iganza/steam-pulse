@@ -1,19 +1,17 @@
 """CLI report renderer — Jinja2 HTML and Rich terminal output."""
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
-def render_html_report(result: dict, output_path: Optional[str] = None) -> str:
+def render_html_report(result: dict, output_path: str | None = None) -> str:
     """Render the analysis result to a standalone HTML file using the Jinja2 template."""
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -28,7 +26,7 @@ def render_html_report(result: dict, output_path: Optional[str] = None) -> str:
     return html
 
 
-def print_rich_report(result: dict, console: Optional[Console] = None) -> None:
+def print_rich_report(result: dict, console: Console | None = None) -> None:
     """Print a nicely formatted analysis report to the terminal using Rich."""
     if console is None:
         console = Console()

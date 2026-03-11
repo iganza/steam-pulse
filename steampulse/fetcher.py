@@ -1,7 +1,6 @@
 """Async fetchers for Steam review and app metadata APIs."""
 
 import asyncio
-from typing import Optional
 
 import httpx
 
@@ -14,7 +13,7 @@ REVIEWS_PER_PAGE = 100
 PAGE_DELAY = 1.0  # seconds between pages
 
 
-async def fetch_reviews(appid: int, max_reviews: Optional[int] = 500) -> list[dict]:
+async def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]:
     """
     Fetch reviews from the Steam review API.
     Pass max_reviews=None to fetch all available reviews.
@@ -78,7 +77,7 @@ async def fetch_reviews(appid: int, max_reviews: Optional[int] = 500) -> list[di
     return reviews if max_reviews is None else reviews[:max_reviews]
 
 
-async def fetch_app_metadata(appid: int) -> Optional[dict]:
+async def fetch_app_metadata(appid: int) -> dict | None:
     """
     Fetch Steam app details for a given appid.
     Returns normalized metadata dict or None if not found.
@@ -102,11 +101,11 @@ async def fetch_app_metadata(appid: int) -> Optional[dict]:
 
     d = data[key]["data"]
 
-    price_usd: Optional[float] = None
+    price_usd: float | None = None
     if not d.get("is_free") and d.get("price_overview"):
         price_usd = d["price_overview"].get("final", 0) / 100.0
 
-    metacritic_score: Optional[int] = None
+    metacritic_score: int | None = None
     if d.get("metacritic"):
         metacritic_score = d["metacritic"].get("score")
 
@@ -130,7 +129,7 @@ async def fetch_app_metadata(appid: int) -> Optional[dict]:
     }
 
 
-async def fetch_steamspy(appid: int) -> Optional[dict]:
+async def fetch_steamspy(appid: int) -> dict | None:
     """Fetch SteamSpy data for a given appid (V2 crawler use)."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -143,4 +142,4 @@ async def fetch_steamspy(appid: int) -> Optional[dict]:
         except (httpx.RequestError, httpx.HTTPStatusError):
             return None
 
-        
+

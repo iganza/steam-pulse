@@ -404,30 +404,116 @@ CREATE TABLE rate_limits (
 
 ** LLM synthesis output (Pass 2 — Sonnet)
 
+The root cause of duplication in the old schema: `top_complaints`, `refund_risk_signals`,
+and `dev_action_items` all answered the same question ("what's wrong?"). The new schema
+gives every section a different *question*, a different *output format*, and an explicit
+exclusion rule about what does NOT belong there.
+
 #+BEGIN_SRC json
 {
   "game_name": "string",
+  "appid": 12345,
   "total_reviews_analyzed": 347,
-  "overall_sentiment": "Mixed|Positive|Negative|Very Positive|Overwhelmingly Positive",
-  "sentiment_score": 0.52,
-  "top_praises": ["art style", "core loop"],
-  "top_complaints": ["difficulty spike", "no save"],
-  "feature_requests": ["difficulty settings", "controller remapping"],
-  "refund_risk_signals": ["61% of refunders cite difficulty within first 30min"],
-  "competitive_mentions": ["Hades", "Dead Cells"],
-  "dev_action_items": ["Add difficulty option — cited in 23% of negative reviews"],
-  "one_liner": "Players love the art but bounce at hour 3 due to a difficulty spike.",
-  "audience_profile": {
-    "core_vs_casual": "Core (68% 20h+ playtime)",
-    "player_archetypes": ["completionists", "cozy gamers"],
-    "not_for": ["players wanting deep story"]
-  },
+
+  "overall_sentiment": "Overwhelmingly Positive|Very Positive|Positive|Mixed|Negative|Very Negative|Overwhelmingly Negative",
+  "sentiment_score": 0.82,
+  // Calculated in Python from batch stats — never LLM-guessed.
+  // Thresholds: ≥0.95 Overwhelmingly Positive, ≥0.80 Very Positive, ≥0.65 Positive,
+  //             ≥0.45 Mixed, ≥0.30 Negative, ≥0.15 Very Negative, <0.15 Overwhelmingly Negative
+
   "sentiment_trend": "declining",
-  "sentiment_trend_note": "Recent reviews 12pts lower than all-time — post-update backlash",
-  "genre_context": "Outperforms average idle game sentiment by 18pts",
-  "hidden_gem_score": 0.82
+  // Direction of change: 'improving' | 'stable' | 'declining'
+  // DISTINCT FROM sentiment_score: a game can have 0.82 score that is declining.
+  "sentiment_trend_note": "Recent reviews increasingly cite bot infestation; older reviews mostly positive.",
+  // WHY the trend is happening — not a restatement of the trend value.
+
+  "one_liner": "Timeless class-based shooter undermined by years of developer neglect and rampant bots.",
+  // Max 25 words. Gamer-facing purchase decision. The ONLY section a gamer needs to read.
+
+  "audience_profile": {
+    "ideal_player": "Competitive FPS fans who love deep character mastery and community-driven play",
+    "casual_friendliness": "low",
+    "archetypes": ["hat collectors", "competitive tryharders", "longtime loyalists"],
+    "not_for": ["players who hate grind", "newcomers expecting a polished onboarding experience"]
+    // NOT_FOR is identity-based ('who shouldn't buy'), not moment-based (that's churn_triggers)
+  },
+
+  "design_strengths": [
+    "Class system creates natural role differentiation that rewards team coordination"
+  ],
+  // SPECIFIC DESIGN DECISIONS that are working. NOT: community praise, price, nostalgia.
+  // Each item names the design element. 4–8 items.
+
+  "gameplay_friction": [
+    "Matchmaking has no skill separation — veterans with 30k hours vs complete beginners"
+  ],
+  // IN-GAME UX AND DESIGN PROBLEMS. NOT: pricing, developer neglect, community behaviour,
+  // platform issues. Player-experience language: "Players encounter X when Y happens."
+  // 3–7 items, only issues with multiple chunk mentions.
+
+  "player_wishlist": [
+    "Dedicated practice range for learning class mechanics without live pressure"
+  ],
+  // NET-NEW features that don't exist yet. NOT: fixes to broken things (that's gameplay_friction).
+  // 3–6 items.
+
+  "churn_triggers": [
+    "New players encounter bot-dominated servers within their first 10 minutes, before experiencing TF2's core strengths"
+  ],
+  // SPECIFIC JOURNEY MOMENTS that cause dropout. Timing language required: "within first X minutes",
+  // "around hour 3", "when they hit the third boss". NOT: the underlying design problem itself.
+  // 2–4 items, quality over quantity.
+
+  "dev_priorities": [
+    {
+      "action": "Deploy bot detection on official servers",
+      "why_it_matters": "This is the #1 new-player churn trigger and dominates recent negative reviews",
+      "frequency": "~40% of negative reviews",
+      "effort": "high"
+    }
+  ],
+  // RANKED BUSINESS DECISIONS. NOT a re-description of problems (that's gameplay_friction).
+  // This section SYNTHESIZES everything above into a decision with ROI ranking.
+  // 3–5 items. #1 = single most important thing dev should do next.
+
+  "competitive_context": [
+    {
+      "game": "Overwatch",
+      "comparison_sentiment": "negative",
+      "note": "Players prefer TF2's balance and humour but cite Overwatch as better maintained"
+    }
+  ],
+  // ONLY named competitors from reviews. Empty array if none mentioned.
+  // DISTINCT FROM genre_context: names specific games. genre_context does not.
+
+  "genre_context": "For a hero-shooter, TF2's character variety is above genre average; active developer support is significantly below genre average.",
+  // 1–2 sentences benchmarking against genre norms. No named competitors here.
+
+  "hidden_gem_score": 0.12
+  // Calculated in Python: high score = low review count + high positive % + enthusiastic language.
+  // Score = 0.0 if review count > 50k or already widely known.
 }
 #+END_SRC
+
+** Section anti-duplication rules
+
+The same root cause CAN appear in multiple sections ONLY if each instance describes a different aspect:
+- =gameplay_friction=: describes the design flaw ("matchmaking has no skill separation")
+- =churn_triggers=: describes WHEN it causes player loss ("new players encounter bots in minute one")
+- =dev_priorities=: prescribes the fix ranked by ROI ("deploy bot detection")
+
+If the same SENTENCE or FRAMING appears in two sections — that is duplication. Remove it from the section whose definition fits least.
+
+** Backward compatibility mapping
+
+| Old field           | New field              | Change                                      |
+|---------------------+------------------------+---------------------------------------------|
+| top_praises         | design_strengths       | Narrowed: design decisions only             |
+| top_complaints      | gameplay_friction      | Narrowed: in-game design issues only        |
+| feature_requests    | player_wishlist        | Narrowed: net-new only (not fixes)          |
+| refund_risk_signals | churn_triggers         | Reframed: journey events with timing        |
+| dev_action_items    | dev_priorities         | Now structured objects: action+why+freq+effort |
+| competitive_mentions| competitive_context    | Now structured objects                      |
 
 ** Report page sections (in order)
 

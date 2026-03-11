@@ -29,6 +29,8 @@ boto3 = "^1.34.0"
 pytest = "^9.0.2"
 pytest-asyncio = "^1.3.0"
 httpx = "^0.28.1"
+ruff = "^0.9.0"
+mypy = "^1.13.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -36,3 +38,37 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 steampulse = "steampulse.main:main"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade — enforce modern Python 3.12 syntax
+    "B",    # flake8-bugbear — common bugs and design issues
+    "ASYNC",# flake8-async — async/await best practices
+    "ANN",  # flake8-annotations — type hints required
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "ANN401",  # allow Any where genuinely needed
+    "E501",    # line length handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["steampulse"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true

@@ -1,456 +1,537 @@
-# SteamPulse — Claude Code Prompt
+# SteamPulse — Full Build Specification
 
-Paste this entire prompt into Claude Code to build the project.
-
----
-
-## Overview
-
-Build **SteamPulse**: a Steam game intelligence platform with two tiers:
-
-- **V1 (ship immediately):** Review analysis for any Steam game — your own or competitors. Pay-per-analysis via credit packs (Lemon Squeezy license keys).
-- **V2 (feature-flagged, ships when catalog is indexed):** Natural language chat over the full Steam catalog. Pro subscription tier.
-
-**One codebase. One deployment. Feature flags separate the tiers.**
-
-The FastAPI app runs on Railway. AWS is used only for the V2 data infrastructure (RDS + Lambda crawlers). The app never needs to move.
+> **Before starting any work:** Read `CLAUDE.md` and `steampulse-design.org` in full.
+> They are the authoritative source for all architecture decisions.
+> The LLM prompts in `steampulse/analyzer.py` are correct — do not modify them.
 
 ---
 
-## Tech Stack
+## What This Document Is
 
-- Python 3.10+
-- FastAPI + uvicorn (HTTP service + serves frontend)
-- httpx (async HTTP)
-- anthropic SDK — claude-haiku-3-5 (chunking), claude-sonnet-3-5 (synthesis + chat)
-- psycopg2-binary (PostgreSQL, V2 — gracefully absent in V1)
-- jinja2 (HTML report template for CLI)
-- resend (transactional email)
-- python-dotenv
-- rich (CLI output)
+A phased build specification for SteamPulse at **steampulse.io** — an AI-powered Steam game
+intelligence platform. The repo already has a partial V1 implementation. This spec describes
+the full production system.
 
-**Dependency management: use Poetry.**
-- `pyproject.toml` is the single source of truth for all deps
-- Use optional dependency groups: `[tool.poetry.group.crawler.dependencies]` for crawler-only deps
-- Dockerfile uses `poetry install --without crawler` for the app image
-- Lambda layer uses `poetry export -f requirements.txt --only crawler`
+Work through phases in order. Complete and verify each phase before starting the next.
+Never attempt to build multiple phases in a single session.
 
 ---
 
-## File Structure
+## What Already Exists (Do Not Rewrite)
 
-```
-steampulse/
-  api.py              # FastAPI app — all endpoints, serves frontend
-  main.py             # CLI entrypoint (calls core functions directly)
-  fetcher.py          # Steam API: reviews + app metadata
-  analyzer.py         # LLM two-pass review analysis
-  storage.py          # Abstraction: InMemoryStorage (V1) or PostgresStorage (V2)
-  rate_limiter.py     # IP-based free tier (1 free analysis per IP)
-  chat.py             # V2: natural language → SQL → answer (feature-flagged)
-  reporter.py         # Jinja2 HTML report (CLI only)
-  templates/
-    index.html        # Single-page frontend (vanilla JS, served by FastAPI)
-    report.html.j2    # CLI report template
-  crawler/
-    handler.py        # AWS Lambda handler (V2, separate deployment)
-    app_crawler.py    # Crawls Steam appdetails + SteamSpy tags
-    review_crawler.py # Crawls review counts for all games
-    db.py             # Crawler → PostgreSQL writes
-  infra/
-    main.tf           # Terraform: RDS + Lambda + SQS (V2)
-    variables.tf
-    outputs.tf
-  .env.example        # All env vars documented
-  pyproject.toml      # Poetry — all deps including optional crawler group
-  poetry.lock
-  Dockerfile          # FROM python:3.10-slim, uses poetry install --without crawler
-  README.md
+- `steampulse/analyzer.py` — two-pass LLM pipeline. **Correct. Do not touch.**
+- `steampulse/storage.py` — BaseStorage + InMemoryStorage. Extend, don't replace.
+- `steampulse/rate_limiter.py` — IP-based rate limiting.
+- `steampulse/main.py` — CLI entry point for local testing.
+- `pyproject.toml` — Poetry config. Needs updating (see Phase 0).
+- `Dockerfile` — needs updating (see Phase 0).
+
+---
+
+## Phase 0: Foundation Cleanup
+
+**Goal:** Make the repo production-ready before building anything new.
+
+### 0.1 — Update pyproject.toml
+
+```toml
+[tool.poetry]
+name = "steampulse"
+version = "0.1.0"
+python = "^3.12"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = ">=0.115.0"
+uvicorn = {extras = ["standard"], version = ">=0.30.0"}
+httpx = ">=0.27.0"
+anthropic = ">=0.40.0"
+psycopg2-binary = ">=2.9.9"
+resend = ">=2.0.0"
+python-dotenv = ">=1.0.0"
+
+[tool.poetry.group.infra.dependencies]
+aws-cdk-lib = ">=2.180.0"
+constructs = ">=10.0.0"
+
+[tool.poetry.group.crawler.dependencies]
+boto3 = ">=1.34.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+pytest-asyncio = ">=0.23.0"
 ```
 
----
+### 0.2 — Update Dockerfile
 
-## Environment Variables (.env.example)
+```dockerfile
+FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 AS lambda-adapter
+FROM public.ecr.aws/lambda/python:3.12
 
-```bash
-# V1 — required from day 1
+COPY --from=lambda-adapter /lambda-adapter /opt/extensions/lambda-adapter
+ENV PORT=8080
+
+WORKDIR /app
+COPY pyproject.toml poetry.lock ./
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --without crawler,infra,dev --no-root
+
+COPY steampulse/ ./steampulse/
+CMD ["uvicorn", "steampulse.api:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+### 0.3 — Create .env.example
+
+```
 ANTHROPIC_API_KEY=
-LEMON_SQUEEZY_API_KEY=              # For validating license keys via LS API
-LEMON_SQUEEZY_STORE_ID=             # Your LS store ID
-LEMON_SQUEEZY_SINGLE_CHECKOUT_URL=  # $7 single analysis product
-LEMON_SQUEEZY_PACK5_CHECKOUT_URL=   # $15 for 5 analyses product
-LEMON_SQUEEZY_PRO_CHECKOUT_URL=     # $49/mo Pro subscription (V2)
+DATABASE_URL=postgresql://user:pass@localhost:5432/steampulse
+LEMONSQUEEZY_API_KEY=
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=reports@steampulse.gg
-
-# V2 — add when RDS is provisioned (app auto-detects and upgrades storage backend)
-DATABASE_URL=postgresql://user:pass@host:5432/steampulse
-PRO_ENABLED=false                   # Flip to true when catalog is indexed
-
-# Crawler (V2, Lambda environment only)
-STEAMSPY_API_KEY=                   # Optional — higher rate limits
+CF_DISTRIBUTION_ID=
+CF_KVS_ARN=
+STEP_FUNCTIONS_ARN=
+PRO_ENABLED=false
+HAIKU_MODEL=claude-3-5-haiku-20241022
+SONNET_MODEL=claude-3-5-sonnet-20241022
 ```
 
----
-
-## storage.py — The Key Abstraction
-
-This is the most important design decision. All data access goes through this module.
-V1 uses in-memory dicts. V2 swaps in PostgreSQL. Nothing else changes.
-
-```python
-import os
-from abc import ABC, abstractmethod
-
-class BaseStorage(ABC):
-    @abstractmethod
-    def get_analysis(self, appid: int): ...
-    @abstractmethod
-    def store_analysis(self, appid: int, result: dict): ...
-    # V2 methods (no-op in V1)
-    def get_game(self, appid: int): return None
-    def store_game(self, appid: int, data: dict): pass
-    def query_catalog(self, sql: str, params: tuple = ()): return []
-
-class InMemoryStorage(BaseStorage):
-    # Simple dict with 24hr TTL. Resets on restart — acceptable for V1.
-    ...
-
-class PostgresStorage(BaseStorage):
-    # Full implementation using psycopg2.
-    # Schema: games, game_tags, game_genres, game_categories, review_summaries
-    ...
-
-def get_storage() -> BaseStorage:
-    """Auto-select backend based on DATABASE_URL env var."""
-    if os.getenv("DATABASE_URL"):
-        return PostgresStorage(os.getenv("DATABASE_URL"))
-    return InMemoryStorage()
-
-storage = get_storage()
-```
-
-**PostgreSQL schema (create in PostgresStorage.__init__ if tables don't exist):**
-
-```sql
-CREATE TABLE IF NOT EXISTS games (
-    appid INTEGER PRIMARY KEY,
-    name TEXT, type TEXT, release_date DATE,
-    price_usd NUMERIC, is_free BOOLEAN,
-    metacritic_score INTEGER,
-    total_positive INTEGER, total_negative INTEGER,
-    review_score_desc TEXT,
-    short_description TEXT,
-    developers TEXT[], publishers TEXT[],
-    platforms JSONB,
-    last_crawled TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS game_tags (
-    appid INTEGER, tag TEXT,
-    PRIMARY KEY (appid, tag)
-);
-
-CREATE TABLE IF NOT EXISTS game_genres (
-    appid INTEGER, genre TEXT,
-    PRIMARY KEY (appid, genre)
-);
-
-CREATE TABLE IF NOT EXISTS game_categories (
-    appid INTEGER, category TEXT,
-    PRIMARY KEY (appid, category)
-);
-
-CREATE TABLE IF NOT EXISTS review_summaries (
-    appid INTEGER PRIMARY KEY,
-    summary JSONB,
-    last_analyzed TIMESTAMP
-);
-```
-
----
-
-## Steam APIs
-
-### Review fetching (V1 core)
-```
-GET https://store.steampowered.com/appreviews/{appid}
-  ?json=1&filter=recent&language=english&num_per_page=100&cursor=*
-```
-Fetch up to 500 reviews (5 pages). 1 second delay between pages.
-Store: review_text, voted_up (bool), playtime_at_review (minutes), timestamp_created.
-
-### App metadata (V1: game name + cover image only; V2 crawler: full data)
-```
-GET https://store.steampowered.com/api/appdetails?appids={appid}
-```
-
-### Review counts only (fast, V2 crawler)
-```
-GET https://store.steampowered.com/appreviews/{appid}?json=1&num_per_page=0
-```
-Returns total_positive, total_negative, review_score_desc without fetching review text.
-
-### SteamSpy (tags + owner estimates, V2 crawler)
-```
-GET https://steamspy.com/api.php?request=appdetails&appid={appid}
-```
-Rate limit: 1 req/sec (free), ~4/sec with API key.
-
----
-
-## LLM Analysis (analyzer.py)
-
-Two-pass approach:
-
-**Pass 1 — Chunk summarization (Haiku, cheap):**
-- Batch reviews into groups of 50
-- Each batch: extract complaints, praises, feature requests
-- Use Anthropic prompt caching: add `"cache_control": {"type": "ephemeral"}` to system prompt
-
-**Pass 2 — Final synthesis (Sonnet):**
-- Feed all chunk summaries into one prompt
-- Return structured JSON:
+### 0.4 — Create cdk.json at repo root
 
 ```json
 {
-  "game_name": "string",
-  "total_reviews_analyzed": 347,
-  "overall_sentiment": "Mixed",
-  "sentiment_score": 0.52,
-  "top_praises": ["art style", "core loop", "music"],
-  "top_complaints": ["difficulty spike at level 4", "no save anywhere", "PC performance"],
-  "feature_requests": ["difficulty settings", "controller remapping", "New Game+"],
-  "refund_risk_signals": ["61% of refunders cite difficulty within first 30min"],
-  "competitive_mentions": ["Hades", "Dead Cells"],
-  "dev_action_items": [
-    "Add difficulty option — in 23% of negative reviews",
-    "Add manual save — in 18% of negative reviews",
-    "PC performance pass before next update"
-  ],
-  "one_liner": "Players love the art but are bouncing at hour 3 due to a difficulty spike with no save option."
+  "app": "poetry run python infra/app.py",
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:stackRelativeExports": "both",
+    "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true
+  }
 }
 ```
 
-**System prompt for synthesis (use exactly):**
-> "You are a game analytics expert helping indie game developers understand their Steam reviews. Your analysis must be specific, actionable, and honest — not generic. Developers need to know what to actually fix, not vague summaries. Focus on patterns that appear in multiple reviews, not outliers."
-
----
-
-## API Endpoints (api.py)
-
-### V1 endpoints (always active)
-
-**GET /**
-Serves `templates/index.html`
-
-**POST /preview**
-Body: `{ "appid": 440 }`
-1. Check IP rate limit — if exhausted, return `402 { "error": "free_limit_reached", "checkout_url": "..." }`
-2. Fetch reviews + app metadata
-3. Run full LLM analysis, store in storage
-4. Return FREE tier only: `{ "game_name", "overall_sentiment", "sentiment_score", "one_liner", "appid" }`
-
-**POST /validate-key**
-Body: `{ "license_key": "XXXX-XXXX-XXXX-XXXX", "appid": 440 }`
-1. Call Lemon Squeezy License API: `POST https://api.lemonsqueezy.com/v1/licenses/validate` with `{ license_key, instance_id: appid }`
-2. If valid and activations_remaining > 0: call `activate` endpoint to consume one activation
-3. Run full analysis (or retrieve from storage if already cached), return full report JSON + fire-and-forget email via Resend
-4. If invalid or exhausted: return 403 `{ "error": "invalid_key" }` or 402 `{ "error": "no_credits" }`
-
-**GET /health**
-Returns `{ "status": "ok", "storage": "memory|postgres", "pro_enabled": false }`
-
-### V2 endpoints (only active when PRO_ENABLED=true)
-
-**POST /chat**
-Body: `{ "message": "how many idle games released in 2024 with 100+ positive reviews?", "session_id": "abc" }`
-1. Check valid Pro subscription (validate against Lemon Squeezy order, simple for now)
-2. Call chat.py to generate + execute SQL
-3. Return `{ "answer": "47 games matched your query.", "sql": "SELECT ...", "rows": [...] }`
-
----
-
-## Frontend (templates/index.html)
-
-Single HTML file, vanilla JS only, inline CSS. Dark game-dev aesthetic.
-
-### Layout states (JS toggles between these)
-
-**State 1 — Input**
-- Logo: "SteamPulse"
-- Tagline: "Find the gaps in your genre. Understand what players actually want — before you build."
-- Input: Steam game URL or App ID
-- Button: "Analyze Free"
-- Note: "No account needed. First analysis free."
-
-**State 2 — Loading**
-- Animated spinner
-- Status text cycles: "Fetching reviews..." → "Analyzing with AI..." → "Almost done..."
-
-**State 3 — Free Preview**
-- Game header: cover image (from Steam CDN: `https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg`) + name + sentiment badge
-- One-liner summary (clearly visible)
-- Blurred/locked sections: Top Complaints, Feature Requests, Refund Risk, Action Items
-- Two CTA buttons: "Buy 1 analysis — $7" and "5-pack — $15 (best value)" — both link to respective Lemon Squeezy checkout URLs
-- Note: "Instant access. Paste your license key below to unlock."
-- License key input field + "Unlock" button (calls `/validate-key`)
-
-**State 4 — Full Report (post-key-entry)**
-- All sections rendered inline
-- "⬇ Download Report" button — generates Blob from page HTML, triggers download as `{game_name}_steampulse.html`
-- Note: "A copy has been sent to your email. Remaining credits on your key: N"
-
-**State 5 — Pro Chat (V2, hidden until PRO_ENABLED)**
-- Chat input + message history
-- Each response shows the answer + optionally the SQL that was run
-- "Upgrade to Pro — $49/mo" CTA when not subscribed
-### JS behaviour
-- On page load: check localStorage for saved license key — if present, show key input pre-filled
-- Save license key to localStorage after successful unlock so user doesn't re-enter it for subsequent analyses
-- Handle 402 response: show "No credits remaining on this key. Buy more below." with checkout links
-- Handle 403 response: show "Invalid license key. Check your purchase email."
-- All errors shown inline, no page reloads
-
----
-
-## rate_limiter.py
-
-```python
-# In-memory dict: { "1.2.3.4": { "used": True, "appid": 440 } }
-# 1 free full analysis per IP, ever (resets on server restart — fine for POC)
-# Return { "allowed": bool, "checkout_url": str }
-```
-
----
-
-## chat.py (V2 — build but only called when PRO_ENABLED=true)
-
-```python
-async def answer_query(message: str, storage: BaseStorage) -> dict:
-    """
-    1. Send message + DB schema to Sonnet with instruction to generate SQL
-    2. Parse SQL from response
-    3. Execute via storage.query_catalog(sql)
-    4. Send results back to Sonnet for natural language formatting
-    5. Return { answer, sql, rows }
-    """
-```
-
-System prompt for SQL generation (include full schema so LLM knows the tables):
-> "You are a Steam game market analyst. You have access to a PostgreSQL database of Steam games.
-> Generate a single valid SQL SELECT query to answer the user's question.
-> Schema: [include full schema here]
-> Rules: SELECT only, no INSERT/UPDATE/DELETE, LIMIT 100 max, return only the SQL."
-
----
-
-## CLI (main.py)
+### 0.5 — Verify
 
 ```bash
-python main.py --appid 440                    # analyze, save HTML report
-python main.py --appid 440 --max-reviews 200
-python main.py --appid 440 --output my.html
-python main.py --appid 440 --dry-run          # fetch only, no LLM, save cache
-python main.py --appid 440 --json             # print raw JSON
-```
-
----
-
-## crawler/ (V2 — build the code, Lambda deployment is separate)
-
-**handler.py** — Lambda entry point, triggered by SQS
-**app_crawler.py** — fetches Steam appdetails + SteamSpy tags, writes to PostgreSQL
-**review_crawler.py** — fetches review counts only (not full text), writes to games table
-**db.py** — PostgreSQL connection + upsert helpers for crawler
-
-The crawler is a separate deployment (Lambda + SQS via Terraform in infra/).
-It is NOT part of the FastAPI app — it runs independently and writes to the same RDS instance.
-
----
-
-## infra/ (V2 Terraform — scaffold the files, leave values as variables)
-
-Resources to define:
-- `aws_db_instance` — RDS PostgreSQL t3.micro, single-AZ (cheap)
-- `aws_sqs_queue` — steampulse-crawler-queue
-- `aws_lambda_function` — steampulse-crawler, triggered by SQS
-- `aws_iam_role` — Lambda execution role with RDS + SQS access
-- `aws_cloudwatch_event_rule` — daily schedule to seed queue with app IDs
-
----
-
-## Error Handling
-
-- Invalid appid → 404 with friendly message in frontend
-- Game has no English reviews → 422 "No English reviews found for this game"
-- Steam API down → 503 "Steam API unavailable, try again shortly"
-- Analysis cache hit → return cached result immediately (skip LLM cost)
-- All errors display inline in frontend, no page reload
-
----
-
-## Deployment Notes (include in README)
-
-**V1 — Railway:**
-```bash
-# Set env vars in Railway dashboard:
-# ANTHROPIC_API_KEY, LEMON_SQUEEZY_*, RESEND_API_KEY
-git push origin main  # Railway auto-deploys
-```
-
-**V2 — Add AWS infrastructure:**
-```bash
-cd infra/
-terraform init && terraform apply
-# Copy DATABASE_URL output → add to Railway env vars
-# PRO_ENABLED=true once catalog is indexed
-```
-
-**Local development:**
-```bash
-cp .env.example .env  # fill in keys
 poetry install
-poetry run uvicorn api:app --reload
+poetry run pytest
+poetry run python steampulse/main.py --appid 440 --dry-run
 ```
 
 ---
 
-## Do Not Build
+## Phase 1: FastAPI API Layer
 
-- No user accounts or login system
-- No database migrations framework (raw SQL in storage.py is fine for POC)
-- No React/Vue/Angular — vanilla JS only
-- No CSS framework — inline styles only
-- No job queue inside the FastAPI app (crawlers are separate Lambda)
-- No subscription management UI (Lemon Squeezy handles that)
+**Goal:** Update `api.py` to serve the new report schema. All endpoints are JSON only — no HTML.
+
+### 1.1 — Create steampulse/steam_source.py
+
+```python
+from abc import ABC, abstractmethod
+
+class SteamDataSource(ABC):
+    @abstractmethod
+    async def get_app_list(self) -> list[dict]:
+        """Returns [{appid, name}] for all Steam apps."""
+
+    @abstractmethod
+    async def get_app_details(self, appid: int) -> dict:
+        """Returns game metadata from Steam Store API."""
+
+    @abstractmethod
+    async def get_reviews(self, appid: int, max_reviews: int = 500) -> list[dict]:
+        """Returns reviews with voted_up, review_text, playtime_at_review."""
+
+    @abstractmethod
+    async def get_steamspy_data(self, appid: int) -> dict:
+        """Returns SteamSpy data: tags, owner estimates."""
+
+
+class DirectSteamSource(SteamDataSource):
+    """Calls Steam Store API and SteamSpy directly using httpx.
+
+    URLs:
+    - App list:    GET https://api.steampowered.com/ISteamApps/GetAppList/v2/
+    - App details: GET https://store.steampowered.com/api/appdetails?appids={appid}
+    - Reviews:     GET https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&num_per_page=100
+                   Paginate using cursor param until max_reviews reached
+    - SteamSpy:    GET https://steamspy.com/api.php?request=appdetails&appid={appid}
+
+    Add jitter (random 0.5-2s sleep) between requests.
+    Retry up to 3 times with exponential backoff on 429/503.
+    """
+```
+
+### 1.2 — Rewrite steampulse/api.py
+
+Keep `BaseStorage` and `rate_limiter` patterns. Update for new schema and endpoints.
+Initialize storage at module level (outside handlers) for Lambda connection reuse.
+
+**Endpoints:**
+
+```
+POST /api/preview
+  Body: {appid: int}
+  - Check storage for existing report. If found, return preview fields.
+  - If not found, trigger analysis via Step Functions, return 202 with job_id.
+  - Rate limit: 1 free per IP. Returns 402 on limit hit.
+  - Free fields only: game_name, overall_sentiment, sentiment_score, one_liner, audience_profile
+
+POST /api/validate-key
+  Body: {key: str, appid: int}
+  - Validate Lemon Squeezy license key (POST https://api.lemonsqueezy.com/v1/licenses/validate)
+  - Consume one activation if valid
+  - Return full report JSON
+  - Send confirmation email via Resend
+
+GET /api/status/{job_id}
+  - Check Step Functions execution status via boto3
+  - If complete, return full report from storage
+  - Returns: {status: "running"|"complete"|"failed", report?: FullReport}
+
+POST /api/analyze  (X-Admin-Key header required)
+  Body: {appid: int, force: bool = false}
+  - Trigger Step Functions execution
+  - Returns: {job_id: str}
+
+GET /health
+  Returns: {storage: "memory"|"postgres", pro_enabled: bool, version: str}
+
+POST /api/chat  (PRO_ENABLED=true only)
+  Existing chat.py logic, updated for new schema field names.
+```
+
+**Step Functions trigger pattern:**
+```python
+async def _trigger_analysis(appid: int) -> str:
+    # If STEP_FUNCTIONS_ARN set: use boto3 sfn client
+    # Else: run analyze_reviews() inline (local dev fallback)
+    # Returns execution ARN as job_id
+```
+
+### 1.3 — Update steampulse/storage.py
+
+Add to BaseStorage and implement in both backends:
+```python
+async def get_report(self, appid: int) -> dict | None
+async def upsert_report(self, appid: int, report: dict) -> None
+async def get_game(self, appid: int) -> dict | None
+async def upsert_game(self, appid: int, data: dict) -> None
+async def get_analysis_job(self, job_id: str) -> dict | None
+async def set_analysis_job(self, job_id: str, status: str, appid: int) -> None
+```
+
+PostgresStorage creates tables with `CREATE TABLE IF NOT EXISTS` on first connection.
+
+Full schema (implement all tables):
+```sql
+CREATE TABLE games (
+  appid INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
+  developer TEXT, publisher TEXT, release_date DATE, price_usd NUMERIC(8,2),
+  review_count INTEGER, positive_pct INTEGER, steamspy_owners TEXT,
+  header_image TEXT, short_desc TEXT, crawled_at TIMESTAMPTZ,
+  data_source TEXT DEFAULT 'steam_direct'
+);
+CREATE TABLE tags (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL);
+CREATE TABLE game_tags (appid INTEGER REFERENCES games(appid), tag_id INTEGER REFERENCES tags(id), votes INTEGER DEFAULT 0, PRIMARY KEY (appid, tag_id));
+CREATE TABLE genres (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL);
+CREATE TABLE game_genres (appid INTEGER REFERENCES games(appid), genre_id INTEGER REFERENCES genres(id), PRIMARY KEY (appid, genre_id));
+CREATE TABLE reviews (id BIGSERIAL PRIMARY KEY, appid INTEGER REFERENCES games(appid), steam_review_id TEXT UNIQUE, author_steamid TEXT, voted_up BOOLEAN, playtime_hours INTEGER, body TEXT, posted_at TIMESTAMPTZ, crawled_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE reports (appid INTEGER PRIMARY KEY REFERENCES games(appid), report_json JSONB NOT NULL, reviews_analyzed INTEGER, analysis_version TEXT DEFAULT '1.0', is_public BOOLEAN DEFAULT TRUE, seo_title TEXT, seo_description TEXT, featured_at TIMESTAMPTZ, last_analyzed TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE game_relations (appid_a INTEGER REFERENCES games(appid), appid_b INTEGER REFERENCES games(appid), relation TEXT DEFAULT 'competitive_mention', PRIMARY KEY (appid_a, appid_b));
+CREATE TABLE index_insights (id SERIAL PRIMARY KEY, type TEXT NOT NULL, slug TEXT NOT NULL, insight_json JSONB, computed_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(type, slug));
+CREATE TABLE rate_limits (ip_hash TEXT PRIMARY KEY, count INTEGER DEFAULT 1, window_start TIMESTAMPTZ DEFAULT NOW());
+```
+
+### Verify Phase 1
+
+```bash
+poetry run uvicorn steampulse.api:app --reload
+curl -X POST http://localhost:8000/api/preview -H "Content-Type: application/json" -d '{"appid": 440}'
+curl http://localhost:8000/health
+```
 
 ---
 
-## V2 Project Structure (scaffold empty, do not implement yet)
+## Phase 2: CDK Infrastructure
 
-When the V2 crawler work begins, the project will adopt this structure.
-Create the directories and empty `__init__.py` files now so the layout is ready.
+**Goal:** Full AWS infrastructure as CDK v2 Python. Run `poetry run cdk synth` after each stack.
 
-```
-steampulse/
-  infra/                        # AWS CDK stack (Python)
-    app.py                      # CDK app entry point
-    steampulse_stack.py         # RDS + Lambda + SQS + IAM resources
-    requirements.txt            # CDK deps (separate from Poetry — CDK needs its own)
-  src/
-    library_layer/              # Shared code used by both Lambda and the FastAPI app
-      __init__.py
-      models.py                 # Shared data models (Game, ReviewSummary, etc.)
-      db.py                     # PostgreSQL connection + shared queries
-    lambda_layer/               # Lambda-only code
-      __init__.py
-      crawler/
-        handler.py              # Lambda entry point (SQS trigger)
-        app_crawler.py          # Steam appdetails + SteamSpy
-        review_crawler.py       # Review counts
+### infra/app.py
+
+```python
+import aws_cdk as cdk
+from pipeline_stack import PipelineStack
+
+app = cdk.App()
+PipelineStack(app, "SteamPulsePipeline",
+    env=cdk.Environment(
+        account=app.node.try_get_context("account"),
+        region=app.node.try_get_context("region"),
+    )
+)
+app.synth()
 ```
 
-Note: `src/library_layer` will eventually replace the inline `storage.py` PostgreSQL
-implementation, sharing the DB models and queries between the FastAPI app and the crawlers.
-For V1, `storage.py` in the root is fine — the refactor happens when V2 ships.
+### infra/pipeline_stack.py
+
+Self-mutating pipeline via CodeStar Connections to GitHub.
+
+```python
+# CodePipelineSource.connection(repo, "main", connection_arn=connection_arn)
+# Two stages:
+#   - Staging: auto on every push to main
+#   - Production: ManualApprovalStep gate
+# Synth command: "pip install poetry && poetry install --with infra && poetry run cdk synth"
+```
+
+### infra/stacks/data_stack.py
+
+RDS + S3. `termination_protection=True` always on this stack.
+- RDS PostgreSQL t3.micro, Secret in Secrets Manager, no physical names
+- S3 bucket for static assets (versioned, private, OAC for CloudFront)
+
+### infra/stacks/app_stack.py
+
+FastAPI Lambda + CloudFront + Route53 + ACM.
+- Lambda: container image from ECR, 512MB, 30s timeout, Lambda Function URL (not API Gateway)
+- CloudFront: two origins — Lambda Function URL for `/*`, S3 for `/static/*`
+- Cache policy HTML: `max-age=86400, stale-while-revalidate=86400`
+- Cache policy static: `max-age=31536000` (immutable)
+- ACM cert in us-east-1 (required for CloudFront)
+- Route53 A record: `steampulse.io` → CloudFront distribution
+- CloudFront KeyValueStore for featured spots
+
+### infra/stacks/analysis_stack.py
+
+Step Functions Express Workflow:
+```
+StartAnalysis ({appid, game_name})
+  → FetchReviews (Lambda)
+  → PrepareChunks (Lambda: split into 50-review batches)
+  → Map (MaxConcurrency=5)
+      → AnalyzeChunk (Lambda: Haiku per chunk)
+  → SynthesizeReport (Lambda: Sonnet synthesis)
+  → StoreReport (Lambda: upsert to RDS)
+  → InvalidateCache (Lambda: CloudFront invalidation /games/{appid}/*)
+```
+
+### infra/stacks/crawler_stack.py
+
+- SQS: `app-crawl-queue` (batch 10, visibility 5min)
+- SQS: `review-crawl-queue` (batch 1, visibility 10min)
+- Lambda: app-crawler (SQS trigger)
+- Lambda: review-crawler (SQS trigger)
+- EventBridge: nightly re-crawl of top 500
+
+### infra/stacks/frontend_stack.py
+
+OpenNext deploys Next.js to Lambda. Add `/*` behaviour to existing CloudFront distribution
+(lower priority than `/api/*` → FastAPI).
+Use `@open-next/aws-cdk-adapter` — docs: https://opennext.js.org/aws/getting_started
+
+### Verify Phase 2
+
+```bash
+poetry install --with infra
+poetry run cdk synth
+# No errors, no hardcoded account IDs, no plaintext secrets
+```
+
+---
+
+## Phase 3: Crawler System
+
+### crawler/app_crawler.py
+
+Lambda handler triggered by `app-crawl-queue`. Each message = one appid.
+Fetches metadata + SteamSpy. Upserts to `games`, `tags`, `game_tags`, `genres`, `game_genres`.
+
+### crawler/review_crawler.py
+
+Lambda handler triggered by `review-crawl-queue`. Each message = one appid.
+Fetches up to 2000 most recent reviews. Upserts to `reviews`.
+After upsert, starts Step Functions execution for analysis.
+
+### scripts/seed.py
+
+Bootstrap script for top 500 games. Supports `--dry-run` and `--limit N` flags.
+1. Fetch full app list from Steam
+2. Push all appids to `app-crawl-queue`
+3. After metadata crawl, push top 500 (by review_count desc) to `review-crawl-queue`
+
+### Verify Phase 3
+
+```bash
+poetry run python scripts/seed.py --dry-run --limit 5
+```
+
+---
+
+## Phase 4: Next.js Frontend
+
+### Initialize
+
+```bash
+cd frontend
+npx create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias "@/*"
+npx shadcn@latest init
+npx shadcn@latest add card badge button
+```
+
+### frontend/lib/types.ts
+
+TypeScript types for all report fields. Must exactly match `steampulse/analyzer.py` schema:
+`GameReport`, `AudienceProfile`, `DevPriority`, `CompetitorRef`, `PreviewResponse`, `StatusResponse`
+
+### frontend/lib/api.ts
+
+```typescript
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+export async function getPreview(appid: number): Promise<PreviewResponse>
+export async function validateKey(key: string, appid: number): Promise<GameReport>
+export async function pollStatus(jobId: string): Promise<StatusResponse>
+```
+
+### Game report page: frontend/app/games/[appid]/[slug]/page.tsx
+
+SSR. generateMetadata returns title/description/og from report data.
+
+Sections in order:
+1. Hero — name, Steam cover image, sentiment badge, hidden_gem_score
+2. The Verdict — one_liner, sentiment score bar
+3. Quick Stats — reviews, release date, price, developer
+4. Design Strengths — green chips (FREE)
+5. Gameplay Friction — red chips (FREE)
+6. Audience Profile — ideal for / not for cards (FREE)
+7. Sentiment Trend — badge + trend_note (FREE)
+8. Genre Context — single sentence (FREE)
+9. 🔒 Player Wishlist — blurred overlay + CTA if no key (PREMIUM)
+10. 🔒 Churn Triggers — blurred overlay + CTA if no key (PREMIUM)
+11. 🔒 Developer Priorities — numbered action items with effort/frequency badges (PREMIUM)
+12. Competitive Context — named game chips, cross-linked (FREE)
+13. Related Games — same genre/tag (FREE)
+
+Premium unlock:
+- Blurred frosted glass overlay on sections 9-11
+- CTA: "You're a developer doing pre-launch research. Get action items, refund signals, and
+  feature gaps your competitors haven't fixed — $7"
+- Click → modal with license key input → POST /api/validate-key
+- On success: store key in localStorage, re-render premium sections
+
+### Other pages
+
+- `frontend/app/page.tsx` — Home: search, trending, featured (hidden gems), genre grid
+- `frontend/app/genre/[slug]/page.tsx` — ISR daily, top 20 games + aggregate insight
+- `frontend/app/tag/[slug]/page.tsx` — same structure as genre
+- `frontend/app/developer/[slug]/page.tsx` — all games by developer, cross-game comparison
+- `frontend/app/sitemap.ts` — all game/genre/tag URLs with lastModified
+
+### Verify Phase 4
+
+```bash
+cd frontend && npm run dev
+# Check: game page renders, premium sections blurred, unlock flow works
+# Check: Lighthouse score > 90 performance + SEO
+```
+
+---
+
+## Phase 5: Featured Spots (CloudFront KVS)
+
+### infra/cloudfront_functions/inject_sponsor.js
+
+CloudFront Function that reads from KVS and injects `x-sponsor-data` header:
+```javascript
+import cf from 'cloudfront';
+const kvs = cf.kvs();
+async function handler(event) {
+  const uri = event.request.uri;
+  if (!uri.startsWith('/games/')) return event.request;
+  try {
+    const appid = uri.split('/')[2];
+    const sponsor = await kvs.get(`sponsor_${appid}`, { format: 'json' });
+    if (sponsor) event.request.headers['x-sponsor-data'] = { value: JSON.stringify(sponsor) };
+  } catch (e) { /* no sponsor */ }
+  return event.request;
+}
+```
+
+### Admin endpoint
+
+`POST /api/admin/feature-spot` (X-Admin-Key required)
+Writes sponsor JSON to CloudFront KVS via boto3. Visible globally within seconds.
+
+---
+
+## Phase 6: Pro Chat (V2)
+
+Update `steampulse/chat.py` to use new schema field names:
+- `design_strengths` (was `top_praises`)
+- `gameplay_friction` (was `top_complaints`)
+- `dev_priorities` (was `dev_action_items`)
+- `churn_triggers` (was `refund_risk_signals`)
+
+No new infrastructure needed. Gated by `PRO_ENABLED=true`.
+
+---
+
+## Cross-Cutting Rules (Apply Throughout)
+
+- All API errors: `{"error": "...", "code": "..."}` — never expose stack traces
+- All FastAPI endpoints: `async def`
+- DB connections: initialized at module level outside handlers (Lambda reuse)
+- No hardcoded secrets, account IDs, or region strings anywhere
+- Admin endpoints: validate `X-Admin-Key` header against env var
+- Haiku for chunk processing only. Sonnet for synthesis only (one call per game).
+
+---
+
+## Complete File Structure When Done
+
+```
+repo-root/
+  CLAUDE.md, steampulse-design.org, steam_analyzer_prompt.md
+  cdk.json, pyproject.toml, poetry.lock, Dockerfile, .env.example, .gitignore
+
+  steampulse/
+    api.py, analyzer.py (DO NOT MODIFY), storage.py, steam_source.py
+    rate_limiter.py, chat.py, main.py
+
+  crawler/
+    app_crawler.py, review_crawler.py
+
+  scripts/
+    seed.py
+
+  infra/
+    app.py, pipeline_stack.py, application_stage.py
+    cloudfront_functions/inject_sponsor.js
+    stacks/
+      data_stack.py, network_stack.py, app_stack.py, frontend_stack.py
+      crawler_stack.py, analysis_stack.py, monitoring_stack.py
+
+  frontend/
+    app/
+      page.tsx
+      games/[appid]/[slug]/page.tsx
+      genre/[slug]/page.tsx
+      tag/[slug]/page.tsx
+      developer/[slug]/page.tsx
+      sitemap.ts
+    lib/types.ts, lib/api.ts
+    components/
+      ReportHero.tsx, SentimentBar.tsx, ChipList.tsx
+      PremiumSection.tsx, UnlockModal.tsx, DevPriorityCard.tsx
+
+  .claude/commands/
+    analyze-game.md, check-schema.md, cdk-diff.md, new-stack.md
+```
+
+---
+
+## Definition of Done (Each Phase)
+
+- Code runs without errors locally
+- All existing tests pass
+- No hardcoded secrets or account IDs
+- `CLAUDE.md` is still accurate after your changes

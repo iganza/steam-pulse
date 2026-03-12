@@ -33,6 +33,7 @@ class PipelineStack(cdk.Stack):
             code_pipeline=codepipeline.Pipeline(
                 self,
                 "PipelineV2",
+                pipeline_name="steampulse",  # human-readable name in Console
                 pipeline_type=codepipeline.PipelineType.V2,
             ),
             synth=pipelines.ShellStep(

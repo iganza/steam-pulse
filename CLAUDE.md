@@ -166,7 +166,7 @@ infra/
 ```
 
 CDK rules (mandatory):
-- No physical resource names — let CDK generate
+- No physical resource names — let CDK generate (exception: `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console)
 - No env var lookups inside constructs — pass as props or context
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`

@@ -40,14 +40,8 @@ class PipelineStack(cdk.Stack):
                 "Synth",
                 input=source,
                 commands=[
-                    # Install Node + CDK CLI (CodeBuild standard image has Node 18)
                     "npm install -g aws-cdk",
-                    # Install Python 3.12 (CodeBuild standard 7.0 ships 3.11 as default)
-                    "apt-get install -y python3.12 python3.12-venv || true",
-                    "python3.12 -m ensurepip || true",
-                    # Install poetry using the system pip, force Python 3.12
                     "pip install poetry",
-                    "poetry env use python3.12",
                     "poetry install --with infra",
                     "poetry run cdk synth",
                 ],

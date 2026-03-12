@@ -39,6 +39,7 @@ class ApplicationStage(cdk.Stage):
             "Data",
             vpc=network.vpc,
             db_name=db_name,
+            is_production=is_production,
             env=env,
         )
 

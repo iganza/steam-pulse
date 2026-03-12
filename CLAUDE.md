@@ -67,6 +67,11 @@ cd frontend && npm install && npm run dev
 poetry run python steampulse/main.py --appid 440
 poetry run python steampulse/main.py --appid 440 --max-reviews 200 --json
 poetry run python steampulse/main.py --appid 440 --dry-run  # no LLM
+
+# Seed script
+poetry run python scripts/seed.py --limit 50   # staging (50 games — enough for genre/tag pages)
+poetry run python scripts/seed.py --dry-run --limit 5   # smoke test, no writes
+poetry run python scripts/seed.py              # production (full crawl — run once site is live)
 ```
 
 ---

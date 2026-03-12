@@ -39,6 +39,8 @@ class PipelineStack(cdk.Stack):
                 input=source,
                 commands=[
                     "npm install -g aws-cdk",
+                    # Build Next.js with OpenNext for Lambda deployment
+                    "cd frontend && npm ci && npx open-next@latest build && cd ..",
                     "pip install poetry",
                     "poetry install --with infra",
                     "poetry run cdk synth",

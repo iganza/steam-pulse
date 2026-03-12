@@ -9,13 +9,11 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from datetime import datetime, timezone
 
 import httpx
 import psycopg2
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from steampulse.steam_source import DirectSteamSource, SteamAPIError
 
 logger = logging.getLogger(__name__)

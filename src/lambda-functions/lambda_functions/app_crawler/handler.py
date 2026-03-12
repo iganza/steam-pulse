@@ -11,13 +11,11 @@ import json
 import logging
 import os
 import re
-import sys
 from datetime import date, datetime
 
 import httpx
 import psycopg2
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from steampulse.steam_source import DirectSteamSource, SteamAPIError
 
 logger = logging.getLogger(__name__)

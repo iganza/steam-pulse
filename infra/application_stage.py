@@ -11,11 +11,13 @@ from constructs import Construct
 
 from stacks.analysis_stack import AnalysisStack
 from stacks.app_stack import AppStack
-from stacks.crawler_stack import CrawlerStack
+from stacks.common_stack import CommonStack
 from stacks.data_stack import DataStack
 from stacks.frontend_stack import FrontendStack
+from stacks.lambda_stack import LambdaStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.network_stack import NetworkStack
+from stacks.sqs_stack import SqsStack
 
 
 class ApplicationStage(cdk.Stage):
@@ -51,14 +53,23 @@ class ApplicationStage(cdk.Stage):
             env=env,
         )
 
-        crawler = CrawlerStack(
+        common_stack = CommonStack(self, "Common", env=env)
+
+        sqs_stack = SqsStack(self, "Sqs", env=env)
+
+        lambda_stack = LambdaStack(
             self,
-            "Crawler",
+            "Lambda",
+            library_layer=common_stack.library_layer,
+            app_queue=sqs_stack.app_crawl_queue,
+            review_queue=sqs_stack.review_crawl_queue,
             vpc=network.vpc,
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
             env=env,
         )
+        lambda_stack.add_dependency(common_stack)
+        lambda_stack.add_dependency(sqs_stack)
 
         app = AppStack(
             self,
@@ -81,12 +92,12 @@ class ApplicationStage(cdk.Stage):
             self,
             "Monitoring",
             api_fn=app.api_fn,
-            app_crawler_fn=crawler.app_crawler_fn,
-            review_crawler_fn=crawler.review_crawler_fn,
-            app_queue=crawler.app_queue,
-            review_queue=crawler.review_queue,
-            app_dlq=crawler.app_dlq,
-            review_dlq=crawler.review_dlq,
+            app_crawler_fn=lambda_stack.app_crawler_fn,
+            review_crawler_fn=lambda_stack.review_crawler_fn,
+            app_queue=sqs_stack.app_crawl_queue,
+            review_queue=sqs_stack.review_crawl_queue,
+            app_dlq=sqs_stack.app_crawl_dlq,
+            review_dlq=sqs_stack.review_crawl_dlq,
             state_machine=analysis.state_machine,
             env=env,
         )

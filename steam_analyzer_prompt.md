@@ -329,6 +329,19 @@ OpenNext deploys Next.js to Lambda. Add `/*` behaviour to existing CloudFront di
 (lower priority than `/api/*` → FastAPI).
 Use `@open-next/aws-cdk-adapter` — docs: https://opennext.js.org/aws/getting_started
 
+### infra/stacks/monitoring_stack.py
+
+Use **`cdk-monitoring-constructs`** (PyPI: `cdk-monitoring-constructs`) — never write raw CloudWatch
+alarms, metrics, or dashboards by hand. Add it to the `infra` Poetry group before building.
+
+```python
+from cdk_monitoring_constructs import MonitoringFacade, AlarmFactoryDefaults, ...
+```
+
+Wire up monitoring for: FastAPI Lambda (errors, p99 latency), analysis Step Functions
+(execution failures), crawler SQS (DLQ depth), RDS (CPU, freeable memory).
+SNS topic for alarm notifications — ARN passed as a prop.
+
 ### Verify Phase 2
 
 ```bash

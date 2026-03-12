@@ -171,6 +171,7 @@ CDK rules (mandatory):
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`
 - Pipeline uses `CodePipelineSource.connection()` — NOT a PAT token
+- **Monitoring: use `cdk-monitoring-constructs` (npm: `cdk-monitoring-constructs`) — never write raw CloudWatch alarms or dashboards by hand**
 
 ---
 

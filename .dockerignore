@@ -1,0 +1,17 @@
+cdk.out
+.git
+.github
+frontend/node_modules
+frontend/.next
+frontend/.open-next
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+.env.*
+!.env.example
+tests/
+scripts/
+infra/
+*.md
+*.org

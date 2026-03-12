@@ -3,6 +3,10 @@
   "context": {
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:stackRelativeExports": "both",
-    "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true
+    "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true,
+    "account": "052475889199",
+    "region": "us-west-2",
+    "github_repo": "iganza/steam-pulse",
+    "hosted_zone_id": "REPLACE_WITH_ROUTE53_ZONE_ID"
   }
 }

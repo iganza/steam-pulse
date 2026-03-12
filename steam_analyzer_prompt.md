@@ -321,7 +321,8 @@ StartAnalysis ({appid, game_name})
 - SQS: `review-crawl-queue` (batch 1, visibility 10min)
 - Lambda: app-crawler (SQS trigger)
 - Lambda: review-crawler (SQS trigger)
-- EventBridge: nightly re-crawl of top 500
+- EventBridge rules (see Data Freshness strategy below for full schedule)
+- SQS DLQs on both queues (maxReceiveCount=3), alarm on DLQ depth > 0
 
 ### infra/stacks/frontend_stack.py
 
@@ -371,6 +372,49 @@ Bootstrap script for top 500 games. Supports `--dry-run` and `--limit N` flags.
 1. Fetch full app list from Steam
 2. Push all appids to `app-crawl-queue`
 3. After metadata crawl, push top 500 (by review_count desc) to `review-crawl-queue`
+
+### Data Freshness (crawler_stack.py — EventBridge rules)
+
+Four EventBridge scheduled rules will maintain data currency (defined here but **disabled by default
+— set `enabled=False` on each rule until the initial seed is complete and the site is live**).
+All push appids onto `app-crawl-queue`; the app-crawler then conditionally queues
+`review-crawl-queue` only if new reviews exceed a tiered absolute threshold (see below).
+
+| Rule | Schedule | Target games | Notes |
+|---|---|---|---|
+| `nightly-top500` | `cron(0 6 * * ? *)` | Top 500 by review_count | Metadata + delta check |
+| `weekly-mid-tier` | `cron(0 8 ? * SUN *)` | review_count 500–5000 | Weekly metadata + delta check |
+| `monthly-long-tail` | `cron(0 10 1 * ? *)` | review_count < 500 | Monthly, metadata only |
+| `weekly-discovery` | `cron(0 7 ? * MON *)` | Full Steam app list | Finds new games not yet in DB |
+
+**Delta check in `app_crawler.py` — tiered absolute threshold (NOT a flat percentage):**
+```python
+def _reanalysis_threshold(total_reviews: int) -> int:
+    """New reviews needed since last analysis to trigger re-analysis."""
+    if total_reviews < 200:
+        return 25
+    elif total_reviews < 2_000:
+        return 150
+    elif total_reviews < 20_000:
+        return 500
+    elif total_reviews < 200_000:
+        return 2_000
+    else:
+        return 10_000  # TF2/CS2-scale games: ~twice a year
+
+existing = await storage.get_game(appid)
+if existing:
+    new_count = fetched_data["review_count"] or 0
+    old_count = existing.get("review_count") or 0
+    if (new_count - old_count) >= _reanalysis_threshold(new_count):
+        await queue_review_crawl(appid)
+else:
+    await queue_review_crawl(appid)  # always analyse new games
+```
+
+**`data_freshness` in API responses:**
+`GET /api/games/{appid}` includes `last_analyzed` so the frontend can show
+"Analysis from 3 days ago". Reports older than 30 days show a "Refresh available" badge.
 
 ### Verify Phase 3
 

@@ -67,4 +67,16 @@ class ApplicationStage(cdk.Stage):
             env=env,
         )
 
-        MonitoringStack(self, "Monitoring", env=env)
+        MonitoringStack(
+            self,
+            "Monitoring",
+            api_fn=app.api_fn,
+            app_crawler_fn=crawler.app_crawler_fn,
+            review_crawler_fn=crawler.review_crawler_fn,
+            app_queue=crawler.app_queue,
+            review_queue=crawler.review_queue,
+            app_dlq=crawler.app_dlq,
+            review_dlq=crawler.review_dlq,
+            state_machine=analysis.state_machine,
+            env=env,
+        )

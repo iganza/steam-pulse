@@ -9,7 +9,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-APP_LIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 STEAMSPY_URL = "https://steamspy.com/api.php"
@@ -23,8 +22,8 @@ class SteamAPIError(RuntimeError):
 
 class SteamDataSource(ABC):
     @abstractmethod
-    async def get_app_list(self) -> list[dict]:
-        """Returns [{appid, name}] for all Steam apps."""
+    async def get_app_list(self, limit: int | None = None) -> list[dict]:
+        """Returns [{appid, name}] for all Steam apps. Optional limit stops pagination early."""
 
     @abstractmethod
     async def get_app_details(self, appid: int) -> dict:
@@ -43,7 +42,7 @@ class DirectSteamSource(SteamDataSource):
     """Calls Steam Store API and SteamSpy directly using httpx.
 
     URLs:
-    - App list:    GET https://api.steampowered.com/ISteamApps/GetAppList/v2/
+    - App list:    GET https://steamspy.com/api.php?request=all&page=N (paginated, 1000/page)
     - App details: GET https://store.steampowered.com/api/appdetails?appids={appid}
     - Reviews:     GET https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&num_per_page=100
                    Paginate using cursor param until max_reviews reached
@@ -81,9 +80,31 @@ class DirectSteamSource(SteamDataSource):
                 await asyncio.sleep(2**attempt)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
-    async def get_app_list(self) -> list[dict]:
-        resp = await self._get_with_retry(APP_LIST_URL)
-        return resp.json().get("applist", {}).get("apps", [])
+    async def get_app_list(self, limit: int | None = None) -> list[dict]:
+        """Paginate SteamSpy request=all (1000 apps/page) until empty response.
+
+        SteamSpy returns an empty body (not {}) on the last page, so we guard
+        against JSONDecodeError and break on empty content.
+        """
+        apps: list[dict] = []
+        page = 0
+        while True:
+            await self._jitter()
+            resp = await self._get_with_retry(STEAMSPY_URL, request="all", page=str(page))
+            if not resp.content.strip():
+                break
+            try:
+                data: dict = resp.json()
+            except ValueError:
+                break
+            if not data:
+                break
+            for appid_str, info in data.items():
+                apps.append({"appid": int(appid_str), "name": info.get("name", "")})
+            if limit and len(apps) >= limit:
+                break
+            page += 1
+        return apps
 
     async def get_app_details(self, appid: int) -> dict:
         await self._jitter()

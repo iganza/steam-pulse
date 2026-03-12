@@ -222,6 +222,25 @@ tomlkit = ["tomlkit (>=0.11.8)"]
 ujson = ["ujson (>=5.10.0)"]
 
 [[package]]
+name = "cdk-monitoring-constructs"
+version = "9.22.0"
+description = "cdk-monitoring-constructs"
+optional = false
+python-versions = "~=3.9"
+groups = ["infra"]
+files = [
+    {file = "cdk_monitoring_constructs-9.22.0-py3-none-any.whl", hash = "sha256:ff3c1facf66a41e99ca97764295f914ebac338ff0bae42b62bd8f5671968c950"},
+    {file = "cdk_monitoring_constructs-9.22.0.tar.gz", hash = "sha256:baa72552adc5403c2d7956947ac3bef5af5f062f643adcf69c7124f1d6230685"},
+]
+
+[package.dependencies]
+aws-cdk-lib = ">=2.160.0,<3.0.0"
+constructs = ">=10.0.5,<11.0.0"
+jsii = ">=1.127.0,<2.0.0"
+publication = ">=0.0.3"
+typeguard = "2.13.3"
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -1868,4 +1887,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "9be35a5d0730b2fbfddfc1f44231925571296bf0224e7672bab4cdfd78b112ef"
+content-hash = "19a74fce869fee72bd2197baebf862daaf5dfbd4bd0ae8b3c2ced6f44889c8ce"

@@ -29,10 +29,10 @@ class CrawlerStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # Dead-letter queues
-        app_dlq = sqs.Queue(self, "AppCrawlDlq",
-                            retention_period=cdk.Duration.days(14))
-        review_dlq = sqs.Queue(self, "ReviewCrawlDlq",
-                               retention_period=cdk.Duration.days(14))
+        self.app_dlq = sqs.Queue(self, "AppCrawlDlq",
+                                 retention_period=cdk.Duration.days(14))
+        self.review_dlq = sqs.Queue(self, "ReviewCrawlDlq",
+                                    retention_period=cdk.Duration.days(14))
 
         # App crawl queue — batch 10, 5 min visibility
         self.app_queue = sqs.Queue(
@@ -41,7 +41,7 @@ class CrawlerStack(cdk.Stack):
             visibility_timeout=cdk.Duration.minutes(5),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
-                queue=app_dlq,
+                queue=self.app_dlq,
             ),
         )
 
@@ -52,7 +52,7 @@ class CrawlerStack(cdk.Stack):
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
-                queue=review_dlq,
+                queue=self.review_dlq,
             ),
         )
 
@@ -84,7 +84,7 @@ class CrawlerStack(cdk.Stack):
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
-        app_crawler = lambda_.Function(
+        self.app_crawler_fn = lambda_.Function(
             self,
             "AppCrawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
@@ -99,7 +99,7 @@ class CrawlerStack(cdk.Stack):
             environment=common_env,
             log_group=app_crawler_log_group,
         )
-        app_crawler.add_event_source(
+        self.app_crawler_fn.add_event_source(
             event_sources.SqsEventSource(self.app_queue, batch_size=10)
         )
 
@@ -110,7 +110,7 @@ class CrawlerStack(cdk.Stack):
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
-        review_crawler = lambda_.Function(
+        self.review_crawler_fn = lambda_.Function(
             self,
             "ReviewCrawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
@@ -125,7 +125,7 @@ class CrawlerStack(cdk.Stack):
             environment=common_env,
             log_group=review_crawler_log_group,
         )
-        review_crawler.add_event_source(
+        self.review_crawler_fn.add_event_source(
             event_sources.SqsEventSource(self.review_queue, batch_size=1)
         )
 

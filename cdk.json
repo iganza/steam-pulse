@@ -6,6 +6,8 @@
     "@aws-cdk/aws-ec2:restrictDefaultSecurityGroup": true,
     "account": "052475889199",
     "region": "us-west-2",
+    "hosted-zone-id": "Z1234ABCDEFGH",
+    "domain-name": "steampulse.io",
     "github_repo": "iganza/steam-pulse",
     "hosted_zone_id": "REPLACE_WITH_ROUTE53_ZONE_ID"
   }

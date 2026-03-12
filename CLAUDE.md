@@ -229,6 +229,46 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 ---
 
+## Data Freshness Strategy
+
+Four EventBridge rules in `crawler_stack.py` keep data current. **All rules are deployed
+with `enabled=False` — enable manually after the initial seed is complete and site is live.**
+
+| Rule | Schedule | Scope |
+|---|---|---|
+| `nightly-top500` | Daily 6am UTC | Top 500 games — metadata + reviews + re-analysis |
+| `weekly-mid-tier` | Sundays 8am UTC | review_count 500–5000 |
+| `monthly-long-tail` | 1st of month | review_count < 500, metadata only |
+| `weekly-discovery` | Mondays 7am UTC | Full Steam app list — finds new games not in DB |
+
+**Delta-triggered re-analysis:** `app_crawler.py` only queues `review-crawl-queue`
+(which triggers Step Functions) if new reviews since last crawl exceed a tiered absolute
+threshold. Never use a flat percentage — large games have stable sentiment and need
+far fewer re-analyses than small games.
+
+```python
+def _reanalysis_threshold(total_reviews: int) -> int:
+    """New reviews needed since last analysis to trigger re-analysis."""
+    if total_reviews < 200:
+        return 25
+    elif total_reviews < 2_000:
+        return 150
+    elif total_reviews < 20_000:
+        return 500
+    elif total_reviews < 200_000:
+        return 2_000
+    else:
+        return 10_000
+```
+
+TF2 (800k reviews) needs 10k new reviews to re-trigger — maybe twice a year.
+A small indie (200 reviews) needs just 25 — maybe monthly. Target: ~$50/month steady state.
+
+**Staleness signal:** `last_analyzed` is returned in all API responses.
+Frontend shows "Analysis from X days ago" and a "Refresh available" badge after 30 days.
+
+---
+
 ## Do Not Build
 
 - No user accounts or login system

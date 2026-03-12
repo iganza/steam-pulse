@@ -302,6 +302,34 @@ Lazy generation flow:
 - First request for unanalyzed game → FastAPI triggers Step Functions → returns status page
 - Client polls =/api/status/{job_id}= every 5s → delivers full report when analysis completes
 
+* Ongoing Data Freshness
+
+Four EventBridge scheduled rules maintain data quality after the initial seed:
+
+| Rule             | Schedule          | Scope                          | Action                          |
+|------------------+-------------------+--------------------------------+---------------------------------|
+| nightly-top500   | Daily 6am UTC     | Top 500 by review_count        | Metadata + reviews + re-analyse |
+| weekly-mid-tier  | Sundays 8am UTC   | review_count 500–5000          | Metadata + delta re-analyse     |
+| monthly-long-tail| 1st of month      | review_count < 500             | Metadata only                   |
+| weekly-discovery | Mondays 7am UTC   | Full Steam app list            | Discover and queue new games    |
+
+*Delta-triggered re-analysis:* The app-crawler uses a tiered absolute threshold —
+not a flat percentage — to decide whether to queue a review crawl + LLM analysis.
+Large games (TF2: 800k reviews) need 10,000 new reviews to trigger; small games
+(200 reviews) need just 25. This reflects the reality that big games have stable
+sentiment while small games change meaningfully with every batch of new reviews.
+
+*Staleness signal:* =last_analyzed= is included in all API responses and shown on the
+frontend as "Analysis from X days ago". Reports older than 30 days show a "Refresh available"
+badge.
+
+*Cost estimate (steady state, post-seed with tiered delta thresholds):*
+- Top 500 nightly: high-review games need 2k–10k new reviews to trigger → ~10 re-analyses/month × $0.25 ≈ ~$3
+- Mid-tier weekly: ~200 games/month cross threshold × $0.10 ≈ ~$20
+- Long tail monthly: metadata only, no LLM — negligible
+- *Total ongoing LLM cost: ~$25–50/month*
+- Compare: flat 5% threshold ≈ ~$500–700/month; naive nightly everything ≈ ~$2,700/month
+
 * Data Model (PostgreSQL)
 
 #+BEGIN_SRC sql

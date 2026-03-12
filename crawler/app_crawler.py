@@ -2,6 +2,8 @@
 
 Triggered by SQS app-crawl-queue. Each message body: {"appid": <int>}
 Writes to: games, tags, game_tags, genres, game_genres, game_categories.
+After upsert, queues appid to review-crawl-queue if new reviews since last
+crawl exceed the tiered delta threshold (_reanalysis_threshold).
 """
 
 import asyncio
@@ -25,6 +27,35 @@ logger.setLevel(logging.INFO)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+REVIEW_QUEUE_ENV = "REVIEW_CRAWL_QUEUE_URL"
+
+
+def _reanalysis_threshold(total_reviews: int) -> int:
+    """New reviews needed since last crawl to trigger re-analysis."""
+    if total_reviews < 200:
+        return 25
+    elif total_reviews < 2_000:
+        return 150
+    elif total_reviews < 20_000:
+        return 500
+    elif total_reviews < 200_000:
+        return 2_000
+    else:
+        return 10_000
+
+
+def _queue_for_review_crawl(appid: int) -> None:
+    """Send appid to review-crawl-queue if REVIEW_CRAWL_QUEUE_URL is set."""
+    queue_url = os.getenv(REVIEW_QUEUE_ENV)
+    if not queue_url:
+        logger.info("No %s set — skipping review-crawl queue for appid=%s", REVIEW_QUEUE_ENV, appid)
+        return
+    import boto3  # type: ignore[import-untyped]
+    sqs = boto3.client("sqs")
+    sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps({"appid": appid}))
+    logger.info("Queued appid=%s to review-crawl-queue", appid)
 
 
 def _slugify(name: str) -> str:
@@ -167,6 +198,12 @@ async def crawl_app(
     if dry_run:
         return True
 
+    # Read old review_count before upsert to compute delta
+    with conn.cursor() as cur:
+        cur.execute("SELECT review_count FROM games WHERE appid = %s", (appid,))
+        row = cur.fetchone()
+    old_review_count: int = int(row[0]) if row and row[0] is not None else 0
+
     with conn.cursor() as cur:
         # --- games ---
         cur.execute(
@@ -283,6 +320,22 @@ async def crawl_app(
                 )
 
     conn.commit()
+
+    # Delta-triggered review crawl: queue if new reviews exceed tiered threshold
+    delta = total_reviews - old_review_count
+    threshold = _reanalysis_threshold(total_reviews)
+    if delta >= threshold:
+        logger.info(
+            "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
+            appid, delta, threshold,
+        )
+        _queue_for_review_crawl(appid)
+    else:
+        logger.info(
+            "appid=%s delta=%d < threshold=%d — skipping review crawl",
+            appid, delta, threshold,
+        )
+
     return True
 
 

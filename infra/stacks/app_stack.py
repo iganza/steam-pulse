@@ -62,6 +62,17 @@ class AppStack(cdk.Stack):
         )
         db_secret.grant_read(api_role)
 
+        # Allow Lambda to invoke Claude via Bedrock (no API key needed)
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                ],
+            )
+        )
+
         # Allow API Lambda to start Step Functions executions
         if sfn_arn:
             api_role.add_to_policy(

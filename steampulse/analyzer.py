@@ -5,8 +5,8 @@ import os
 
 import anthropic
 
-HAIKU_MODEL_DEFAULT = "claude-3-5-haiku-20241022"
-SONNET_MODEL_DEFAULT = "claude-3-5-sonnet-20241022"
+HAIKU_MODEL_DEFAULT = "anthropic.claude-3-5-haiku-20241022-v1:0"
+SONNET_MODEL_DEFAULT = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 
 def _haiku_model() -> str:
@@ -55,11 +55,9 @@ SYNTHESIS_SYSTEM_PROMPT = (
 )
 
 
-def _get_client() -> anthropic.Anthropic:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
-    return anthropic.Anthropic(api_key=api_key)
+def _get_client() -> anthropic.AnthropicBedrock:
+    # Uses Lambda's IAM role via boto3 — no API key needed
+    return anthropic.AnthropicBedrock()
 
 
 def _chunk_reviews(reviews: list[dict], chunk_size: int = CHUNK_SIZE) -> list[list[dict]]:
@@ -99,7 +97,7 @@ def _sentiment_label(score: float) -> str:
     return "Overwhelmingly Negative"
 
 
-def _summarize_chunk(client: anthropic.Anthropic, chunk: list[dict], chunk_index: int, total_chunks: int) -> dict:
+def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chunk_index: int, total_chunks: int) -> dict:
     """Pass 1: extract raw signals from a batch of reviews using Haiku with prompt caching."""
     reviews_text = "\n\n".join(
         f"[{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
@@ -165,7 +163,7 @@ def _summarize_chunk(client: anthropic.Anthropic, chunk: list[dict], chunk_index
 
 
 def _synthesize(
-    client: anthropic.Anthropic,
+    client: anthropic.AnthropicBedrock,
     chunk_summaries: list[dict],
     game_name: str,
     total_reviews: int,

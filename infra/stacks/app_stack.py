@@ -125,14 +125,8 @@ class AppStack(cdk.Stack):
         self.kvs = cloudfront.KeyValueStore(self, "FeaturedKvs")
 
         # Cache policies
-        api_cache_policy = cloudfront.CachePolicy(
-            self,
-            "ApiCachePolicy",
-            default_ttl=cdk.Duration.seconds(0),
-            max_ttl=cdk.Duration.seconds(0),
-            min_ttl=cdk.Duration.seconds(0),
-            enable_accept_encoding_gzip=True,
-        )
+        # API: no caching — use AWS managed policy (avoids gzip+no-cache conflict)
+        api_cache_policy = cloudfront.CachePolicy.CACHING_DISABLED
 
         html_cache_policy = cloudfront.CachePolicy(
             self,

@@ -14,19 +14,17 @@ class DataStack(cdk.Stack):
         construct_id: str,
         *,
         vpc: ec2.Vpc,
+        db_name: str = "steampulse",
         **kwargs: object,
     ) -> None:
-        # termination_protection is always True for this stack
         kwargs["termination_protection"] = True
         super().__init__(scope, construct_id, **kwargs)
 
-        # RDS security group
-        db_sg = ec2.SecurityGroup(self, "DbSg", vpc=vpc, description="RDS access")
+        db_sg = ec2.SecurityGroup(self, "DatabaseSecurityGroup", vpc=vpc, description="RDS access")
 
-        # RDS PostgreSQL — t3.micro, Secret auto-generated
         db = rds.DatabaseInstance(
             self,
-            "Postgres",
+            "PostgresInstance",
             engine=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_16_3
             ),
@@ -38,7 +36,7 @@ class DataStack(cdk.Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
             ),
             security_groups=[db_sg],
-            database_name="steampulse",
+            database_name=db_name,
             deletion_protection=True,
             backup_retention=cdk.Duration.days(7),
             storage_encrypted=True,

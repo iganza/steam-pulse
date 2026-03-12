@@ -25,27 +25,29 @@ class AppStack(cdk.Stack):
         vpc: ec2.Vpc,
         db_secret: secretsmanager.ISecret,
         sfn_arn: str,
+        is_production: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, cross_region_references=True, **kwargs)
 
-        # Route53 hosted zone — ID passed via context (no live lookup needed for synth)
-        zone_id: str = self.node.try_get_context("hosted_zone_id") or ""
-        hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
-            self,
-            "Zone",
-            hosted_zone_id=zone_id,
-            zone_name=DOMAIN,
-        )
-
-        # ACM certificate — DNS-validated against the hosted zone
-        cert = acm.Certificate(
-            self,
-            "Cert",
-            domain_name=DOMAIN,
-            subject_alternative_names=[f"*.{DOMAIN}"],
-            validation=acm.CertificateValidation.from_dns(hosted_zone),
-        )
+        # Route53 + ACM only wired up in production — staging uses CloudFront URL only
+        hosted_zone = None
+        cert = None
+        if is_production:
+            zone_id: str = self.node.try_get_context("hosted-zone-id") or ""
+            hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
+                self,
+                "HostedZone",
+                hosted_zone_id=zone_id,
+                zone_name=DOMAIN,
+            )
+            cert = acm.Certificate(
+                self,
+                "DomainCertificate",
+                domain_name=DOMAIN,
+                subject_alternative_names=[f"*.{DOMAIN}"],
+                validation=acm.CertificateValidation.from_dns(hosted_zone),
+            )
 
         # IAM role for FastAPI Lambda
         api_role = iam.Role(
@@ -72,7 +74,7 @@ class AppStack(cdk.Stack):
         # FastAPI Lambda — container image from repo root Dockerfile
         api_fn = lambda_.DockerImageFunction(
             self,
-            "ApiFn",
+            "ApiFunction",
             code=lambda_.DockerImageCode.from_image_asset(
                 ".",
                 file="Dockerfile",
@@ -104,7 +106,7 @@ class AppStack(cdk.Stack):
         # S3 bucket for static assets — created here to avoid cross-stack OAC cycle
         assets_bucket = s3.Bucket(
             self,
-            "Assets",
+            "StaticAssetsBucket",
             versioned=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
@@ -114,7 +116,7 @@ class AppStack(cdk.Stack):
         self.assets_bucket = assets_bucket
 
         # S3 Origin Access Control for static assets
-        oac = cloudfront.S3OriginAccessControl(self, "OAC")
+        oac = cloudfront.S3OriginAccessControl(self, "AssetsOriginAccessControl")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(
             assets_bucket, origin_access_control=oac
         )
@@ -159,7 +161,7 @@ class AppStack(cdk.Stack):
         # CloudFront distribution
         self.distribution = cloudfront.Distribution(
             self,
-            "Distribution",
+            "CloudFrontDistribution",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=lambda_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -181,30 +183,31 @@ class AppStack(cdk.Stack):
                     cache_policy=static_cache_policy,
                 ),
             },
-            domain_names=[DOMAIN, f"www.{DOMAIN}"],
-            certificate=cert,
+            domain_names=[DOMAIN, f"www.{DOMAIN}"] if is_production else None,
+            certificate=cert if is_production else None,
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,
             http_version=cloudfront.HttpVersion.HTTP2_AND_3,
         )
 
-        # Route53 A record → CloudFront
-        route53.ARecord(
-            self,
-            "AliasRecord",
-            zone=hosted_zone,
-            target=route53.RecordTarget.from_alias(
-                route53_targets.CloudFrontTarget(self.distribution)
-            ),
-        )
-        route53.ARecord(
-            self,
-            "WwwAliasRecord",
-            record_name="www",
-            zone=hosted_zone,
-            target=route53.RecordTarget.from_alias(
-                route53_targets.CloudFrontTarget(self.distribution)
-            ),
-        )
+        # Route53 A records — production only (staging uses CloudFront URL)
+        if is_production and hosted_zone:
+            route53.ARecord(
+                self,
+                "AliasRecord",
+                zone=hosted_zone,
+                target=route53.RecordTarget.from_alias(
+                    route53_targets.CloudFrontTarget(self.distribution)
+                ),
+            )
+            route53.ARecord(
+                self,
+                "WwwAliasRecord",
+                record_name="www",
+                zone=hosted_zone,
+                target=route53.RecordTarget.from_alias(
+                    route53_targets.CloudFrontTarget(self.distribution)
+                ),
+            )
 
         # Expose for other stacks
         self.api_fn = api_fn

@@ -1,4 +1,10 @@
-"""ApplicationStage — all production stacks in dependency order."""
+"""ApplicationStage — all stacks in dependency order.
+
+The CDK stage name ("Staging", "Production") is automatically prepended to all
+CloudFormation stack names and CDK-generated resource names. The only place we
+derive a custom prefix is the PostgreSQL database name (e.g. staging_steampulse,
+production_steampulse), since that's a DB identifier not a CDK resource name.
+"""
 
 import aws_cdk as cdk
 from constructs import Construct
@@ -21,9 +27,10 @@ class ApplicationStage(cdk.Stage):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        account = self.account
-        region = self.region
-        env = cdk.Environment(account=account, region=region)
+        env = cdk.Environment(account=self.account, region=self.region)
+        is_production = construct_id == "Production"
+        # DB name only — CDK handles all other resource naming automatically
+        db_name = f"{construct_id.lower()}_steampulse"
 
         network = NetworkStack(self, "Network", env=env)
 
@@ -31,6 +38,7 @@ class ApplicationStage(cdk.Stage):
             self,
             "Data",
             vpc=network.vpc,
+            db_name=db_name,
             env=env,
         )
 
@@ -57,6 +65,7 @@ class ApplicationStage(cdk.Stage):
             vpc=network.vpc,
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
+            is_production=(construct_id == "Production"),
             env=env,
         )
 

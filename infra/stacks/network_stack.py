@@ -11,7 +11,7 @@ class NetworkStack(cdk.Stack):
 
         self.vpc = ec2.Vpc(
             self,
-            "Vpc",
+            "AppVpc",
             max_azs=2,
             nat_gateways=1,
             subnet_configuration=[

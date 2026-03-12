@@ -17,12 +17,13 @@ class PipelineStack(cdk.Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        connection_arn: str = self.node.try_get_context("connection_arn") or ""
-        github_repo: str = self.node.try_get_context("github_repo") or "iganza/steam-pulse"
+        connection_arn: str = self.node.try_get_context("codestar-connection-arn") or ""
+        github_repo: str = self.node.try_get_context("github-repo") or "iganza/steam-pulse"
+        github_branch: str = self.node.try_get_context("github-branch") or "main"
 
         source = pipelines.CodePipelineSource.connection(
             github_repo,
-            "main",
+            github_branch,
             connection_arn=connection_arn,
         )
 

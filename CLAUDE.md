@@ -171,6 +171,8 @@ CDK rules (mandatory):
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`
 - Pipeline uses `CodePipelineSource.connection()` — NOT a PAT token
+- **Staging environment: CloudFront URL only — no custom domain, no ACM cert, no Route53 records. `steampulse.io` is production only.**
+- **Production environment: ACM cert (us-east-1) + CloudFront alias + Route53 A record for `steampulse.io`. Gated by `ManualApprovalStep` in the pipeline.**
 - **Monitoring: use `cdk-monitoring-constructs` (npm: `cdk-monitoring-constructs`) — never write raw CloudWatch alarms or dashboards by hand**
 
 ---

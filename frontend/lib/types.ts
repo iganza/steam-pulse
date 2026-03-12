@@ -1,0 +1,95 @@
+// TypeScript types matching steampulse/analyzer.py schema exactly
+
+export interface AudienceProfile {
+  ideal_player: string;
+  casual_friendliness: string;
+  archetypes: string[];
+  not_for: string[];
+}
+
+export interface DevPriority {
+  action: string;
+  why_it_matters: string;
+  frequency: string;
+  effort: string;
+}
+
+export interface CompetitorRef {
+  game: string;
+  comparison_sentiment: string;
+  note: string;
+}
+
+/** Full report — returned by /api/validate-key and /api/status when complete */
+export interface GameReport {
+  game_name: string;
+  appid: number;
+  total_reviews_analyzed: number;
+  overall_sentiment: string;
+  sentiment_score: number; // 0–100
+  sentiment_trend: string;
+  sentiment_trend_note: string;
+  one_liner: string;
+  audience_profile: AudienceProfile;
+  design_strengths: string[];
+  gameplay_friction: string[];
+  player_wishlist: string[]; // PREMIUM
+  churn_triggers: string[]; // PREMIUM
+  dev_priorities: DevPriority[]; // PREMIUM
+  competitive_context: CompetitorRef[];
+  genre_context: string;
+  hidden_gem_score: number; // 0–100
+  last_analyzed?: string; // ISO timestamp
+}
+
+/** Free preview — returned by POST /api/preview */
+export interface PreviewResponse {
+  game_name: string;
+  appid: number;
+  overall_sentiment: string;
+  sentiment_score: number;
+  one_liner: string;
+  audience_profile?: AudienceProfile;
+  job_id?: string; // present when report is being generated async
+  error?: string;
+  code?: string;
+}
+
+/** Async job status — returned by GET /api/status/{job_id} */
+export interface JobStatus {
+  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT";
+  report?: GameReport;
+  error?: string;
+}
+
+/** Game row from DB — used on listing pages */
+export interface Game {
+  appid: number;
+  name: string;
+  slug: string;
+  developer?: string;
+  header_image?: string;
+  review_count?: number;
+  positive_pct?: number;
+  hidden_gem_score?: number;
+  sentiment_score?: number;
+  price_usd?: number;
+  is_free?: boolean;
+  genres?: string[];
+  tags?: string[];
+  release_date?: string;
+}
+
+export interface Genre {
+  id: number;
+  name: string;
+  slug: string;
+  game_count?: number;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  slug: string;
+  game_count?: number;
+}

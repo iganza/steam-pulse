@@ -1,7 +1,6 @@
 """Self-mutating CDK Pipeline via CodeStar Connection to GitHub."""
 
 import aws_cdk as cdk
-import aws_cdk.aws_codepipeline as codepipeline
 import aws_cdk.aws_iam as iam
 import aws_cdk.pipelines as pipelines
 from constructs import Construct
@@ -28,15 +27,11 @@ class PipelineStack(cdk.Stack):
             connection_arn=connection_arn,
         )
 
+        # Let CDK Pipelines manage the underlying pipeline so it correctly
+        # configures V2 triggers from the CodeStar connection automatically.
         pipeline = pipelines.CodePipeline(
             self,
             "Pipeline",
-            code_pipeline=codepipeline.Pipeline(
-                self,
-                "PipelineV2",
-                pipeline_name="steampulse",  # human-readable name in Console
-                pipeline_type=codepipeline.PipelineType.V2,
-            ),
             synth=pipelines.CodeBuildStep(
                 "Synth",
                 input=source,

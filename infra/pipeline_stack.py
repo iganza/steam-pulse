@@ -38,14 +38,8 @@ class PipelineStack(cdk.Stack):
             synth=pipelines.CodeBuildStep(
                 "Synth",
                 input=source,
-                build_environment=codebuild.BuildEnvironment(
-                    build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
-                ),
                 commands=[
-                    # Install Node 22 via nvm (standard 7.0 ships Node 18 by default)
-                    ". ~/.nvm/nvm.sh && nvm install 22 && nvm use 22 && node --version",
                     "npm install -g aws-cdk",
-                    # Build Next.js with OpenNext for Lambda deployment
                     "cd frontend && npm ci && npx open-next@latest build && cd ..",
                     "pip install poetry",
                     "poetry install --with infra",
@@ -57,6 +51,20 @@ class PipelineStack(cdk.Stack):
                         resources=["*"],
                     ),
                 ],
+            ),
+            # Use BuildSpec runtime-versions to get Node 22 + Python 3.12
+            # (cleaner than nvm shell commands — matches how production CDK projects do it)
+            synth_code_build_defaults=pipelines.CodeBuildOptions(
+                partial_build_spec=codebuild.BuildSpec.from_object({
+                    "phases": {
+                        "install": {
+                            "runtime-versions": {
+                                "nodejs": "22.x",
+                                "python": "3.12",
+                            }
+                        }
+                    }
+                }),
             ),
             docker_enabled_for_synth=True,
         )
@@ -78,19 +86,4 @@ class PipelineStack(cdk.Stack):
                 env=cdk.Environment(account=self.account, region=self.region),
             ),
             pre=[pipelines.ManualApprovalStep("PromoteToProduction")],
-        )
-
-        # Force pipeline materialization so we can access the underlying construct,
-        # then add a V2 push trigger for the CodeStar connection.
-        pipeline.build_pipeline()
-        pipeline.pipeline.add_trigger(
-            provider_type=codepipeline.ProviderType.CODE_STAR_SOURCE_CONNECTION,
-            git_configuration=codepipeline.GitConfiguration(
-                source_action=pipeline.pipeline.stages[0].actions[0],
-                push_filter=[
-                    codepipeline.GitPushFilter(
-                        branches_includes=[github_branch],
-                    )
-                ],
-            ),
         )

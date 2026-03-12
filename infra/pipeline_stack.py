@@ -2,6 +2,7 @@
 
 import aws_cdk as cdk
 import aws_cdk.aws_codepipeline as codepipeline
+import aws_cdk.aws_iam as iam
 import aws_cdk.pipelines as pipelines
 from constructs import Construct
 
@@ -36,7 +37,7 @@ class PipelineStack(cdk.Stack):
                 pipeline_name="steampulse",  # human-readable name in Console
                 pipeline_type=codepipeline.PipelineType.V2,
             ),
-            synth=pipelines.ShellStep(
+            synth=pipelines.CodeBuildStep(
                 "Synth",
                 input=source,
                 commands=[
@@ -44,6 +45,13 @@ class PipelineStack(cdk.Stack):
                     "pip install poetry",
                     "poetry install --with infra",
                     "poetry run cdk synth",
+                ],
+                role_policy_statements=[
+                    # Required for ec2.Vpc AZ lookup during cdk synth
+                    iam.PolicyStatement(
+                        actions=["ec2:DescribeAvailabilityZones"],
+                        resources=["*"],
+                    ),
                 ],
             ),
             docker_enabled_for_synth=True,

@@ -1,6 +1,7 @@
 """Self-mutating CDK Pipeline via CodeStar Connection to GitHub."""
 
 import aws_cdk as cdk
+import aws_cdk.aws_codepipeline as codepipeline
 import aws_cdk.aws_iam as iam
 import aws_cdk.pipelines as pipelines
 from constructs import Construct
@@ -25,14 +26,14 @@ class PipelineStack(cdk.Stack):
             github_repo,
             github_branch,
             connection_arn=connection_arn,
+            trigger_on_push=True,
         )
 
-        # Let CDK Pipelines manage the underlying pipeline so it correctly
-        # configures V2 triggers from the CodeStar connection automatically.
         pipeline = pipelines.CodePipeline(
             self,
             "Pipeline",
             pipeline_name="steampulse",
+            pipeline_type=codepipeline.PipelineType.V2,
             synth=pipelines.CodeBuildStep(
                 "Synth",
                 input=source,
@@ -43,7 +44,6 @@ class PipelineStack(cdk.Stack):
                     "poetry run cdk synth",
                 ],
                 role_policy_statements=[
-                    # Required for ec2.Vpc AZ lookup during cdk synth
                     iam.PolicyStatement(
                         actions=["ec2:DescribeAvailabilityZones"],
                         resources=["*"],
@@ -70,4 +70,19 @@ class PipelineStack(cdk.Stack):
                 env=cdk.Environment(account=self.account, region=self.region),
             ),
             pre=[pipelines.ManualApprovalStep("PromoteToProduction")],
+        )
+
+        # Force pipeline materialization so we can access the underlying construct,
+        # then add a V2 push trigger for the CodeStar connection.
+        pipeline.build_pipeline()
+        pipeline.pipeline.add_trigger(
+            provider_type=codepipeline.ProviderType.CODE_STAR_SOURCE_CONNECTION,
+            git_configuration=codepipeline.GitConfiguration(
+                source_action=pipeline.pipeline.stages[0].actions[0],
+                push_filter=[
+                    codepipeline.GitPushFilter(
+                        branches_includes=[github_branch],
+                    )
+                ],
+            ),
         )

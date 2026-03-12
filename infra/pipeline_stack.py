@@ -1,6 +1,7 @@
 """Self-mutating CDK Pipeline via CodeStar Connection to GitHub."""
 
 import aws_cdk as cdk
+import aws_cdk.aws_codebuild as codebuild
 import aws_cdk.aws_codepipeline as codepipeline
 import aws_cdk.aws_iam as iam
 import aws_cdk.pipelines as pipelines
@@ -37,7 +38,12 @@ class PipelineStack(cdk.Stack):
             synth=pipelines.CodeBuildStep(
                 "Synth",
                 input=source,
+                build_environment=codebuild.BuildEnvironment(
+                    build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
+                ),
                 commands=[
+                    # Install Node 22 via nvm (standard 7.0 ships Node 18 by default)
+                    ". ~/.nvm/nvm.sh && nvm install 22 && nvm use 22 && node --version",
                     "npm install -g aws-cdk",
                     # Build Next.js with OpenNext for Lambda deployment
                     "cd frontend && npm ci && npx open-next@latest build && cd ..",

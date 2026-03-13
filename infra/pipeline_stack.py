@@ -72,7 +72,7 @@ class PipelineStack(cdk.Stack):
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                deploy_stage,
+                f"SteamPulse-{deploy_stage}",
                 stage=deploy_stage.lower(),
                 env=cdk.Environment(account=self.account, region=self.region),
             )

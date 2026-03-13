@@ -37,15 +37,18 @@ class MonitoringStack(cdk.Stack):
         account = cdk.Stack.of(self).account
         region = cdk.Stack.of(self).region
 
-        # Look up resources by their explicit names — no cross-stack references
-        api_fn = lambda_.Function.from_function_name(
-            self, "ApiFunction", f"{stage}-steampulse-api"
+        # Look up resources by ARN — pure string construction, no CloudFormation lookups
+        api_fn = lambda_.Function.from_function_arn(
+            self, "ApiFunction",
+            f"arn:aws:lambda:{region}:{account}:function:{stage}-steampulse-api",
         )
-        app_crawler_fn = lambda_.Function.from_function_name(
-            self, "AppCrawler", f"{stage}-steampulse-app-crawler"
+        app_crawler_fn = lambda_.Function.from_function_arn(
+            self, "AppCrawler",
+            f"arn:aws:lambda:{region}:{account}:function:{stage}-steampulse-app-crawler",
         )
-        review_crawler_fn = lambda_.Function.from_function_name(
-            self, "ReviewCrawler", f"{stage}-steampulse-review-crawler"
+        review_crawler_fn = lambda_.Function.from_function_arn(
+            self, "ReviewCrawler",
+            f"arn:aws:lambda:{region}:{account}:function:{stage}-steampulse-review-crawler",
         )
         app_queue = sqs.Queue.from_queue_arn(
             self, "AppCrawlQueue",
@@ -63,8 +66,9 @@ class MonitoringStack(cdk.Stack):
             self, "ReviewCrawlDlq",
             f"arn:aws:sqs:{region}:{account}:{stage}-steampulse-review-crawl-dlq",
         )
-        state_machine = sfn.StateMachine.from_state_machine_name(
-            self, "AnalysisMachine", f"{stage}-steampulse-analysis"
+        state_machine = sfn.StateMachine.from_state_machine_arn(
+            self, "AnalysisMachine",
+            f"arn:aws:states:{region}:{account}:stateMachine:{stage}-steampulse-analysis",
         )
 
         # SNS topic — subscribe via console or CLI after deploy

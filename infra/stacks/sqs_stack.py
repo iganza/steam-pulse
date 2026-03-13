@@ -44,12 +44,13 @@ class SqsStack(cdk.Stack):
             ),
         )
 
-        # EventBridge: nightly re-crawl of top 500 (kicks off app crawler via app_crawl_queue)
+        # EventBridge: nightly re-crawl of top 500 — disabled until we're ready to run on a schedule
         nightly_rule = events.Rule(
             self,
             "NightlyRecrawl",
             schedule=events.Schedule.cron(hour="2", minute="0"),
             description="Nightly re-crawl of top 500 games",
+            enabled=False,
         )
         nightly_rule.add_target(
             targets.SqsQueue(self.app_crawl_queue)

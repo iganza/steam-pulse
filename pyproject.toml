@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI-powered Steam review analytics for indie game developers"
 authors = ["SteamPulse <hello@steampulse.gg>"]
 readme = "README.md"
-packages = []
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"

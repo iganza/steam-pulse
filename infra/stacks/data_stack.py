@@ -28,17 +28,13 @@ class DataStack(cdk.Stack):
         kwargs["termination_protection"] = True
         super().__init__(scope, construct_id, **kwargs)
 
-        # Deploy-time reference to the shared intra-VPC security group from NetworkStack
-        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/network/vpc-sg-id"
-        )
-
         db_sg = ec2.SecurityGroup(self, "DatabaseSecurityGroup", vpc=vpc, description="RDS access")
-        # Allow all Lambda functions (which carry intra_sg) to reach Postgres
+        # Allow all traffic within the VPC to reach Postgres on 5432.
+        # Using VPC CIDR avoids SSM token limitations in SourceSecurityGroupId.
         db_sg.add_ingress_rule(
-            ec2.Peer.security_group_id(vpc_sg_id),
+            ec2.Peer.ipv4(vpc.vpc_cidr_block),
             ec2.Port.tcp(5432),
-            "Allow Lambda intra-VPC SG to reach Postgres",
+            "Allow intra-VPC traffic to reach Postgres",
         )
 
         subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)

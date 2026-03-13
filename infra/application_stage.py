@@ -25,14 +25,15 @@ class ApplicationStage(cdk.Stage):
         self,
         scope: Construct,
         construct_id: str,
+        *,
+        stage: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         env = cdk.Environment(account=self.account, region=self.region)
-        is_production = construct_id == "Production"
-        # DB name only — CDK handles all other resource naming automatically
-        db_name = f"{construct_id.lower()}_steampulse"
+        is_production = stage == "production"
+        db_name = f"{stage}_steampulse"
 
         network = NetworkStack(self, "Network", env=env)
 
@@ -50,12 +51,13 @@ class ApplicationStage(cdk.Stage):
             "Analysis",
             vpc=network.vpc,
             db_secret=data.db_secret,
+            stage=stage,
             env=env,
         )
 
         common_stack = CommonStack(self, "Common", env=env)
 
-        sqs_stack = SqsStack(self, "Sqs", env=env)
+        sqs_stack = SqsStack(self, "Sqs", stage=stage, env=env)
 
         lambda_stack = LambdaStack(
             self,
@@ -67,6 +69,7 @@ class ApplicationStage(cdk.Stage):
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
             is_production=is_production,
+            stage=stage,
             env=env,
         )
         lambda_stack.add_dependency(common_stack)
@@ -79,7 +82,8 @@ class ApplicationStage(cdk.Stage):
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
             library_layer=common_stack.library_layer,
-            is_production=(construct_id == "Production"),
+            is_production=is_production,
+            stage=stage,
             env=env,
         )
         app.add_dependency(common_stack)
@@ -94,13 +98,6 @@ class ApplicationStage(cdk.Stage):
         MonitoringStack(
             self,
             "Monitoring",
-            api_fn=app.api_fn,
-            app_crawler_fn=lambda_stack.app_crawler_fn,
-            review_crawler_fn=lambda_stack.review_crawler_fn,
-            app_queue=sqs_stack.app_crawl_queue,
-            review_queue=sqs_stack.review_crawl_queue,
-            app_dlq=sqs_stack.app_crawl_dlq,
-            review_dlq=sqs_stack.review_crawl_dlq,
-            state_machine=analysis.state_machine,
+            stage=stage,
             env=env,
         )

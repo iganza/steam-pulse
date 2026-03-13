@@ -1,7 +1,9 @@
 """Monitoring stack — dashboard + alarms via cdk-monitoring-constructs.
 
-Creates an SNS topic you can subscribe to for alarm notifications.
-After deploying, subscribe your email:
+Resources are looked up by explicit name (not passed as CDK objects) to avoid
+CloudFormation cross-stack exports, which would prevent independent stack deletion.
+
+After deploying, subscribe your email to the alarm topic:
   aws sns subscribe --topic-arn <AlarmTopicArn output> \
       --protocol email --notification-endpoint you@example.com
 """
@@ -27,17 +29,43 @@ class MonitoringStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        api_fn: lambda_.IFunction,
-        app_crawler_fn: lambda_.IFunction,
-        review_crawler_fn: lambda_.IFunction,
-        app_queue: sqs.IQueue,
-        review_queue: sqs.IQueue,
-        app_dlq: sqs.IQueue,
-        review_dlq: sqs.IQueue,
-        state_machine: sfn.IStateMachine,
+        stage: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        account = cdk.Stack.of(self).account
+        region = cdk.Stack.of(self).region
+
+        # Look up resources by their explicit names — no cross-stack references
+        api_fn = lambda_.Function.from_function_name(
+            self, "ApiFunction", f"{stage}-steampulse-api"
+        )
+        app_crawler_fn = lambda_.Function.from_function_name(
+            self, "AppCrawler", f"{stage}-steampulse-app-crawler"
+        )
+        review_crawler_fn = lambda_.Function.from_function_name(
+            self, "ReviewCrawler", f"{stage}-steampulse-review-crawler"
+        )
+        app_queue = sqs.Queue.from_queue_arn(
+            self, "AppCrawlQueue",
+            f"arn:aws:sqs:{region}:{account}:{stage}-steampulse-app-crawl",
+        )
+        review_queue = sqs.Queue.from_queue_arn(
+            self, "ReviewCrawlQueue",
+            f"arn:aws:sqs:{region}:{account}:{stage}-steampulse-review-crawl",
+        )
+        app_dlq = sqs.Queue.from_queue_arn(
+            self, "AppCrawlDlq",
+            f"arn:aws:sqs:{region}:{account}:{stage}-steampulse-app-crawl-dlq",
+        )
+        review_dlq = sqs.Queue.from_queue_arn(
+            self, "ReviewCrawlDlq",
+            f"arn:aws:sqs:{region}:{account}:{stage}-steampulse-review-crawl-dlq",
+        )
+        state_machine = sfn.StateMachine.from_state_machine_name(
+            self, "AnalysisMachine", f"{stage}-steampulse-analysis"
+        )
 
         # SNS topic — subscribe via console or CLI after deploy
         self.alarm_topic = sns.Topic(
@@ -63,7 +91,6 @@ class MonitoringStack(cdk.Stack):
             ),
         )
 
-        # FastAPI Lambda — fault count (errors) + throttles
         monitoring.monitor_lambda_function(
             lambda_function=api_fn,
             human_readable_name="API (FastAPI)",
@@ -75,7 +102,6 @@ class MonitoringStack(cdk.Stack):
             },
         )
 
-        # App crawler Lambda
         monitoring.monitor_lambda_function(
             lambda_function=app_crawler_fn,
             human_readable_name="App Crawler",
@@ -84,7 +110,6 @@ class MonitoringStack(cdk.Stack):
             },
         )
 
-        # Review crawler Lambda
         monitoring.monitor_lambda_function(
             lambda_function=review_crawler_fn,
             human_readable_name="Review Crawler",
@@ -93,7 +118,6 @@ class MonitoringStack(cdk.Stack):
             },
         )
 
-        # DLQs — any message landing here is a failure worth waking up for
         monitoring.monitor_sqs_queue(
             queue=app_dlq,
             human_readable_name="App Crawl DLQ",
@@ -110,7 +134,6 @@ class MonitoringStack(cdk.Stack):
             },
         )
 
-        # Crawl queues — depth + message age visibility (no alarms, just dashboard)
         monitoring.monitor_sqs_queue(
             queue=app_queue,
             human_readable_name="App Crawl Queue",
@@ -121,7 +144,6 @@ class MonitoringStack(cdk.Stack):
             human_readable_name="Review Crawl Queue",
         )
 
-        # Step Functions analysis pipeline
         monitoring.monitor_step_function(
             state_machine=state_machine,
             human_readable_name="Analysis Pipeline",

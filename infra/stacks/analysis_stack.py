@@ -22,6 +22,7 @@ class AnalysisStack(cdk.Stack):
         *,
         vpc: ec2.Vpc,
         db_secret: secretsmanager.ISecret,
+        stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -122,6 +123,7 @@ class AnalysisStack(cdk.Stack):
         machine = sfn.StateMachine(
             self,
             "AnalysisMachine",
+            state_machine_name=f"{stage}-steampulse-analysis",
             definition_body=sfn.DefinitionBody.from_chainable(definition),
             state_machine_type=sfn.StateMachineType.EXPRESS,
             timeout=cdk.Duration.minutes(15),

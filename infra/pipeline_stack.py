@@ -73,7 +73,8 @@ class PipelineStack(cdk.Stack):
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                "Staging",
+                "SteamPulse-Staging",
+                stage="staging",
                 env=cdk.Environment(account=self.account, region=self.region),
             )
         )
@@ -82,7 +83,8 @@ class PipelineStack(cdk.Stack):
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                "Production",
+                "SteamPulse-Production",
+                stage="production",
                 env=cdk.Environment(account=self.account, region=self.region),
             ),
             pre=[pipelines.ManualApprovalStep("PromoteToProduction")],

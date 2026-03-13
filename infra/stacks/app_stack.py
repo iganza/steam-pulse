@@ -28,6 +28,7 @@ class AppStack(cdk.Stack):
         sfn_arn: str,
         library_layer: PythonLayerVersion,
         is_production: bool = False,
+        stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, cross_region_references=True, **kwargs)
@@ -88,6 +89,7 @@ class AppStack(cdk.Stack):
         api_fn = lambda_.Function(
             self,
             "ApiFunction",
+            function_name=f"{stage}-steampulse-api",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.api.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),

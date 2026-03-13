@@ -40,6 +40,22 @@ cp .env.example .env
 ./scripts/dev/invoke-app-crawler.sh 440 730 570
 ```
 
+### Running the frontend locally
+
+```bash
+cd frontend && npm install
+
+# Option A: frontend + local API (default)
+# Requires: ./scripts/dev/run-api.sh running in another terminal
+npm run dev
+
+# Option B: frontend pointing at staging API (no local API needed)
+API_URL=https://d218hpg56ignkd.cloudfront.net npm run dev
+```
+
+Next.js proxies `/api/*` to the API server in dev mode. In staging/production, CloudFront
+handles this at the CDN layer — no config change needed.
+
 ### AWS services used locally
 
 The crawlers and API connect to real AWS services using your local credentials:

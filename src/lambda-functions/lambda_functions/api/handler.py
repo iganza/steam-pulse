@@ -363,6 +363,86 @@ async def trigger_analyze(
     return {"job_id": job_id}
 
 
+_SORT_COLS = {
+    "review_count": "g.review_count DESC NULLS LAST",
+    "hidden_gem_score": "r.report_json->>'hidden_gem_score' DESC NULLS LAST",
+    "positive_pct": "g.positive_pct DESC NULLS LAST",
+}
+
+
+@app.get("/api/games")
+async def list_games(
+    genre: str | None = None,
+    tag: str | None = None,
+    developer: str | None = None,
+    sort: str = "review_count",
+    limit: int = 48,
+    offset: int = 0,
+) -> list[dict]:
+    if not hasattr(_storage, "query_catalog"):
+        return []
+    limit = min(limit, 200)
+    order = _SORT_COLS.get(sort, _SORT_COLS["review_count"])
+    conditions = ["1=1"]
+    params: list = []
+    if genre:
+        conditions.append("EXISTS (SELECT 1 FROM game_genres gg JOIN genres gn ON gg.genre_id=gn.id WHERE gg.appid=g.appid AND gn.slug=%s)")
+        params.append(genre)
+    if tag:
+        conditions.append("EXISTS (SELECT 1 FROM game_tags gt JOIN tags t ON gt.tag_id=t.id WHERE gt.appid=g.appid AND t.slug=%s)")
+        params.append(tag)
+    if developer:
+        conditions.append("g.developer ILIKE %s")
+        params.append(f"%{developer}%")
+    where = " AND ".join(conditions)
+    sql = f"""
+        SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
+               g.review_count, g.positive_pct, g.price_usd, g.is_free,
+               g.release_date,
+               r.report_json->>'hidden_gem_score' AS hidden_gem_score,
+               r.report_json->>'sentiment_score'  AS sentiment_score
+        FROM games g
+        LEFT JOIN reports r ON r.appid = g.appid
+        WHERE {where}
+        ORDER BY {order}
+        LIMIT %s OFFSET %s
+    """
+    params += [limit, offset]
+    rows = _storage.query_catalog(sql, tuple(params))
+    for row in rows:
+        if row.get("release_date"):
+            row["release_date"] = str(row["release_date"])
+    return rows
+
+
+@app.get("/api/genres")
+async def list_genres() -> list[dict]:
+    if not hasattr(_storage, "query_catalog"):
+        return []
+    return _storage.query_catalog("""
+        SELECT gn.id, gn.name, gn.slug, COUNT(gg.appid) AS game_count
+        FROM genres gn
+        LEFT JOIN game_genres gg ON gg.genre_id = gn.id
+        GROUP BY gn.id, gn.name, gn.slug
+        ORDER BY game_count DESC, gn.name
+    """)
+
+
+@app.get("/api/tags/top")
+async def list_top_tags(limit: int = 24) -> list[dict]:
+    if not hasattr(_storage, "query_catalog"):
+        return []
+    limit = min(limit, 100)
+    return _storage.query_catalog("""
+        SELECT t.id, t.name, t.slug, COUNT(gt.appid) AS game_count
+        FROM tags t
+        LEFT JOIN game_tags gt ON gt.tag_id = t.id
+        GROUP BY t.id, t.name, t.slug
+        ORDER BY game_count DESC, t.name
+        LIMIT %s
+    """, (limit,))
+
+
 @app.post("/api/chat")
 async def chat(body: ChatRequest, request: Request) -> dict:
     if os.getenv("PRO_ENABLED", "false").lower() != "true":

@@ -30,11 +30,12 @@ EOF
 
 echo "▶ Invoking review_crawler for appids: $*"
 poetry run python - <<EOF
-import asyncio, json, sys
+import json, sys
 sys.path.insert(0, "$REPO_ROOT/src/library-layer")
 sys.path.insert(0, "$REPO_ROOT/src/lambda-functions")
 from lambda_functions.review_crawler.handler import handler
 event = $RECORDS
-asyncio.run(handler(event, {}))
+result = handler(event, {})
+print("Result:", result)
 EOF
 echo "✓ Done"

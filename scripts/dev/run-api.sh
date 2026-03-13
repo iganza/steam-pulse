@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Run the FastAPI API server locally with hot reload.
-# Connects to local Postgres by default; override DATABASE_URL for staging.
+# Connects to local Docker Postgres by default.
 #
 # Usage:
 #   ./scripts/dev/run-api.sh
-#   DATABASE_URL=postgresql://... ./scripts/dev/run-api.sh
+#   DATABASE_URL=postgresql://... ./scripts/dev/run-api.sh   # override (e.g. staging RDS via tunnel)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-# Load .env if present
+# Capture any DATABASE_URL set in the caller's shell before sourcing .env
+CALLER_DB_URL="${DATABASE_URL:-}"
+
+# Load .env for other vars (API keys etc.) — but don't let placeholder DATABASE_URL win
 if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -18,7 +21,13 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   set +a
 fi
 
-export DATABASE_URL="${DATABASE_URL:-postgresql://steampulse:dev@localhost:5432/steampulse}"
+# Restore caller's DATABASE_URL if set, otherwise use local Docker default
+if [[ -n "$CALLER_DB_URL" ]]; then
+  export DATABASE_URL="$CALLER_DB_URL"
+else
+  export DATABASE_URL="postgresql://steampulse:dev@localhost:5432/steampulse"
+fi
+
 export STEP_FUNCTIONS_ARN="${STEP_FUNCTIONS_ARN:-arn:aws:states:us-west-2:052475889199:stateMachine:AnalysisMachine71715F9C-7A0mausNtyJN}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-2}"
 export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"

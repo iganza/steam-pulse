@@ -22,13 +22,8 @@ poetry run python - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/library-layer")
 from library_layer.storage import PostgresStorage
-import psycopg2
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
-storage = PostgresStorage.__new__(PostgresStorage)
-storage.conn = conn
-storage._create_tables()
-conn.commit()
-conn.close()
+storage = PostgresStorage(os.environ["DATABASE_URL"])
+storage._ensure_schema()
 print("✓ Schema ready")
 EOF
 

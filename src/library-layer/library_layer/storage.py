@@ -144,7 +144,6 @@ class PostgresStorage(BaseStorage):
             total_negative   INTEGER,
             positive_pct     INTEGER,
             review_score_desc TEXT,                      -- "Very Positive", "Mixed", etc.
-            steamspy_owners  TEXT,                       -- SteamSpy owner estimate range
             -- media
             header_image     TEXT,
             background_image TEXT,
@@ -389,7 +388,7 @@ class PostgresStorage(BaseStorage):
                         price_usd, is_free,
                         short_desc, detailed_description, about_the_game,
                         review_count, total_positive, total_negative,
-                        positive_pct, review_score_desc, steamspy_owners,
+                        positive_pct, review_score_desc,
                         header_image, background_image,
                         required_age, platforms, supported_languages,
                         achievements_total, metacritic_score,
@@ -401,7 +400,7 @@ class PostgresStorage(BaseStorage):
                         %(price_usd)s, %(is_free)s,
                         %(short_desc)s, %(detailed_description)s, %(about_the_game)s,
                         %(review_count)s, %(total_positive)s, %(total_negative)s,
-                        %(positive_pct)s, %(review_score_desc)s, %(steamspy_owners)s,
+                        %(positive_pct)s, %(review_score_desc)s,
                         %(header_image)s, %(background_image)s,
                         %(required_age)s, %(platforms)s, %(supported_languages)s,
                         %(achievements_total)s, %(metacritic_score)s,
@@ -428,7 +427,6 @@ class PostgresStorage(BaseStorage):
                         total_negative       = EXCLUDED.total_negative,
                         positive_pct         = EXCLUDED.positive_pct,
                         review_score_desc    = EXCLUDED.review_score_desc,
-                        steamspy_owners      = EXCLUDED.steamspy_owners,
                         header_image         = EXCLUDED.header_image,
                         background_image     = EXCLUDED.background_image,
                         required_age         = EXCLUDED.required_age,
@@ -461,7 +459,6 @@ class PostgresStorage(BaseStorage):
                         "total_negative": data.get("total_negative"),
                         "positive_pct": data.get("positive_pct"),
                         "review_score_desc": data.get("review_score_desc"),
-                        "steamspy_owners": data.get("steamspy_owners"),
                         "header_image": data.get("header_image"),
                         "background_image": data.get("background_image"),
                         "required_age": data.get("required_age", 0),

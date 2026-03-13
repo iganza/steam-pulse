@@ -1,5 +1,10 @@
 # SteamPulse — Full Build Specification
 
+> ⚠️ **HISTORICAL DOCUMENT** — This was the original build spec. The codebase has since been
+> refactored. File paths, stack names, and some architecture details are outdated.
+> **Use `CLAUDE.md` and `README.md` as the authoritative references for current structure.**
+> This file is retained for context on design decisions and LLM prompt content only.
+
 > **Before starting any work:** Read `CLAUDE.md` and `steampulse-design.org` in full.
 > They are the authoritative source for all architecture decisions.
 > The LLM prompts in `steampulse/analyzer.py` are correct — do not modify them.

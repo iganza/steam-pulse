@@ -20,11 +20,6 @@ def steam_appdetails_440() -> dict:
 
 
 @pytest.fixture
-def steamspy_appinfo_440() -> dict:
-    return json.loads((FIXTURES_DIR / "steamspy_appinfo_440.json").read_text())
-
-
-@pytest.fixture
 def steam_reviews_440() -> dict:
     return json.loads((FIXTURES_DIR / "steam_reviews_440.json").read_text())
 

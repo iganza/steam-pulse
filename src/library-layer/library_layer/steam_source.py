@@ -9,9 +9,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+APP_LIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
-STEAMSPY_URL = "https://steamspy.com/api.php"
 
 _RETRY_STATUSES = frozenset({429, 503})
 
@@ -23,7 +23,7 @@ class SteamAPIError(RuntimeError):
 class SteamDataSource(ABC):
     @abstractmethod
     async def get_app_list(self, limit: int | None = None) -> list[dict]:
-        """Returns [{appid, name}] for all Steam apps. Optional limit stops pagination early."""
+        """Returns [{appid, name}] for all Steam apps. Optional limit truncates result."""
 
     @abstractmethod
     async def get_app_details(self, appid: int) -> dict:
@@ -34,19 +34,20 @@ class SteamDataSource(ABC):
         """Returns reviews with voted_up, review_text, playtime_at_review."""
 
     @abstractmethod
-    async def get_steamspy_data(self, appid: int) -> dict:
-        """Returns SteamSpy data: tags, owner estimates."""
+    async def get_review_summary(self, appid: int) -> dict:
+        """Returns query_summary from Steam reviews API: total_positive, total_negative, total_reviews, review_score_desc."""
 
 
 class DirectSteamSource(SteamDataSource):
-    """Calls Steam Store API and SteamSpy directly using httpx.
+    """Calls Steam Store API directly using httpx.
 
     URLs:
-    - App list:    GET https://steamspy.com/api.php?request=all&page=N (paginated, 1000/page)
+    - App list:    GET https://api.steampowered.com/ISteamApps/GetAppList/v2/
     - App details: GET https://store.steampowered.com/api/appdetails?appids={appid}
     - Reviews:     GET https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&num_per_page=100
                    Paginate using cursor param until max_reviews reached
-    - SteamSpy:    GET https://steamspy.com/api.php?request=appdetails&appid={appid}
+    - Summary:     GET https://store.steampowered.com/appreviews/{appid}?json=1&num_per_page=1
+                   Returns query_summary with total review counts
 
     Add jitter (random 0.5-2s sleep) between requests.
     Retry up to 3 times with exponential backoff on 429/503.
@@ -81,29 +82,14 @@ class DirectSteamSource(SteamDataSource):
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
     async def get_app_list(self, limit: int | None = None) -> list[dict]:
-        """Paginate SteamSpy request=all (1000 apps/page) until empty response.
-
-        SteamSpy returns an empty body (not {}) on the last page, so we guard
-        against JSONDecodeError and break on empty content.
-        """
-        apps: list[dict] = []
-        page = 0
-        while True:
-            await self._jitter()
-            resp = await self._get_with_retry(STEAMSPY_URL, request="all", page=str(page))
-            if not resp.content.strip():
-                break
-            try:
-                data: dict = resp.json()
-            except ValueError:
-                break
-            if not data:
-                break
-            for appid_str, info in data.items():
-                apps.append({"appid": int(appid_str), "name": info.get("name", "")})
-            if limit and len(apps) >= limit:
-                break
-            page += 1
+        """Fetch full Steam app catalog in one request from the official API."""
+        await self._jitter()
+        resp = await self._get_with_retry(APP_LIST_URL)
+        data = resp.json()
+        apps_raw: list[dict] = data.get("applist", {}).get("apps", [])
+        apps = [{"appid": a["appid"], "name": a.get("name", "")} for a in apps_raw]
+        if limit:
+            apps = apps[:limit]
         return apps
 
     async def get_app_details(self, appid: int) -> dict:
@@ -159,13 +145,18 @@ class DirectSteamSource(SteamDataSource):
 
         return reviews[:max_reviews]
 
-    async def get_steamspy_data(self, appid: int) -> dict:
+    async def get_review_summary(self, appid: int) -> dict:
+        """Fetch review counts from Steam reviews API query_summary (num_per_page=1)."""
         await self._jitter()
+        url = REVIEWS_URL.format(appid=appid)
         try:
             resp = await self._get_with_retry(
-                STEAMSPY_URL, request="appdetails", appid=str(appid)
+                url, json="1", num_per_page="1", language="all", purchase_type="all"
             )
-            return resp.json()  # type: ignore[no-any-return]
+            data = resp.json()
+            if not data.get("success"):
+                return {}
+            return data.get("query_summary", {})  # type: ignore[no-any-return]
         except SteamAPIError:
-            logger.warning("SteamSpy data unavailable for appid=%s", appid)
+            logger.warning("Review summary unavailable for appid=%s", appid)
             return {}

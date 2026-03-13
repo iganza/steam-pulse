@@ -1,4 +1,4 @@
-"""Lambda handler — crawls app metadata from Steam + SteamSpy and upserts to DB.
+"""Lambda handler — crawls app metadata from Steam and upserts to DB.
 
 Triggered by SQS app-crawl-queue. Each message body: {"appid": <int>}
 Writes to: games, tags, game_tags, genres, game_genres, game_categories.
@@ -107,10 +107,15 @@ async def crawl_app(
         logger.info("appid=%s not found on Steam — skipping", appid)
         return False
 
-    try:
-        spy = await steam.get_steamspy_data(appid)
-    except SteamAPIError:
-        spy = {}
+    # Review counts from Steam reviews API query_summary
+    summary = await steam.get_review_summary(appid)
+    total_positive: int = int(summary.get("total_positive") or 0)
+    total_negative: int = int(summary.get("total_negative") or 0)
+    total_reviews = total_positive + total_negative
+    positive_pct: int | None = (
+        round(total_positive / total_reviews * 100) if total_reviews > 0 else None
+    )
+    review_score_desc: str = summary.get("review_score_desc", "") or ""
 
     # Identity
     devs: list[str] = details.get("developers") or []
@@ -130,14 +135,6 @@ async def crawl_app(
         price_info.get("final", 0) / 100.0 if price_info and not is_free else None
     )
 
-    # Review metrics — prefer SteamSpy counts (more accurate than recommendations)
-    spy_positive: int = int(spy.get("positive") or 0)
-    spy_negative: int = int(spy.get("negative") or 0)
-    total_reviews = spy_positive + spy_negative
-    positive_pct: int | None = (
-        round(spy_positive / total_reviews * 100) if total_reviews > 0 else None
-    )
-
     # Miscellaneous
     achievements = details.get("achievements") or {}
     achievements_total: int = (
@@ -150,6 +147,9 @@ async def crawl_app(
 
     name: str = details.get("name") or f"App {appid}"
     slug = _slugify(name) or f"app-{appid}"
+
+    genres: list[dict] = details.get("genres") or []
+    categories: list[dict] = details.get("categories") or []
 
     game_row: dict = {
         "appid": appid,
@@ -169,11 +169,10 @@ async def crawl_app(
         "detailed_description": details.get("detailed_description") or "",
         "about_the_game": details.get("about_the_game") or "",
         "review_count": total_reviews,
-        "total_positive": spy_positive,
-        "total_negative": spy_negative,
+        "total_positive": total_positive,
+        "total_negative": total_negative,
         "positive_pct": positive_pct,
-        "review_score_desc": details.get("review_score_desc") or "",
-        "steamspy_owners": str(spy.get("owners") or ""),
+        "review_score_desc": review_score_desc,
         "header_image": details.get("header_image") or "",
         "background_image": details.get("background") or "",
         "required_age": int(details.get("required_age") or 0),
@@ -184,13 +183,9 @@ async def crawl_app(
         "data_source": "steam_direct",
     }
 
-    tags: dict = spy.get("tags") or {} if isinstance(spy.get("tags"), dict) else {}
-    genres: list[dict] = details.get("genres") or []
-    categories: list[dict] = details.get("categories") or []
-
     logger.info(
-        "appid=%s name=%r — tags=%d genres=%d categories=%d",
-        appid, name, len(tags), len(genres), len(categories),
+        "appid=%s name=%r — genres=%d categories=%d reviews=%d",
+        appid, name, len(genres), len(categories), total_reviews,
     )
 
     if dry_run:
@@ -211,7 +206,7 @@ async def crawl_app(
                 website, release_date, coming_soon, price_usd, is_free,
                 short_desc, detailed_description, about_the_game,
                 review_count, total_positive, total_negative, positive_pct,
-                review_score_desc, steamspy_owners, header_image, background_image,
+                review_score_desc, header_image, background_image,
                 required_age, platforms, supported_languages,
                 achievements_total, metacritic_score, crawled_at, data_source
             ) VALUES (
@@ -220,7 +215,7 @@ async def crawl_app(
                 %(website)s, %(release_date)s, %(coming_soon)s, %(price_usd)s, %(is_free)s,
                 %(short_desc)s, %(detailed_description)s, %(about_the_game)s,
                 %(review_count)s, %(total_positive)s, %(total_negative)s, %(positive_pct)s,
-                %(review_score_desc)s, %(steamspy_owners)s, %(header_image)s,
+                %(review_score_desc)s, %(header_image)s,
                 %(background_image)s, %(required_age)s, %(platforms)s,
                 %(supported_languages)s, %(achievements_total)s, %(metacritic_score)s,
                 NOW(), %(data_source)s
@@ -246,7 +241,6 @@ async def crawl_app(
                 total_negative       = EXCLUDED.total_negative,
                 positive_pct         = EXCLUDED.positive_pct,
                 review_score_desc    = EXCLUDED.review_score_desc,
-                steamspy_owners      = EXCLUDED.steamspy_owners,
                 header_image         = EXCLUDED.header_image,
                 background_image     = EXCLUDED.background_image,
                 required_age         = EXCLUDED.required_age,
@@ -260,8 +254,12 @@ async def crawl_app(
             game_row,
         )
 
-        # --- tags (SteamSpy format: {"Tag Name": vote_count, ...}) ---
-        for tag_name, votes in tags.items():
+        # --- tags: genres + categories stored with vote_count=0 ---
+        tag_items = genres + categories
+        for item in tag_items:
+            tag_name = item.get("description") or ""
+            if not tag_name:
+                continue
             tag_slug = _slugify(tag_name) or tag_name.lower()[:50]
             cur.execute(
                 """
@@ -271,14 +269,14 @@ async def crawl_app(
                 (tag_name, tag_slug),
             )
             cur.execute("SELECT id FROM tags WHERE name = %s", (tag_name,))
-            row = cur.fetchone()
-            if row:
+            tag_row = cur.fetchone()
+            if tag_row:
                 cur.execute(
                     """
                     INSERT INTO game_tags (appid, tag_id, votes) VALUES (%s, %s, %s)
                     ON CONFLICT (appid, tag_id) DO UPDATE SET votes = EXCLUDED.votes
                     """,
-                    (appid, row[0], int(votes)),
+                    (appid, tag_row[0], 0),
                 )
 
         # --- genres (Steam API format: [{"id": "1", "description": "Action"}, ...]) ---

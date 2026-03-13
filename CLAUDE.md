@@ -21,7 +21,7 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 | Backend API | Python 3.12, FastAPI (JSON API only — no HTML rendering), uvicorn, httpx |
 | Frontend | Next.js (React SSR/ISR) in `frontend/`, deployed via OpenNext to Lambda |
 | LLM | `claude-3-5-haiku-20241022` (chunk pass), `claude-3-5-sonnet-20241022` (synthesis) |
-| DB | PostgreSQL on RDS. `BaseStorage` abstraction — `InMemoryStorage` locally, `PostgresStorage` when `DATABASE_URL` is set |
+| DB | PostgreSQL on RDS. `BaseStorage` abstraction — `PostgresStorage` via `DATABASE_URL`. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
 | Hosting | AWS Lambda (container image) + CloudFront + Route 53. **No Railway. No Fargate.** |
 | Infra | AWS CDK v2 (Python) in `infra/`. CDK Pipelines (self-mutating). |
 | Payments | Lemon Squeezy (license key model, handles VAT) |
@@ -34,15 +34,26 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 
 ```
 repo-root/
-  steampulse/       # Python FastAPI — API only, no HTML
-  frontend/         # Next.js app (React)
-  crawler/          # Python Lambda crawlers (separate Poetry group)
-  infra/            # AWS CDK v2 (Python)
-  pyproject.toml    # Python deps: main + infra + crawler groups
-  cdk.json          # "app": "poetry run python infra/app.py"
+  src/
+    library-layer/      # Shared Lambda layer: httpx, psycopg2, boto3, anthropic + framework code
+      library_layer/    # analyzer, storage, steam_source, fetcher, reporter
+    lambda-functions/   # All Lambda handlers
+      lambda_functions/
+        app_crawler/    # Crawls Steam metadata → writes to DB → queues review crawl
+        review_crawler/ # Fetches reviews → writes to DB → triggers Step Functions
+        api/            # FastAPI app: /preview, /validate-key, /health, /chat
+  frontend/             # Next.js app (React)
+  infra/                # AWS CDK v2 (Python)
+  scripts/
+    dev/                # Local dev helpers (start-local.sh, invoke-*.sh, run-api.sh)
+    seed.py             # Bootstrap top-N games into SQS
+    aws-costs.sh        # AWS cost report
+  main.py               # CLI tool for local LLM testing
+  pyproject.toml        # Python deps (main + infra groups)
+  cdk.json              # "app": "poetry run python infra/app.py"
+  docker-compose.yml    # Local Postgres for dev
   CLAUDE.md
   steampulse-design.org
-  steamwebapi-openapi-doc.json  # Reference only — not used in production
 ```
 
 ---
@@ -50,10 +61,16 @@ repo-root/
 ## Common Commands
 
 ```bash
-# Backend local dev
-cp .env.example .env
-poetry install
-poetry run uvicorn steampulse.api:app --reload
+# Local dev — start DB, run API, invoke crawlers
+./scripts/dev/start-local.sh          # start Postgres + init schema
+./scripts/dev/run-api.sh              # API at http://localhost:8000
+./scripts/dev/invoke-app-crawler.sh 440
+./scripts/dev/invoke-review-crawler.sh 440
+
+# CLI analysis (local LLM testing)
+poetry run python main.py --appid 440
+poetry run python main.py --appid 440 --max-reviews 200 --json
+poetry run python main.py --appid 440 --dry-run  # no LLM
 
 # CDK (infra)
 poetry install --with infra
@@ -63,15 +80,14 @@ poetry run cdk deploy  # only needed once to bootstrap pipeline
 # Frontend local dev
 cd frontend && npm install && npm run dev
 
-# CLI analysis (for testing)
-poetry run python steampulse/main.py --appid 440
-poetry run python steampulse/main.py --appid 440 --max-reviews 200 --json
-poetry run python steampulse/main.py --appid 440 --dry-run  # no LLM
+# Tests
+poetry run pytest -v
 
 # Seed script
-poetry run python scripts/seed.py --limit 50   # staging (50 games — enough for genre/tag pages)
-poetry run python scripts/seed.py --dry-run --limit 5   # smoke test, no writes
-poetry run python scripts/seed.py              # production (full crawl — run once site is live)
+export APP_CRAWL_QUEUE_URL="https://sqs.us-west-2.amazonaws.com/..."
+poetry run python scripts/seed.py --limit 50   # staging
+poetry run python scripts/seed.py --dry-run --limit 5   # smoke test
+poetry run python scripts/seed.py              # production (full crawl)
 ```
 
 ---
@@ -86,8 +102,7 @@ All data access goes through `BaseStorage`. Nothing in `api.py`, `analyzer.py`, 
 
 ### SteamDataSource abstraction (steam_source.py)
 
-All Steam data access goes through `SteamDataSource`. Currently only `DirectSteamSource` (calls Steam + SteamSpy directly).
-Add new implementations here if alternative data sources are needed later.
+All Steam data access goes through `SteamDataSource`. Currently only `DirectSteamSource` (calls Steam API directly). SteamSpy is NOT used — Steam's own API provides all required fields (genres, categories, review counts, metadata).
 
 ### LLM Two-Pass Analysis (analyzer.py)
 
@@ -161,13 +176,15 @@ infra/
   pipeline_stack.py       # Self-mutating CDK Pipeline (CodeStar Connection to GitHub)
   application_stage.py
   stacks/
-    data_stack.py         # RDS + S3, termination_protection=True
+    common_stack.py       # Lambda layers (LibraryLayer)
     network_stack.py      # VPC
-    crawler_stack.py      # SQS + Lambda crawlers
+    sqs_stack.py          # SQS queues + DLQs
+    lambda_stack.py       # Lambda functions (crawlers) + EventBridge schedules
+    data_stack.py         # RDS + S3, termination_protection=True
     analysis_stack.py     # Step Functions state machine
     app_stack.py          # FastAPI Lambda + Function URL + CloudFront + Route53 + ACM
     frontend_stack.py     # Next.js Lambda (OpenNext) + CloudFront behaviour
-    monitoring_stack.py
+    monitoring_stack.py   # CloudWatch via cdk-monitoring-constructs
 ```
 
 CDK rules (mandatory):
@@ -185,8 +202,9 @@ CDK rules (mandatory):
 ## Environment Variables
 
 ```
-ANTHROPIC_API_KEY       # Required
-DATABASE_URL            # PostgreSQL. Absence = InMemoryStorage
+DATABASE_URL            # PostgreSQL. Required for PostgresStorage (no InMemoryStorage fallback in Lambda)
+AWS_DEFAULT_REGION      # us-west-2
+BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
 LEMONSQUEEZY_API_KEY    # Payment validation
 RESEND_API_KEY          # Email
 PRO_ENABLED             # 'true' enables /api/chat (V2)
@@ -238,7 +256,7 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 ## Data Freshness Strategy
 
-Four EventBridge rules in `crawler_stack.py` keep data current. **All rules are deployed
+Four EventBridge rules in `lambda_stack.py` keep data current. **All rules are deployed
 with `enabled=False` — enable manually after the initial seed is complete and site is live.**
 
 | Rule | Schedule | Scope |

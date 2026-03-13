@@ -108,13 +108,23 @@ Single git repo on GitHub. Frontend and backend together because:
 
 #+BEGIN_SRC
 repo-root/
-  steampulse/     # Python FastAPI (API only — no HTML)
-  frontend/       # Next.js app (React SSR/ISR via OpenNext)
-  crawler/        # Python Lambda crawlers (separate Poetry group)
-  infra/          # AWS CDK v2 (Python)
-  pyproject.toml  # Python deps (backend + infra + crawler groups)
-  cdk.json        # Points to infra/app.py
-  .gitignore
+  src/
+    library-layer/          # Shared Lambda layer (httpx, psycopg2, boto3, anthropic + framework code)
+      library_layer/        # analyzer, storage, steam_source, fetcher, reporter
+    lambda-functions/       # All Lambda handlers
+      lambda_functions/
+        app_crawler/        # Crawls Steam metadata → writes to DB → queues review crawl
+        review_crawler/     # Fetches reviews → writes to DB → triggers Step Functions
+        api/                # FastAPI app: /preview, /validate-key, /health, /chat
+  frontend/                 # Next.js app (React SSR/ISR via OpenNext)
+  infra/                    # AWS CDK v2 (Python)
+  scripts/
+    dev/                    # Local dev helpers (start-local.sh, invoke-*.sh, run-api.sh)
+    seed.py                 # Bootstrap top-N games into SQS
+  main.py                   # CLI tool for local LLM testing
+  pyproject.toml            # Python deps (main + infra groups)
+  cdk.json                  # "app": "poetry run python infra/app.py"
+  docker-compose.yml        # Local Postgres for dev
   steampulse-design.org
 #+END_SRC
 
@@ -178,9 +188,11 @@ repo-root/
     pipeline_stack.py   # CDK Pipelines (self-mutating, CodePipeline engine)
     application_stage.py
     stacks/
+      common_stack.py   # Lambda layers (LibraryLayer from src/library-layer)
       data_stack.py     # RDS + S3, termination_protection=True
       network_stack.py  # VPC
-      crawler_stack.py  # SQS + Lambda crawlers
+      sqs_stack.py      # SQS queues + DLQs
+      lambda_stack.py   # Lambda crawlers (app_crawler, review_crawler) + EventBridge schedules
       analysis_stack.py # Step Functions state machine
       app_stack.py      # FastAPI Lambda + Function URL + CloudFront + Route53 + ACM
       frontend_stack.py # Next.js Lambda (OpenNext) + CloudFront behaviour
@@ -232,35 +244,32 @@ constructs = ">=10.0.0"
 
 ** Data sources
 
-SteamPulse needs three upstream sources, accessed via a =SteamDataSource= abstraction
+SteamPulse uses Steam's own APIs directly via a =SteamDataSource= abstraction
 (same pattern as =BaseStorage= — swap implementations without touching crawler logic).
 
 | Source           | URL                                        | Data                          |
 |------------------+--------------------------------------------+-------------------------------|
 | Steam App List   | api.steampowered.com/ISteamApps/GetAppList | All ~100k app IDs + names     |
-| Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, price  |
+| Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, categories, price, review counts |
 | Steam Reviews    | store.steampowered.com/appreviews/{appid}  | Review text, thumbs, playtime |
-| SteamSpy         | steamspy.com/api.php                       | Tags, owner count estimates   |
+
+SteamSpy is NOT used. Steam's own API provides all required fields (genres, categories,
+review counts, metadata). =get_steamspy_data()= is not part of the abstraction.
 
 ** SteamDataSource abstraction
-
-The abstraction exists so the data source can be swapped without touching crawler logic
-(e.g. direct Steam API today, a different provider later if rate limits become a problem).
-
 #+BEGIN_SRC python
 class SteamDataSource(ABC):
     async def get_app_list(self) -> list[dict]: ...
     async def get_app_details(self, appid: int) -> dict: ...
     async def get_reviews(self, appid: int, max_reviews: int) -> list[dict]: ...
-    async def get_steamspy_data(self, appid: int) -> dict: ...
 
 class DirectSteamSource(SteamDataSource):
-    """Default. Calls Steam Store API and SteamSpy directly."""
+    """Default. Calls Steam Store API directly."""
 #+END_SRC
 
 ** Two crawler Lambda functions
 
-1. *app-crawler*: Crawls game metadata from Steam Store API + SteamSpy. ~100k games.
+1. *app-crawler*: Crawls game metadata from Steam Store API. ~100k games.
    - SQS queue: =app-crawl-queue= (batch size 10)
    - Rate: ~200 req/5min per IP — use jitter to avoid bans
 
@@ -344,9 +353,9 @@ CREATE TABLE games (
   price_usd     NUMERIC(8,2),
   review_count  INTEGER,
   positive_pct  INTEGER,
-  steamspy_owners TEXT,
   header_image  TEXT,
-  short_desc    TEXT,
+  short_desc    TEXT,           -- plain text (HTML stripped at crawl time)
+  detailed_desc TEXT,           -- raw HTML from Steam (strip before LLM, never render on site)
   crawled_at    TIMESTAMPTZ,
   data_source   TEXT DEFAULT 'steam_direct'
 );
@@ -360,7 +369,6 @@ CREATE TABLE tags (
 CREATE TABLE game_tags (
   appid    INTEGER REFERENCES games(appid),
   tag_id   INTEGER REFERENCES tags(id),
-  votes    INTEGER DEFAULT 0,
   PRIMARY KEY (appid, tag_id)
 );
 
@@ -545,21 +553,21 @@ If the same SENTENCE or FRAMING appears in two sections — that is duplication.
 
 ** Report page sections (in order)
 
-| #  | Section                   | Free? | Notes                                     |
-|----+---------------------------+-------+-------------------------------------------|
-|  1 | Hero (name, cover, badge) | ✅    |                                           |
-|  2 | The Verdict (one-liner)   | ✅    | SEO hook                                  |
-|  3 | Quick stats               | ✅    | reviews, price, release, developer        |
-|  4 | Top Praises               | ✅    | Chips — indexable keywords                |
-|  5 | Top Complaints            | ✅    | Chips — SEO gold                          |
-|  6 | Audience Profile          | ✅    | "Who this game is for"                    |
-|  7 | Developer Action Items    | 🔒    | Numbered, with % frequency                |
-|  8 | Feature Requests          | 🔒    |                                           |
-|  9 | Refund Risk Signals       | 🔒    | Most valuable for devs                    |
-| 10 | Competitive Mentions      | ✅    | Names only, cross-linked to their reports |
-| 11 | Sentiment Trend           | ✅    | improving / stable / declining badge      |
-| 12 | Genre Context             | ✅    | vs genre average                          |
-| 13 | Related Games             | ✅    | Internal SEO cross-links                  |
+| #  | Section                     | Free? | Notes                                     |
+|----+-----------------------------+-------+-------------------------------------------|
+|  1 | Hero (name, cover, badge)   | ✅    |                                           |
+|  2 | The Verdict (one_liner)     | ✅    | SEO hook, max 25 words                    |
+|  3 | Quick stats                 | ✅    | reviews, price, release, developer        |
+|  4 | Design Strengths            | ✅    | Chips — what design decisions are working |
+|  5 | Gameplay Friction           | ✅    | Chips — in-game UX problems               |
+|  6 | Audience Profile            | ✅    | "Who this game is for"                    |
+|  7 | Dev Priorities              | 🔒    | Numbered, action + frequency + effort     |
+|  8 | Player Wishlist             | 🔒    | Net-new features only                     |
+|  9 | Churn Triggers              | 🔒    | Journey moments with timing — most valuable for devs |
+| 10 | Competitive Context         | ✅    | Named games cross-linked to their reports |
+| 11 | Sentiment Trend             | ✅    | improving / stable / declining badge      |
+| 12 | Genre Context               | ✅    | vs genre average                          |
+| 13 | Related Games               | ✅    | Internal SEO cross-links                  |
 
 * Site Architecture
 
@@ -641,11 +649,11 @@ CTAs always speak to *developers*, never to gamers. Gamers won't pay. Developers
 * Environment Variables
 
 #+BEGIN_SRC
-ANTHROPIC_API_KEY       # Required
-DATABASE_URL            # PostgreSQL. Absence = in-memory storage (local dev only)
+DATABASE_URL            # PostgreSQL. Required — no in-memory fallback in Lambda.
+AWS_DEFAULT_REGION      # us-west-2
+BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
 LEMONSQUEEZY_API_KEY    # Payment validation
 RESEND_API_KEY          # Email delivery
-DATA_SOURCE             # 'steam_direct' (default) — extend here if needed later
 PRO_ENABLED             # 'true' enables /api/chat (V2)
 CF_DISTRIBUTION_ID      # CloudFront distribution ID for cache invalidations
 CF_KVS_ARN              # CloudFront KeyValueStore ARN for featured spots
@@ -658,7 +666,8 @@ SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
 
 - [ ] Lemon Squeezy webhook handler for subscription events
 - [ ] CloudFront Function code for KVS-based sponsor banner injection
-- [ ] SteamSpy rate limit: 10k req/day on free tier — cache aggressively or get paid tier
-- [ ] =hidden_gem_score= algorithm (low review count + high positive pct + low price?)
+- [ ] =hidden_gem_score= algorithm (low review count + high positive pct + low price)
+- [ ] HTML stripping in =analyzer.py= — strip =detailed_desc= / =about_the_game= before LLM prompt-build (=re.sub(r'<[^>]+>', ' ', text)=)
 - [ ] sitemap.xml auto-generation (trigger on new analysis completion)
 - [ ] Next.js component library choice (shadcn/ui is current best practice for React)
+- [ ] Execute SteamSpy removal from =app_crawler/handler.py= (prompt written, not yet run)

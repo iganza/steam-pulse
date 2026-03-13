@@ -6,7 +6,6 @@ import httpx
 
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
-STEAMSPY_URL = "https://steamspy.com/api.php"
 
 MAX_PAGES = 5
 REVIEWS_PER_PAGE = 100
@@ -128,18 +127,5 @@ async def fetch_app_metadata(appid: int) -> dict | None:
         "review_score_desc": d.get("review_score_desc", ""),
     }
 
-
-async def fetch_steamspy(appid: int) -> dict | None:
-    """Fetch SteamSpy data for a given appid (V2 crawler use)."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            resp = await client.get(
-                STEAMSPY_URL,
-                params={"request": "appdetails", "appid": str(appid)},
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except (httpx.RequestError, httpx.HTTPStatusError):
-            return None
 
 

@@ -10,6 +10,18 @@ import pytest
 from moto import mock_aws
 from pytest_httpx import HTTPXMock
 
+REVIEW_SUMMARY = {
+    "success": 1,
+    "query_summary": {
+        "total_positive": 182000,
+        "total_negative": 6000,
+        "total_reviews": 188000,
+        "review_score": 9,
+        "review_score_desc": "Overwhelmingly Positive",
+    },
+    "reviews": [],
+}
+
 
 def make_sqs_event(appids: list[int]) -> dict:
     return {
@@ -36,9 +48,8 @@ def _mock_db_conn() -> tuple[MagicMock, MagicMock]:
 def test_handler_processes_single_appid(
     httpx_mock: HTTPXMock,
     steam_appdetails_440: dict,
-    steamspy_appinfo_440: dict,
 ) -> None:
-    """Handler fetches Steam + SteamSpy data, writes to DB, queues for review crawl."""
+    """Handler fetches Steam data, writes to DB, queues for review crawl."""
     # Create moto SQS queue for review crawl
     sqs = boto3.client("sqs", region_name="us-east-1")
     queue = sqs.create_queue(QueueName="test-review-queue")
@@ -47,14 +58,13 @@ def test_handler_processes_single_appid(
     os.environ["REVIEW_CRAWL_QUEUE_URL"] = queue_url
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
 
-    # Register httpx responses
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
         json=steam_appdetails_440,
     )
     httpx_mock.add_response(
-        url=re.compile(r"https://steamspy\.com/api\.php"),
-        json=steamspy_appinfo_440,
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY,
     )
 
     mock_conn, mock_cursor = _mock_db_conn()
@@ -107,7 +117,6 @@ def test_handler_skips_on_steam_api_failure(httpx_mock: HTTPXMock) -> None:
 def test_handler_processes_batch(
     httpx_mock: HTTPXMock,
     steam_appdetails_440: dict,
-    steamspy_appinfo_440: dict,
 ) -> None:
     """Batch of 3 appids: all succeed, DB write called 3 times."""
     sqs = boto3.client("sqs", region_name="us-east-1")
@@ -115,15 +124,14 @@ def test_handler_processes_batch(
     os.environ["REVIEW_CRAWL_QUEUE_URL"] = queue["QueueUrl"]
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
 
-    # Register responses for each appid (3 each for app_details + steamspy)
     for _ in range(3):
         httpx_mock.add_response(
             url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
             json=steam_appdetails_440,
         )
         httpx_mock.add_response(
-            url=re.compile(r"https://steamspy\.com/api\.php"),
-            json=steamspy_appinfo_440,
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEW_SUMMARY,
         )
 
     mock_conn, mock_cursor = _mock_db_conn()

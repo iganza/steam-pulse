@@ -15,7 +15,7 @@ from stacks.common_stack import CommonStack
 from stacks.data_stack import DataStack
 from stacks.frontend_stack import FrontendStack
 from stacks.lambda_stack import LambdaStack
-from stacks.monitoring_stack import MonitoringStack
+# from stacks.monitoring_stack import MonitoringStack
 from stacks.network_stack import NetworkStack
 from stacks.sqs_stack import SqsStack
 
@@ -95,9 +95,10 @@ class ApplicationStage(cdk.Stage):
             env=env,
         )
 
-        MonitoringStack(
-            self,
-            "Monitoring",
-            stage=stage,
-            env=env,
-        )
+        # MonitoringStack disabled until all Lambdas are stable and deployed
+        # MonitoringStack(
+        #     self,
+        #     "Monitoring",
+        #     stage=stage,
+        #     env=env,
+        # )

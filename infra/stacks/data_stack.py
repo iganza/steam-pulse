@@ -9,6 +9,7 @@ import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_rds as rds
 import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 
@@ -18,7 +19,8 @@ class DataStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        vpc: ec2.Vpc,
+        vpc: ec2.IVpc,
+        stage: str,
         db_name: str = "steampulse",
         is_production: bool = False,
         **kwargs: object,
@@ -26,7 +28,19 @@ class DataStack(cdk.Stack):
         kwargs["termination_protection"] = True
         super().__init__(scope, construct_id, **kwargs)
 
+        # Deploy-time reference to the shared intra-VPC security group from NetworkStack
+        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/network/vpc-sg-id"
+        )
+
         db_sg = ec2.SecurityGroup(self, "DatabaseSecurityGroup", vpc=vpc, description="RDS access")
+        # Allow all Lambda functions (which carry intra_sg) to reach Postgres
+        db_sg.add_ingress_rule(
+            ec2.Peer.security_group_id(vpc_sg_id),
+            ec2.Port.tcp(5432),
+            "Allow Lambda intra-VPC SG to reach Postgres",
+        )
+
         subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
         engine = rds.DatabaseClusterEngine.aurora_postgres(
             version=rds.AuroraPostgresEngineVersion.VER_16_4
@@ -70,4 +84,16 @@ class DataStack(cdk.Stack):
             )
             self.db_secret = db_cluster.secret  # type: ignore[assignment]
 
-        self.db_sg = db_sg
+        # Publish DB attributes for consumer stacks via SSM
+        ssm.StringParameter(
+            self,
+            "DbSecretArnParam",
+            parameter_name=f"/steampulse/{stage}/data/db-secret-arn",
+            string_value=self.db_secret.secret_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "DbSgIdParam",
+            parameter_name=f"/steampulse/{stage}/data/db-sg-id",
+            string_value=db_sg.security_group_id,
+        )

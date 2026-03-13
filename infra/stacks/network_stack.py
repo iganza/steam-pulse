@@ -2,6 +2,7 @@
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 
@@ -10,6 +11,8 @@ class NetworkStack(cdk.Stack):
         self,
         scope: Construct,
         construct_id: str,
+        *,
+        stage: str,
         is_production: bool = False,
         **kwargs: object,
     ) -> None:
@@ -42,4 +45,28 @@ class NetworkStack(cdk.Stack):
                     cidr_mask=24,
                 ),
             ],
+        )
+
+        # Shared intra-VPC security group — assigned to all Lambda functions so
+        # DataStack can grant a single known SG access to RDS instead of individual SGs.
+        intra_sg = ec2.SecurityGroup(
+            self,
+            "IntraVpcSg",
+            vpc=self.vpc,
+            description="Shared intra-VPC SG for all Lambda functions",
+            allow_all_outbound=True,
+        )
+
+        # Publish VPC attributes for consumer stacks via SSM
+        ssm.StringParameter(
+            self,
+            "VpcIdParam",
+            parameter_name=f"/steampulse/{stage}/network/vpc-id",
+            string_value=self.vpc.vpc_id,
+        )
+        ssm.StringParameter(
+            self,
+            "VpcSgIdParam",
+            parameter_name=f"/steampulse/{stage}/network/vpc-sg-id",
+            string_value=intra_sg.security_group_id,
         )

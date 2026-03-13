@@ -2,6 +2,10 @@
 
 Phase 4 builds the Next.js app and produces frontend/.open-next/.
 Until then this stack registers the CloudFront behaviour with a placeholder Lambda.
+
+NOTE: app_distribution is kept as a direct CDK object (not SSM-imported) because
+cloudfront.Distribution.from_distribution_attributes() returns IDistribution which
+throws "Cannot add behaviors to an imported distribution" when add_behavior() is called.
 """
 
 import os
@@ -23,6 +27,7 @@ class FrontendStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
+        stage: str,
         app_distribution: cloudfront.Distribution,
         **kwargs: object,
     ) -> None:

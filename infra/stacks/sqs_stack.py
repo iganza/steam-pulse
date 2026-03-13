@@ -3,6 +3,7 @@ import aws_cdk as cdk
 import aws_cdk.aws_events as events
 import aws_cdk.aws_events_targets as targets
 import aws_cdk.aws_sqs as sqs
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 
@@ -11,13 +12,13 @@ class SqsStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # Dead-letter queues
-        self.app_crawl_dlq = sqs.Queue(
+        app_crawl_dlq = sqs.Queue(
             self,
             "AppCrawlDlq",
             queue_name=f"{stage}-steampulse-app-crawl-dlq",
             retention_period=cdk.Duration.days(14),
         )
-        self.review_crawl_dlq = sqs.Queue(
+        review_crawl_dlq = sqs.Queue(
             self,
             "ReviewCrawlDlq",
             queue_name=f"{stage}-steampulse-review-crawl-dlq",
@@ -25,26 +26,26 @@ class SqsStack(cdk.Stack):
         )
 
         # App crawl queue — batch 10, 5 min visibility
-        self.app_crawl_queue = sqs.Queue(
+        app_crawl_queue = sqs.Queue(
             self,
             "AppCrawlQueue",
             queue_name=f"{stage}-steampulse-app-crawl",
             visibility_timeout=cdk.Duration.minutes(5),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
-                queue=self.app_crawl_dlq,
+                queue=app_crawl_dlq,
             ),
         )
 
         # Review crawl queue — batch 1, 10 min visibility
-        self.review_crawl_queue = sqs.Queue(
+        review_crawl_queue = sqs.Queue(
             self,
             "ReviewCrawlQueue",
             queue_name=f"{stage}-steampulse-review-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
-                queue=self.review_crawl_dlq,
+                queue=review_crawl_dlq,
             ),
         )
 
@@ -56,6 +57,30 @@ class SqsStack(cdk.Stack):
             description="Nightly re-crawl of top 500 games",
             enabled=False,
         )
-        nightly_rule.add_target(
-            targets.SqsQueue(self.app_crawl_queue)
+        nightly_rule.add_target(targets.SqsQueue(app_crawl_queue))
+
+        # Publish queue ARNs for consumer stacks via SSM
+        ssm.StringParameter(
+            self,
+            "AppCrawlQueueArnParam",
+            parameter_name=f"/steampulse/{stage}/sqs/app-crawl-queue-arn",
+            string_value=app_crawl_queue.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "AppCrawlQueueUrlParam",
+            parameter_name=f"/steampulse/{stage}/sqs/app-crawl-queue-url",
+            string_value=app_crawl_queue.queue_url,
+        )
+        ssm.StringParameter(
+            self,
+            "ReviewCrawlQueueArnParam",
+            parameter_name=f"/steampulse/{stage}/sqs/review-crawl-queue-arn",
+            string_value=review_crawl_queue.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "ReviewCrawlQueueUrlParam",
+            parameter_name=f"/steampulse/{stage}/sqs/review-crawl-queue-url",
+            string_value=review_crawl_queue.queue_url,
         )

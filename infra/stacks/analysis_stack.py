@@ -6,6 +6,7 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
 import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
 from constructs import Construct
@@ -20,12 +21,24 @@ class AnalysisStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        vpc: ec2.Vpc,
-        db_secret: secretsmanager.ISecret,
+        vpc: ec2.IVpc,
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Deploy-time SSM references
+        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/network/vpc-sg-id"
+        )
+        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
+
+        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/data/db-secret-arn"
+        )
+        db_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "DbSecret", db_secret_arn
+        )
 
         # Shared Lambda execution role
         role = iam.Role(
@@ -67,9 +80,10 @@ class AnalysisStack(cdk.Stack):
                 vpc_subnets=ec2.SubnetSelection(
                     subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
                 ),
+                security_groups=[intra_sg],
                 timeout=cdk.Duration.seconds(timeout_seconds),
                 environment={
-                    "DB_SECRET_ARN": db_secret.secret_arn,
+                    "DB_SECRET_ARN": db_secret_arn,
                     **({"ANTHROPIC_SECRET_ARN": anthropic_secret_arn} if anthropic_secret_arn else {}),
                 },
                 log_group=log_group,
@@ -135,3 +149,11 @@ class AnalysisStack(cdk.Stack):
 
         self.state_machine = machine
         self.state_machine_arn = machine.state_machine_arn
+
+        # Publish for consumer stacks via SSM
+        ssm.StringParameter(
+            self,
+            "StateMachineArnParam",
+            parameter_name=f"/steampulse/{stage}/analysis/state-machine-arn",
+            string_value=machine.state_machine_arn,
+        )

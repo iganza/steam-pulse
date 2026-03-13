@@ -7,7 +7,7 @@ import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sqs as sqs
-from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 
@@ -17,17 +17,49 @@ class LambdaStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        library_layer: PythonLayerVersion,
-        app_queue: sqs.IQueue,
-        review_queue: sqs.IQueue,
-        vpc: ec2.Vpc,
-        db_secret: secretsmanager.ISecret,
-        sfn_arn: str,
+        vpc: ec2.IVpc,
         is_production: bool = False,
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Deploy-time SSM references
+        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/network/vpc-sg-id"
+        )
+        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
+
+        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/common/library-layer-arn"
+        )
+        library_layer = lambda_.LayerVersion.from_layer_version_arn(
+            self, "LibraryLayer", library_layer_arn
+        )
+
+        app_queue_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/sqs/app-crawl-queue-arn"
+        )
+        app_queue = sqs.Queue.from_queue_arn(self, "AppQueue", app_queue_arn)
+
+        review_queue_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/sqs/review-crawl-queue-arn"
+        )
+        review_queue_url = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/sqs/review-crawl-queue-url"
+        )
+        review_queue = sqs.Queue.from_queue_arn(self, "ReviewQueue", review_queue_arn)
+
+        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/data/db-secret-arn"
+        )
+        db_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "DbSecret", db_secret_arn
+        )
+
+        sfn_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/analysis/state-machine-arn"
+        )
 
         # Staging: public subnets give free internet egress for Steam API calls.
         # Production: private subnets with NAT gateway for better isolation.
@@ -54,7 +86,7 @@ class LambdaStack(cdk.Stack):
         review_queue.grant_send_messages(role)
 
         common_env = {
-            "DB_SECRET_ARN": db_secret.secret_arn,
+            "DB_SECRET_ARN": db_secret_arn,
             "SFN_ARN": sfn_arn,
         }
 
@@ -76,12 +108,13 @@ class LambdaStack(cdk.Stack):
             role=role,
             vpc=vpc,
             vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
             allow_public_subnet=not is_production,
             timeout=cdk.Duration.minutes(5),
             tracing=lambda_.Tracing.ACTIVE,
             environment={
                 **common_env,
-                "REVIEW_CRAWL_QUEUE_URL": review_queue.queue_url,
+                "REVIEW_CRAWL_QUEUE_URL": review_queue_url,
                 "POWERTOOLS_SERVICE_NAME": "app-crawler",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
@@ -113,6 +146,7 @@ class LambdaStack(cdk.Stack):
             role=role,
             vpc=vpc,
             vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
             allow_public_subnet=not is_production,
             timeout=cdk.Duration.minutes(10),
             tracing=lambda_.Tracing.ACTIVE,

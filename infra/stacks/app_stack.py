@@ -11,7 +11,7 @@ import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
-from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 DOMAIN = "steampulse.io"
@@ -23,15 +23,36 @@ class AppStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        vpc: ec2.Vpc,
-        db_secret: secretsmanager.ISecret,
-        sfn_arn: str,
-        library_layer: PythonLayerVersion,
+        vpc: ec2.IVpc,
         is_production: bool = False,
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, cross_region_references=True, **kwargs)
+
+        # Deploy-time SSM references
+        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/network/vpc-sg-id"
+        )
+        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
+
+        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/common/library-layer-arn"
+        )
+        library_layer = lambda_.LayerVersion.from_layer_version_arn(
+            self, "LibraryLayer", library_layer_arn
+        )
+
+        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/data/db-secret-arn"
+        )
+        db_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "DbSecret", db_secret_arn
+        )
+
+        sfn_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/analysis/state-machine-arn"
+        )
 
         # Route53 + ACM only wired up in production — staging uses CloudFront URL only
         hosted_zone = None
@@ -77,13 +98,12 @@ class AppStack(cdk.Stack):
         )
 
         # Allow API Lambda to start Step Functions executions
-        if sfn_arn:
-            api_role.add_to_policy(
-                iam.PolicyStatement(
-                    actions=["states:StartExecution", "states:DescribeExecution"],
-                    resources=[sfn_arn],
-                )
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution", "states:DescribeExecution"],
+                resources=[sfn_arn],
             )
+        )
 
         # FastAPI Lambda — standard Python runtime with shared library layer
         api_fn = lambda_.Function(
@@ -99,10 +119,11 @@ class AppStack(cdk.Stack):
             vpc_subnets=ec2.SubnetSelection(
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
             ),
+            security_groups=[intra_sg],
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
             environment={
-                "DB_SECRET_ARN": db_secret.secret_arn,
+                "DB_SECRET_ARN": db_secret_arn,
                 "STEP_FUNCTIONS_ARN": sfn_arn,
                 "PORT": "8080",
             },
@@ -167,7 +188,7 @@ class AppStack(cdk.Stack):
         # Lambda Function URL origin
         lambda_origin = origins.FunctionUrlOrigin(fn_url)
 
-        # CloudFront distribution
+        # CloudFront distribution — self.distribution kept for FrontendStack.add_behavior()
         self.distribution = cloudfront.Distribution(
             self,
             "CloudFrontDistribution",
@@ -218,6 +239,19 @@ class AppStack(cdk.Stack):
                 ),
             )
 
-        # Expose for other stacks
+        # Publish for monitoring and other consumers
+        ssm.StringParameter(
+            self,
+            "DistributionIdParam",
+            parameter_name=f"/steampulse/{stage}/app/distribution-id",
+            string_value=self.distribution.distribution_id,
+        )
+        ssm.StringParameter(
+            self,
+            "FunctionUrlParam",
+            parameter_name=f"/steampulse/{stage}/app/function-url",
+            string_value=fn_url.url,
+        )
+
         self.api_fn = api_fn
         self.fn_url = fn_url

@@ -51,9 +51,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 async def _run(args: argparse.Namespace, console: Console) -> None:
-    from steampulse.analyzer import analyze_reviews
-    from steampulse.fetcher import fetch_app_metadata, fetch_reviews
-    from steampulse.reporter import print_rich_report, render_html_report
+    from library_layer.analyzer import analyze_reviews
+    from library_layer.fetcher import fetch_app_metadata, fetch_reviews
+    from library_layer.reporter import print_rich_report, render_html_report
 
     appid = args.appid
 

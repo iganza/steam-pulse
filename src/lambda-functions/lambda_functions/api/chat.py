@@ -6,7 +6,7 @@ import re
 
 import anthropic
 
-from .storage import BaseStorage
+from library_layer.storage import BaseStorage
 
 SONNET_MODEL_DEFAULT = "claude-3-5-sonnet-20241022"
 

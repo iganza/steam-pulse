@@ -77,9 +77,11 @@ class ApplicationStage(cdk.Stage):
             vpc=network.vpc,
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
+            library_layer=common_stack.library_layer,
             is_production=(construct_id == "Production"),
             env=env,
         )
+        app.add_dependency(common_stack)
 
         FrontendStack(
             self,

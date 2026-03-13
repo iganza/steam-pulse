@@ -10,10 +10,10 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from .analyzer import analyze_reviews
+from library_layer.analyzer import analyze_reviews
+from library_layer.steam_source import DirectSteamSource, SteamAPIError
+from library_layer.storage import BaseStorage, get_storage
 from .rate_limiter import consume, get_client_ip, is_rate_limited
-from .steam_source import DirectSteamSource, SteamAPIError
-from .storage import BaseStorage, get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -402,3 +402,13 @@ async def chat(body: ChatRequest, request: Request) -> dict:
             status_code=500,
             detail={"error": f"Query failed: {exc}", "code": "query_error"},
         )
+
+
+# Lambda handler — wraps FastAPI app for Lambda Web Adapter / Mangum
+try:
+    from mangum import Mangum  # type: ignore[import-untyped]
+    handler = Mangum(app, lifespan="off")
+except ImportError:
+    # Mangum not available; Lambda Web Adapter extension handles routing instead
+    def handler(event: dict, context: object) -> dict:  # type: ignore[misc]
+        raise RuntimeError("mangum is required for Lambda deployment — install it in the layer")

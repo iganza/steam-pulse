@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import httpx
 import psycopg2
 
-from steampulse.steam_source import DirectSteamSource, SteamAPIError
+from library_layer.steam_source import DirectSteamSource, SteamAPIError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

@@ -29,8 +29,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from steampulse.steam_source import DirectSteamSource
+from library_layer.steam_source import DirectSteamSource
 
 logging.basicConfig(
     level=logging.INFO,

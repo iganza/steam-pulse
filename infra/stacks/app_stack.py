@@ -1,4 +1,4 @@
-"""App stack — FastAPI Lambda (container) + CloudFront + Route53 + ACM + KVS."""
+"""App stack — FastAPI Lambda + CloudFront + Route53 + ACM + KVS."""
 
 import aws_cdk as cdk
 import aws_cdk.aws_certificatemanager as acm
@@ -11,6 +11,7 @@ import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
+from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
 from constructs import Construct
 
 DOMAIN = "steampulse.io"
@@ -25,6 +26,7 @@ class AppStack(cdk.Stack):
         vpc: ec2.Vpc,
         db_secret: secretsmanager.ISecret,
         sfn_arn: str,
+        library_layer: PythonLayerVersion,
         is_production: bool = False,
         **kwargs: object,
     ) -> None:
@@ -82,14 +84,14 @@ class AppStack(cdk.Stack):
                 )
             )
 
-        # FastAPI Lambda — container image from repo root Dockerfile
-        api_fn = lambda_.DockerImageFunction(
+        # FastAPI Lambda — standard Python runtime with shared library layer
+        api_fn = lambda_.Function(
             self,
             "ApiFunction",
-            code=lambda_.DockerImageCode.from_image_asset(
-                ".",
-                file="Dockerfile",
-            ),
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.api.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
             role=api_role,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(

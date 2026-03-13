@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI-powered Steam review analytics for indie game developers"
 authors = ["SteamPulse <hello@steampulse.gg>"]
 readme = "README.md"
-packages = [{include = "steampulse"}]
+packages = []
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -42,7 +42,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-steampulse = "steampulse.main:main"
+steampulse = "main:main"
 
 [tool.ruff]
 target-version = "py312"

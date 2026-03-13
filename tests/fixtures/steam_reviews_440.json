@@ -1,0 +1,61 @@
+{
+  "success": 1,
+  "query_summary": {
+    "total_positive": 182000,
+    "total_negative": 6000,
+    "total_reviews": 188000,
+    "review_score": 9,
+    "review_score_desc": "Overwhelmingly Positive"
+  },
+  "reviews": [
+    {
+      "recommendationid": "123456001",
+      "author": {
+        "steamid": "76561198000000001",
+        "playtime_at_review": 1200,
+        "playtime_forever": 24000
+      },
+      "review": "Still the best team-based shooter after all these years. The class variety keeps gameplay fresh.",
+      "timestamp_created": 1700000001,
+      "voted_up": true,
+      "playtime_at_review": 1200
+    },
+    {
+      "recommendationid": "123456002",
+      "author": {
+        "steamid": "76561198000000002",
+        "playtime_at_review": 500,
+        "playtime_forever": 3600
+      },
+      "review": "Bot problem in casual mode is a real issue, but community servers are still great fun.",
+      "timestamp_created": 1700000002,
+      "voted_up": true,
+      "playtime_at_review": 500
+    },
+    {
+      "recommendationid": "123456003",
+      "author": {
+        "steamid": "76561198000000003",
+        "playtime_at_review": 2400,
+        "playtime_forever": 9000
+      },
+      "review": "Free to play, thousands of hours of content. Easily one of the best values on Steam.",
+      "timestamp_created": 1700000003,
+      "voted_up": true,
+      "playtime_at_review": 2400
+    },
+    {
+      "recommendationid": "123456004",
+      "author": {
+        "steamid": "76561198000000004",
+        "playtime_at_review": 100,
+        "playtime_forever": 200
+      },
+      "review": "Valve abandoned this game. The bots have completely ruined casual matchmaking.",
+      "timestamp_created": 1700000004,
+      "voted_up": false,
+      "playtime_at_review": 100
+    }
+  ],
+  "cursor": ""
+}

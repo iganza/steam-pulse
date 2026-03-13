@@ -15,17 +15,19 @@ class PipelineStack(cdk.Stack):
         self,
         scope: Construct,
         construct_id: str,
+        *,
+        branch: str,
+        deploy_stage: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         connection_arn: str = self.node.try_get_context("codestar-connection-arn") or ""
         github_repo: str = self.node.try_get_context("github-repo") or "iganza/steam-pulse"
-        github_branch: str = self.node.try_get_context("github-branch") or "main"
 
         source = pipelines.CodePipelineSource.connection(
             github_repo,
-            github_branch,
+            branch,
             connection_arn=connection_arn,
             trigger_on_push=True,
         )
@@ -33,7 +35,7 @@ class PipelineStack(cdk.Stack):
         pipeline = pipelines.CodePipeline(
             self,
             "Pipeline",
-            pipeline_name="steampulse",
+            pipeline_name=f"steampulse-{deploy_stage.lower()}",
             pipeline_type=codepipeline.PipelineType.V2,
             synth=pipelines.CodeBuildStep(
                 "Synth",
@@ -52,8 +54,6 @@ class PipelineStack(cdk.Stack):
                     ),
                 ],
             ),
-            # Use BuildSpec runtime-versions to get Node 22 + Python 3.12
-            # (cleaner than nvm shell commands — matches how production CDK projects do it)
             synth_code_build_defaults=pipelines.CodeBuildOptions(
                 partial_build_spec=codebuild.BuildSpec.from_object({
                     "phases": {
@@ -69,23 +69,11 @@ class PipelineStack(cdk.Stack):
             docker_enabled_for_synth=True,
         )
 
-        # Staging — auto-deploys on every push to main
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                "SteamPulse-Staging",
-                stage="staging",
+                deploy_stage,
+                stage=deploy_stage.lower(),
                 env=cdk.Environment(account=self.account, region=self.region),
             )
-        )
-
-        # Production — manual approval gate
-        pipeline.add_stage(
-            ApplicationStage(
-                self,
-                "SteamPulse-Production",
-                stage="production",
-                env=cdk.Environment(account=self.account, region=self.region),
-            ),
-            pre=[pipelines.ManualApprovalStep("PromoteToProduction")],
         )

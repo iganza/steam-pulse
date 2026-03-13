@@ -7,17 +7,22 @@ Triggers: Step Functions state machine for LLM analysis.
 
 import asyncio
 import json
-import logging
 import os
 from datetime import datetime, timezone
 
 import httpx
 import psycopg2
+from aws_lambda_powertools import Logger, Tracer, Metrics
+from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.utilities.batch import BatchProcessor, EventType, process_partial_response
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = Logger(service="review-crawler")
+tracer = Tracer(service="review-crawler")
+metrics = Metrics(namespace="SteamPulse", service="review-crawler")
+processor = BatchProcessor(event_type=EventType.SQS)
 
 MAX_REVIEWS = 2000
 
@@ -172,32 +177,38 @@ async def crawl_reviews(
 # Lambda entry point
 # ---------------------------------------------------------------------------
 
+_conn: "psycopg2.connection | None" = None  # type: ignore[name-defined]
 
-def handler(event: dict, context: object) -> dict:
+
+def _get_conn() -> "psycopg2.connection":  # type: ignore[name-defined]
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(_get_db_url())
+    return _conn
+
+
+def _record_handler(record: dict) -> None:
+    """Process a single SQS record. Raises on failure so BatchProcessor marks it for DLQ."""
+    body = json.loads(record["body"])
+    appid = int(body["appid"])
+    logger.append_keys(appid=appid)
+
+    async def _run() -> None:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            steam = DirectSteamSource(client)
+            n = await crawl_reviews(appid, steam, _get_conn())
+            metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
+
+    asyncio.run(_run())
+
+
+@tracer.capture_lambda_handler
+@metrics.log_metrics(capture_cold_start_metric=True)
+def handler(event: dict, context: LambdaContext) -> dict:
     """SQS-triggered Lambda. Each record body: {"appid": <int>}"""
-
-    async def _run() -> dict:
-        db_url = _get_db_url()
-        conn = psycopg2.connect(db_url)
-        total = failed = 0
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                steam = DirectSteamSource(client)
-                for record in event.get("Records", []):
-                    try:
-                        body = json.loads(record["body"])
-                        appid = int(body["appid"])
-                    except (KeyError, ValueError, json.JSONDecodeError) as exc:
-                        logger.error("Bad SQS message body=%r error=%s", record.get("body"), exc)
-                        failed += 1
-                        continue
-                    n = await crawl_reviews(appid, steam, conn)
-                    if n >= 0:
-                        total += n
-                    else:
-                        failed += 1
-        finally:
-            conn.close()
-        return {"reviews_upserted": total, "failed": failed}
-
-    return asyncio.run(_run())
+    return process_partial_response(
+        event=event,
+        record_handler=_record_handler,
+        processor=processor,
+        context=context,
+    )

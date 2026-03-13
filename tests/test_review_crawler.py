@@ -39,6 +39,7 @@ def _mock_db_conn_with_game() -> tuple[MagicMock, MagicMock]:
 def test_handler_fetches_and_stores_reviews(
     httpx_mock: HTTPXMock,
     steam_reviews_440: dict,
+    lambda_context: "MockLambdaContext",
 ) -> None:
     """Handler fetches reviews, writes to DB, triggers Step Functions."""
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
@@ -65,10 +66,10 @@ def test_handler_fetches_and_stores_reviews(
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.review_crawler.handler import handler
 
-        result = handler(make_sqs_event([440]), {})
+        result = handler(make_sqs_event([440]), lambda_context)
 
-    assert result["reviews_upserted"] == 4  # fixture has 4 reviews
-    assert result["failed"] == 0
+    assert result["batchItemFailures"] == []  # no failures
+    # reviews were stored (checked via DB mock above)
 
     # DB write attempted — INSERT INTO reviews was executed
     execute_calls = [str(c) for c in mock_cursor.execute.call_args_list]
@@ -90,6 +91,7 @@ def test_handler_fetches_and_stores_reviews(
 def test_handler_starts_sfn_after_reviews(
     httpx_mock: HTTPXMock,
     steam_reviews_440: dict,
+    lambda_context: "MockLambdaContext",
 ) -> None:
     """Step Functions is triggered with correct ARN and appid in input."""
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
@@ -116,7 +118,7 @@ def test_handler_starts_sfn_after_reviews(
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.review_crawler.handler import handler
 
-        handler(make_sqs_event([440]), {})
+        handler(make_sqs_event([440]), lambda_context)
 
     execs = sfn_client.list_executions(stateMachineArn=sfn_arn)
     assert len(execs["executions"]) == 1
@@ -130,7 +132,10 @@ def test_handler_starts_sfn_after_reviews(
 
 
 @mock_aws
-def test_handler_tolerates_empty_reviews(httpx_mock: HTTPXMock) -> None:
+def test_handler_tolerates_empty_reviews(
+    httpx_mock: HTTPXMock,
+    lambda_context: "MockLambdaContext",
+) -> None:
     """When reviews API returns 0 reviews, handler completes without error, SFN NOT triggered."""
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
 
@@ -155,10 +160,10 @@ def test_handler_tolerates_empty_reviews(httpx_mock: HTTPXMock) -> None:
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.review_crawler.handler import handler
 
-        result = handler(make_sqs_event([440]), {})
+        result = handler(make_sqs_event([440]), lambda_context)
 
-    assert result["reviews_upserted"] == 0
-    assert result["failed"] == 0
+    assert result["batchItemFailures"] == []
+    # no reviews: DB insert not called
 
     # No Step Functions executions triggered
     execs = sfn_client.list_executions(stateMachineArn=sm["stateMachineArn"])

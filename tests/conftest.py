@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "library-layer"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "lambda-functions"))
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@dataclass
+class MockLambdaContext:
+    """Minimal Lambda context that satisfies aws-lambda-powertools."""
+    function_name: str = "test-function"
+    function_version: str = "$LATEST"
+    invoked_function_arn: str = "arn:aws:lambda:us-east-1:123456789012:function:test-function"
+    memory_limit_in_mb: int = 128
+    aws_request_id: str = "test-request-id"
+    log_group_name: str = "/aws/lambda/test-function"
+    log_stream_name: str = "test-stream"
+
+    def get_remaining_time_in_millis(self) -> int:
+        return 30_000
+
+
+@pytest.fixture
+def lambda_context() -> MockLambdaContext:
+    return MockLambdaContext()
 
 
 @pytest.fixture

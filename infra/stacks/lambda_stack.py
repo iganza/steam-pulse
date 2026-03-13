@@ -69,14 +69,21 @@ class LambdaStack(cdk.Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
             ),
             timeout=cdk.Duration.minutes(5),
+            tracing=lambda_.Tracing.ACTIVE,
             environment={
                 **common_env,
                 "REVIEW_CRAWL_QUEUE_URL": review_queue.queue_url,
+                "POWERTOOLS_SERVICE_NAME": "app-crawler",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
             log_group=app_crawler_log_group,
         )
         self.app_crawler_fn.add_event_source(
-            event_sources.SqsEventSource(app_queue, batch_size=10)
+            event_sources.SqsEventSource(
+                app_queue,
+                batch_size=10,
+                report_batch_item_failures=True,
+            )
         )
 
         # Review crawler Lambda — triggered by review-crawl-queue
@@ -99,9 +106,18 @@ class LambdaStack(cdk.Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
             ),
             timeout=cdk.Duration.minutes(10),
-            environment=common_env,
+            tracing=lambda_.Tracing.ACTIVE,
+            environment={
+                **common_env,
+                "POWERTOOLS_SERVICE_NAME": "review-crawler",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
             log_group=review_crawler_log_group,
         )
         self.review_crawler_fn.add_event_source(
-            event_sources.SqsEventSource(review_queue, batch_size=1)
+            event_sources.SqsEventSource(
+                review_queue,
+                batch_size=1,
+                report_batch_item_failures=True,
+            )
         )

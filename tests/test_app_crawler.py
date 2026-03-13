@@ -48,6 +48,7 @@ def _mock_db_conn() -> tuple[MagicMock, MagicMock]:
 def test_handler_processes_single_appid(
     httpx_mock: HTTPXMock,
     steam_appdetails_440: dict,
+    lambda_context: "MockLambdaContext",
 ) -> None:
     """Handler fetches Steam data, writes to DB, queues for review crawl."""
     # Create moto SQS queue for review crawl
@@ -71,10 +72,10 @@ def test_handler_processes_single_appid(
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.app_crawler.handler import handler
 
-        result = handler(make_sqs_event([440]), {})
+        result = handler(make_sqs_event([440]), lambda_context)
 
-    assert result["success"] == 1
-    assert result["failure"] == 0
+    assert result["batchItemFailures"] == []
+    # no failures: batchItemFailures is empty (checked above)
 
     # DB write attempted — INSERT INTO games was executed
     execute_calls = [str(c) for c in mock_cursor.execute.call_args_list]
@@ -90,7 +91,10 @@ def test_handler_processes_single_appid(
 
 
 @mock_aws
-def test_handler_skips_on_steam_api_failure(httpx_mock: HTTPXMock) -> None:
+def test_handler_skips_on_steam_api_failure(
+    httpx_mock: HTTPXMock,
+    lambda_context: "MockLambdaContext",
+) -> None:
     """When Steam Store returns 500, handler logs error, does NOT write to DB."""
     os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
     os.environ.pop("REVIEW_CRAWL_QUEUE_URL", None)
@@ -104,10 +108,10 @@ def test_handler_skips_on_steam_api_failure(httpx_mock: HTTPXMock) -> None:
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.app_crawler.handler import handler
 
-        result = handler(make_sqs_event([440]), {})
+        result = handler(make_sqs_event([440]), lambda_context)
 
-    assert result["failure"] == 1
-    assert result["success"] == 0
+    # Steam 500 is a transient skip, not a DLQ failure — message is consumed successfully
+    assert result["batchItemFailures"] == []
 
     # No DB writes attempted
     assert mock_cursor.execute.call_count == 0
@@ -117,6 +121,7 @@ def test_handler_skips_on_steam_api_failure(httpx_mock: HTTPXMock) -> None:
 def test_handler_processes_batch(
     httpx_mock: HTTPXMock,
     steam_appdetails_440: dict,
+    lambda_context: "MockLambdaContext",
 ) -> None:
     """Batch of 3 appids: all succeed, DB write called 3 times."""
     sqs = boto3.client("sqs", region_name="us-east-1")
@@ -138,10 +143,10 @@ def test_handler_processes_batch(
     with patch("psycopg2.connect", return_value=mock_conn):
         from lambda_functions.app_crawler.handler import handler
 
-        result = handler(make_sqs_event([440, 440, 440]), {})
+        result = handler(make_sqs_event([440, 440, 440]), lambda_context)
 
-    assert result["success"] == 3
-    assert result["failure"] == 0
+    assert result["batchItemFailures"] == []
+    # no failures: batchItemFailures is empty (checked above)
 
     # INSERT INTO games called once per appid
     games_inserts = [

@@ -8,18 +8,23 @@ crawl exceed the tiered delta threshold (_reanalysis_threshold).
 
 import asyncio
 import json
-import logging
 import os
 import re
 from datetime import date, datetime
 
 import httpx
 import psycopg2
+from aws_lambda_powertools import Logger, Tracer, Metrics
+from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.utilities.batch import BatchProcessor, EventType, process_partial_response
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = Logger(service="app-crawler")
+tracer = Tracer(service="app-crawler")
+metrics = Metrics(namespace="SteamPulse", service="app-crawler")
+processor = BatchProcessor(event_type=EventType.SQS)
 
 
 # ---------------------------------------------------------------------------
@@ -339,32 +344,43 @@ async def crawl_app(
 # Lambda entry point
 # ---------------------------------------------------------------------------
 
+# Module-level DB connection — reused across warm invocations
+_conn: "psycopg2.connection | None" = None  # type: ignore[name-defined]
 
-def handler(event: dict, context: object) -> dict:
+
+def _get_conn() -> "psycopg2.connection":  # type: ignore[name-defined]
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(_get_db_url())
+    return _conn
+
+
+def _record_handler(record: dict) -> None:
+    """Process a single SQS record. Raises on unexpected failure so BatchProcessor marks it for DLQ.
+    Steam API errors (404/500) are logged and skipped — not DLQ'd."""
+    body = json.loads(record["body"])
+    appid = int(body["appid"])
+    logger.append_keys(appid=appid)
+
+    async def _run() -> bool:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            steam = DirectSteamSource(client)
+            return await crawl_app(appid, steam, _get_conn())
+
+    ok = asyncio.run(_run())
+    if ok:
+        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
+    else:
+        logger.warning("crawl_app skipped appid=%s (Steam data unavailable)", appid)
+
+
+@tracer.capture_lambda_handler
+@metrics.log_metrics(capture_cold_start_metric=True)
+def handler(event: dict, context: LambdaContext) -> dict:
     """SQS-triggered Lambda. Each record body: {"appid": <int>}"""
-
-    async def _run() -> dict:
-        db_url = _get_db_url()
-        conn = psycopg2.connect(db_url)
-        success = failure = 0
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                steam = DirectSteamSource(client)
-                for record in event.get("Records", []):
-                    try:
-                        body = json.loads(record["body"])
-                        appid = int(body["appid"])
-                    except (KeyError, ValueError, json.JSONDecodeError) as exc:
-                        logger.error("Bad SQS message body=%r error=%s", record.get("body"), exc)
-                        failure += 1
-                        continue
-                    ok = await crawl_app(appid, steam, conn)
-                    if ok:
-                        success += 1
-                    else:
-                        failure += 1
-        finally:
-            conn.close()
-        return {"success": success, "failure": failure}
-
-    return asyncio.run(_run())
+    return process_partial_response(
+        event=event,
+        record_handler=_record_handler,
+        processor=processor,
+        context=context,
+    )

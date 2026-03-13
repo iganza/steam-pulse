@@ -23,6 +23,7 @@ optional = true
 [tool.poetry.group.infra.dependencies]
 aws-cdk-lib = ">=2.180.0"
 constructs = ">=10.0.0"
+"aws-cdk.aws-lambda-python-alpha" = ">=2.180.0a0"
 cdk-monitoring-constructs = ">=8.0.0"
 
 [tool.poetry.group.crawler]

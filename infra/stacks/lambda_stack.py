@@ -23,9 +23,17 @@ class LambdaStack(cdk.Stack):
         vpc: ec2.Vpc,
         db_secret: secretsmanager.ISecret,
         sfn_arn: str,
+        is_production: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Staging: public subnets give free internet egress for Steam API calls.
+        # Production: private subnets with NAT gateway for better isolation.
+        lambda_subnet_type = (
+            ec2.SubnetType.PRIVATE_WITH_EGRESS if is_production else ec2.SubnetType.PUBLIC
+        )
+        lambda_subnets = ec2.SubnetSelection(subnet_type=lambda_subnet_type)
 
         # Shared IAM role
         role = iam.Role(
@@ -65,9 +73,8 @@ class LambdaStack(cdk.Stack):
             layers=[library_layer],
             role=role,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
+            vpc_subnets=lambda_subnets,
+            allow_public_subnet=not is_production,
             timeout=cdk.Duration.minutes(5),
             tracing=lambda_.Tracing.ACTIVE,
             environment={
@@ -102,9 +109,8 @@ class LambdaStack(cdk.Stack):
             layers=[library_layer],
             role=role,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
+            vpc_subnets=lambda_subnets,
+            allow_public_subnet=not is_production,
             timeout=cdk.Duration.minutes(10),
             tracing=lambda_.Tracing.ACTIVE,
             environment={

@@ -66,6 +66,7 @@ class ApplicationStage(cdk.Stage):
             vpc=network.vpc,
             db_secret=data.db_secret,
             sfn_arn=analysis.state_machine_arn,
+            is_production=is_production,
             env=env,
         )
         lambda_stack.add_dependency(common_stack)

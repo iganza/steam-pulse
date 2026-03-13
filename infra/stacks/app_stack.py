@@ -89,7 +89,6 @@ class AppStack(cdk.Stack):
         api_fn = lambda_.Function(
             self,
             "ApiFunction",
-            function_name=f"{stage}-steampulse-api",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.api.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),

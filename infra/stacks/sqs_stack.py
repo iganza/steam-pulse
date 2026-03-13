@@ -14,13 +14,11 @@ class SqsStack(cdk.Stack):
         self.app_crawl_dlq = sqs.Queue(
             self,
             "AppCrawlDlq",
-            queue_name=f"{stage}-steampulse-app-crawl-dlq",
             retention_period=cdk.Duration.days(14),
         )
         self.review_crawl_dlq = sqs.Queue(
             self,
             "ReviewCrawlDlq",
-            queue_name=f"{stage}-steampulse-review-crawl-dlq",
             retention_period=cdk.Duration.days(14),
         )
 
@@ -28,7 +26,6 @@ class SqsStack(cdk.Stack):
         self.app_crawl_queue = sqs.Queue(
             self,
             "AppCrawlQueue",
-            queue_name=f"{stage}-steampulse-app-crawl",
             visibility_timeout=cdk.Duration.minutes(5),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
@@ -40,7 +37,6 @@ class SqsStack(cdk.Stack):
         self.review_crawl_queue = sqs.Queue(
             self,
             "ReviewCrawlQueue",
-            queue_name=f"{stage}-steampulse-review-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,

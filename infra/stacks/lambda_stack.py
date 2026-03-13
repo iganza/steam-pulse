@@ -68,7 +68,6 @@ class LambdaStack(cdk.Stack):
         self.app_crawler_fn = lambda_.Function(
             self,
             "AppCrawler",
-            function_name=f"{stage}-steampulse-app-crawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.app_crawler.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),
@@ -105,7 +104,6 @@ class LambdaStack(cdk.Stack):
         self.review_crawler_fn = lambda_.Function(
             self,
             "ReviewCrawler",
-            function_name=f"{stage}-steampulse-review-crawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.review_crawler.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),

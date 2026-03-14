@@ -58,6 +58,7 @@ class FrontendStack(cdk.Stack):
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
             log_group=frontend_log_group,
+            environment={"NODE_ENV": "production"},
         )
 
         fn_url = frontend_fn.add_function_url(

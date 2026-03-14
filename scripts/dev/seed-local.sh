@@ -87,6 +87,8 @@ echo "▶ Stage 2/3 — Review crawl"
 # Disable SFN trigger locally — we'll run analysis manually in stage 3
 export SFN_ARN=""
 
+APPIDS_JSON=$(python3 -c "import sys,json; print(json.dumps([int(x) for x in sys.argv[1:]]))" "${APPIDS[@]}")
+
 poetry run python - <<PYEOF
 import json, sys, os
 sys.path.insert(0, "$REPO_ROOT/src/library-layer")
@@ -98,7 +100,7 @@ class MockContext:
     invoked_function_arn = "arn:aws:lambda:us-east-1:000000000000:function:local"
     aws_request_id = "local-request"
 
-appids = [${APPIDS[*]}]  # bash array expansion into Python list
+appids = $APPIDS_JSON
 records = [
     {"messageId": f"local-{a}", "body": json.dumps({"appid": a}), "receiptHandle": "local"}
     for a in appids

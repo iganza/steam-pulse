@@ -36,8 +36,13 @@ export default async function GameReportPage({ params }: Props) {
     preview = await getPreview(numericAppid);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
-    // Surface other errors via Next.js error boundary
-    throw err;
+    if (err instanceof ApiError && err.status === 402) {
+      // Rate limit hit at the SSR layer — render page without preview,
+      // client will trigger its own request from the user's IP.
+      preview = null;
+    } else {
+      throw err;
+    }
   }
 
   // These would come from /api/games/{appid} in production;
@@ -45,6 +50,7 @@ export default async function GameReportPage({ params }: Props) {
   return (
     <GameReportClient
       preview={preview}
+      appid={numericAppid}
       headerImage={undefined}
       releaseDate={undefined}
       developer={undefined}

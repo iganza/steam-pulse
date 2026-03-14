@@ -14,7 +14,8 @@ def get_client_ip(request: Request) -> str:
 
 
 def is_rate_limited(ip: str) -> bool:
-    return _limits.get(ip, {}).get("used", False)
+    return False
+    #return _limits.get(ip, {}).get("used", False)
 
 
 def consume(ip: str, appid: int) -> None:

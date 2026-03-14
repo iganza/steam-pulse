@@ -26,7 +26,8 @@ import { SectionLabel } from "@/components/game/SectionLabel";
 import { PremiumUnlock } from "@/components/game/PremiumUnlock";
 
 interface GameReportClientProps {
-  preview: PreviewResponse;
+  preview: PreviewResponse | null;
+  appid: number;
   headerImage?: string;
   releaseDate?: string;
   developer?: string;
@@ -46,6 +47,7 @@ function TrendIcon({ trend }: { trend: string }) {
 
 export function GameReportClient({
   preview,
+  appid,
   headerImage,
   releaseDate,
   developer,
@@ -56,7 +58,7 @@ export function GameReportClient({
   const [fullReport, setFullReport] = useState<GameReport | null>(null);
 
   const report = fullReport;
-  const appid = preview.appid;
+  // appid comes from URL params; preview may be null if SSR hit rate limit
 
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "—";
 
@@ -85,7 +87,7 @@ export function GameReportClient({
         {headerImage ? (
           <Image
             src={headerImage}
-            alt={preview.game_name}
+            alt={preview?.game_name ?? "Game header"}
             fill
             className="object-cover object-top"
             priority
@@ -137,7 +139,7 @@ export function GameReportClient({
             className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-3"
             style={{ letterSpacing: "-0.03em" }}
           >
-            {preview.game_name}
+            {preview?.game_name ?? "Game Report"}
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             <HiddenGemBadge
@@ -150,7 +152,7 @@ export function GameReportClient({
                 border: "1px solid rgba(255,255,255,0.1)",
               }}
             >
-              {preview.overall_sentiment}
+              {preview?.overall_sentiment ?? "—"}
             </span>
           </div>
         </div>
@@ -166,9 +168,9 @@ export function GameReportClient({
             className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-8 italic"
             style={{ letterSpacing: "-0.01em" }}
           >
-            &ldquo;{preview.one_liner}&rdquo;
+            &ldquo;{preview?.one_liner ?? "Analysis loading…"}&rdquo;
           </blockquote>
-          <ScoreBar score={preview.sentiment_score} />
+          <ScoreBar score={preview?.sentiment_score ?? 0} />
         </section>
 
         {/* Section 3 — Quick Stats */}
@@ -179,7 +181,7 @@ export function GameReportClient({
               {
                 icon: <BarChart3 className="w-4 h-4" />,
                 label: "Reviews",
-                value: preview.appid ? "—" : "—",
+                value: "—",
               },
               {
                 icon: <Calendar className="w-4 h-4" />,
@@ -268,7 +270,7 @@ export function GameReportClient({
         </section>
 
         {/* Section 6 — Audience Profile */}
-        {(report?.audience_profile || preview.audience_profile) && (
+        {(report?.audience_profile || preview?.audience_profile) && (
           <section className="animate-fade-up stagger-5">
             <SectionLabel>Audience Profile</SectionLabel>
             <div className="grid md:grid-cols-2 gap-6">
@@ -284,7 +286,7 @@ export function GameReportClient({
                     Ideal Player
                   </p>
                   <p className="text-sm text-foreground/80">
-                    {(report?.audience_profile ?? preview.audience_profile)?.ideal_player}
+                    {(report?.audience_profile ?? preview?.audience_profile)?.ideal_player}
                   </p>
                 </div>
                 <div>
@@ -292,7 +294,7 @@ export function GameReportClient({
                     Casual Friendliness
                   </p>
                   <p className="text-sm text-foreground/80">
-                    {(report?.audience_profile ?? preview.audience_profile)?.casual_friendliness}
+                    {(report?.audience_profile ?? preview?.audience_profile)?.casual_friendliness}
                   </p>
                 </div>
               </div>
@@ -302,7 +304,7 @@ export function GameReportClient({
                     Player Archetypes
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {(report?.audience_profile ?? preview.audience_profile)?.archetypes?.map(
+                    {(report?.audience_profile ?? preview?.audience_profile)?.archetypes?.map(
                       (a) => (
                         <span
                           key={a}
@@ -324,7 +326,7 @@ export function GameReportClient({
                     Not For
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {(report?.audience_profile ?? preview.audience_profile)?.not_for?.map(
+                    {(report?.audience_profile ?? preview?.audience_profile)?.not_for?.map(
                       (n) => (
                         <span
                           key={n}

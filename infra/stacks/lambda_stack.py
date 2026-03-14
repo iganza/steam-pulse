@@ -61,8 +61,10 @@ class LambdaStack(cdk.Stack):
         sfn_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/analysis/state-machine-arn"
         )
-        steam_api_key = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/steam-api-key"
+        # Steam API key stored in Secrets Manager (SecureString); pass ARN to Lambda
+        # and fetch at runtime via boto3 secretsmanager.get_secret_value().
+        steam_api_key_secret_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/steam-api-key-secret-arn"
         )
 
         # Staging: public subnets give free internet egress for Steam API calls.
@@ -88,7 +90,7 @@ class LambdaStack(cdk.Stack):
         )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret_arn],
+            resources=[db_secret_arn, steam_api_key_secret_arn],
         ))
         review_queue.grant_send_messages(role)
         app_queue.grant_send_messages(role)
@@ -96,7 +98,7 @@ class LambdaStack(cdk.Stack):
         common_env = {
             "DB_SECRET_ARN": db_secret_arn,
             "SFN_ARN": sfn_arn,
-            "STEAM_API_KEY": steam_api_key,
+            "STEAM_API_KEY_SECRET_ARN": steam_api_key_secret_arn,
         }
 
         # App crawler Lambda — triggered by app-crawl-queue

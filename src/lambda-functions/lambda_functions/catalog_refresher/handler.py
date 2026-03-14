@@ -24,7 +24,7 @@ tracer = Tracer(service="catalog-refresher")
 metrics = Metrics(namespace="SteamPulse", service="catalog-refresher")
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
-STEAM_API_KEY_ENV = "STEAM_API_KEY"
+STEAM_API_KEY_SECRET_ARN_ENV = "STEAM_API_KEY_SECRET_ARN"
 
 APP_CRAWL_QUEUE_URL_ENV = "APP_CRAWL_QUEUE_URL"
 DB_SECRET_ARN_ENV = "DB_SECRET_ARN"
@@ -38,6 +38,17 @@ SQS_BATCH_SIZE = 10
 # ---------------------------------------------------------------------------
 
 _conn: "psycopg2.connection | None" = None  # type: ignore[name-defined]
+_steam_api_key: str | None = None  # cached at cold start
+
+
+def _get_steam_api_key() -> str:
+    global _steam_api_key
+    if _steam_api_key is None:
+        import boto3  # type: ignore[import-untyped]
+        secret_arn = os.environ[STEAM_API_KEY_SECRET_ARN_ENV]
+        sm = boto3.client("secretsmanager")
+        _steam_api_key = sm.get_secret_value(SecretId=secret_arn)["SecretString"]
+    return _steam_api_key
 
 
 def _get_db_url() -> str:
@@ -150,7 +161,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     queue_url = os.environ[APP_CRAWL_QUEUE_URL_ENV]
 
     with httpx.Client() as client:
-        apps = fetch_app_list(client, api_key=os.environ.get(STEAM_API_KEY_ENV))
+        apps = fetch_app_list(client, api_key=_get_steam_api_key())
 
     logger.info("Fetched %d apps from Steam GetAppList", len(apps))
     metrics.add_metric(name="AppListSize", unit=MetricUnit.Count, value=len(apps))

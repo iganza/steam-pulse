@@ -106,10 +106,30 @@ async def crawl_app(
         details = await steam.get_app_details(appid)
     except SteamAPIError as exc:
         logger.warning("Steam API error for appid=%s: %s", appid, exc)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app_catalog (appid, name, meta_status)
+                VALUES (%s, %s, 'failed')
+                ON CONFLICT (appid) DO UPDATE SET meta_status = 'failed', meta_crawled_at = NOW()
+                """,
+                (appid, f"App {appid}"),
+            )
+        conn.commit()
         return False
 
     if not details:
         logger.info("appid=%s not found on Steam — skipping", appid)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app_catalog (appid, name, meta_status)
+                VALUES (%s, %s, 'skipped')
+                ON CONFLICT (appid) DO UPDATE SET meta_status = 'skipped', meta_crawled_at = NOW()
+                """,
+                (appid, f"App {appid}"),
+            )
+        conn.commit()
         return False
 
     # Review counts from Steam reviews API query_summary
@@ -319,6 +339,26 @@ async def crawl_app(
                     """,
                     (appid, cat_id, cat_name),
                 )
+
+    # Update app_catalog crawl tracking
+    with conn.cursor() as cur:
+        review_status = "pending" if total_reviews >= 500 else "ineligible"
+        cur.execute(
+            """
+            INSERT INTO app_catalog (appid, name, meta_status, meta_crawled_at, review_count, review_status)
+            VALUES (%s, %s, 'done', NOW(), %s, %s)
+            ON CONFLICT (appid) DO UPDATE SET
+                name              = EXCLUDED.name,
+                meta_status       = 'done',
+                meta_crawled_at   = NOW(),
+                review_count      = EXCLUDED.review_count,
+                review_status     = CASE
+                    WHEN app_catalog.review_status IN ('done', 'failed') THEN app_catalog.review_status
+                    ELSE EXCLUDED.review_status
+                END
+            """,
+            (appid, name, total_reviews, review_status),
+        )
 
     conn.commit()
 

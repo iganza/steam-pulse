@@ -253,8 +253,8 @@ SteamPulse uses Steam's own APIs directly via a =SteamDataSource= abstraction
 | Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, categories, price, review counts |
 | Steam Reviews    | store.steampowered.com/appreviews/{appid}  | Review text, thumbs, playtime |
 
-SteamSpy is NOT used. Steam's own API provides all required fields (genres, categories,
-review counts, metadata). =get_steamspy_data()= is not part of the abstraction.
+Steam's own APIs provide all required fields (genres, categories, review counts, metadata).
+No third-party data sources are used.
 
 ** SteamDataSource abstraction
 #+BEGIN_SRC python
@@ -358,7 +358,23 @@ badge.
 * Data Model (PostgreSQL)
 
 #+BEGIN_SRC sql
--- All Steam games (~100k apps from crawl)
+-- Lightweight index of every appid from GetAppList (~170k rows).
+-- Inserted on catalog fetch; updated as crawl progresses.
+-- games table only gets a row once metadata is fully crawled.
+CREATE TABLE app_catalog (
+  appid             INTEGER PRIMARY KEY,
+  name              TEXT NOT NULL,
+  -- phase 1: metadata crawl
+  meta_status       TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped
+  meta_crawled_at   TIMESTAMPTZ,
+  -- phase 2: review crawl (only for games with 500+ reviews)
+  review_count      INTEGER,                          -- populated after meta crawl
+  review_status     TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped | ineligible
+  review_crawled_at TIMESTAMPTZ,
+  discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- All fully-crawled Steam games (~100k rows)
 CREATE TABLE games (
   appid         INTEGER PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -718,4 +734,3 @@ SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
 - [ ] HTML stripping in =analyzer.py= — strip =detailed_desc= / =about_the_game= before LLM prompt-build (=re.sub(r'<[^>]+>', ' ', text)=)
 - [ ] sitemap.xml auto-generation (trigger on new analysis completion)
 - [ ] Next.js component library choice (shadcn/ui is current best practice for React)
-- [ ] Execute SteamSpy removal from =app_crawler/handler.py= (prompt written, not yet run)

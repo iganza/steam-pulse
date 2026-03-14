@@ -113,8 +113,11 @@ def test_handler_skips_on_steam_api_failure(
     # Steam 500 is a transient skip, not a DLQ failure — message is consumed successfully
     assert result["batchItemFailures"] == []
 
-    # No DB writes attempted
-    assert mock_cursor.execute.call_count == 0
+    # app_catalog updated with failed status; no games/reviews written
+    assert mock_cursor.execute.call_count == 1
+    call_sql = mock_cursor.execute.call_args[0][0]
+    assert "app_catalog" in call_sql
+    assert "failed" in call_sql
 
 
 @mock_aws

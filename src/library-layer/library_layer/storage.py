@@ -242,6 +242,21 @@ class PostgresStorage(BaseStorage):
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS app_catalog (
+            appid             INTEGER PRIMARY KEY,
+            name              TEXT NOT NULL,
+            -- phase 1: metadata crawl
+            meta_status       TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped
+            meta_crawled_at   TIMESTAMPTZ,
+            -- phase 2: review crawl (only for games with 500+ reviews)
+            review_count      INTEGER,                          -- populated after meta crawl
+            review_status     TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped | ineligible
+            review_crawled_at TIMESTAMPTZ,
+            -- housekeeping
+            discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS rate_limits (
             ip_hash TEXT PRIMARY KEY,
             count INTEGER DEFAULT 1,

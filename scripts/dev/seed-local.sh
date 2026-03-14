@@ -23,7 +23,6 @@ else
 fi
 
 export DATABASE_URL="postgresql://steampulse:dev@127.0.0.1:5432/steampulse"
-export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"
 export DB_SECRET_ARN=""
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-2}"
 
@@ -125,9 +124,8 @@ echo "▶ Stage 3/3 — LLM analysis"
 
 for appid in "${APPIDS[@]}"; do
     echo "  Analyzing appid=${appid}..."
-    PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions" \
-      poetry run python main.py --appid "$appid" --max-reviews 500 2>&1 \
-        | grep -E "^(✓|✗|Error|appid|one_liner|overall|WARNING|ERROR)" || true
+    bash "$SCRIPT_DIR/invoke-analysis.sh" "$appid" 2>&1 \
+        | grep -E "(appid|one_liner|overall_sentiment|ERROR|error)" || true
     echo ""
 done
 

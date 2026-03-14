@@ -1,18 +1,19 @@
-"""Analysis stack — Step Functions Express Workflow for LLM analysis pipeline."""
+"""Analysis stack — Step Functions Express Workflow for LLM analysis pipeline.
+
+Single-Lambda design: analysis/handler.py reads reviews from DB, runs two-pass
+Haiku→Sonnet analysis via analyzer.py, and writes the report back to DB.
+Step Functions provides retry logic and execution history.
+"""
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
-import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
 from constructs import Construct
-
-# Inline placeholder — replaced when Phase 3 crawler code ships
-_PLACEHOLDER = "def handler(event, context): return event"
 
 
 class AnalysisStack(cdk.Stack):
@@ -27,7 +28,6 @@ class AnalysisStack(cdk.Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Deploy-time SSM references
         vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/network/vpc-sg-id"
         )
@@ -37,7 +37,13 @@ class AnalysisStack(cdk.Stack):
             self, f"/steampulse/{stage}/data/db-secret-arn"
         )
 
-        # Shared Lambda execution role
+        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/lambda/library-layer-arn"
+        )
+        library_layer = lambda_.LayerVersion.from_layer_version_arn(
+            self, "LibraryLayer", library_layer_arn
+        )
+
         role = iam.Role(
             self,
             "AnalysisRole",
@@ -48,103 +54,77 @@ class AnalysisStack(cdk.Stack):
                 ),
             ],
         )
-        # Grant read using raw ARN token — avoids Secret.from_secret_complete_arn()
-        # which would create a Fn::ImportValue cross-stack reference to DataStack.
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
             resources=[db_secret_arn],
         ))
+        # Bedrock access for LLM calls
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+            resources=["*"],
+        ))
 
-        # SSM param for Anthropic key ARN — secret stored in Secrets Manager,
-        # ARN passed via context so no hardcoded values here.
-        anthropic_secret_arn: str = self.node.try_get_context("anthropic_secret_arn") or ""
-        if anthropic_secret_arn:
-            anthropic_secret = secretsmanager.Secret.from_secret_complete_arn(
-                self, "AnthropicSecret", anthropic_secret_arn
-            )
-            anthropic_secret.grant_read(role)
-
-        def _lambda(name: str, handler: str, timeout_seconds: int = 60) -> lambda_.Function:
-            log_group = logs.LogGroup(
-                self,
-                f"{name}Logs",
-                retention=logs.RetentionDays.ONE_WEEK,
-                removal_policy=cdk.RemovalPolicy.DESTROY,
-            )
-            return lambda_.Function(
-                self,
-                name,
-                runtime=lambda_.Runtime.PYTHON_3_12,
-                handler=handler,
-                code=lambda_.Code.from_inline(_PLACEHOLDER),
-                role=role,
-                vpc=vpc,
-                vpc_subnets=ec2.SubnetSelection(
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-                ),
-                security_groups=[intra_sg],
-                timeout=cdk.Duration.seconds(timeout_seconds),
-                environment={
-                    "DB_SECRET_ARN": db_secret_arn,
-                    **({"ANTHROPIC_SECRET_ARN": anthropic_secret_arn} if anthropic_secret_arn else {}),
-                },
-                log_group=log_group,
-            )
-
-        fetch_fn = _lambda("FetchReviews", "handler.handler", timeout_seconds=120)
-        chunks_fn = _lambda("PrepareChunks", "handler.handler")
-        analyze_fn = _lambda("AnalyzeChunk", "handler.handler", timeout_seconds=120)
-        synthesize_fn = _lambda("SynthesizeReport", "handler.handler", timeout_seconds=300)
-        store_fn = _lambda("StoreReport", "handler.handler")
-        invalidate_fn = _lambda("InvalidateCache", "handler.handler")
-
-        # Step Functions tasks
-        fetch_task = tasks.LambdaInvoke(self, "FetchReviewsTask", lambda_function=fetch_fn,
-                                        result_path="$.reviews")
-        chunks_task = tasks.LambdaInvoke(self, "PrepareChunksTask", lambda_function=chunks_fn,
-                                         result_path="$.chunks")
-        analyze_task = tasks.LambdaInvoke(self, "AnalyzeChunkTask", lambda_function=analyze_fn,
-                                          result_path="$.chunk_result")
-        synthesize_task = tasks.LambdaInvoke(self, "SynthesizeReportTask",
-                                             lambda_function=synthesize_fn,
-                                             result_path="$.report")
-        store_task = tasks.LambdaInvoke(self, "StoreReportTask", lambda_function=store_fn,
-                                        result_path="$.stored")
-        invalidate_task = tasks.LambdaInvoke(self, "InvalidateCacheTask",
-                                             lambda_function=invalidate_fn,
-                                             result_path="$.invalidated")
-
-        # Map state: process chunks in parallel (max 5 concurrent)
-        chunk_map = sfn.Map(
-            self,
-            "ChunkMap",
-            items_path="$.chunks.Payload",
-            max_concurrency=5,
-            result_path="$.chunk_summaries",
-        ).item_processor(analyze_task)
-
-        # State machine definition
-        definition = (
-            fetch_task
-            .next(chunks_task)
-            .next(chunk_map)
-            .next(synthesize_task)
-            .next(store_task)
-            .next(invalidate_task)
+        haiku_model = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/llm/haiku-model"
+        )
+        sonnet_model = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/llm/sonnet-model"
         )
 
-        log_group = logs.LogGroup(self, "StateMachineLogs",
-                                  retention=logs.RetentionDays.ONE_WEEK)
+        log_group = logs.LogGroup(
+            self,
+            "AnalysisLambdaLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+
+        # Single Lambda — runs the full two-pass analysis for one game
+        analysis_fn = lambda_.Function(
+            self,
+            "AnalysisFn",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.analysis.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=role,
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(10),
+            memory_size=1024,
+            environment={
+                "DB_SECRET_ARN": db_secret_arn,
+                "HAIKU_MODEL": haiku_model,
+                "SONNET_MODEL": sonnet_model,
+            },
+            log_group=log_group,
+        )
+
+        # Step Functions — single task with built-in retry
+        analyze_task = tasks.LambdaInvoke(
+            self,
+            "AnalyzeGame",
+            lambda_function=analysis_fn,
+            output_path="$.Payload",
+        )
+        analyze_task.add_retry(
+            max_attempts=2,
+            interval=cdk.Duration.seconds(10),
+            backoff_rate=2,
+        )
+
+        sfn_log_group = logs.LogGroup(self, "StateMachineLogs",
+                                      retention=logs.RetentionDays.ONE_WEEK)
 
         machine = sfn.StateMachine(
             self,
             "AnalysisMachine",
             state_machine_name=f"{stage}-steampulse-analysis",
-            definition_body=sfn.DefinitionBody.from_chainable(definition),
+            definition_body=sfn.DefinitionBody.from_chainable(analyze_task),
             state_machine_type=sfn.StateMachineType.EXPRESS,
             timeout=cdk.Duration.minutes(15),
             logs=sfn.LogOptions(
-                destination=log_group,
+                destination=sfn_log_group,
                 level=sfn.LogLevel.ERROR,
             ),
         )
@@ -152,7 +132,6 @@ class AnalysisStack(cdk.Stack):
         self.state_machine = machine
         self.state_machine_arn = machine.state_machine_arn
 
-        # Publish for consumer stacks via SSM
         ssm.StringParameter(
             self,
             "StateMachineArnParam",

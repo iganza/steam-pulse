@@ -37,7 +37,7 @@ class PreviewRequest(BaseModel):
 
 
 class ValidateKeyRequest(BaseModel):
-    key: str
+    license_key: str
     appid: int
 
 
@@ -198,12 +198,23 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
 async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
     appid = body.appid
 
+    # Dev bypass — set DEV_KEY in .env to skip Lemon Squeezy validation locally
+    dev_key = os.getenv("DEV_KEY", "")
+    if dev_key and body.license_key == dev_key:
+        report = await _storage.get_report(appid)
+        if report is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": f"No cached report for appid {appid}. Run the analysis first.", "code": "not_found"},
+            )
+        return {**report, "activations_remaining": 99}
+
     # Validate with Lemon Squeezy
     try:
         resp = await _http_client.post(
             f"{LS_API_BASE}/licenses/validate",
             headers=_ls_headers(),
-            json={"license_key": body.key, "instance_id": str(appid)},
+            json={"license_key": body.license_key, "instance_id": str(appid)},
         )
         ls_data = resp.json()
     except Exception as exc:
@@ -231,7 +242,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
         await _http_client.post(
             f"{LS_API_BASE}/licenses/activate",
             headers=_ls_headers(),
-            json={"license_key": body.key, "instance_name": f"analysis-{appid}"},
+            json={"license_key": body.license_key, "instance_name": f"analysis-{appid}"},
         )
     except Exception:
         pass

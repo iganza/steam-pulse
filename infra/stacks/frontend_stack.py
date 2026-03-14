@@ -18,7 +18,7 @@ import aws_cdk.aws_logs as logs
 from constructs import Construct
 
 _PLACEHOLDER = "def handler(event, context): return {'statusCode': 200, 'body': 'Frontend not yet deployed'}"
-_OPEN_NEXT_SERVER = "frontend/.open-next/server-function"
+_OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
 
 
 class FrontendStack(cdk.Stack):

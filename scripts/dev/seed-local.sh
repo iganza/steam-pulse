@@ -62,9 +62,16 @@ import json, sys
 sys.path.insert(0, "$REPO_ROOT/src/library-layer")
 sys.path.insert(0, "$REPO_ROOT/src/lambda-functions")
 from lambda_functions.app_crawler.handler import handler
-result = handler($RECORDS, {})
+
+class MockContext:
+    function_name = "local-app-crawler"
+    memory_limit_in_mb = 512
+    invoked_function_arn = "arn:aws:lambda:us-east-1:000000000000:function:local"
+    aws_request_id = "local-request"
+
+result = handler($RECORDS, MockContext())
 failures = result.get("batchItemFailures", [])
-print(f"  Done — {len($RECORDS.get('Records', []) if isinstance($RECORDS, dict) else [])} processed, {len(failures)} failures")
+print(f"  Done — {len(failures)} failures")
 if failures:
     print("  Failures:", failures)
 PYEOF
@@ -85,6 +92,12 @@ import json, sys, os
 sys.path.insert(0, "$REPO_ROOT/src/library-layer")
 sys.path.insert(0, "$REPO_ROOT/src/lambda-functions")
 
+class MockContext:
+    function_name = "local-review-crawler"
+    memory_limit_in_mb = 512
+    invoked_function_arn = "arn:aws:lambda:us-east-1:000000000000:function:local"
+    aws_request_id = "local-request"
+
 appids = [${APPIDS[*]}]  # bash array expansion into Python list
 records = [
     {"messageId": f"local-{a}", "body": json.dumps({"appid": a}), "receiptHandle": "local"}
@@ -93,7 +106,7 @@ records = [
 event = {"Records": records}
 
 from lambda_functions.review_crawler.handler import handler
-result = handler(event, {})
+result = handler(event, MockContext())
 failures = result.get("batchItemFailures", [])
 print(f"  Done — {len(appids)} processed, {len(failures)} failures")
 if failures:

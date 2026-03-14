@@ -35,7 +35,12 @@ sys.path.insert(0, "$REPO_ROOT/src/library-layer")
 sys.path.insert(0, "$REPO_ROOT/src/lambda-functions")
 from lambda_functions.review_crawler.handler import handler
 event = $RECORDS
-result = handler(event, {})
+class MockContext:
+    function_name = "local-review-crawler"
+    memory_limit_in_mb = 512
+    invoked_function_arn = "arn:aws:lambda:us-east-1:000000000000:function:local"
+    aws_request_id = "local-request"
+result = handler(event, MockContext())
 print("Result:", result)
 EOF
 echo "✓ Done"

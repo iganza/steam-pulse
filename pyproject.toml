@@ -16,6 +16,7 @@ psycopg2-binary = ">=2.9.9"
 resend = ">=2.0.0"
 python-dotenv = ">=1.0.0"
 aws-lambda-powertools = {extras = ["tracer"], version = "^3.25.0"}
+rich = "^14.3.3"
 
 [tool.poetry.group.infra]
 optional = true

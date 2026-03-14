@@ -125,7 +125,8 @@ echo "▶ Stage 3/3 — LLM analysis"
 
 for appid in "${APPIDS[@]}"; do
     echo "  Analyzing appid=${appid}..."
-    poetry run python main.py --appid "$appid" --max-reviews 500 2>&1 \
+    PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions" \
+      poetry run python main.py --appid "$appid" --max-reviews 500 2>&1 \
         | grep -E "^(✓|✗|Error|appid|one_liner|overall|WARNING|ERROR)" || true
     echo ""
 done

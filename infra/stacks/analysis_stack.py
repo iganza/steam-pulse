@@ -38,7 +38,7 @@ class AnalysisStack(cdk.Stack):
         )
 
         library_layer_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/lambda/library-layer-arn"
+            self, f"/steampulse/{stage}/common/library-layer-arn"
         )
         library_layer = lambda_.LayerVersion.from_layer_version_arn(
             self, "LibraryLayer", library_layer_arn

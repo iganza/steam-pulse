@@ -36,9 +36,6 @@ class AnalysisStack(cdk.Stack):
         db_secret_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/data/db-secret-arn"
         )
-        db_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "DbSecret", db_secret_arn
-        )
 
         # Shared Lambda execution role
         role = iam.Role(
@@ -51,7 +48,12 @@ class AnalysisStack(cdk.Stack):
                 ),
             ],
         )
-        db_secret.grant_read(role)
+        # Grant read using raw ARN token — avoids Secret.from_secret_complete_arn()
+        # which would create a Fn::ImportValue cross-stack reference to DataStack.
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret_arn],
+        ))
 
         # SSM param for Anthropic key ARN — secret stored in Secrets Manager,
         # ARN passed via context so no hardcoded values here.

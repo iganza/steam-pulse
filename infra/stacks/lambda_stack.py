@@ -5,7 +5,6 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
-import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from constructs import Construct
@@ -53,9 +52,6 @@ class LambdaStack(cdk.Stack):
         db_secret_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/data/db-secret-arn"
         )
-        db_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "DbSecret", db_secret_arn
-        )
 
         sfn_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/analysis/state-machine-arn"
@@ -82,7 +78,10 @@ class LambdaStack(cdk.Stack):
                 ),
             ],
         )
-        db_secret.grant_read(role)
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret_arn],
+        ))
         review_queue.grant_send_messages(role)
 
         common_env = {

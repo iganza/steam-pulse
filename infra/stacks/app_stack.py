@@ -10,7 +10,6 @@ import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
-import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
@@ -45,9 +44,6 @@ class AppStack(cdk.Stack):
 
         db_secret_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/data/db-secret-arn"
-        )
-        db_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "DbSecret", db_secret_arn
         )
 
         sfn_arn = ssm.StringParameter.value_for_string_parameter(
@@ -84,7 +80,10 @@ class AppStack(cdk.Stack):
                 ),
             ],
         )
-        db_secret.grant_read(api_role)
+        api_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret_arn],
+        ))
 
         # Allow Lambda to invoke Claude via Bedrock (no API key needed)
         api_role.add_to_policy(

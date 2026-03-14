@@ -50,7 +50,7 @@ export default async function GameReportPage({ params }: Props) {
     <GameReportClient
       preview={preview}
       appid={numericAppid}
-      headerImage={undefined}
+      headerImage={`https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`}
       releaseDate={undefined}
       developer={undefined}
       priceUsd={undefined}

@@ -206,6 +206,13 @@ class AppStack(cdk.Stack):
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 ),
+                # Next.js hashed static files — served from S3, cached forever
+                "/_next/static/*": cloudfront.BehaviorOptions(
+                    origin=s3_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=static_cache_policy,
+                ),
+                # Legacy /static/* for any other assets
                 "/static/*": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

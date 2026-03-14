@@ -1,11 +1,18 @@
-"""Frontend stack — Next.js via OpenNext on Lambda, added as CloudFront behaviour.
+"""Frontend stack — Next.js via OpenNext on Lambda, with static assets in S3.
 
-Phase 4 builds the Next.js app and produces frontend/.open-next/.
-Until then this stack registers the CloudFront behaviour with a placeholder Lambda.
+Architecture (open-next v3):
+  - S3 bucket (owned by AppStack) serves /_next/static/* via CloudFront
+  - BucketDeployment uploads .open-next/assets/ to that S3 bucket
+  - Lambda handles SSR from .open-next/server-functions/default/
+  - FrontendStack adds /* CloudFront behaviour → Lambda
 
-NOTE: app_distribution is kept as a direct CDK object (not SSM-imported) because
+NOTE: app_distribution is passed directly (not SSM-imported) because
 cloudfront.Distribution.from_distribution_attributes() returns IDistribution which
 throws "Cannot add behaviors to an imported distribution" when add_behavior() is called.
+
+NOTE: assets_bucket is owned by AppStack (same stack as CloudFront) to avoid a
+cross-stack cyclic reference (App↔Frontend) that would occur if the S3 origin and the
+CloudFront behaviours lived in different stacks.
 """
 
 import os
@@ -15,10 +22,13 @@ import aws_cdk.aws_cloudfront as cloudfront
 import aws_cdk.aws_cloudfront_origins as origins
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_s3 as s3
+import aws_cdk.aws_s3_deployment as s3deploy
 from constructs import Construct
 
 _PLACEHOLDER = "def handler(event, context): return {'statusCode': 200, 'body': 'Frontend not yet deployed'}"
 _OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
+_OPEN_NEXT_ASSETS = "frontend/.open-next/assets"
 
 
 class FrontendStack(cdk.Stack):
@@ -29,12 +39,25 @@ class FrontendStack(cdk.Stack):
         *,
         stage: str,
         app_distribution: cloudfront.Distribution,
+        assets_bucket: s3.Bucket,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Use OpenNext server bundle when built, inline placeholder otherwise
-        if os.path.isdir(_OPEN_NEXT_SERVER):
+        frontend_built = os.path.isdir(_OPEN_NEXT_SERVER)
+
+        # Upload built Next.js static assets to S3 (served via CloudFront /_next/static/*)
+        if frontend_built and os.path.isdir(_OPEN_NEXT_ASSETS):
+            s3deploy.BucketDeployment(
+                self,
+                "AssetsDeployment",
+                sources=[s3deploy.Source.asset(_OPEN_NEXT_ASSETS)],
+                destination_bucket=assets_bucket,
+                prune=True,
+            )
+
+        # SSR Lambda — use open-next bundle when built, inline placeholder otherwise
+        if frontend_built:
             code = lambda_.Code.from_asset(_OPEN_NEXT_SERVER)
             handler = "index.handler"
             runtime = lambda_.Runtime.NODEJS_22_X
@@ -64,8 +87,7 @@ class FrontendStack(cdk.Stack):
         fn_url = frontend_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
         )
-
-        frontend_origin = origins.FunctionUrlOrigin(fn_url)
+        lambda_origin = origins.FunctionUrlOrigin(fn_url)
 
         html_cache = cloudfront.CachePolicy(
             self,
@@ -79,10 +101,10 @@ class FrontendStack(cdk.Stack):
             query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
         )
 
-        # Add /* behaviour to existing distribution (lower priority than /api/*)
+        # SSR catch-all — lower priority than /_next/static/* (defined in AppStack)
         app_distribution.add_behavior(
             "/*",
-            frontend_origin,
+            lambda_origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             cache_policy=html_cache,
             origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,

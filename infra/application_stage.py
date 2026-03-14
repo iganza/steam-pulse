@@ -107,11 +107,12 @@ class ApplicationStage(cdk.Stage):
         app.add_dependency(analysis)
 
         # FrontendStack: receives app.distribution directly (CDK add_behavior() limitation).
-        # The FunctionUrl cross-stack reference enforces App→Frontend deploy order.
+        # assets_bucket is owned by AppStack to avoid a cross-stack cyclic reference.
         frontend = FrontendStack(
             self, "Frontend",
             stage=stage,
             app_distribution=app.distribution,
+            assets_bucket=app.assets_bucket,
             env=env,
         )
 

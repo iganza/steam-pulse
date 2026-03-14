@@ -1,6 +1,8 @@
 """LambdaStack — crawler Lambda functions and EventBridge schedules."""
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_events as events
+import aws_cdk.aws_events_targets as events_targets
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
@@ -38,6 +40,9 @@ class LambdaStack(cdk.Stack):
 
         app_queue_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/sqs/app-crawl-queue-arn"
+        )
+        app_queue_url = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/sqs/app-crawl-queue-url"
         )
         app_queue = sqs.Queue.from_queue_arn(self, "AppQueue", app_queue_arn)
 
@@ -83,6 +88,7 @@ class LambdaStack(cdk.Stack):
             resources=[db_secret_arn],
         ))
         review_queue.grant_send_messages(role)
+        app_queue.grant_send_messages(role)
 
         common_env = {
             "DB_SECRET_ARN": db_secret_arn,
@@ -163,3 +169,44 @@ class LambdaStack(cdk.Stack):
                 report_batch_item_failures=True,
             )
         )
+
+        # Catalog refresher Lambda — EventBridge weekly schedule
+        # Fetches full Steam app list, upserts new appids into app_catalog,
+        # enqueues all pending appids onto app-crawl-queue.
+        catalog_refresher_log_group = logs.LogGroup(
+            self,
+            "CatalogRefresherLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        self.catalog_refresher_fn = lambda_.Function(
+            self,
+            "CatalogRefresher",
+            function_name=f"{stage}-steampulse-catalog-refresher",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.catalog_refresher.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
+            allow_public_subnet=not is_production,
+            # GetAppList + bulk upsert + batch SQS enqueue can take a few minutes
+            timeout=cdk.Duration.minutes(10),
+            tracing=lambda_.Tracing.ACTIVE,
+            environment={
+                **common_env,
+                "APP_CRAWL_QUEUE_URL": app_queue_url,
+                "POWERTOOLS_SERVICE_NAME": "catalog-refresher",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
+            log_group=catalog_refresher_log_group,
+        )
+        # Uncomment to enable weekly schedule (every Sunday at 02:00 UTC)
+        # events.Rule(
+        #     self,
+        #     "CatalogRefreshSchedule",
+        #     schedule=events.Schedule.cron(minute="0", hour="2", week_day="SUN"),
+        #     targets=[events_targets.LambdaFunction(self.catalog_refresher_fn)],
+        # )

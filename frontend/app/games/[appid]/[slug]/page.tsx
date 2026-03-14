@@ -36,9 +36,8 @@ export default async function GameReportPage({ params }: Props) {
     preview = await getPreview(numericAppid);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
-    if (err instanceof ApiError && err.status === 402) {
-      // Rate limit hit at the SSR layer — render page without preview,
-      // client will trigger its own request from the user's IP.
+    // Network errors: render without preview rather than hard-failing
+    if (err instanceof ApiError) {
       preview = null;
     } else {
       throw err;

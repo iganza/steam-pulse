@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from library_layer.analyzer import analyze_reviews
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.storage import BaseStorage, get_storage
-from .rate_limiter import consume, get_client_ip, is_rate_limited
 
 logger = logging.getLogger(__name__)
 
@@ -158,20 +157,12 @@ async def health() -> dict:
 
 
 @app.post("/api/preview", response_model=None)
-async def preview(body: PreviewRequest, request: Request) -> JSONResponse | dict:
+async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
-    ip = get_client_ip(request)
-
-    if is_rate_limited(ip):
-        return JSONResponse(
-            status_code=402,
-            content={"error": "free_limit_reached", "code": "rate_limited"},
-        )
 
     # Cache hit — return immediately
     cached = await _storage.get_report(appid)
     if cached:
-        consume(ip, appid)
         return _preview_fields(cached)
 
     # Fetch game details to get name
@@ -190,7 +181,6 @@ async def preview(body: PreviewRequest, request: Request) -> JSONResponse | dict
 
     # Trigger analysis — Step Functions (async) or inline (local dev, sync)
     job_id = await _trigger_analysis(appid, game_name)
-    consume(ip, appid)
 
     # If inline run completed, report is already stored
     report = await _storage.get_report(appid)

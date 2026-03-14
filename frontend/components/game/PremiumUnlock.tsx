@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Lock, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { validateKey } from "@/lib/api";
 import type { GameReport } from "@/lib/types";
+import { useUserTier } from "@/lib/auth";
 
 const LS_KEY = "sp_license_key";
 
@@ -16,6 +17,7 @@ interface PremiumUnlockProps {
 type State = "locked" | "open" | "loading" | "error" | "unlocked";
 
 export function PremiumUnlock({ appid, children, onUnlock }: PremiumUnlockProps) {
+  const userTier = useUserTier();
   const [state, setState] = useState<State>("locked");
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
@@ -53,7 +55,8 @@ export function PremiumUnlock({ appid, children, onUnlock }: PremiumUnlockProps)
     void attemptUnlock(key.trim());
   };
 
-  if (state === "unlocked") {
+  // Pro users see content directly — no blur, no CTA
+  if (userTier === "pro" || state === "unlocked") {
     return <>{children}</>;
   }
 
@@ -79,12 +82,11 @@ export function PremiumUnlock({ appid, children, onUnlock }: PremiumUnlockProps)
               <Lock className="w-4 h-4 text-teal-400" />
             </div>
             <p className="text-sm text-foreground/80 leading-relaxed">
-              You&rsquo;re a developer doing pre-launch research.{" "}
+              Get the developer layer:{" "}
               <span className="text-foreground font-medium">
-                Get action items, refund signals, and feature gaps your
-                competitors haven&rsquo;t fixed
-              </span>{" "}
-              &mdash;
+                action items ranked by ROI, churn signals, feature gaps, and
+                how this game stacks up against its competitors.
+              </span>
             </p>
             <span
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-mono font-medium transition-all group-hover:scale-105"

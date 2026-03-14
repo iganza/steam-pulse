@@ -18,12 +18,14 @@ import {
   Calendar,
   DollarSign,
   BarChart3,
+  Lock,
 } from "lucide-react";
 import type { GameReport, PreviewResponse } from "@/lib/types";
 import { ScoreBar } from "@/components/game/ScoreBar";
 import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { PremiumUnlock } from "@/components/game/PremiumUnlock";
+import { useUserTier } from "@/lib/auth";
 
 interface GameReportClientProps {
   preview: PreviewResponse | null;
@@ -56,28 +58,61 @@ export function GameReportClient({
   genres,
 }: GameReportClientProps) {
   const [fullReport, setFullReport] = useState<GameReport | null>(null);
+  const userTier = useUserTier();
 
   const report = fullReport;
-  // appid comes from URL params; preview may be null if SSR hit rate limit
 
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "—";
 
-  // Placeholder premium content (visible blurred)
+  // Placeholder pro content — realistic enough to show shape of value
   const placeholderWishlist = [
-    "Co-op or multiplayer support",
-    "New biome with unique mechanics",
-    "More endgame content and progression",
-    "Modding tools and Steam Workshop",
-    "Controller support improvements",
+    "Steam Workshop / mod support — requested across 40%+ of positive long-form reviews",
+    "Co-op or shared-screen multiplayer mode",
+    "New biome with distinct mechanics and enemy roster",
+    "Expanded endgame: NG+ cycle or post-credit challenge content",
+    "Full controller remapping + haptic feedback improvements",
   ];
   const placeholderChurn = [
-    "First hour: tutorial feels gate-heavy",
-    "Hour 3–5: mid-game difficulty spike",
-    "Post-completion: lack of replayability",
+    "First 15 min: tutorial gates core loop behind 3 mandatory objectives — players quit before the fun starts",
+    "Hours 3–5: mid-game difficulty spike with no clear power progression path; refunds spike here",
+    "Post-completion: nothing meaningful to do after credits — replayability gap kills word-of-mouth",
   ];
   const placeholderPriorities = [
-    { action: "Fix save system reliability", why_it_matters: "Top complaint", frequency: "High", effort: "Low" },
-    { action: "Add rebindable controls", why_it_matters: "Accessibility gap", frequency: "Medium", effort: "Low" },
+    {
+      action: "Fix first-session onboarding",
+      why_it_matters: "Players report confusion before core loop clicks. Top churn trigger in first-hour reviews.",
+      frequency: "~35% of negative reviews",
+      effort: "Medium",
+    },
+    {
+      action: "Address save system complaints",
+      why_it_matters: "Loss of progress mentioned in 28% of negative reviews. High frustration-to-fix ratio.",
+      frequency: "High",
+      effort: "Low",
+    },
+    {
+      action: "Add Steam Workshop support",
+      why_it_matters: "Most-requested feature across 3 review chunks. Drives long-tail retention.",
+      frequency: "Medium",
+      effort: "High",
+    },
+  ];
+  const placeholderCompetitive = [
+    {
+      game: "Hollow Knight",
+      comparison_sentiment: "Favourable",
+      note: "Players cite similar atmosphere but praise tighter combat pacing in this title.",
+    },
+    {
+      game: "Hades",
+      comparison_sentiment: "Mixed",
+      note: "Roguelite fans compare run variety unfavourably — less build diversity per attempt.",
+    },
+    {
+      game: "Dead Cells",
+      comparison_sentiment: "Neutral",
+      note: "Mentioned as reference point for difficulty tuning; this game seen as more forgiving.",
+    },
   ];
 
   return (
@@ -267,6 +302,25 @@ export function GameReportClient({
               </p>
             )}
           </ul>
+
+          {/* Inline teaser — only shown when Pro sections are locked */}
+          {userTier !== "pro" && (
+            <div className="mt-6 flex items-center gap-3 text-xs text-muted-foreground">
+              <Lock className="w-3 h-3 flex-shrink-0" style={{ color: "var(--teal)" }} />
+              <span>
+                {report?.dev_priorities?.length ?? placeholderPriorities.length} developer action items derived from these complaints
+              </span>
+              <a
+                href="https://steampulse.io/#pricing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto flex-shrink-0 font-mono hover:text-foreground transition-colors"
+                style={{ color: "var(--teal)" }}
+              >
+                Unlock $7 →
+              </a>
+            </div>
+          )}
         </section>
 
         {/* Section 6 — Audience Profile */}
@@ -382,7 +436,7 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* ── PREMIUM SECTIONS 9–11 ── */}
+        {/* ── PRO SECTIONS 9–12 ── */}
         <section>
           <PremiumUnlock appid={appid} onUnlock={setFullReport}>
             <div className="space-y-12 p-6 rounded-xl"
@@ -467,49 +521,48 @@ export function GameReportClient({
                   ))}
                 </div>
               </div>
+
+              {/* Section 12 — Competitive Context */}
+              <div>
+                <SectionLabel premium>Competitive Context</SectionLabel>
+                <div className="space-y-3">
+                  {(report?.competitive_context ?? placeholderCompetitive).map((c, i) => (
+                    <div
+                      key={i}
+                      className="p-4 rounded-xl flex items-start gap-4"
+                      style={{
+                        background: "rgba(255,255,255,0.03)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      <Swords className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-mono font-medium text-foreground">
+                            {c.game}
+                          </span>
+                          <span
+                            className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full"
+                            style={{
+                              background: "rgba(255,255,255,0.05)",
+                              color: "var(--muted-foreground)",
+                            }}
+                          >
+                            {c.comparison_sentiment}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {c.note}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
             </div>
           </PremiumUnlock>
         </section>
-
-        {/* Section 12 — Competitive Context */}
-        {report?.competitive_context && report.competitive_context.length > 0 && (
-          <section>
-            <SectionLabel>Competitive Context</SectionLabel>
-            <div className="space-y-3">
-              {report.competitive_context.map((c, i) => (
-                <div
-                  key={i}
-                  className="p-4 rounded-xl flex items-start gap-4"
-                  style={{
-                    background: "var(--card)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <Swords className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-mono font-medium text-foreground">
-                        {c.game}
-                      </span>
-                      <span
-                        className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full"
-                        style={{
-                          background: "rgba(255,255,255,0.05)",
-                          color: "var(--muted-foreground)",
-                        }}
-                      >
-                        {c.comparison_sentiment}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {c.note}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Section 13 — Related / footer */}
         <section className="pt-8 border-t border-border">

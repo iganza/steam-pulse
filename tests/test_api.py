@@ -12,10 +12,7 @@ from fastapi.testclient import TestClient
 def reset_api_state() -> None:
     """Reset module-level singletons between tests."""
     from lambda_functions.api import handler as api_module
-    from lambda_functions.api import rate_limiter
 
-    # Clear rate limiter state
-    rate_limiter._limits.clear()
     # Reset storage to a fresh InMemoryStorage
     from library_layer.storage import InMemoryStorage
     api_module._storage = InMemoryStorage()
@@ -74,11 +71,10 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
     assert "churn_triggers" not in data
 
 
-def test_rate_limiter_blocks_second_request(client: TestClient) -> None:
-    """Second POST /api/preview from same IP returns 402 free_limit_reached."""
+def test_preview_unconditional(client: TestClient) -> None:
+    """POST /api/preview returns 200 for every request — no rate limiting."""
     from lambda_functions.api import handler as api_module
 
-    # Pre-populate storage so first request succeeds without hitting external APIs
     asyncio.run(api_module._storage.upsert_report(440, {
         "game_name": "Team Fortress 2",
         "overall_sentiment": "Very Positive",
@@ -88,14 +84,10 @@ def test_rate_limiter_blocks_second_request(client: TestClient) -> None:
         "appid": 440,
     }))
 
-    # First request — should succeed (200) with the cached report
-    resp1 = client.post("/api/preview", json={"appid": 440})
-    assert resp1.status_code == 200
-
-    # Second request from same IP — rate limited
-    resp2 = client.post("/api/preview", json={"appid": 440})
-    assert resp2.status_code == 402
-    assert resp2.json()["error"] == "free_limit_reached"
+    # Multiple requests from same client — all should succeed (no 402)
+    for _ in range(3):
+        resp = client.post("/api/preview", json={"appid": 440})
+        assert resp.status_code == 200
 
 
 def test_validate_key_rejects_invalid_key(client: TestClient) -> None:

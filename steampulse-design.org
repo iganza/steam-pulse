@@ -283,7 +283,7 @@ State machine triggered after review crawl completes for each game:
 
 #+BEGIN_SRC
 StartAnalysis
-  └── PrepareChunks   (Lambda: split reviews into 50-review batches)
+  └── PrepareChunks   (Lambda: split reviews into 50-review batches + fetch game description)
        └── Map (MaxConcurrency: 5)
             └── AnalyzeChunk  (Lambda: Haiku — extract themes per chunk)
        └── SynthesizeReport  (Lambda: Sonnet — merge chunks → structured JSON)
@@ -293,6 +293,22 @@ StartAnalysis
 
 Step Functions Express Workflows. Cost: ~$0.30 for entire 6k seed crawl (negligible).
 Map(MaxConcurrency=5) means a 2,000-review game (40 chunks) runs in ~8 parallel batches.
+
+*** Game description as silent synthesis context (POC)
+
+The game's Steam description (=short_description= + =about_the_game=, HTML-stripped) is passed
+to the *Pass 2 Sonnet synthesis prompt only* — not to the Pass 1 Haiku chunk calls.
+
+Rationale:
+- Already crawled — free, already in DB
+- Zero extra cost — additional context in the same synthesis call, not a new LLM call
+- Improves =one_liner=, =audience_profile=, =genre_context= quality without any new UI sections
+- Enables implicit expectation mismatch detection (e.g., "claims deep story, players say thin
+  narrative") — surfaces naturally in existing free sections
+- Explicit description intelligence UI (Store Page Intelligence, Tag Optimization etc.) deferred to V2 Pro
+
+Implementation: strip HTML with =re.sub(r'<[^>]+>', ' ', text)= before passing to LLM.
+Cap at ~1,000 tokens to avoid inflating Pass 2 cost meaningfully (~$0.001/game extra at most).
 
 * Bootstrap / Generation Strategy
 
@@ -440,10 +456,8 @@ CREATE TABLE rate_limits (
 
 ** LLM synthesis output (Pass 2 — Sonnet)
 
-The root cause of duplication in the old schema: `top_complaints`, `refund_risk_signals`,
-and `dev_action_items` all answered the same question ("what's wrong?"). The new schema
-gives every section a different *question*, a different *output format*, and an explicit
-exclusion rule about what does NOT belong there.
+Each section answers a distinct question with a distinct output format. Explicit exclusion rules
+prevent duplication across sections.
 
 #+BEGIN_SRC json
 {
@@ -540,34 +554,57 @@ The same root cause CAN appear in multiple sections ONLY if each instance descri
 
 If the same SENTENCE or FRAMING appears in two sections — that is duplication. Remove it from the section whose definition fits least.
 
-** Backward compatibility mapping
+** Freemium Philosophy
 
-| Old field           | New field              | Change                                      |
-|---------------------+------------------------+---------------------------------------------|
-| top_praises         | design_strengths       | Narrowed: design decisions only             |
-| top_complaints      | gameplay_friction      | Narrowed: in-game design issues only        |
-| feature_requests    | player_wishlist        | Narrowed: net-new only (not fixes)          |
-| refund_risk_signals | churn_triggers         | Reframed: journey events with timing        |
-| dev_action_items    | dev_priorities         | Now structured objects: action+why+freq+effort |
-| competitive_mentions| competitive_context    | Now structured objects                      |
+Two clean conceptual tiers:
+- *Free = "What players think"* — consumer-facing intelligence, SEO value, useful to anyone
+- *Pro = "What you should do about it"* — developer-facing action intelligence, worth paying for
+
+Each free section is designed to naturally create desire for the adjacent pro section:
+- Design Strengths → sets up "what should I build next?" → Player Wishlist
+- Gameplay Friction → sets up "why are people leaving?" → Churn Triggers
+- Audience Profile → sets up "how does this compare?" → Competitive Context
+- Sentiment Trend → sets up "what changed and why?" → deeper via Pro
+
+*No rate limiter on free content.* The free report is unconditional — no account, no IP limit,
+no friction. The public site is a sales funnel, not a profit center.
 
 ** Report page sections (in order)
 
-| #  | Section                     | Free? | Notes                                     |
-|----+-----------------------------+-------+-------------------------------------------|
-|  1 | Hero (name, cover, badge)   | ✅    |                                           |
-|  2 | The Verdict (one_liner)     | ✅    | SEO hook, max 25 words                    |
-|  3 | Quick stats                 | ✅    | reviews, price, release, developer        |
-|  4 | Design Strengths            | ✅    | Chips — what design decisions are working |
-|  5 | Gameplay Friction           | ✅    | Chips — in-game UX problems               |
-|  6 | Audience Profile            | ✅    | "Who this game is for"                    |
-|  7 | Dev Priorities              | 🔒    | Numbered, action + frequency + effort     |
-|  8 | Player Wishlist             | 🔒    | Net-new features only                     |
-|  9 | Churn Triggers              | 🔒    | Journey moments with timing — most valuable for devs |
-| 10 | Competitive Context         | ✅    | Named games cross-linked to their reports |
-| 11 | Sentiment Trend             | ✅    | improving / stable / declining badge      |
-| 12 | Genre Context               | ✅    | vs genre average                          |
-| 13 | Related Games               | ✅    | Internal SEO cross-links                  |
+| #  | Section              | Tier | Notes                                                          |
+|----+----------------------+------+----------------------------------------------------------------|
+|  1 | Hero                 | Free | Game name, cover image, sentiment badge, hidden gem score      |
+|  2 | The Verdict          | Free | one_liner (25 words max) + sentiment score bar. SEO hook.      |
+|  3 | Quick Stats          | Free | Review count, release year, price, genre                       |
+|  4 | Design Strengths     | Free | Top 3-5 things players love. Sets up Wishlist.                 |
+|  5 | Gameplay Friction    | Free | Top 3-5 pain points. Sets up Churn Triggers.                   |
+|  6 | Audience Profile     | Free | Ideal player, archetypes, not-for. Sets up Competitive.        |
+|  7 | Sentiment Trend      | Free | Improving / stable / declining + narrative note                |
+|  8 | Genre Context        | Free | How the game fits its genre — narrative paragraph              |
+|  9 | Player Wishlist      | Pro  | Features players are begging for. Maps directly to roadmap.    |
+| 10 | Churn Triggers       | Pro  | When & why players quit or refund. Journey moments + timing.   |
+| 11 | Developer Priorities | Pro  | AI-prioritized action items with effort + impact estimates     |
+| 12 | Competitive Context  | Pro  | How this game compares to named similar titles (cross-linked)  |
+| 13 | Related Games        | Free | Internal SEO cross-links to similar games                      |
+
+*** Pro section display rules
+
+- Pro sections are visible as blurred previews with *realistic placeholder content* (not grey boxes)
+- Users see the *shape* of what they're missing — real-looking data increases conversion
+- A single =PremiumUnlock= gate covers sections 9-12 together (one purchase unlocks all)
+- After unlock, all sections animate in — no page reload
+
+*** Future Pro sections (not yet in schema — flag for V2+)
+
+| Section                  | Priority | Description                                                              |
+|--------------------------+----------+--------------------------------------------------------------------------|
+| Store Page Intelligence  | High     | Explicit description mining: positioning gaps, expectation mismatches,   |
+|                          |          | "dev claims X, players experience Y" — the killer differentiator         |
+| Tag Optimization         | High     | Are they using the right/highest-traffic Steam tags? Gaps vs competitors |
+| Refund Risk Score        | Med      | Quantified signal — % of negative reviews mentioning refund/regret       |
+| Launch Reception         | Med      | First 30 days of reviews vs ongoing trend delta — did launch go well?    |
+| Price Positioning        | Med      | Right price for genre, review volume, sentiment score?                   |
+| Custom Prompt            | Low      | Ask anything about this game's reviews (power user, subscription only)   |
 
 * Site Architecture
 
@@ -626,14 +663,25 @@ Genre, tag, and developer pages aggregate insights across all games in that grou
 
 ** Premium CTA placement
 
-1. After the Complaints section: "8 developer action items ranked by frequency →"
-2. Genre index pages: "Analyze your own game in this genre" at top
-3. Bottom of free report: "You're a developer? Run this on your own game."
-
 CTAs always speak to *developers*, never to gamers. Gamers won't pay. Developers will.
 
 - ❌ "Unlock the full report — $7"
 - ✅ "Get action items, refund signals, and feature gaps your competitors haven't fixed — $7"
+
+Placement:
+1. *After Gameplay Friction*: "See 8 prioritised developer action items →" (inline teaser)
+2. *Pro section blur gate*: Realistic placeholder content visible through blur with single CTA
+3. *Genre index pages*: "Analyse your own game in this genre" at top
+4. *Bottom of free report*: "You're a developer? Get the action intelligence — $7 one-time."
+
+** Pricing tiers
+
+| Tier          | Price         | What you get                                                      |
+|---------------+---------------+-------------------------------------------------------------------|
+| Free          | $0            | Full free report (sections 1-8 + 13), unlimited, no account      |
+| Single game   | $7            | Pro sections (9-12) for one game, license key, no account needed |
+| 5-pack        | $15           | Pro sections for 5 games (save $20)                               |
+| Pro monthly   | $29/mo        | Unlimited pro reports + on-demand freshness + custom prompts (V2) |
 
 * API Endpoints (FastAPI)
 

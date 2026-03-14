@@ -23,7 +23,8 @@ logger = Logger(service="catalog-refresher")
 tracer = Tracer(service="catalog-refresher")
 metrics = Metrics(namespace="SteamPulse", service="catalog-refresher")
 
-APP_LIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
+STEAM_API_KEY_ENV = "STEAM_API_KEY"
 
 APP_CRAWL_QUEUE_URL_ENV = "APP_CRAWL_QUEUE_URL"
 DB_SECRET_ARN_ENV = "DB_SECRET_ARN"
@@ -64,11 +65,31 @@ def _get_conn() -> "psycopg2.connection":  # type: ignore[name-defined]
 # ---------------------------------------------------------------------------
 
 
-def fetch_app_list(client: httpx.Client) -> list[dict]:
-    """Returns [{appid, name}, ...] from Steam GetAppList."""
-    resp = client.get(APP_LIST_URL, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["applist"]["apps"]
+def fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[dict]:
+    """Returns [{appid, name}, ...] from IStoreService/GetAppList (cursor-paginated)."""
+    if not api_key:
+        raise ValueError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
+
+    apps: list[dict] = []
+    last_appid: int | None = None
+
+    while True:
+        params: dict = {"key": api_key, "max_results": 50000, "include_games": 1}
+        if last_appid is not None:
+            params["last_appid"] = last_appid
+
+        resp = client.get(APP_LIST_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json().get("response", {})
+
+        batch = data.get("apps", [])
+        apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+
+        if not data.get("have_more_results"):
+            break
+        last_appid = data.get("last_appid")
+
+    return apps
 
 
 def upsert_catalog(conn: "psycopg2.connection", apps: list[dict]) -> int:  # type: ignore[name-defined]
@@ -129,7 +150,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     queue_url = os.environ[APP_CRAWL_QUEUE_URL_ENV]
 
     with httpx.Client() as client:
-        apps = fetch_app_list(client)
+        apps = fetch_app_list(client, api_key=os.environ.get(STEAM_API_KEY_ENV))
 
     logger.info("Fetched %d apps from Steam GetAppList", len(apps))
     metrics.add_metric(name="AppListSize", unit=MetricUnit.Count, value=len(apps))

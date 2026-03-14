@@ -61,6 +61,9 @@ class LambdaStack(cdk.Stack):
         sfn_arn = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/analysis/state-machine-arn"
         )
+        steam_api_key = ssm.StringParameter.value_for_string_parameter(
+            self, f"/steampulse/{stage}/steam-api-key"
+        )
 
         # Staging: public subnets give free internet egress for Steam API calls.
         # Production: private subnets with NAT gateway for better isolation.
@@ -93,6 +96,7 @@ class LambdaStack(cdk.Stack):
         common_env = {
             "DB_SECRET_ARN": db_secret_arn,
             "SFN_ARN": sfn_arn,
+            "STEAM_API_KEY": steam_api_key,
         }
 
         # App crawler Lambda — triggered by app-crawl-queue

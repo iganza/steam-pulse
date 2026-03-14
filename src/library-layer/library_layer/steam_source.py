@@ -9,7 +9,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-APP_LIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 
@@ -53,8 +53,9 @@ class DirectSteamSource(SteamDataSource):
     Retry up to 3 times with exponential backoff on 429/503.
     """
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: httpx.AsyncClient, api_key: str | None = None) -> None:
         self._client = client
+        self._api_key = api_key
 
     async def _jitter(self) -> None:
         await asyncio.sleep(random.uniform(0.5, 2.0))
@@ -82,12 +83,32 @@ class DirectSteamSource(SteamDataSource):
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
     async def get_app_list(self, limit: int | None = None) -> list[dict]:
-        """Fetch full Steam app catalog in one request from the official API."""
-        await self._jitter()
-        resp = await self._get_with_retry(APP_LIST_URL)
-        data = resp.json()
-        apps_raw: list[dict] = data.get("applist", {}).get("apps", [])
-        apps = [{"appid": a["appid"], "name": a.get("name", "")} for a in apps_raw]
+        """Fetch full Steam app catalog via IStoreService (cursor-paginated, requires API key)."""
+        if not self._api_key:
+            raise SteamAPIError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
+
+        apps: list[dict] = []
+        last_appid: int | None = None
+
+        while True:
+            params: dict = {"key": self._api_key, "max_results": 50000, "include_games": 1}
+            if last_appid is not None:
+                params["last_appid"] = last_appid
+
+            await self._jitter()
+            resp = await self._get_with_retry(APP_LIST_URL, **params)
+            data = resp.json().get("response", {})
+
+            batch = data.get("apps", [])
+            apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+
+            if not data.get("have_more_results"):
+                break
+            last_appid = data.get("last_appid")
+
+            if limit and len(apps) >= limit:
+                break
+
         if limit:
             apps = apps[:limit]
         return apps

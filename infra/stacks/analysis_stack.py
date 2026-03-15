@@ -24,6 +24,7 @@ class AnalysisStack(cdk.Stack):
         *,
         vpc: ec2.IVpc,
         stage: str = "staging",
+        is_production: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -88,7 +89,10 @@ class AnalysisStack(cdk.Stack):
             layers=[library_layer],
             role=role,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS if is_production else ec2.SubnetType.PUBLIC
+            ),
+            allow_public_subnet=True,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,

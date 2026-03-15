@@ -122,8 +122,9 @@ class AppStack(cdk.Stack):
             role=api_role,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS if is_production else ec2.SubnetType.PUBLIC
             ),
+            allow_public_subnet=True,
             security_groups=[intra_sg],
             memory_size=512,
             timeout=cdk.Duration.seconds(30),

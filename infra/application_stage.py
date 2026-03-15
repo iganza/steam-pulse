@@ -74,7 +74,7 @@ class ApplicationStage(cdk.Stage):
 
         # AnalysisStack: vpc passed directly; reads db-secret-arn and vpc-sg-id from SSM
         # Writes /steampulse/{stage}/analysis/state-machine-arn
-        analysis = AnalysisStack(self, "Analysis", vpc=network.vpc, stage=stage, env=env)
+        analysis = AnalysisStack(self, "Analysis", vpc=network.vpc, stage=stage, is_production=is_production, env=env)
         analysis.add_dependency(network)
         analysis.add_dependency(data)
 

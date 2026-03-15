@@ -272,13 +272,6 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
         report = await analyze_reviews(reviews, game_name, appid=appid)
         await _storage.upsert_report(appid, report)
 
-    # Fire-and-forget confirmation email
-    customer_email: str = ls_data.get("meta", {}).get("customer_email", "")
-    if customer_email:
-        asyncio.create_task(
-            _send_confirmation_email(customer_email, report.get("game_name", ""))
-        )
-
     return {**report, "activations_remaining": max(0, activations_remaining - 1)}
 
 

@@ -17,6 +17,8 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import analyze_reviews
 from library_layer.storage import PostgresStorage
 
+from .events import AnalyzeRequest
+
 logger = Logger(service="analysis")
 tracer = Tracer(service="analysis")
 metrics = Metrics(namespace="SteamPulse", service="analysis")
@@ -114,18 +116,16 @@ async def _run(appid: int, game_name: str) -> dict:
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     """Step Functions task. Input: {"appid": <int>, "game_name": <str>}"""
-    appid = int(event["appid"])
-    game_name: str = event.get("game_name", "")
+    req = AnalyzeRequest.model_validate(event)
+    logger.append_keys(appid=req.appid)
 
-    logger.append_keys(appid=appid)
-
-    result = asyncio.run(_run(appid, game_name))
+    result = asyncio.run(_run(req.appid, req.game_name))
 
     metrics.add_metric(name="ReportsGenerated", unit=MetricUnit.Count, value=1)
 
     return {
-        "appid": appid,
-        "game_name": game_name,
+        "appid": req.appid,
+        "game_name": req.game_name,
         "overall_sentiment": result.get("overall_sentiment"),
         "one_liner": result.get("one_liner"),
     }

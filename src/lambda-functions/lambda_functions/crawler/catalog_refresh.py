@@ -1,6 +1,6 @@
-"""Lambda handler — refreshes the full Steam app catalog.
+"""Catalog refresh logic — refreshes the full Steam app catalog.
 
-Triggered by EventBridge schedule (weekly). On each run:
+On each run:
 1. Calls GetAppList/v2 to fetch all Steam appids (~170k).
 2. Bulk-upserts new entries into app_catalog (status=pending).
    Existing rows are NOT overwritten — only new appids are inserted.
@@ -8,6 +8,7 @@ Triggered by EventBridge schedule (weekly). On each run:
 
 This means every week any newly released game is discovered and crawled.
 """
+from __future__ import annotations
 
 import json
 import os
@@ -15,30 +16,17 @@ import os
 import httpx
 import psycopg2
 import psycopg2.extras
-from aws_lambda_powertools import Logger, Tracer, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.utilities.typing import LambdaContext
+from aws_lambda_powertools import Logger
 
-logger = Logger(service="catalog-refresher")
-tracer = Tracer(service="catalog-refresher")
-metrics = Metrics(namespace="SteamPulse", service="catalog-refresher")
+logger = Logger(service="crawler")
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 STEAM_API_KEY_SECRET_ARN_ENV = "STEAM_API_KEY_SECRET_ARN"
-
 APP_CRAWL_QUEUE_URL_ENV = "APP_CRAWL_QUEUE_URL"
-DB_SECRET_ARN_ENV = "DB_SECRET_ARN"
 
-# SQS send_message_batch limit
 SQS_BATCH_SIZE = 10
 
-
-# ---------------------------------------------------------------------------
-# DB helpers
-# ---------------------------------------------------------------------------
-
-_conn: "psycopg2.connection | None" = None  # type: ignore[name-defined]
-_steam_api_key: str | None = None  # cached at cold start
+_steam_api_key: str | None = None
 
 
 def _get_steam_api_key() -> str:
@@ -49,26 +37,6 @@ def _get_steam_api_key() -> str:
         sm = boto3.client("secretsmanager")
         _steam_api_key = sm.get_secret_value(SecretId=secret_arn)["SecretString"]
     return _steam_api_key
-
-
-def _get_db_url() -> str:
-    secret_arn = os.environ[DB_SECRET_ARN_ENV]
-    import boto3  # type: ignore[import-untyped]
-    sm = boto3.client("secretsmanager")
-    secret = json.loads(sm.get_secret_value(SecretId=secret_arn)["SecretString"])
-    host = secret["host"]
-    port = secret.get("port", 5432)
-    dbname = secret.get("dbname", "steampulse")
-    user = secret["username"]
-    password = secret["password"]
-    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
-
-
-def _get_conn() -> "psycopg2.connection":  # type: ignore[name-defined]
-    global _conn
-    if _conn is None or _conn.closed:
-        _conn = psycopg2.connect(_get_db_url())
-    return _conn
 
 
 # ---------------------------------------------------------------------------
@@ -153,29 +121,14 @@ def enqueue_pending(conn: "psycopg2.connection", queue_url: str) -> int:  # type
 
 
 # ---------------------------------------------------------------------------
-# Lambda entry point
+# Dispatcher entry point
 # ---------------------------------------------------------------------------
 
 
-@tracer.capture_lambda_handler
-@metrics.log_metrics(capture_cold_start_metric=True)
-def handler(event: dict, context: LambdaContext) -> dict:
-    """EventBridge-scheduled Lambda. Refreshes app_catalog and enqueues pending crawls."""
+def run(conn: "psycopg2.connection", context) -> dict:  # type: ignore[name-defined]
     queue_url = os.environ[APP_CRAWL_QUEUE_URL_ENV]
-
     with httpx.Client() as client:
         apps = fetch_app_list(client, api_key=_get_steam_api_key())
-
-    logger.info("Fetched %d apps from Steam GetAppList", len(apps))
-    metrics.add_metric(name="AppListSize", unit=MetricUnit.Count, value=len(apps))
-
-    conn = _get_conn()
     new_rows = upsert_catalog(conn, apps)
-    logger.info("Inserted %d new appids into app_catalog", new_rows)
-    metrics.add_metric(name="NewAppsDiscovered", unit=MetricUnit.Count, value=new_rows)
-
     enqueued = enqueue_pending(conn, queue_url)
-    logger.info("Enqueued %d pending appids for crawl", enqueued)
-    metrics.add_metric(name="AppsCrawlEnqueued", unit=MetricUnit.Count, value=enqueued)
-
     return {"apps_fetched": len(apps), "new_rows": new_rows, "enqueued": enqueued}

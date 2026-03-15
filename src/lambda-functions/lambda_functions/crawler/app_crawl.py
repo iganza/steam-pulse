@@ -1,10 +1,10 @@
-"""Lambda handler — crawls app metadata from Steam and upserts to DB.
+"""App crawl logic — fetches Steam app metadata and upserts to DB.
 
-Triggered by SQS app-crawl-queue. Each message body: {"appid": <int>}
-Writes to: games, tags, game_tags, genres, game_genres, game_categories.
+Writes to: games, tags, game_tags, genres, game_genres, game_categories, app_catalog.
 After upsert, queues appid to review-crawl-queue if new reviews since last
 crawl exceed the tiered delta threshold (_reanalysis_threshold).
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -14,25 +14,20 @@ from datetime import date, datetime
 
 import httpx
 import psycopg2
-from aws_lambda_powertools import Logger, Tracer, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.utilities.batch import BatchProcessor, EventType, process_partial_response
-from aws_lambda_powertools.utilities.typing import LambdaContext
+from aws_lambda_powertools import Logger
 
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 
-logger = Logger(service="app-crawler")
-tracer = Tracer(service="app-crawler")
-metrics = Metrics(namespace="SteamPulse", service="app-crawler")
-processor = BatchProcessor(event_type=EventType.SQS)
+from .events import CrawlAppsRequest
+
+logger = Logger(service="crawler")
+
+REVIEW_QUEUE_ENV = "REVIEW_CRAWL_QUEUE_URL"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-REVIEW_QUEUE_ENV = "REVIEW_CRAWL_QUEUE_URL"
 
 
 def _reanalysis_threshold(total_reviews: int) -> int:
@@ -72,22 +67,6 @@ def _parse_release_date(raw: str) -> date | None:
         except (ValueError, AttributeError):
             continue
     return None
-
-
-def _get_db_url() -> str:
-    url = os.getenv("DATABASE_URL")
-    if url:
-        return url
-    secret_arn = os.getenv("DB_SECRET_ARN")
-    if secret_arn:
-        import boto3  # type: ignore[import-untyped]
-        sm = boto3.client("secretsmanager")
-        secret = json.loads(sm.get_secret_value(SecretId=secret_arn)["SecretString"])
-        return (
-            f"postgresql://{secret['username']}:{secret['password']}"
-            f"@{secret['host']}:{secret['port']}/{secret['dbname']}"
-        )
-    raise RuntimeError("No DATABASE_URL or DB_SECRET_ARN configured")
 
 
 # ---------------------------------------------------------------------------
@@ -381,46 +360,12 @@ async def crawl_app(
 
 
 # ---------------------------------------------------------------------------
-# Lambda entry point
+# Dispatcher entry point
 # ---------------------------------------------------------------------------
 
-# Module-level DB connection — reused across warm invocations
-_conn: "psycopg2.connection | None" = None  # type: ignore[name-defined]
 
-
-def _get_conn() -> "psycopg2.connection":  # type: ignore[name-defined]
-    global _conn
-    if _conn is None or _conn.closed:
-        _conn = psycopg2.connect(_get_db_url())
-    return _conn
-
-
-def _record_handler(record: dict) -> None:
-    """Process a single SQS record. Raises on unexpected failure so BatchProcessor marks it for DLQ.
-    Steam API errors (404/500) are logged and skipped — not DLQ'd."""
-    body = json.loads(record["body"])
-    appid = int(body["appid"])
-    logger.append_keys(appid=appid)
-
-    async def _run() -> bool:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            steam = DirectSteamSource(client)
-            return await crawl_app(appid, steam, _get_conn())
-
-    ok = asyncio.run(_run())
-    if ok:
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
-    else:
-        logger.warning("crawl_app skipped appid=%s (Steam data unavailable)", appid)
-
-
-@tracer.capture_lambda_handler
-@metrics.log_metrics(capture_cold_start_metric=True)
-def handler(event: dict, context: LambdaContext) -> dict:
-    """SQS-triggered Lambda. Each record body: {"appid": <int>}"""
-    return process_partial_response(
-        event=event,
-        record_handler=_record_handler,
-        processor=processor,
-        context=context,
-    )
+async def run(req: CrawlAppsRequest, conn: "psycopg2.connection") -> dict:  # type: ignore[name-defined]
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        steam = DirectSteamSource(client)
+        ok = await crawl_app(req.appid, steam, conn)
+        return {"appid": req.appid, "success": ok}

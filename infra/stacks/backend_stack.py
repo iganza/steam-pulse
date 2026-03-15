@@ -486,9 +486,8 @@ class BackendStack(cdk.Stack):
         # CloudFront KVS for featured spots (Phase 5)
         self.kvs = cloudfront.KeyValueStore(self, "FeaturedKvs")
 
-        # ── Crawler Lambdas ───────────────────────────────────────────────────
+        # ── Crawler Lambda ────────────────────────────────────────────────────
         # Steam API key stored in Secrets Manager with a predictable name.
-        # Importing by name means CDK derives the ARN — no SSM lookup needed.
         steam_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "SteamApiKey",
             f"steampulse/{env}/steam-api-key",
@@ -517,58 +516,17 @@ class BackendStack(cdk.Stack):
         review_crawl_queue.grant_send_messages(crawler_role)
         app_crawl_queue.grant_send_messages(crawler_role)
 
-        common_env = {
-            "ENVIRONMENT": env,
-            "DB_SECRET_ARN": db_secret.secret_arn,
-            "SFN_ARN": state_machine.state_machine_arn,
-            "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
-        }
-
-        app_crawler_logs = logs.LogGroup(
-            self, "AppCrawlerLogs",
-            retention=logs.RetentionDays.ONE_WEEK,
+        crawler_logs = logs.LogGroup(
+            self, "CrawlerLogs",
+            log_group_name=f"/aws/lambda/{env}-steampulse-crawler",
             removal_policy=cdk.RemovalPolicy.DESTROY,
+            retention=logs.RetentionDays.ONE_MONTH,
         )
-        app_crawler = lambda_.Function(
-            self, "AppCrawler",
-            function_name=f"{env}-steampulse-app-crawler",
+        crawler_fn = lambda_.Function(
+            self, "CrawlerFn",
+            function_name=f"{env}-steampulse-crawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="lambda_functions.app_crawler.handler.handler",
-            code=lambda_.Code.from_asset("src/lambda-functions"),
-            layers=[library_layer],
-            role=crawler_role,
-            vpc=vpc,
-            vpc_subnets=lambda_subnets,
-            security_groups=[intra_sg],
-            allow_public_subnet=not config.is_production,
-            timeout=cdk.Duration.minutes(5),
-            tracing=lambda_.Tracing.ACTIVE,
-            log_group=app_crawler_logs,
-            environment={
-                **common_env,
-                "REVIEW_CRAWL_QUEUE_URL": review_crawl_queue.queue_url,
-                "POWERTOOLS_SERVICE_NAME": "app-crawler",
-                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
-            },
-        )
-        app_crawler.add_event_source(
-            event_sources.SqsEventSource(
-                app_crawl_queue,
-                batch_size=10,
-                report_batch_item_failures=True,
-            )
-        )
-
-        review_crawler_logs = logs.LogGroup(
-            self, "ReviewCrawlerLogs",
-            retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=cdk.RemovalPolicy.DESTROY,
-        )
-        review_crawler = lambda_.Function(
-            self, "ReviewCrawler",
-            function_name=f"{env}-steampulse-review-crawler",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="lambda_functions.review_crawler.handler.handler",
+            handler="lambda_functions.crawler.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),
             layers=[library_layer],
             role=crawler_role,
@@ -577,15 +535,31 @@ class BackendStack(cdk.Stack):
             security_groups=[intra_sg],
             allow_public_subnet=not config.is_production,
             timeout=cdk.Duration.minutes(10),
+            memory_size=256,
             tracing=lambda_.Tracing.ACTIVE,
-            log_group=review_crawler_logs,
             environment={
-                **common_env,
-                "POWERTOOLS_SERVICE_NAME": "review-crawler",
+                "ENVIRONMENT": env,
+                "APP_CRAWL_QUEUE_URL": app_crawl_queue.queue_url,
+                "REVIEW_CRAWL_QUEUE_URL": review_crawl_queue.queue_url,
+                "DB_SECRET_ARN": db_secret.secret_arn,
+                "SFN_ARN": state_machine.state_machine_arn,
+                "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
+                "HAIKU_MODEL": config.HAIKU_MODEL,
+                "SONNET_MODEL": config.SONNET_MODEL,
+                "POWERTOOLS_SERVICE_NAME": "crawler",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
+            log_group=crawler_logs,
         )
-        review_crawler.add_event_source(
+
+        crawler_fn.add_event_source(
+            event_sources.SqsEventSource(
+                app_crawl_queue,
+                batch_size=10,
+                report_batch_item_failures=True,
+            )
+        )
+        crawler_fn.add_event_source(
             event_sources.SqsEventSource(
                 review_crawl_queue,
                 batch_size=1,
@@ -593,77 +567,11 @@ class BackendStack(cdk.Stack):
             )
         )
 
-        catalog_refresher_logs = logs.LogGroup(
-            self, "CatalogRefresherLogs",
-            retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=cdk.RemovalPolicy.DESTROY,
+        catalog_rule = events.Rule(
+            self, "CatalogRefreshRule",
+            schedule=events.Schedule.rate(cdk.Duration.days(7)),
         )
-        lambda_.Function(
-            self, "CatalogRefresher",
-            function_name=f"{env}-steampulse-catalog-refresher",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="lambda_functions.catalog_refresher.handler.handler",
-            code=lambda_.Code.from_asset("src/lambda-functions"),
-            layers=[library_layer],
-            role=crawler_role,
-            vpc=vpc,
-            vpc_subnets=lambda_subnets,
-            security_groups=[intra_sg],
-            allow_public_subnet=not config.is_production,
-            timeout=cdk.Duration.minutes(10),
-            tracing=lambda_.Tracing.ACTIVE,
-            log_group=catalog_refresher_logs,
-            environment={
-                **common_env,
-                "APP_CRAWL_QUEUE_URL": app_crawl_queue.queue_url,
-                "POWERTOOLS_SERVICE_NAME": "catalog-refresher",
-                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
-            },
-        )
-
-        # DB Loader — dev tool to seed non-production from a local pg_dump via S3.
-        # Only deployed in non-production. Invoked manually via push-to-staging.sh.
-        if not config.is_production:
-            loader_role = iam.Role(
-                self, "DbLoaderRole",
-                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-                managed_policies=[
-                    iam.ManagedPolicy.from_aws_managed_policy_name(
-                        "service-role/AWSLambdaVPCAccessExecutionRole",
-                    ),
-                ],
-            )
-            loader_role.add_to_policy(iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue"],
-                resources=[db_secret.secret_arn],
-            ))
-            assets_bucket.grant_read(loader_role)
-            loader_logs = logs.LogGroup(
-                self, "DbLoaderLogs",
-                retention=logs.RetentionDays.ONE_WEEK,
-                removal_policy=cdk.RemovalPolicy.DESTROY,
-            )
-            lambda_.Function(
-                self, "DbLoaderFn",
-                function_name=f"{env}-steampulse-db-loader",
-                runtime=lambda_.Runtime.PYTHON_3_12,
-                handler="lambda_functions.db_loader.handler.handler",
-                code=lambda_.Code.from_asset("src/lambda-functions"),
-                layers=[library_layer],
-                role=loader_role,
-                vpc=vpc,
-                vpc_subnets=lambda_subnets,
-                security_groups=[intra_sg],
-                allow_public_subnet=True,
-                timeout=cdk.Duration.minutes(10),
-                memory_size=512,
-                log_group=loader_logs,
-                environment={
-                    "ENVIRONMENT": env,
-                    "DB_SECRET_ARN": db_secret.secret_arn,
-                    "ASSETS_BUCKET_NAME": assets_bucket.bucket_name,
-                },
-            )
+        catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
         # ── SSM Outputs ───────────────────────────────────────────────────────
         # Written for operational use (scripts, manual lookups, CDN invalidation

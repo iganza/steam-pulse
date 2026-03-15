@@ -76,14 +76,13 @@ class AppStack(cdk.Stack):
             resources=[db_secret.secret_arn],
         ))
 
-        # Allow Lambda to invoke Claude via Bedrock (no API key needed)
+        # Allow Lambda to invoke Claude via Bedrock (no API key needed).
+        # resources=* covers both foundation-model and inference-profile ARNs
+        # (cross-region inference profile IDs like us.anthropic.* use a different ARN format).
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
-                ],
+                resources=["*"],
             )
         )
 

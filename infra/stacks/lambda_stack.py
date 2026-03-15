@@ -92,6 +92,10 @@ class LambdaStack(cdk.Stack):
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
             resources=[db_secret_arn, steam_api_key_secret_arn],
         ))
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["states:StartExecution"],
+            resources=[sfn_arn],
+        ))
         review_queue.grant_send_messages(role)
         app_queue.grant_send_messages(role)
 

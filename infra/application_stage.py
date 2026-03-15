@@ -34,6 +34,7 @@ class ApplicationStage(cdk.Stage):
 
         backend = BackendStack(
             self, "Backend",
+            stack_name=f"SteamPulse-{environment.capitalize()}-Backend",
             config=config,
             termination_protection=config.is_production,
             env=env,
@@ -41,6 +42,7 @@ class ApplicationStage(cdk.Stage):
 
         FrontendStack(
             self, "Frontend",
+            stack_name=f"SteamPulse-{environment.capitalize()}-Frontend",
             config=config,
             assets_bucket=backend.assets_bucket,
             env=env,

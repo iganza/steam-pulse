@@ -150,7 +150,7 @@ async def crawl_app(
     )
 
     name: str = details.get("name") or f"App {appid}"
-    slug = _slugify(name) or f"app-{appid}"
+    slug = f"{_slugify(name) or 'app'}-{appid}"
 
     genres: list[dict] = details.get("genres") or []
     categories: list[dict] = details.get("categories") or []

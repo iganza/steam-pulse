@@ -58,16 +58,16 @@ class DirectSteamSource(SteamDataSource):
         self._api_key = api_key
 
     async def _jitter(self) -> None:
-        await asyncio.sleep(random.uniform(0.5, 2.0))
+        await asyncio.sleep(random.uniform(1.5, 3.5))
 
     async def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
-        for attempt in range(3):
+        for attempt in range(6):
             try:
                 resp = await self._client.get(url, params=params or None)  # type: ignore[arg-type]
                 if resp.status_code in _RETRY_STATUSES:
-                    wait = 2**attempt
+                    wait = min(2**attempt + random.uniform(1, 5), 120)
                     logger.warning(
-                        "HTTP %s from %s — retrying in %ss (attempt %s/3)",
+                        "HTTP %s from %s — retrying in %.0fs (attempt %s/6)",
                         resp.status_code, url, wait, attempt + 1,
                     )
                     await asyncio.sleep(wait)
@@ -75,11 +75,12 @@ class DirectSteamSource(SteamDataSource):
                 resp.raise_for_status()
                 return resp
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code not in _RETRY_STATUSES or attempt == 2:
+                if exc.response.status_code not in _RETRY_STATUSES or attempt == 5:
                     raise SteamAPIError(
                         f"HTTP {exc.response.status_code} from {url}"
                     ) from exc
-                await asyncio.sleep(2**attempt)
+                wait = min(2**attempt + random.uniform(1, 5), 120)
+                await asyncio.sleep(wait)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
     async def get_app_list(self, limit: int | None = None) -> list[dict]:

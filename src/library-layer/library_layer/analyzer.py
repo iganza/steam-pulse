@@ -16,7 +16,9 @@ def _haiku_model() -> str:
 def _sonnet_model() -> str:
     return os.getenv("SONNET_MODEL", SONNET_MODEL_DEFAULT)
 
-CHUNK_SIZE = 50
+
+def _get_client() -> anthropic.AnthropicBedrock:
+    return anthropic.AnthropicBedrock()
 
 CHUNK_SYSTEM_PROMPT = (
     "You are a signal extractor for a game review analytics pipeline. Your ONLY job is to "
@@ -54,10 +56,7 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "- Avoid corporate language: no 'leverage', 'synergy', or 'pain points'."
 )
 
-
-def _get_client() -> anthropic.AnthropicBedrock:
-    # Uses Lambda's IAM role via boto3 — no API key needed
-    return anthropic.AnthropicBedrock()
+CHUNK_SIZE = 50
 
 
 def _chunk_reviews(reviews: list[dict], chunk_size: int = CHUNK_SIZE) -> list[list[dict]]:

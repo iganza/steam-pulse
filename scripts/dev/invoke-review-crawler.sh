@@ -19,7 +19,6 @@ export DATABASE_URL="${DATABASE_URL:-postgresql://steampulse:dev@localhost:5432/
 export SFN_ARN="${SFN_ARN:-arn:aws:states:us-west-2:052475889199:stateMachine:AnalysisMachine71715F9C-7A0mausNtyJN}"
 export DB_SECRET_ARN="${DB_SECRET_ARN:-}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-2}"
-export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"
 
 RECORDS=$(python3 - "$@" <<'EOF'
 import sys, json

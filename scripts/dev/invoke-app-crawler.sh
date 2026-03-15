@@ -19,7 +19,6 @@ export DATABASE_URL="${DATABASE_URL:-postgresql://steampulse:dev@localhost:5432/
 export REVIEW_CRAWL_QUEUE_URL="${REVIEW_CRAWL_QUEUE_URL:-https://sqs.us-west-2.amazonaws.com/052475889199/Staging-Crawler-ReviewCrawlQueue5BE98814-V3riq1YApkem}"
 export DB_SECRET_ARN="${DB_SECRET_ARN:-}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-2}"
-export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"
 
 # Build SQS-shaped Records from the appids passed as arguments
 RECORDS=$(python3 - "$@" <<'EOF'

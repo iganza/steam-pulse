@@ -17,6 +17,8 @@ resend = ">=2.0.0"
 python-dotenv = ">=1.0.0"
 aws-lambda-powertools = {extras = ["tracer"], version = "^3.25.0"}
 rich = "^14.3.3"
+library-layer = {path = "src/library-layer", develop = true}
+lambda-functions = {path = "src/lambda-functions", develop = true}
 
 [tool.poetry.group.infra]
 optional = true

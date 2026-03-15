@@ -40,9 +40,20 @@ def _get_db_url() -> str:
     raise RuntimeError("No DATABASE_URL or DB_SECRET_ARN configured")
 
 
-def _load_reviews(appid: int, db_url: str) -> tuple[str, list[dict]]:
+# Module-level storage — schema ensured once per container, not per invocation
+_storage: "PostgresStorage | None" = None
+
+
+def _get_storage() -> "PostgresStorage":
+    global _storage
+    if _storage is None:
+        _storage = PostgresStorage(_get_db_url())
+    return _storage
+
+
+def _load_reviews(appid: int) -> tuple[str, list[dict]]:
     """Load game name and reviews from DB. Returns (game_name, reviews)."""
-    conn = psycopg2.connect(db_url)
+    conn = psycopg2.connect(_get_db_url())
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT name FROM games WHERE appid = %s", (appid,))
@@ -77,8 +88,8 @@ def _load_reviews(appid: int, db_url: str) -> tuple[str, list[dict]]:
     return game_name, reviews
 
 
-async def _run(appid: int, game_name: str, db_url: str) -> dict:
-    game_name_from_db, reviews = _load_reviews(appid, db_url)
+async def _run(appid: int, game_name: str) -> dict:
+    game_name_from_db, reviews = _load_reviews(appid)
     # Prefer game_name passed in (from review crawler); fall back to DB value
     name = game_name or game_name_from_db
 
@@ -89,8 +100,7 @@ async def _run(appid: int, game_name: str, db_url: str) -> dict:
 
     result = await analyze_reviews(reviews, name, appid=appid)
 
-    storage = PostgresStorage(db_url)
-    await storage.upsert_report(appid, result)
+    await _get_storage().upsert_report(appid, result)
 
     logger.info(
         "Report stored for appid=%s sentiment=%s",
@@ -109,8 +119,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     logger.append_keys(appid=appid)
 
-    db_url = _get_db_url()
-    result = asyncio.run(_run(appid, game_name, db_url))
+    result = asyncio.run(_run(appid, game_name))
 
     metrics.add_metric(name="ReportsGenerated", unit=MetricUnit.Count, value=1)
 

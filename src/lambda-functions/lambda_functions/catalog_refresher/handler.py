@@ -143,7 +143,10 @@ def enqueue_pending(conn: "psycopg2.connection", queue_url: str) -> int:  # type
             {"Id": str(appid), "MessageBody": json.dumps({"appid": appid})}
             for appid in batch
         ]
-        sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        resp = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        if resp.get("Failed"):
+            failed_ids = [f["Id"] for f in resp["Failed"]]
+            raise RuntimeError(f"SQS batch had {len(failed_ids)} failed messages: {failed_ids}")
         total += len(batch)
 
     return total

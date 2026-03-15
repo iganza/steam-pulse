@@ -13,7 +13,9 @@ import aws_cdk.aws_logs as logs
 import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
+import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_ssm as ssm
+import aws_cdk.aws_stepfunctions as sfn
 from constructs import Construct
 
 DOMAIN = "steampulse.io"
@@ -29,32 +31,15 @@ class AppStack(cdk.Stack):
         construct_id: str,
         *,
         vpc: ec2.IVpc,
+        intra_sg: ec2.ISecurityGroup,
+        db_secret: secretsmanager.ISecret,
+        library_layer: lambda_.ILayerVersion,
+        state_machine: sfn.IStateMachine,
         is_production: bool = False,
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, cross_region_references=True, **kwargs)
-
-        # Deploy-time SSM references
-        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/network/vpc-sg-id"
-        )
-        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
-
-        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/common/library-layer-arn"
-        )
-        library_layer = lambda_.LayerVersion.from_layer_version_arn(
-            self, "LibraryLayer", library_layer_arn
-        )
-
-        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/data/db-secret-arn"
-        )
-
-        sfn_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/analysis/state-machine-arn"
-        )
 
         # Route53 + ACM only wired up in production — staging uses CloudFront URL only
         hosted_zone = None
@@ -88,7 +73,7 @@ class AppStack(cdk.Stack):
         )
         api_role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret_arn],
+            resources=[db_secret.secret_arn],
         ))
 
         # Allow Lambda to invoke Claude via Bedrock (no API key needed)
@@ -106,7 +91,7 @@ class AppStack(cdk.Stack):
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["states:StartExecution", "states:DescribeExecution"],
-                resources=[sfn_arn],
+                resources=[state_machine.state_machine_arn],
             )
         )
 
@@ -129,8 +114,8 @@ class AppStack(cdk.Stack):
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
             environment={
-                "DB_SECRET_ARN": db_secret_arn,
-                "STEP_FUNCTIONS_ARN": sfn_arn,
+                "DB_SECRET_ARN": db_secret.secret_arn,
+                "STEP_FUNCTIONS_ARN": state_machine.state_machine_arn,
                 "PORT": "8080",
             },
         )

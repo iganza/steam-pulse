@@ -29,6 +29,7 @@ class DataStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         db_sg = ec2.SecurityGroup(self, "DatabaseSecurityGroup", vpc=vpc, description="RDS access")
+        self.db_sg = db_sg
         # Allow all traffic within the VPC to reach Postgres on 5432.
         # Using VPC CIDR avoids SSM token limitations in SourceSecurityGroupId.
         db_sg.add_ingress_rule(
@@ -80,13 +81,7 @@ class DataStack(cdk.Stack):
             )
             self.db_secret = db_cluster.secret  # type: ignore[assignment]
 
-        # Publish DB attributes for consumer stacks via SSM
-        ssm.StringParameter(
-            self,
-            "DbSecretArnParam",
-            parameter_name=f"/steampulse/{stage}/data/db-secret-arn",
-            string_value=self.db_secret.secret_arn,
-        )
+        # db-sg-id kept for operational lookup (ops/debugging)
         ssm.StringParameter(
             self,
             "DbSgIdParam",

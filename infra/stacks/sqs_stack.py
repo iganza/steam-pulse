@@ -3,7 +3,6 @@ import aws_cdk as cdk
 import aws_cdk.aws_events as events
 import aws_cdk.aws_events_targets as targets
 import aws_cdk.aws_sqs as sqs
-import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 
@@ -26,7 +25,7 @@ class SqsStack(cdk.Stack):
         )
 
         # App crawl queue — batch 10, 5 min visibility
-        app_crawl_queue = sqs.Queue(
+        self.app_crawl_queue = sqs.Queue(
             self,
             "AppCrawlQueue",
             queue_name=f"{stage}-steampulse-app-crawl",
@@ -38,7 +37,7 @@ class SqsStack(cdk.Stack):
         )
 
         # Review crawl queue — batch 1, 10 min visibility
-        review_crawl_queue = sqs.Queue(
+        self.review_crawl_queue = sqs.Queue(
             self,
             "ReviewCrawlQueue",
             queue_name=f"{stage}-steampulse-review-crawl",
@@ -57,30 +56,4 @@ class SqsStack(cdk.Stack):
             description="Nightly re-crawl of top 500 games",
             enabled=False,
         )
-        nightly_rule.add_target(targets.SqsQueue(app_crawl_queue))
-
-        # Publish queue ARNs for consumer stacks via SSM
-        ssm.StringParameter(
-            self,
-            "AppCrawlQueueArnParam",
-            parameter_name=f"/steampulse/{stage}/sqs/app-crawl-queue-arn",
-            string_value=app_crawl_queue.queue_arn,
-        )
-        ssm.StringParameter(
-            self,
-            "AppCrawlQueueUrlParam",
-            parameter_name=f"/steampulse/{stage}/sqs/app-crawl-queue-url",
-            string_value=app_crawl_queue.queue_url,
-        )
-        ssm.StringParameter(
-            self,
-            "ReviewCrawlQueueArnParam",
-            parameter_name=f"/steampulse/{stage}/sqs/review-crawl-queue-arn",
-            string_value=review_crawl_queue.queue_arn,
-        )
-        ssm.StringParameter(
-            self,
-            "ReviewCrawlQueueUrlParam",
-            parameter_name=f"/steampulse/{stage}/sqs/review-crawl-queue-url",
-            string_value=review_crawl_queue.queue_url,
-        )
+        nightly_rule.add_target(targets.SqsQueue(self.app_crawl_queue))

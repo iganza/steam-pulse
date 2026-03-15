@@ -10,6 +10,7 @@ import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
@@ -23,27 +24,14 @@ class AnalysisStack(cdk.Stack):
         construct_id: str,
         *,
         vpc: ec2.IVpc,
+        intra_sg: ec2.ISecurityGroup,
+        db_secret: secretsmanager.ISecret,
+        library_layer: lambda_.ILayerVersion,
         stage: str = "staging",
         is_production: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/network/vpc-sg-id"
-        )
-        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
-
-        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/data/db-secret-arn"
-        )
-
-        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/common/library-layer-arn"
-        )
-        library_layer = lambda_.LayerVersion.from_layer_version_arn(
-            self, "LibraryLayer", library_layer_arn
-        )
 
         role = iam.Role(
             self,
@@ -57,7 +45,7 @@ class AnalysisStack(cdk.Stack):
         )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret_arn],
+            resources=[db_secret.secret_arn],
         ))
         # Bedrock access for LLM calls
         role.add_to_policy(iam.PolicyStatement(
@@ -65,6 +53,7 @@ class AnalysisStack(cdk.Stack):
             resources=["*"],
         ))
 
+        # Model names are runtime config, not CDK objects — keep SSM reads
         haiku_model = ssm.StringParameter.value_for_string_parameter(
             self, f"/steampulse/{stage}/llm/haiku-model"
         )
@@ -97,7 +86,7 @@ class AnalysisStack(cdk.Stack):
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,
             environment={
-                "DB_SECRET_ARN": db_secret_arn,
+                "DB_SECRET_ARN": db_secret.secret_arn,
                 "HAIKU_MODEL": haiku_model,
                 "SONNET_MODEL": sonnet_model,
             },
@@ -135,10 +124,3 @@ class AnalysisStack(cdk.Stack):
 
         self.state_machine = machine
         self.state_machine_arn = machine.state_machine_arn
-
-        ssm.StringParameter(
-            self,
-            "StateMachineArnParam",
-            parameter_name=f"/steampulse/{stage}/analysis/state-machine-arn",
-            string_value=machine.state_machine_arn,
-        )

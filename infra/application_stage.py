@@ -5,12 +5,9 @@ CloudFormation stack names and CDK-generated resource names. The only place we
 derive a custom prefix is the PostgreSQL database name (e.g. staging_steampulse,
 production_steampulse), since that's a DB identifier not a CDK resource name.
 
-Cross-stack coupling is eliminated via SSM Parameter Store:
-  - Producer stacks write to /steampulse/{stage}/{resource}
-  - Consumer stacks read via value_for_string_parameter() (deploy-time CF token)
-    except vpc-id which uses value_from_lookup() (synth-time, needed for Vpc.from_lookup())
-  - add_dependency() calls enforce CloudFormation deployment order since CDK can no
-    longer infer it from direct object references.
+Cross-stack coupling uses direct CDK object references. CDK auto-generates
+CfnOutput/Fn::ImportValue pairs and infers deployment order from the reference
+graph — no add_dependency() calls or SSM tokens needed for stack wiring.
 
 FrontendStack only uploads static assets (BucketDeployment → AppStack's S3 bucket).
 The SSR Lambda and all CloudFront behaviors live in AppStack to avoid cross-stack
@@ -46,7 +43,7 @@ class ApplicationStage(cdk.Stage):
         is_production = stage == "production"
         db_name = f"{stage}_steampulse"
 
-        # NetworkStack: writes /steampulse/{stage}/network/vpc-id and vpc-sg-id
+        # NetworkStack: writes /steampulse/{stage}/network/vpc-id (for Vpc.from_lookup())
         network = NetworkStack(
             self, "Network",
             stage=stage,
@@ -54,8 +51,8 @@ class ApplicationStage(cdk.Stage):
             env=env,
         )
 
-        # DataStack: vpc passed directly (synth-time object); reads vpc-sg-id from SSM (deploy-time)
-        # Writes /steampulse/{stage}/data/db-secret-arn and db-sg-id
+        # DataStack: vpc and intra_sg passed directly
+        # Writes /steampulse/{stage}/data/db-sg-id for ops lookup
         data = DataStack(
             self, "Data",
             vpc=network.vpc,
@@ -64,51 +61,59 @@ class ApplicationStage(cdk.Stage):
             is_production=is_production,
             env=env,
         )
-        data.add_dependency(network)
 
-        # CommonStack: writes /steampulse/{stage}/common/library-layer-arn
+        # CommonStack: exposes self.library_layer directly
         common_stack = CommonStack(self, "Common", stage=stage, env=env)
 
-        # SqsStack: writes /steampulse/{stage}/sqs/{queue}-arn and review-crawl-queue-url
+        # SqsStack: exposes self.app_crawl_queue and self.review_crawl_queue directly
         sqs_stack = SqsStack(self, "Sqs", stage=stage, env=env)
 
-        # AnalysisStack: vpc passed directly; reads db-secret-arn and vpc-sg-id from SSM
-        # Writes /steampulse/{stage}/analysis/state-machine-arn
-        analysis = AnalysisStack(self, "Analysis", vpc=network.vpc, stage=stage, is_production=is_production, env=env)
-        analysis.add_dependency(network)
-        analysis.add_dependency(data)
-
-        # LambdaStack: vpc passed directly; reads all other resources from SSM
-        lambda_stack = LambdaStack(
-            self, "Lambda",
+        # AnalysisStack: receives intra_sg, db_secret, library_layer as direct refs
+        # Exposes self.state_machine directly
+        analysis = AnalysisStack(
+            self, "Analysis",
             vpc=network.vpc,
-            is_production=is_production,
+            intra_sg=network.intra_sg,
+            db_secret=data.db_secret,
+            library_layer=common_stack.library_layer,
             stage=stage,
+            is_production=is_production,
             env=env,
         )
-        lambda_stack.add_dependency(network)
-        lambda_stack.add_dependency(common_stack)
-        lambda_stack.add_dependency(sqs_stack)
-        lambda_stack.add_dependency(analysis)
-        lambda_stack.add_dependency(data)
 
-        # AppStack: vpc passed directly; reads library_layer, db_secret, sfn_arn from SSM
-        # Writes /steampulse/{stage}/app/distribution-id and function-url
+        # AppStack: receives all deps as direct refs
+        # Writes /steampulse/{stage}/app/distribution-id, function-url, assets-bucket-name
         app = AppStack(
             self, "App",
             vpc=network.vpc,
+            intra_sg=network.intra_sg,
+            db_secret=data.db_secret,
+            library_layer=common_stack.library_layer,
+            state_machine=analysis.state_machine,
             is_production=is_production,
             stage=stage,
             env=env,
         )
-        app.add_dependency(network)
-        app.add_dependency(common_stack)
-        app.add_dependency(data)
-        app.add_dependency(analysis)
+
+        # LambdaStack: receives all deps as direct refs; CDK infers full dep order
+        LambdaStack(
+            self, "Lambda",
+            vpc=network.vpc,
+            intra_sg=network.intra_sg,
+            db_secret=data.db_secret,
+            library_layer=common_stack.library_layer,
+            app_crawl_queue=sqs_stack.app_crawl_queue,
+            review_crawl_queue=sqs_stack.review_crawl_queue,
+            state_machine=analysis.state_machine,
+            assets_bucket=app.assets_bucket,
+            is_production=is_production,
+            stage=stage,
+            env=env,
+        )
 
         # FrontendStack: only uploads static assets to S3.
         # SSR Lambda + CloudFront behaviors live in AppStack to avoid cross-stack cycle.
-        frontend = FrontendStack(
+        FrontendStack(
             self, "Frontend",
             stage=stage,
             assets_bucket=app.assets_bucket,

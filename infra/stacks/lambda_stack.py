@@ -7,8 +7,11 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_s3 as s3
+import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
+import aws_cdk.aws_stepfunctions as sfn
 from constructs import Construct
 
 
@@ -19,48 +22,19 @@ class LambdaStack(cdk.Stack):
         construct_id: str,
         *,
         vpc: ec2.IVpc,
+        intra_sg: ec2.ISecurityGroup,
+        db_secret: secretsmanager.ISecret,
+        library_layer: lambda_.ILayerVersion,
+        app_crawl_queue: sqs.IQueue,
+        review_crawl_queue: sqs.IQueue,
+        state_machine: sfn.IStateMachine,
+        assets_bucket: s3.IBucket,
         is_production: bool = False,
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Deploy-time SSM references
-        vpc_sg_id = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/network/vpc-sg-id"
-        )
-        intra_sg = ec2.SecurityGroup.from_security_group_id(self, "IntraSg", vpc_sg_id)
-
-        library_layer_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/common/library-layer-arn"
-        )
-        library_layer = lambda_.LayerVersion.from_layer_version_arn(
-            self, "LibraryLayer", library_layer_arn
-        )
-
-        app_queue_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/sqs/app-crawl-queue-arn"
-        )
-        app_queue_url = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/sqs/app-crawl-queue-url"
-        )
-        app_queue = sqs.Queue.from_queue_arn(self, "AppQueue", app_queue_arn)
-
-        review_queue_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/sqs/review-crawl-queue-arn"
-        )
-        review_queue_url = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/sqs/review-crawl-queue-url"
-        )
-        review_queue = sqs.Queue.from_queue_arn(self, "ReviewQueue", review_queue_arn)
-
-        db_secret_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/data/db-secret-arn"
-        )
-
-        sfn_arn = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/analysis/state-machine-arn"
-        )
         # Steam API key stored in Secrets Manager (SecureString); pass ARN to Lambda
         # and fetch at runtime via boto3 secretsmanager.get_secret_value().
         steam_api_key_secret_arn = ssm.StringParameter.value_for_string_parameter(
@@ -90,18 +64,18 @@ class LambdaStack(cdk.Stack):
         )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret_arn, steam_api_key_secret_arn],
+            resources=[db_secret.secret_arn, steam_api_key_secret_arn],
         ))
         role.add_to_policy(iam.PolicyStatement(
             actions=["states:StartExecution"],
-            resources=[sfn_arn],
+            resources=[state_machine.state_machine_arn],
         ))
-        review_queue.grant_send_messages(role)
-        app_queue.grant_send_messages(role)
+        review_crawl_queue.grant_send_messages(role)
+        app_crawl_queue.grant_send_messages(role)
 
         common_env = {
-            "DB_SECRET_ARN": db_secret_arn,
-            "SFN_ARN": sfn_arn,
+            "DB_SECRET_ARN": db_secret.secret_arn,
+            "SFN_ARN": state_machine.state_machine_arn,
             "STEAM_API_KEY_SECRET_ARN": steam_api_key_secret_arn,
         }
 
@@ -129,7 +103,7 @@ class LambdaStack(cdk.Stack):
             tracing=lambda_.Tracing.ACTIVE,
             environment={
                 **common_env,
-                "REVIEW_CRAWL_QUEUE_URL": review_queue_url,
+                "REVIEW_CRAWL_QUEUE_URL": review_crawl_queue.queue_url,
                 "POWERTOOLS_SERVICE_NAME": "app-crawler",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
@@ -137,7 +111,7 @@ class LambdaStack(cdk.Stack):
         )
         self.app_crawler_fn.add_event_source(
             event_sources.SqsEventSource(
-                app_queue,
+                app_crawl_queue,
                 batch_size=10,
                 report_batch_item_failures=True,
             )
@@ -174,7 +148,7 @@ class LambdaStack(cdk.Stack):
         )
         self.review_crawler_fn.add_event_source(
             event_sources.SqsEventSource(
-                review_queue,
+                review_crawl_queue,
                 batch_size=1,
                 report_batch_item_failures=True,
             )
@@ -207,7 +181,7 @@ class LambdaStack(cdk.Stack):
             tracing=lambda_.Tracing.ACTIVE,
             environment={
                 **common_env,
-                "APP_CRAWL_QUEUE_URL": app_queue_url,
+                "APP_CRAWL_QUEUE_URL": app_crawl_queue.queue_url,
                 "POWERTOOLS_SERVICE_NAME": "catalog-refresher",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
@@ -225,9 +199,6 @@ class LambdaStack(cdk.Stack):
         # Only deployed on non-production stages. Invoked manually via:
         #   bash scripts/dev/push-to-staging.sh
         if not is_production:
-            assets_bucket_name = ssm.StringParameter.value_from_lookup(
-                self, f"/steampulse/{stage}/app/assets-bucket-name"
-            )
             loader_role = iam.Role(
                 self, "DbLoaderRole",
                 assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
@@ -239,12 +210,9 @@ class LambdaStack(cdk.Stack):
             )
             loader_role.add_to_policy(iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
-                resources=[db_secret_arn],
+                resources=[db_secret.secret_arn],
             ))
-            loader_role.add_to_policy(iam.PolicyStatement(
-                actions=["s3:GetObject"],
-                resources=[f"arn:aws:s3:::*"],
-            ))
+            assets_bucket.grant_read(loader_role)
             loader_log_group = logs.LogGroup(
                 self, "DbLoaderLogs",
                 retention=logs.RetentionDays.ONE_WEEK,
@@ -263,6 +231,9 @@ class LambdaStack(cdk.Stack):
                 allow_public_subnet=True,
                 timeout=cdk.Duration.minutes(10),
                 memory_size=512,
-                environment={"DB_SECRET_ARN": db_secret_arn},
+                environment={
+                    "DB_SECRET_ARN": db_secret.secret_arn,
+                    "ASSETS_BUCKET_NAME": assets_bucket.bucket_name,
+                },
                 log_group=loader_log_group,
             )

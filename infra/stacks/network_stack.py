@@ -49,7 +49,7 @@ class NetworkStack(cdk.Stack):
 
         # Shared intra-VPC security group — assigned to all Lambda functions so
         # DataStack can grant a single known SG access to RDS instead of individual SGs.
-        intra_sg = ec2.SecurityGroup(
+        self.intra_sg = ec2.SecurityGroup(
             self,
             "IntraVpcSg",
             vpc=self.vpc,
@@ -57,33 +57,11 @@ class NetworkStack(cdk.Stack):
             allow_all_outbound=True,
         )
 
-        # Publish VPC attributes for consumer stacks via SSM
+        # vpc-id is written to SSM so it can be resolved via Vpc.from_lookup() in
+        # standalone contexts outside the Stage (e.g. infra/app.py direct instantiation).
         ssm.StringParameter(
             self,
             "VpcIdParam",
             parameter_name=f"/steampulse/{stage}/network/vpc-id",
             string_value=self.vpc.vpc_id,
         )
-        ssm.StringParameter(
-            self,
-            "VpcSgIdParam",
-            parameter_name=f"/steampulse/{stage}/network/vpc-sg-id",
-            string_value=intra_sg.security_group_id,
-        )
-
-        # TEMP: preserve private subnet exports so CloudFormation can update this stack
-        # while the currently-deployed App/Analysis stacks still import them.
-        # TODO: remove after next successful deploy (App/Analysis will use public subnets).
-        if not is_production:
-            cdk.CfnOutput(
-                self,
-                "ExportsOutputRefAppVpcPrivateSubnet1Subnet191FA232E8633931",
-                value=self.vpc.private_subnets[0].subnet_id,
-                export_name="ExportsOutputRefAppVpcPrivateSubnet1Subnet191FA232E8633931",
-            )
-            cdk.CfnOutput(
-                self,
-                "ExportsOutputRefAppVpcPrivateSubnet2Subnet9EA093CC75507AC6",
-                value=self.vpc.private_subnets[1].subnet_id,
-                export_name="ExportsOutputRefAppVpcPrivateSubnet2Subnet9EA093CC75507AC6",
-            )

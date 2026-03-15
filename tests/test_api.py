@@ -103,7 +103,7 @@ def test_validate_key_rejects_invalid_key(client: TestClient) -> None:
     ):
         resp = client.post(
             "/api/validate-key",
-            json={"key": "fake-key-does-not-exist", "appid": 440},
+            json={"license_key": "fake-key-does-not-exist", "appid": 440},
         )
 
     assert resp.status_code == 403

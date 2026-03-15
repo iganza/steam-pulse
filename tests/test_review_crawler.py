@@ -18,6 +18,7 @@ def make_sqs_event(appids: list[int]) -> dict:
                 "messageId": f"msg-{appid}",
                 "body": json.dumps({"appid": appid}),
                 "receiptHandle": "r",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:staging-steampulse-review-crawl",
             }
             for appid in appids
         ]
@@ -64,7 +65,7 @@ def test_handler_fetches_and_stores_reviews(
 
     mock_conn, mock_cursor = _mock_db_conn_with_game()
     with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.review_crawler.handler import handler
+        from lambda_functions.crawler.handler import handler
 
         result = handler(make_sqs_event([440]), lambda_context)
 
@@ -116,7 +117,7 @@ def test_handler_starts_sfn_after_reviews(
 
     mock_conn, mock_cursor = _mock_db_conn_with_game()
     with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.review_crawler.handler import handler
+        from lambda_functions.crawler.handler import handler
 
         handler(make_sqs_event([440]), lambda_context)
 
@@ -158,7 +159,7 @@ def test_handler_tolerates_empty_reviews(
 
     mock_conn = MagicMock()
     with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.review_crawler.handler import handler
+        from lambda_functions.crawler.handler import handler
 
         result = handler(make_sqs_event([440]), lambda_context)
 

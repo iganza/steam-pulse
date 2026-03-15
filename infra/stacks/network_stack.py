@@ -79,9 +79,11 @@ class NetworkStack(cdk.Stack):
                 self,
                 "ExportsOutputRefAppVpcPrivateSubnet1Subnet191FA232E8633931",
                 value=self.vpc.private_subnets[0].subnet_id,
+                export_name="ExportsOutputRefAppVpcPrivateSubnet1Subnet191FA232E8633931",
             )
             cdk.CfnOutput(
                 self,
                 "ExportsOutputRefAppVpcPrivateSubnet2Subnet9EA093CC75507AC6",
                 value=self.vpc.private_subnets[1].subnet_id,
+                export_name="ExportsOutputRefAppVpcPrivateSubnet2Subnet9EA093CC75507AC6",
             )

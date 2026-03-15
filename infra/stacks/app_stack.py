@@ -1,4 +1,6 @@
-"""App stack — FastAPI Lambda + CloudFront + Route53 + ACM + KVS."""
+"""App stack — FastAPI Lambda + Next.js SSR Lambda + CloudFront + Route53 + ACM + KVS."""
+
+import os
 
 import aws_cdk as cdk
 import aws_cdk.aws_certificatemanager as acm
@@ -7,6 +9,7 @@ import aws_cdk.aws_cloudfront_origins as origins
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
+import aws_cdk.aws_logs as logs
 import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
@@ -14,6 +17,9 @@ import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 
 DOMAIN = "steampulse.io"
+
+_PLACEHOLDER = "def handler(event, context): return {'statusCode': 200, 'headers': {'content-type': 'text/html'}, 'body': '<h1>Frontend not yet deployed</h1>'}"
+_OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
 
 
 class AppStack(cdk.Stack):
@@ -138,6 +144,40 @@ class AppStack(cdk.Stack):
             ),
         )
 
+        # ── Next.js SSR Lambda ────────────────────────────────────────────────
+        # Co-located with CloudFront in this stack to avoid cross-stack cycle.
+        # FrontendStack only handles BucketDeployment (one-way dep: Frontend→App).
+        if os.path.isdir(_OPEN_NEXT_SERVER):
+            frontend_code = lambda_.Code.from_asset(_OPEN_NEXT_SERVER)
+            frontend_handler = "index.handler"
+            frontend_runtime = lambda_.Runtime.NODEJS_22_X
+        else:
+            frontend_code = lambda_.Code.from_inline(_PLACEHOLDER)
+            frontend_handler = "index.handler"
+            frontend_runtime = lambda_.Runtime.PYTHON_3_12
+
+        frontend_log_group = logs.LogGroup(
+            self,
+            "FrontendFnLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        frontend_fn = lambda_.Function(
+            self,
+            "FrontendFn",
+            runtime=frontend_runtime,
+            handler=frontend_handler,
+            code=frontend_code,
+            memory_size=512,
+            timeout=cdk.Duration.seconds(30),
+            log_group=frontend_log_group,
+            environment={"NODE_ENV": "production"},
+        )
+        frontend_url = frontend_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+        )
+        frontend_origin = origins.FunctionUrlOrigin(frontend_url)
+
         # S3 bucket for static assets — created here to avoid cross-stack OAC cycle
         assets_bucket = s3.Bucket(
             self,
@@ -184,23 +224,24 @@ class AppStack(cdk.Stack):
             enable_accept_encoding_gzip=True,
         )
 
-        # Lambda Function URL origin
-        lambda_origin = origins.FunctionUrlOrigin(fn_url)
+        api_lambda_origin = origins.FunctionUrlOrigin(fn_url)
 
-        # CloudFront distribution — self.distribution kept for FrontendStack.add_behavior()
+        # CloudFront distribution — all origins in this stack, no cross-stack cycle
         self.distribution = cloudfront.Distribution(
             self,
             "CloudFrontDistribution",
+            # Default behaviour: Next.js SSR
             default_behavior=cloudfront.BehaviorOptions(
-                origin=lambda_origin,
+                origin=frontend_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=html_cache_policy,
                 origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
             ),
             additional_behaviors={
+                # FastAPI backend
                 "/api/*": cloudfront.BehaviorOptions(
-                    origin=lambda_origin,
+                    origin=api_lambda_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=api_cache_policy,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
@@ -212,7 +253,7 @@ class AppStack(cdk.Stack):
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=static_cache_policy,
                 ),
-                # Legacy /static/* for any other assets
+                # Other static assets (public folder)
                 "/static/*": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

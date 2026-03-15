@@ -12,9 +12,9 @@ Cross-stack coupling is eliminated via SSM Parameter Store:
   - add_dependency() calls enforce CloudFormation deployment order since CDK can no
     longer infer it from direct object references.
 
-Exception: FrontendStack still receives app.distribution directly because
-cloudfront.Distribution.from_distribution_attributes() returns IDistribution which
-throws "Cannot add behaviors to an imported distribution".
+FrontendStack only uploads static assets (BucketDeployment → AppStack's S3 bucket).
+The SSR Lambda and all CloudFront behaviors live in AppStack to avoid cross-stack
+cyclic references.
 """
 
 import aws_cdk as cdk
@@ -106,12 +106,11 @@ class ApplicationStage(cdk.Stage):
         app.add_dependency(data)
         app.add_dependency(analysis)
 
-        # FrontendStack: receives app.distribution directly (CDK add_behavior() limitation).
-        # assets_bucket is owned by AppStack to avoid a cross-stack cyclic reference.
+        # FrontendStack: only uploads static assets to S3.
+        # SSR Lambda + CloudFront behaviors live in AppStack to avoid cross-stack cycle.
         frontend = FrontendStack(
             self, "Frontend",
             stage=stage,
-            app_distribution=app.distribution,
             assets_bucket=app.assets_bucket,
             env=env,
         )

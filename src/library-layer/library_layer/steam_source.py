@@ -137,7 +137,7 @@ class DirectSteamSource(SteamDataSource):
             resp = await self._get_with_retry(
                 url,
                 json="1",
-                filter="recent",
+                filter="all",
                 language="english",
                 num_per_page="100",
                 cursor=cursor,

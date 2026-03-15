@@ -24,7 +24,7 @@ tracer = Tracer(service="review-crawler")
 metrics = Metrics(namespace="SteamPulse", service="review-crawler")
 processor = BatchProcessor(event_type=EventType.SQS)
 
-MAX_REVIEWS = 2000
+MAX_REVIEWS = 3000
 
 
 # ---------------------------------------------------------------------------

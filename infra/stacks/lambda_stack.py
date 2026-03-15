@@ -220,3 +220,49 @@ class LambdaStack(cdk.Stack):
         #     schedule=events.Schedule.cron(minute="0", hour="2", week_day="SUN"),
         #     targets=[events_targets.LambdaFunction(self.catalog_refresher_fn)],
         # )
+
+        # DB Loader Lambda — dev tool to seed staging from a local pg_dump via S3.
+        # Only deployed on non-production stages. Invoked manually via:
+        #   bash scripts/dev/push-to-staging.sh
+        if not is_production:
+            assets_bucket_name = ssm.StringParameter.value_for_string_parameter(
+                self, f"/steampulse/{stage}/app/assets-bucket-name"
+            )
+            loader_role = iam.Role(
+                self, "DbLoaderRole",
+                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                managed_policies=[
+                    iam.ManagedPolicy.from_aws_managed_policy_name(
+                        "service-role/AWSLambdaVPCAccessExecutionRole"
+                    ),
+                ],
+            )
+            loader_role.add_to_policy(iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[db_secret_arn],
+            ))
+            loader_role.add_to_policy(iam.PolicyStatement(
+                actions=["s3:GetObject"],
+                resources=[f"arn:aws:s3:::*"],
+            ))
+            loader_log_group = logs.LogGroup(
+                self, "DbLoaderLogs",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            )
+            lambda_.Function(
+                self, "DbLoaderFn",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                handler="lambda_functions.db_loader.handler.handler",
+                code=lambda_.Code.from_asset("src/lambda-functions"),
+                layers=[library_layer],
+                role=loader_role,
+                vpc=vpc,
+                vpc_subnets=lambda_subnets,
+                security_groups=[intra_sg],
+                allow_public_subnet=True,
+                timeout=cdk.Duration.minutes(10),
+                memory_size=512,
+                environment={"DB_SECRET_ARN": db_secret_arn},
+                log_group=loader_log_group,
+            )

@@ -300,6 +300,12 @@ class AppStack(cdk.Stack):
             parameter_name=f"/steampulse/{stage}/app/function-url",
             string_value=fn_url.url,
         )
+        ssm.StringParameter(
+            self,
+            "AssetsBucketParam",
+            parameter_name=f"/steampulse/{stage}/app/assets-bucket-name",
+            string_value=assets_bucket.bucket_name,
+        )
 
         self.api_fn = api_fn
         self.fn_url = fn_url

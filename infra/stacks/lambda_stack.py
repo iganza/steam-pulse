@@ -225,7 +225,7 @@ class LambdaStack(cdk.Stack):
         # Only deployed on non-production stages. Invoked manually via:
         #   bash scripts/dev/push-to-staging.sh
         if not is_production:
-            assets_bucket_name = ssm.StringParameter.value_for_string_parameter(
+            assets_bucket_name = ssm.StringParameter.value_from_lookup(
                 self, f"/steampulse/{stage}/app/assets-bucket-name"
             )
             loader_role = iam.Role(

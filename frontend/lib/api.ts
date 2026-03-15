@@ -58,6 +58,11 @@ export async function pollStatus(jobId: string): Promise<JobStatus> {
   return apiFetch<JobStatus>(`/api/status/${jobId}`);
 }
 
+// TODO: waitForReport is not yet called anywhere in the UI.
+// Before wiring it up, fix the status string mismatch:
+// - Backend returns "running" / "complete" / "failed"
+// - This function checks for "SUCCEEDED" / "FAILED" / "TIMED_OUT" (never matches)
+// Fix: change the checks below to match backend strings, or update the backend to match.
 /** Poll until SUCCEEDED or FAILED, with timeout */
 export async function waitForReport(
   jobId: string,

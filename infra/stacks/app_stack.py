@@ -39,7 +39,7 @@ class AppStack(cdk.Stack):
         stage: str = "staging",
         **kwargs: object,
     ) -> None:
-        super().__init__(scope, construct_id, cross_region_references=True, **kwargs)
+        super().__init__(scope, construct_id, cross_region_references=is_production, **kwargs)
 
         # Route53 + ACM only wired up in production — staging uses CloudFront URL only
         hosted_zone = None

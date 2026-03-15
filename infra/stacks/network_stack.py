@@ -70,3 +70,18 @@ class NetworkStack(cdk.Stack):
             parameter_name=f"/steampulse/{stage}/network/vpc-sg-id",
             string_value=intra_sg.security_group_id,
         )
+
+        # TEMP: preserve private subnet exports so CloudFormation can update this stack
+        # while the currently-deployed App/Analysis stacks still import them.
+        # TODO: remove after next successful deploy (App/Analysis will use public subnets).
+        if not is_production:
+            cdk.CfnOutput(
+                self,
+                "ExportsOutputRefAppVpcPrivateSubnet1Subnet191FA232E8633931",
+                value=self.vpc.private_subnets[0].subnet_id,
+            )
+            cdk.CfnOutput(
+                self,
+                "ExportsOutputRefAppVpcPrivateSubnet2Subnet9EA093CC75507AC6",
+                value=self.vpc.private_subnets[1].subnet_id,
+            )

@@ -69,11 +69,12 @@ class PipelineStack(cdk.Stack):
             docker_enabled_for_synth=True,
         )
 
+        environment = deploy_stage.lower()
         pipeline.add_stage(
             ApplicationStage(
                 self,
                 f"SteamPulse-{deploy_stage}",
-                stage=deploy_stage.lower(),
+                environment=environment,
                 env=cdk.Environment(account=self.account, region=self.region),
             ),
             post=[
@@ -81,7 +82,7 @@ class PipelineStack(cdk.Stack):
                     "InvalidateCDN",
                     commands=[
                         # Read distribution ID from SSM then invalidate HTML paths
-                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{deploy_stage.lower()}/app/distribution-id --query Parameter.Value --output text)',
+                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/app/distribution-id --query Parameter.Value --output text)',
                         'aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"',
                     ],
                     role_policy_statements=[

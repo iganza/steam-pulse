@@ -1,0 +1,690 @@
+"""BackendStack — all SteamPulse infrastructure in one stack.
+
+Single-stack design eliminates Fn::ImportValue cross-stack references and the
+CFN export deadlocks they cause. Per AWS CDK best practices:
+
+  - No physical resource names (CDK generates stable unique names)
+  - All decisions at synthesis time via SteamPulseConfig
+  - Config flows in through the constructor — no env var lookups inside stacks
+  - SSM parameters are written as operational outputs only, never read back as
+    CDK wiring inputs (that would re-introduce the Fn::ImportValue problem)
+
+FrontendStack (BucketDeployment only) lives in a separate stack so that
+static-asset deploys don't re-deploy BackendStack. It receives assets_bucket
+as a direct CDK object reference — safe because the bucket has RETAIN removal
+policy and its ARN never changes, so the Fn::ImportValue export is stable.
+"""
+
+import os
+
+import aws_cdk as cdk
+import aws_cdk.aws_certificatemanager as acm
+import aws_cdk.aws_cloudfront as cloudfront
+import aws_cdk.aws_cloudfront_origins as origins
+import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_events as events
+import aws_cdk.aws_events_targets as events_targets
+import aws_cdk.aws_iam as iam
+import aws_cdk.aws_lambda as lambda_
+import aws_cdk.aws_lambda_event_sources as event_sources
+import aws_cdk.aws_logs as logs
+import aws_cdk.aws_rds as rds
+import aws_cdk.aws_route53 as route53
+import aws_cdk.aws_route53_targets as route53_targets
+import aws_cdk.aws_s3 as s3
+import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_sqs as sqs
+import aws_cdk.aws_ssm as ssm
+import aws_cdk.aws_stepfunctions as sfn
+import aws_cdk.aws_stepfunctions_tasks as tasks
+from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
+from constructs import Construct
+from library_layer.config import SteamPulseConfig
+
+DOMAIN = "steampulse.io"
+
+_PLACEHOLDER_HANDLER = (
+    "def handler(event, context): "
+    "return {'statusCode': 200, "
+    "'headers': {'content-type': 'text/html'}, "
+    "'body': '<h1>Frontend not yet deployed</h1>'}"
+)
+_OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
+
+
+class BackendStack(cdk.Stack):
+    """Everything except BucketDeployment (which lives in FrontendStack)."""
+
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        config: SteamPulseConfig,
+        **kwargs: object,
+    ) -> None:
+        # cross_region_references only needed in production where ACM cert
+        # must be in us-east-1 for CloudFront while the stack lives in us-west-2.
+        super().__init__(
+            scope, construct_id,
+            cross_region_references=config.is_production,
+            **kwargs,
+        )
+
+        env = config.ENVIRONMENT
+
+        # ── Networking ────────────────────────────────────────────────────────
+        # Non-production: no NAT gateway (saves ~$32/mo). Lambdas use public subnets.
+        # Production: NAT gateway keeps Lambdas in private subnets.
+        vpc = ec2.Vpc(
+            self, "Vpc",
+            max_azs=2,
+            nat_gateways=1 if config.is_production else 0,
+            subnet_configuration=[
+                ec2.SubnetConfiguration(
+                    name="Public",
+                    subnet_type=ec2.SubnetType.PUBLIC,
+                    cidr_mask=24,
+                ),
+                ec2.SubnetConfiguration(
+                    name="Private",
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    cidr_mask=24,
+                ),
+                ec2.SubnetConfiguration(
+                    name="Isolated",
+                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
+                    cidr_mask=24,
+                ),
+            ],
+        )
+
+        # Shared security group for all Lambda functions.
+        intra_sg = ec2.SecurityGroup(
+            self, "IntraSg",
+            vpc=vpc,
+            description="Shared intra-VPC SG for Lambda functions",
+            allow_all_outbound=True,
+        )
+
+        # DB security group — only members of intra_sg can reach Postgres.
+        db_sg = ec2.SecurityGroup(self, "DbSg", vpc=vpc, description="RDS access")
+        db_sg.add_ingress_rule(
+            ec2.Peer.security_group_id(intra_sg.security_group_id),
+            ec2.Port.tcp(5432),
+            "Lambda to Postgres",
+        )
+
+        # Lambda subnet selection (same for all Lambdas in this stack).
+        lambda_subnets = ec2.SubnetSelection(
+            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS if config.is_production
+            else ec2.SubnetType.PUBLIC,
+        )
+
+        # ── Database ──────────────────────────────────────────────────────────
+        # Production: RDS t3.micro — ~$15/month flat, predictable for steady traffic.
+        # Non-production: Aurora Serverless v2 that can pause — near $0 when idle.
+        isolated_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
+        db_name = f"{env}_steampulse"
+
+        if config.is_production:
+            db_instance = rds.DatabaseInstance(
+                self, "Db",
+                engine=rds.DatabaseInstanceEngine.postgres(
+                    version=rds.PostgresEngineVersion.VER_16_3,
+                ),
+                instance_identifier=f"{env}-steampulse-db",
+                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+                vpc=vpc,
+                vpc_subnets=isolated_subnets,
+                security_groups=[db_sg],
+                database_name=db_name,
+                deletion_protection=True,
+                backup_retention=cdk.Duration.days(7),
+                storage_encrypted=True,
+                multi_az=False,
+                removal_policy=cdk.RemovalPolicy.RETAIN,
+            )
+            db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
+        else:
+            db_cluster = rds.DatabaseCluster(
+                self, "Db",
+                engine=rds.DatabaseClusterEngine.aurora_postgres(
+                    version=rds.AuroraPostgresEngineVersion.VER_16_4,
+                ),
+                cluster_identifier=f"{env}-steampulse-db",
+                default_database_name=db_name,
+                vpc=vpc,
+                vpc_subnets=isolated_subnets,
+                security_groups=[db_sg],
+                deletion_protection=True,
+                backup=rds.BackupProps(retention=cdk.Duration.days(1)),
+                storage_encrypted=True,
+                serverless_v2_min_capacity=0,
+                serverless_v2_max_capacity=1,
+                writer=rds.ClusterInstance.serverless_v2("Writer"),
+                removal_policy=cdk.RemovalPolicy.RETAIN,
+            )
+            db_secret = db_cluster.secret  # type: ignore[assignment]
+
+        # ── Shared Lambda Layer ───────────────────────────────────────────────
+        library_layer = PythonLayerVersion(
+            self, "LibraryLayer",
+            entry="src/library-layer",
+            compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            description="Shared deps (httpx, psycopg2, boto3, anthropic) + steampulse framework",
+        )
+
+        # ── SQS Queues ────────────────────────────────────────────────────────
+        app_crawl_dlq = sqs.Queue(
+            self, "AppCrawlDlq",
+            queue_name=f"{env}-steampulse-app-crawl-dlq",
+            retention_period=cdk.Duration.days(14),
+        )
+        review_crawl_dlq = sqs.Queue(
+            self, "ReviewCrawlDlq",
+            queue_name=f"{env}-steampulse-review-crawl-dlq",
+            retention_period=cdk.Duration.days(14),
+        )
+        app_crawl_queue = sqs.Queue(
+            self, "AppCrawlQueue",
+            queue_name=f"{env}-steampulse-app-crawl",
+            visibility_timeout=cdk.Duration.minutes(5),
+            dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=app_crawl_dlq),
+        )
+        review_crawl_queue = sqs.Queue(
+            self, "ReviewCrawlQueue",
+            queue_name=f"{env}-steampulse-review-crawl",
+            visibility_timeout=cdk.Duration.minutes(10),
+            dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=review_crawl_dlq),
+        )
+
+        # Nightly recrawl schedule — disabled until ready to run on schedule.
+        nightly_rule = events.Rule(
+            self, "NightlyRecrawl",
+            schedule=events.Schedule.cron(hour="2", minute="0"),
+            description="Nightly re-crawl of top 500 games",
+            enabled=False,
+        )
+        nightly_rule.add_target(events_targets.SqsQueue(app_crawl_queue))
+
+        # ── Analysis Lambda + Step Functions ──────────────────────────────────
+        analysis_log_group = logs.LogGroup(
+            self, "AnalysisLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        analysis_role = iam.Role(
+            self, "AnalysisRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+            ],
+        )
+        analysis_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret.secret_arn],
+        ))
+        # resources=* covers both foundation-model and inference-profile ARN formats.
+        analysis_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+            resources=["*"],
+        ))
+
+        analysis_fn = lambda_.Function(
+            self, "AnalysisFn",
+            function_name=f"{env}-steampulse-analysis",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.analysis.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=analysis_role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            allow_public_subnet=True,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(10),
+            memory_size=1024,
+            log_group=analysis_log_group,
+            environment={
+                "ENVIRONMENT": env,
+                "DB_SECRET_ARN": db_secret.secret_arn,
+                "HAIKU_MODEL": config.HAIKU_MODEL,
+                "SONNET_MODEL": config.SONNET_MODEL,
+            },
+        )
+
+        analyze_task = tasks.LambdaInvoke(
+            self, "AnalyzeGame",
+            lambda_function=analysis_fn,
+            output_path="$.Payload",
+        )
+        analyze_task.add_retry(
+            max_attempts=2,
+            interval=cdk.Duration.seconds(10),
+            backoff_rate=2,
+        )
+
+        sfn_log_group = logs.LogGroup(
+            self, "SfnLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        state_machine = sfn.StateMachine(
+            self, "AnalysisMachine",
+            state_machine_name=f"{env}-steampulse-analysis",
+            definition_body=sfn.DefinitionBody.from_chainable(analyze_task),
+            state_machine_type=sfn.StateMachineType.EXPRESS,
+            timeout=cdk.Duration.minutes(15),
+            logs=sfn.LogOptions(
+                destination=sfn_log_group,
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+
+        # ── API Lambda ────────────────────────────────────────────────────────
+        api_log_group = logs.LogGroup(
+            self, "ApiLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        api_role = iam.Role(
+            self, "ApiRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+            ],
+        )
+        api_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret.secret_arn],
+        ))
+        api_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+            resources=["*"],
+        ))
+        api_role.add_to_policy(iam.PolicyStatement(
+            actions=["states:StartExecution", "states:DescribeExecution"],
+            resources=[state_machine.state_machine_arn],
+        ))
+
+        api_fn = lambda_.Function(
+            self, "ApiFn",
+            function_name=f"{env}-steampulse-api",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.api.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=api_role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            allow_public_subnet=True,
+            security_groups=[intra_sg],
+            memory_size=512,
+            timeout=cdk.Duration.seconds(30),
+            log_group=api_log_group,
+            environment={
+                "ENVIRONMENT": env,
+                "DB_SECRET_ARN": db_secret.secret_arn,
+                "SFN_ARN": state_machine.state_machine_arn,
+                "STEP_FUNCTIONS_ARN": state_machine.state_machine_arn,
+                "PRO_ENABLED": str(config.PRO_ENABLED).lower(),
+                "PORT": "8080",
+            },
+        )
+
+        fn_url = api_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            cors=lambda_.FunctionUrlCorsOptions(
+                allowed_origins=["*"],
+                allowed_methods=[lambda_.HttpMethod.ALL],
+                allowed_headers=["*"],
+            ),
+        )
+
+        # ── Next.js SSR Lambda ────────────────────────────────────────────────
+        # Falls back to a placeholder when the frontend hasn't been built yet.
+        if os.path.isdir(_OPEN_NEXT_SERVER):
+            frontend_code = lambda_.Code.from_asset(_OPEN_NEXT_SERVER)
+            frontend_handler = "index.handler"
+            frontend_runtime = lambda_.Runtime.NODEJS_22_X
+        else:
+            frontend_code = lambda_.Code.from_inline(_PLACEHOLDER_HANDLER)
+            frontend_handler = "index.handler"
+            frontend_runtime = lambda_.Runtime.PYTHON_3_12
+
+        frontend_log_group = logs.LogGroup(
+            self, "FrontendFnLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        frontend_fn = lambda_.Function(
+            self, "FrontendFn",
+            function_name=f"{env}-steampulse-frontend",
+            runtime=frontend_runtime,
+            handler=frontend_handler,
+            code=frontend_code,
+            memory_size=512,
+            timeout=cdk.Duration.seconds(30),
+            log_group=frontend_log_group,
+            environment={"NODE_ENV": "production"},
+        )
+        frontend_url = frontend_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+        )
+
+        # ── S3 Static Assets Bucket ───────────────────────────────────────────
+        # RETAIN removal policy — never deleted by CDK, even on stack destroy.
+        # FrontendStack uploads assets here via BucketDeployment.
+        assets_bucket = s3.Bucket(
+            self, "AssetsBucket",
+            versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+        self.assets_bucket = assets_bucket
+
+        # OAC for CloudFront → S3 (replaces OAI; no bucket policy needed).
+        oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
+        s3_origin = origins.S3BucketOrigin.with_origin_access_control(
+            assets_bucket,
+            origin_access_control=oac,
+        )
+
+        # ── CloudFront + Optional Route53/ACM (production only) ───────────────
+        hosted_zone = None
+        cert = None
+        if config.is_production:
+            zone_id: str = self.node.try_get_context("hosted-zone-id") or ""
+            hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
+                self, "HostedZone",
+                hosted_zone_id=zone_id,
+                zone_name=DOMAIN,
+            )
+            cert = acm.Certificate(
+                self, "Cert",
+                domain_name=DOMAIN,
+                subject_alternative_names=[f"*.{DOMAIN}"],
+                validation=acm.CertificateValidation.from_dns(hosted_zone),
+            )
+
+        html_cache_policy = cloudfront.CachePolicy(
+            self, "HtmlCachePolicy",
+            default_ttl=cdk.Duration.seconds(86400),
+            max_ttl=cdk.Duration.seconds(86400 * 2),
+            min_ttl=cdk.Duration.seconds(0),
+            enable_accept_encoding_gzip=True,
+            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+            cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
+        )
+        static_cache_policy = cloudfront.CachePolicy(
+            self, "StaticCachePolicy",
+            default_ttl=cdk.Duration.seconds(31_536_000),
+            max_ttl=cdk.Duration.seconds(31_536_000),
+            min_ttl=cdk.Duration.seconds(31_536_000),
+            enable_accept_encoding_gzip=True,
+        )
+
+        distribution = cloudfront.Distribution(
+            self, "Distribution",
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origins.FunctionUrlOrigin(frontend_url),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=html_cache_policy,
+                origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+            ),
+            additional_behaviors={
+                "/api/*": cloudfront.BehaviorOptions(
+                    origin=origins.FunctionUrlOrigin(fn_url),
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                ),
+                "/_next/static/*": cloudfront.BehaviorOptions(
+                    origin=s3_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=static_cache_policy,
+                ),
+                "/static/*": cloudfront.BehaviorOptions(
+                    origin=s3_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=static_cache_policy,
+                ),
+            },
+            domain_names=[DOMAIN, f"www.{DOMAIN}"] if config.is_production else None,
+            certificate=cert if config.is_production else None,
+            price_class=cloudfront.PriceClass.PRICE_CLASS_100,
+            http_version=cloudfront.HttpVersion.HTTP2_AND_3,
+        )
+
+        if config.is_production and hosted_zone:
+            route53.ARecord(
+                self, "ARecord",
+                zone=hosted_zone,
+                target=route53.RecordTarget.from_alias(
+                    route53_targets.CloudFrontTarget(distribution),
+                ),
+            )
+            route53.ARecord(
+                self, "WwwRecord",
+                record_name="www",
+                zone=hosted_zone,
+                target=route53.RecordTarget.from_alias(
+                    route53_targets.CloudFrontTarget(distribution),
+                ),
+            )
+
+        # CloudFront KVS for featured spots (Phase 5)
+        self.kvs = cloudfront.KeyValueStore(self, "FeaturedKvs")
+
+        # ── Crawler Lambdas ───────────────────────────────────────────────────
+        # Steam API key stored in Secrets Manager with a predictable name.
+        # Importing by name means CDK derives the ARN — no SSM lookup needed.
+        steam_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "SteamApiKey",
+            f"steampulse/{env}/steam-api-key",
+        )
+
+        crawler_role = iam.Role(
+            self, "CrawlerRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaSQSQueueExecutionRole",
+                ),
+            ],
+        )
+        crawler_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+            resources=[db_secret.secret_arn, steam_secret.secret_arn],
+        ))
+        crawler_role.add_to_policy(iam.PolicyStatement(
+            actions=["states:StartExecution"],
+            resources=[state_machine.state_machine_arn],
+        ))
+        review_crawl_queue.grant_send_messages(crawler_role)
+        app_crawl_queue.grant_send_messages(crawler_role)
+
+        common_env = {
+            "ENVIRONMENT": env,
+            "DB_SECRET_ARN": db_secret.secret_arn,
+            "SFN_ARN": state_machine.state_machine_arn,
+            "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
+        }
+
+        app_crawler_logs = logs.LogGroup(
+            self, "AppCrawlerLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        app_crawler = lambda_.Function(
+            self, "AppCrawler",
+            function_name=f"{env}-steampulse-app-crawler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.app_crawler.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=crawler_role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
+            allow_public_subnet=not config.is_production,
+            timeout=cdk.Duration.minutes(5),
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=app_crawler_logs,
+            environment={
+                **common_env,
+                "REVIEW_CRAWL_QUEUE_URL": review_crawl_queue.queue_url,
+                "POWERTOOLS_SERVICE_NAME": "app-crawler",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
+        )
+        app_crawler.add_event_source(
+            event_sources.SqsEventSource(
+                app_crawl_queue,
+                batch_size=10,
+                report_batch_item_failures=True,
+            )
+        )
+
+        review_crawler_logs = logs.LogGroup(
+            self, "ReviewCrawlerLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        review_crawler = lambda_.Function(
+            self, "ReviewCrawler",
+            function_name=f"{env}-steampulse-review-crawler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.review_crawler.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=crawler_role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
+            allow_public_subnet=not config.is_production,
+            timeout=cdk.Duration.minutes(10),
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=review_crawler_logs,
+            environment={
+                **common_env,
+                "POWERTOOLS_SERVICE_NAME": "review-crawler",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
+        )
+        review_crawler.add_event_source(
+            event_sources.SqsEventSource(
+                review_crawl_queue,
+                batch_size=1,
+                report_batch_item_failures=True,
+            )
+        )
+
+        catalog_refresher_logs = logs.LogGroup(
+            self, "CatalogRefresherLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        lambda_.Function(
+            self, "CatalogRefresher",
+            function_name=f"{env}-steampulse-catalog-refresher",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="lambda_functions.catalog_refresher.handler.handler",
+            code=lambda_.Code.from_asset("src/lambda-functions"),
+            layers=[library_layer],
+            role=crawler_role,
+            vpc=vpc,
+            vpc_subnets=lambda_subnets,
+            security_groups=[intra_sg],
+            allow_public_subnet=not config.is_production,
+            timeout=cdk.Duration.minutes(10),
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=catalog_refresher_logs,
+            environment={
+                **common_env,
+                "APP_CRAWL_QUEUE_URL": app_crawl_queue.queue_url,
+                "POWERTOOLS_SERVICE_NAME": "catalog-refresher",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
+        )
+
+        # DB Loader — dev tool to seed non-production from a local pg_dump via S3.
+        # Only deployed in non-production. Invoked manually via push-to-staging.sh.
+        if not config.is_production:
+            loader_role = iam.Role(
+                self, "DbLoaderRole",
+                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                managed_policies=[
+                    iam.ManagedPolicy.from_aws_managed_policy_name(
+                        "service-role/AWSLambdaVPCAccessExecutionRole",
+                    ),
+                ],
+            )
+            loader_role.add_to_policy(iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[db_secret.secret_arn],
+            ))
+            assets_bucket.grant_read(loader_role)
+            loader_logs = logs.LogGroup(
+                self, "DbLoaderLogs",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            )
+            lambda_.Function(
+                self, "DbLoaderFn",
+                function_name=f"{env}-steampulse-db-loader",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                handler="lambda_functions.db_loader.handler.handler",
+                code=lambda_.Code.from_asset("src/lambda-functions"),
+                layers=[library_layer],
+                role=loader_role,
+                vpc=vpc,
+                vpc_subnets=lambda_subnets,
+                security_groups=[intra_sg],
+                allow_public_subnet=True,
+                timeout=cdk.Duration.minutes(10),
+                memory_size=512,
+                log_group=loader_logs,
+                environment={
+                    "ENVIRONMENT": env,
+                    "DB_SECRET_ARN": db_secret.secret_arn,
+                    "ASSETS_BUCKET_NAME": assets_bucket.bucket_name,
+                },
+            )
+
+        # ── SSM Outputs ───────────────────────────────────────────────────────
+        # Written for operational use (scripts, manual lookups, CDN invalidation
+        # step in the pipeline). NOT read back as CDK inputs anywhere.
+        ssm.StringParameter(
+            self, "DistributionIdParam",
+            parameter_name=f"/steampulse/{env}/app/distribution-id",
+            string_value=distribution.distribution_id,
+        )
+        ssm.StringParameter(
+            self, "FunctionUrlParam",
+            parameter_name=f"/steampulse/{env}/app/function-url",
+            string_value=fn_url.url,
+        )
+        ssm.StringParameter(
+            self, "AssetsBucketNameParam",
+            parameter_name=f"/steampulse/{env}/app/assets-bucket-name",
+            string_value=assets_bucket.bucket_name,
+        )
+        ssm.StringParameter(
+            self, "VpcIdParam",
+            parameter_name=f"/steampulse/{env}/network/vpc-id",
+            string_value=vpc.vpc_id,
+        )

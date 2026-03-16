@@ -5,7 +5,7 @@ import os
 import uuid
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from library_layer.analyzer import analyze_reviews
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
@@ -20,7 +20,6 @@ _http_client: httpx.AsyncClient = httpx.AsyncClient(timeout=30.0)
 _steam = DirectSteamSource(_http_client)
 
 VERSION = "0.1.0"
-LS_API_BASE = "https://api.lemonsqueezy.com/v1"
 
 # ---------------------------------------------------------------------------
 # Repository wiring — built once at module level.
@@ -102,8 +101,8 @@ class PreviewRequest(BaseModel):
 
 
 class ValidateKeyRequest(BaseModel):
-    license_key: str
     appid: int
+    license_key: str = ""  # kept for frontend compatibility, ignored
 
 
 class AnalyzeRequest(BaseModel):
@@ -119,14 +118,6 @@ class ChatRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _ls_headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {os.getenv('LEMONSQUEEZY_API_KEY', '')}",
-        "Accept": "application/vnd.api+json",
-        "Content-Type": "application/vnd.api+json",
-    }
 
 
 def _require_admin(x_admin_key: str | None) -> None:
@@ -267,82 +258,13 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
 @app.post("/api/validate-key", response_model=None)
 async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
     appid = body.appid
-
-    # Dev bypass — set DEV_KEY in .env to skip Lemon Squeezy validation locally
-    dev_key = os.getenv("DEV_KEY", "")
-    if dev_key and body.license_key == dev_key:
-        report = await _get_report(appid)
-        if report is None:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": f"No cached report for appid {appid}. Run the analysis first.", "code": "not_found"},
-            )
-        return {**report, "activations_remaining": 99}
-
-    # Validate with Lemon Squeezy
-    try:
-        resp = await _http_client.post(
-            f"{LS_API_BASE}/licenses/validate",
-            headers=_ls_headers(),
-            json={"license_key": body.license_key, "instance_id": str(appid)},
-        )
-        ls_data = resp.json()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": f"License server unreachable: {exc}", "code": "ls_unavailable"},
-        ) from exc
-
-    if not ls_data.get("valid"):
-        return JSONResponse(
-            status_code=403,
-            content={"error": "invalid_key", "code": "invalid_key"},
-        )
-
-    ls_key = ls_data.get("license_key", {})
-    activations_remaining = ls_key.get("activations_limit", 1) - ls_key.get("activation_usage", 0)
-    if activations_remaining <= 0:
-        return JSONResponse(
-            status_code=402,
-            content={"error": "no_credits", "code": "no_credits"},
-        )
-
-    # Consume one activation (non-fatal if it fails)
-    try:
-        await _http_client.post(
-            f"{LS_API_BASE}/licenses/activate",
-            headers=_ls_headers(),
-            json={"license_key": body.license_key, "instance_name": f"analysis-{appid}"},
-        )
-    except Exception:
-        pass
-
-    # Get or run full analysis
     report = await _get_report(appid)
     if report is None:
-        try:
-            details = await _steam.get_app_details(appid)
-        except SteamAPIError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail={"error": str(exc), "code": "steam_api_error"},
-            ) from exc
-        if not details:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": f"App {appid} not found", "code": "not_found"},
-            )
-        game_name = details.get("name", f"App {appid}")
-        reviews = await _steam.get_reviews(appid)
-        if not reviews:
-            raise HTTPException(
-                status_code=422,
-                detail={"error": "No reviews found for this app", "code": "no_reviews"},
-            )
-        report = await analyze_reviews(reviews, game_name, appid=appid)
-        await _upsert_report(appid, report)
-
-    return {**report, "activations_remaining": max(0, activations_remaining - 1)}
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"No cached report for appid {appid}. Run the analysis first.", "code": "not_found"},
+        )
+    return {**report, "activations_remaining": 99}
 
 
 @app.get("/api/status/{job_id:path}")
@@ -465,34 +387,9 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 
 
 @app.post("/api/chat")
-async def chat(body: ChatRequest, request: Request) -> dict:
+async def chat(body: ChatRequest) -> dict:
     if os.getenv("PRO_ENABLED", "false").lower() != "true":
         raise HTTPException(status_code=404, detail={"error": "Pro features not enabled", "code": "pro_disabled"})
-
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail={"error": "Missing license key", "code": "unauthorized"})
-
-    license_key = auth.removeprefix("Bearer ").strip()
-
-    try:
-        resp = await _http_client.post(
-            f"{LS_API_BASE}/licenses/validate",
-            headers=_ls_headers(),
-            json={"license_key": license_key, "instance_id": "pro-session"},
-        )
-        ls_data = resp.json()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": f"License server unreachable: {exc}", "code": "ls_unavailable"},
-        ) from exc
-
-    if not ls_data.get("valid"):
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "Invalid or expired Pro subscription", "code": "invalid_key"},
-        )
 
     from .chat import answer_query
 

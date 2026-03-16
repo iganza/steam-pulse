@@ -63,7 +63,7 @@ class SteamPulseConfig(BaseSettings):
         return self.ENVIRONMENT == "production"
 
     @classmethod
-    def for_environment(cls, environment: str) -> "SteamPulseConfig":
+    def for_environment(cls, environment: str) -> SteamPulseConfig:
         """Load config from .env.{environment} — used by CDK at synth time."""
         return cls(_env_file=f".env.{environment}")
 

@@ -1,6 +1,5 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
-import asyncio
 import logging
 import os
 import uuid
@@ -8,23 +7,89 @@ import uuid
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
 from library_layer.analyzer import analyze_reviews
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
-from library_layer.storage import BaseStorage, get_storage
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SteamPulse", version="0.1.0")
 
 # Module-level singletons — initialized outside handlers for Lambda warm reuse.
-_storage: BaseStorage = get_storage()
 _http_client: httpx.AsyncClient = httpx.AsyncClient(timeout=30.0)
 _steam = DirectSteamSource(_http_client)
 
 VERSION = "0.1.0"
 LS_API_BASE = "https://api.lemonsqueezy.com/v1"
+
+# ---------------------------------------------------------------------------
+# Repository wiring — built once at module level.
+# Falls back to None (in-memory) when DATABASE_URL is not set.
+# ---------------------------------------------------------------------------
+
+_report_cache: dict[int, dict] = {}
+_job_cache: dict[str, dict] = {}
+
+_game_repo = None
+_report_repo = None
+_job_repo = None
+
+
+def _get_db_conn() -> object | None:
+    """Return a psycopg2 connection if DATABASE_URL is set, else None."""
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        return None
+    try:
+        import psycopg2  # type: ignore[import-untyped]
+        import psycopg2.extras
+        return psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    except Exception:
+        return None
+
+
+def _init_repos() -> None:
+    global _game_repo, _report_repo, _job_repo
+    conn = _get_db_conn()
+    if conn:
+        from library_layer.repositories.game_repo import GameRepository
+        from library_layer.repositories.job_repo import JobRepository
+        from library_layer.repositories.report_repo import ReportRepository
+        _game_repo = GameRepository(conn)
+        _report_repo = ReportRepository(conn)
+        _job_repo = JobRepository(conn)
+
+
+_init_repos()
+
+
+async def _get_report(appid: int) -> dict | None:
+    if _report_repo is not None:
+        result = _report_repo.find_by_appid(appid)
+        return result.report_json if result else None
+    return _report_cache.get(appid)
+
+
+async def _upsert_report(appid: int, report: dict) -> None:
+    if _report_repo is not None and _game_repo is not None:
+        name = report.get("game_name", f"App {appid}")
+        _game_repo.ensure_stub(appid, name)
+        _report_repo.upsert({**report, "appid": appid})
+        return
+    _report_cache[appid] = report
+
+
+async def _get_job(job_id: str) -> dict | None:
+    if _job_repo is not None:
+        return _job_repo.find(job_id)
+    return _job_cache.get(job_id)
+
+
+async def _set_job(job_id: str, status: str, appid: int) -> None:
+    if _job_repo is not None:
+        _job_repo.upsert(job_id, status, appid)
+        return
+    _job_cache[job_id] = {"job_id": job_id, "status": status, "appid": appid}
 
 
 # ---------------------------------------------------------------------------
@@ -72,13 +137,14 @@ def _require_admin(x_admin_key: str | None) -> None:
 
 async def _trigger_analysis(appid: int, game_name: str) -> str:
     """Start analysis via Step Functions if ARN is set, else run inline (local dev).
-    Returns a job_id. Storage is updated with job status.
+    Returns a job_id.
     """
     sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
     if sfn_arn:
         try:
-            import boto3  # type: ignore[import-untyped]
             import json as _json
+
+            import boto3  # type: ignore[import-untyped]
 
             sfn = boto3.client("stepfunctions")
             execution = sfn.start_execution(
@@ -87,25 +153,25 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
                 input=_json.dumps({"appid": appid, "game_name": game_name}),
             )
             job_id: str = execution["executionArn"]
-        except ImportError:
+        except ImportError as exc:
             logger.error("boto3 not installed — cannot trigger Step Functions")
             raise HTTPException(
                 status_code=503,
                 detail={"error": "step_functions_unavailable", "code": "boto3_missing"},
-            )
-        await _storage.set_analysis_job(job_id, "running", appid)
+            ) from exc
+        await _set_job(job_id, "running", appid)
         return job_id
 
     # Local dev: run inline synchronously, store result
     job_id = f"local-{appid}-{uuid.uuid4().hex[:8]}"
-    await _storage.set_analysis_job(job_id, "running", appid)
+    await _set_job(job_id, "running", appid)
     reviews = await _steam.get_reviews(appid)
     if reviews:
         result = await analyze_reviews(reviews, game_name, appid=appid)
-        await _storage.upsert_report(appid, result)
-        await _storage.set_analysis_job(job_id, "complete", appid)
+        await _upsert_report(appid, result)
+        await _set_job(job_id, "complete", appid)
     else:
-        await _storage.set_analysis_job(job_id, "failed", appid)
+        await _set_job(job_id, "failed", appid)
     return job_id
 
 
@@ -142,6 +208,10 @@ def _preview_fields(report: dict) -> dict:
     }
 
 
+def _backend_name() -> str:
+    return "postgres" if os.getenv("DATABASE_URL") else "memory"
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -150,7 +220,7 @@ def _preview_fields(report: dict) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {
-        "storage": _storage.backend_name(),
+        "storage": _backend_name(),
         "pro_enabled": os.getenv("PRO_ENABLED", "false").lower() == "true",
         "version": VERSION,
     }
@@ -161,7 +231,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
 
     # Cache hit — return immediately
-    cached = await _storage.get_report(appid)
+    cached = await _get_report(appid)
     if cached:
         return _preview_fields(cached)
 
@@ -169,7 +239,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     try:
         details = await _steam.get_app_details(appid)
     except SteamAPIError as exc:
-        raise HTTPException(status_code=503, detail={"error": str(exc), "code": "steam_api_error"})
+        raise HTTPException(status_code=503, detail={"error": str(exc), "code": "steam_api_error"}) from exc
 
     if not details:
         raise HTTPException(
@@ -183,7 +253,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     job_id = await _trigger_analysis(appid, game_name)
 
     # If inline run completed, report is already stored
-    report = await _storage.get_report(appid)
+    report = await _get_report(appid)
     if report:
         return _preview_fields(report)
 
@@ -201,7 +271,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
     # Dev bypass — set DEV_KEY in .env to skip Lemon Squeezy validation locally
     dev_key = os.getenv("DEV_KEY", "")
     if dev_key and body.license_key == dev_key:
-        report = await _storage.get_report(appid)
+        report = await _get_report(appid)
         if report is None:
             raise HTTPException(
                 status_code=404,
@@ -221,7 +291,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
         raise HTTPException(
             status_code=503,
             detail={"error": f"License server unreachable: {exc}", "code": "ls_unavailable"},
-        )
+        ) from exc
 
     if not ls_data.get("valid"):
         return JSONResponse(
@@ -248,7 +318,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
         pass
 
     # Get or run full analysis
-    report = await _storage.get_report(appid)
+    report = await _get_report(appid)
     if report is None:
         try:
             details = await _steam.get_app_details(appid)
@@ -256,7 +326,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
             raise HTTPException(
                 status_code=503,
                 detail={"error": str(exc), "code": "steam_api_error"},
-            )
+            ) from exc
         if not details:
             raise HTTPException(
                 status_code=404,
@@ -270,7 +340,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
                 detail={"error": "No reviews found for this app", "code": "no_reviews"},
             )
         report = await analyze_reviews(reviews, game_name, appid=appid)
-        await _storage.upsert_report(appid, report)
+        await _upsert_report(appid, report)
 
     return {**report, "activations_remaining": max(0, activations_remaining - 1)}
 
@@ -286,30 +356,30 @@ async def job_status(job_id: str) -> dict:
             sfn = boto3.client("stepfunctions")
             sfn_resp = sfn.describe_execution(executionArn=job_id)
             sfn_status: str = sfn_resp["status"]
-        except ImportError:
+        except ImportError as exc:
             raise HTTPException(
                 status_code=503,
                 detail={"error": "boto3 not installed", "code": "boto3_missing"},
-            )
+            ) from exc
         except Exception as exc:
             logger.error("Step Functions describe_execution failed: %s", exc)
             raise HTTPException(
                 status_code=503,
                 detail={"error": "Could not fetch job status", "code": "sfn_error"},
-            )
+            ) from exc
 
         match sfn_status:
             case "RUNNING":
                 return {"status": "running"}
             case "SUCCEEDED":
-                job = await _storage.get_analysis_job(job_id)
-                report = await _storage.get_report(job["appid"]) if job else None
+                job = await _get_job(job_id)
+                report = await _get_report(job["appid"]) if job else None
                 return {"status": "complete", "report": report}
             case _:
                 return {"status": "failed"}
 
     # Local dev / inline path
-    job = await _storage.get_analysis_job(job_id)
+    job = await _get_job(job_id)
     if job is None:
         raise HTTPException(
             status_code=404,
@@ -318,7 +388,7 @@ async def job_status(job_id: str) -> dict:
 
     match job["status"]:
         case "complete":
-            report = await _storage.get_report(job["appid"])
+            report = await _get_report(job["appid"])
             return {"status": "complete", "report": report}
         case "failed":
             return {"status": "failed"}
@@ -334,7 +404,7 @@ async def trigger_analyze(
     _require_admin(x_admin_key)
 
     if not body.force:
-        cached = await _storage.get_report(body.appid)
+        cached = await _get_report(body.appid)
         if cached:
             return {"job_id": f"cached-{body.appid}", "cached": True}
 
@@ -344,7 +414,7 @@ async def trigger_analyze(
         raise HTTPException(
             status_code=503,
             detail={"error": str(exc), "code": "steam_api_error"},
-        )
+        ) from exc
 
     if not details:
         raise HTTPException(
@@ -357,13 +427,6 @@ async def trigger_analyze(
     return {"job_id": job_id}
 
 
-_SORT_COLS = {
-    "review_count": "g.review_count DESC NULLS LAST",
-    "hidden_gem_score": "r.report_json->>'hidden_gem_score' DESC NULLS LAST",
-    "positive_pct": "g.positive_pct DESC NULLS LAST",
-}
-
-
 @app.get("/api/games")
 async def list_games(
     genre: str | None = None,
@@ -373,68 +436,32 @@ async def list_games(
     limit: int = 48,
     offset: int = 0,
 ) -> list[dict]:
-    if not hasattr(_storage, "query_catalog"):
+    if _game_repo is None:
         return []
     limit = min(limit, 200)
-    order = _SORT_COLS.get(sort, _SORT_COLS["review_count"])
-    conditions = ["1=1"]
-    params: list = []
-    if genre:
-        conditions.append("EXISTS (SELECT 1 FROM game_genres gg JOIN genres gn ON gg.genre_id=gn.id WHERE gg.appid=g.appid AND gn.slug=%s)")
-        params.append(genre)
-    if tag:
-        conditions.append("EXISTS (SELECT 1 FROM game_tags gt JOIN tags t ON gt.tag_id=t.id WHERE gt.appid=g.appid AND t.slug=%s)")
-        params.append(tag)
-    if developer:
-        conditions.append("g.developer ILIKE %s")
-        params.append(f"%{developer}%")
-    where = " AND ".join(conditions)
-    sql = f"""
-        SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
-               g.review_count, g.positive_pct, g.price_usd, g.is_free,
-               g.release_date,
-               r.report_json->>'hidden_gem_score' AS hidden_gem_score,
-               r.report_json->>'sentiment_score'  AS sentiment_score
-        FROM games g
-        LEFT JOIN reports r ON r.appid = g.appid
-        WHERE {where}
-        ORDER BY {order}
-        LIMIT %s OFFSET %s
-    """
-    params += [limit, offset]
-    rows = _storage.query_catalog(sql, tuple(params))
-    for row in rows:
-        if row.get("release_date"):
-            row["release_date"] = str(row["release_date"])
-    return rows
+    return _game_repo.list_games(
+        genre=genre,
+        tag=tag,
+        developer=developer,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/api/genres")
 async def list_genres() -> list[dict]:
-    if not hasattr(_storage, "query_catalog"):
+    if _game_repo is None:
         return []
-    return _storage.query_catalog("""
-        SELECT gn.id, gn.name, gn.slug, COUNT(gg.appid) AS game_count
-        FROM genres gn
-        LEFT JOIN game_genres gg ON gg.genre_id = gn.id
-        GROUP BY gn.id, gn.name, gn.slug
-        ORDER BY game_count DESC, gn.name
-    """)
+    return _game_repo.list_genres()
 
 
 @app.get("/api/tags/top")
 async def list_top_tags(limit: int = 24) -> list[dict]:
-    if not hasattr(_storage, "query_catalog"):
+    if _game_repo is None:
         return []
     limit = min(limit, 100)
-    return _storage.query_catalog("""
-        SELECT t.id, t.name, t.slug, COUNT(gt.appid) AS game_count
-        FROM tags t
-        LEFT JOIN game_tags gt ON gt.tag_id = t.id
-        GROUP BY t.id, t.name, t.slug
-        ORDER BY game_count DESC, t.name
-        LIMIT %s
-    """, (limit,))
+    return _game_repo.list_tags(limit=limit)
 
 
 @app.post("/api/chat")
@@ -459,7 +486,7 @@ async def chat(body: ChatRequest, request: Request) -> dict:
         raise HTTPException(
             status_code=503,
             detail={"error": f"License server unreachable: {exc}", "code": "ls_unavailable"},
-        )
+        ) from exc
 
     if not ls_data.get("valid"):
         raise HTTPException(
@@ -469,13 +496,25 @@ async def chat(body: ChatRequest, request: Request) -> dict:
 
     from .chat import answer_query
 
+    # Build a thin storage-like object for the chat query
+    class _ChatStorage:
+        def query_catalog(self, sql: str, params: tuple = ()) -> list:
+            conn = _get_db_conn()
+            if not conn:
+                return []
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+
     try:
-        return await answer_query(body.message, _storage)
+        return await answer_query(body.message, _ChatStorage())
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail={"error": f"Query failed: {exc}", "code": "query_error"},
-        )
+        ) from exc
 
 
 # Lambda handler — wraps FastAPI app for Lambda Web Adapter / Mangum

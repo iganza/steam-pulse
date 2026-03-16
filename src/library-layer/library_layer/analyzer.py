@@ -229,7 +229,7 @@ def _synthesize(
                     "  ],\n"
                     '  "dev_priorities": [\n'
                     '    {"action": "Imperative sentence — what to build/fix", "why_it_matters": "Business impact in plain English", "frequency": "~X% of negative reviews", "effort": "low|medium|high"}\n'
-                    '    "3-5 items RANKED by impact × frequency. This section is DECISIONS, not re-descriptions of problems."\n'
+                    '    "3-5 items RANKED by impact x frequency. This section is DECISIONS, not re-descriptions of problems."\n'
                     "  ],\n"
                     '  "competitive_context": [\n'
                     '    {"game": "exact name", "comparison_sentiment": "positive|negative|neutral", "note": "one phrase"}\n'

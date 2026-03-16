@@ -3,10 +3,9 @@
 import json
 import os
 import re
+from typing import Any as BaseStorage  # duck-typed: must have query_catalog(sql, params)
 
 import anthropic
-
-from library_layer.storage import BaseStorage
 
 SONNET_MODEL_DEFAULT = "claude-3-5-sonnet-20241022"
 
@@ -114,7 +113,7 @@ async def answer_query(message: str, storage: BaseStorage) -> dict:
     loop = asyncio.get_event_loop()
 
     # Step 1 — generate SQL
-    def _gen_sql():
+    def _gen_sql() -> str:
         resp = client.messages.create(
             model=_sonnet_model(),
             messages=[{"role": "user", "content": message}],
@@ -148,7 +147,7 @@ async def answer_query(message: str, storage: BaseStorage) -> dict:
     # Step 3 — format answer
     rows_text = json.dumps(rows[:20], indent=2, default=str)
 
-    def _gen_answer():
+    def _gen_answer() -> str:
         resp = client.messages.create(
             model=_sonnet_model(),
             messages=[

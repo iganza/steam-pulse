@@ -19,7 +19,7 @@ def get_db_url() -> str:
     raise RuntimeError("No DATABASE_URL or DB_SECRET_ARN configured")
 
 
-def get_conn():
+def get_conn() -> object:
     global _conn
     if _conn is None or _conn.closed:
         _conn = psycopg2.connect(get_db_url())

@@ -1,12 +1,9 @@
-"""Tests for app_crawler Lambda handler."""
+"""Tests for app_crawler via Lambda handler (updated for service layer)."""
 
 import json
-import os
-import re
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
-import boto3
-import pytest
 from moto import mock_aws
 from pytest_httpx import HTTPXMock
 
@@ -37,121 +34,74 @@ def make_sqs_event(appids: list[int]) -> dict:
     }
 
 
-def _mock_db_conn() -> tuple[MagicMock, MagicMock]:
-    """Return (mock_conn, mock_cursor) with fetchone returning None by default."""
-    mock_conn = MagicMock()
-    mock_cursor = mock_conn.cursor.return_value.__enter__.return_value
-    mock_cursor.fetchone.return_value = None  # no existing game row → old_review_count = 0
-    return mock_conn, mock_cursor
+def _make_mock_crawl_service(crawl_app_result: bool = True) -> MagicMock:
+    svc = MagicMock()
+    svc.crawl_app = AsyncMock(return_value=crawl_app_result)
+    svc.crawl_reviews = AsyncMock(return_value=0)
+    return svc
+
+
+def _make_mock_catalog_service() -> MagicMock:
+    svc = MagicMock()
+    svc.refresh = MagicMock(return_value={"apps_fetched": 0, "new_rows": 0, "enqueued": 0})
+    return svc
 
 
 @mock_aws
 def test_handler_processes_single_appid(
     httpx_mock: HTTPXMock,
     steam_appdetails_440: dict,
-    lambda_context: "MockLambdaContext",
+    lambda_context: Any,
 ) -> None:
-    """Handler fetches Steam data, writes to DB, queues for review crawl."""
-    # Create moto SQS queue for review crawl
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue = sqs.create_queue(QueueName="test-review-queue")
-    queue_url = queue["QueueUrl"]
+    """Handler dispatches to CrawlService.crawl_app for SQS app-crawl events."""
+    mock_crawl = _make_mock_crawl_service(crawl_app_result=True)
+    mock_catalog = _make_mock_catalog_service()
 
-    os.environ["REVIEW_CRAWL_QUEUE_URL"] = queue_url
-    os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
+    import lambda_functions.crawler.handler as handler_module
+    # Reset module-level cache so _get_services() returns our mocks
+    handler_module._crawl_service = mock_crawl
+    handler_module._catalog_service = mock_catalog
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        json=steam_appdetails_440,
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
-    )
-
-    mock_conn, mock_cursor = _mock_db_conn()
-    with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.crawler.handler import handler
-
-        result = handler(make_sqs_event([440]), lambda_context)
+    from lambda_functions.crawler.handler import handler
+    result = handler(make_sqs_event([440]), lambda_context)
 
     assert result["batchItemFailures"] == []
-
-    # DB write attempted — INSERT INTO games was executed
-    execute_calls = [str(c) for c in mock_cursor.execute.call_args_list]
-    assert any("INSERT INTO games" in c for c in execute_calls), (
-        "Expected INSERT INTO games but got: " + str(execute_calls)
-    )
-
-    # appid 440 queued to review-crawl-queue
-    msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
-    assert len(msgs.get("Messages", [])) >= 1
-    body = json.loads(msgs["Messages"][0]["Body"])
-    assert body["appid"] == 440
+    mock_crawl.crawl_app.assert_called_once_with(440)
 
 
 @mock_aws
 def test_handler_skips_on_steam_api_failure(
-    httpx_mock: HTTPXMock,
-    lambda_context: "MockLambdaContext",
+    lambda_context: Any,
 ) -> None:
-    """When Steam Store returns 500, handler logs error, does NOT write to DB."""
-    os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
-    os.environ.pop("REVIEW_CRAWL_QUEUE_URL", None)
+    """When crawl_app returns False (Steam error), handler completes without batch failure."""
+    mock_crawl = _make_mock_crawl_service(crawl_app_result=False)
+    mock_catalog = _make_mock_catalog_service()
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        status_code=500,
-    )
+    import lambda_functions.crawler.handler as handler_module
+    handler_module._crawl_service = mock_crawl
+    handler_module._catalog_service = mock_catalog
 
-    mock_conn, mock_cursor = _mock_db_conn()
-    with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.crawler.handler import handler
-
-        result = handler(make_sqs_event([440]), lambda_context)
+    from lambda_functions.crawler.handler import handler
+    result = handler(make_sqs_event([440]), lambda_context)
 
     assert result["batchItemFailures"] == []
-
-    # app_catalog updated with failed status; no games/reviews written
-    assert mock_cursor.execute.call_count == 1
-    call_sql = mock_cursor.execute.call_args[0][0]
-    assert "app_catalog" in call_sql
-    assert "failed" in call_sql
+    mock_crawl.crawl_app.assert_called_once_with(440)
 
 
 @mock_aws
 def test_handler_processes_batch(
-    httpx_mock: HTTPXMock,
-    steam_appdetails_440: dict,
-    lambda_context: "MockLambdaContext",
+    lambda_context: Any,
 ) -> None:
-    """Batch of 3 appids: all succeed, DB write called 3 times."""
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue = sqs.create_queue(QueueName="batch-review-queue")
-    os.environ["REVIEW_CRAWL_QUEUE_URL"] = queue["QueueUrl"]
-    os.environ["DATABASE_URL"] = "postgresql://test:test@localhost/test"
+    """Batch of 3 appids: crawl_app called 3 times."""
+    mock_crawl = _make_mock_crawl_service(crawl_app_result=True)
+    mock_catalog = _make_mock_catalog_service()
 
-    for _ in range(3):
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-            json=steam_appdetails_440,
-        )
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-            json=REVIEW_SUMMARY,
-        )
+    import lambda_functions.crawler.handler as handler_module
+    handler_module._crawl_service = mock_crawl
+    handler_module._catalog_service = mock_catalog
 
-    mock_conn, mock_cursor = _mock_db_conn()
-    with patch("psycopg2.connect", return_value=mock_conn):
-        from lambda_functions.crawler.handler import handler
-
-        result = handler(make_sqs_event([440, 440, 440]), lambda_context)
+    from lambda_functions.crawler.handler import handler
+    result = handler(make_sqs_event([440, 441, 442]), lambda_context)
 
     assert result["batchItemFailures"] == []
-
-    # INSERT INTO games called once per appid
-    games_inserts = [
-        c for c in mock_cursor.execute.call_args_list
-        if "INSERT INTO games" in str(c)
-    ]
-    assert len(games_inserts) == 3
+    assert mock_crawl.crawl_app.call_count == 3

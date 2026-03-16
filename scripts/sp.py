@@ -46,10 +46,13 @@ os.environ.setdefault("SFN_ARN", "")
 os.environ.setdefault("REVIEW_CRAWL_QUEUE_URL", "")
 os.environ.setdefault("DB_SECRET_ARN", "")
 
+from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
+from library_layer.repositories.game_repo import GameRepository  # noqa: E402
+from library_layer.repositories.report_repo import ReportRepository  # noqa: E402
+from library_layer.repositories.review_repo import ReviewRepository  # noqa: E402
+from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
+from library_layer.services.crawl_service import CrawlService  # noqa: E402
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
-from lambda_functions.crawler.app_crawl import crawl_app  # noqa: E402
-from lambda_functions.crawler.review_crawl import crawl_reviews  # noqa: E402
-from lambda_functions.crawler.catalog_refresh import fetch_app_list, upsert_catalog  # noqa: E402
 
 try:
     from rich.console import Console
@@ -83,9 +86,66 @@ DB_URL = os.getenv("DATABASE_URL", "postgresql://steampulse:dev@127.0.0.1:5432/s
 
 DEFAULT_SEED_APPIDS = [440, 730, 570, 1091500, 413150]  # TF2, CS2, Dota2, Cyberpunk, Stardew
 
+APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
+
 
 def _conn() -> psycopg2.extensions.connection:
-    return psycopg2.connect(DB_URL)
+    return psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+
+
+def _get_repos() -> tuple[
+    psycopg2.extensions.connection,
+    GameRepository,
+    CatalogRepository,
+    ReportRepository,
+    ReviewRepository,
+]:
+    conn = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    return (
+        conn,
+        GameRepository(conn),
+        CatalogRepository(conn),
+        ReportRepository(conn),
+        ReviewRepository(conn),
+    )
+
+
+def _build_crawl_service(
+    conn: psycopg2.extensions.connection,
+    http_async: httpx.AsyncClient,
+) -> CrawlService:
+    return CrawlService(
+        game_repo=GameRepository(conn),
+        review_repo=ReviewRepository(conn),
+        catalog_repo=CatalogRepository(conn),
+        tag_repo=TagRepository(conn),
+        steam=DirectSteamSource(http_async),
+        sqs_client=None,
+        review_queue_url="",
+        sfn_arn=None,
+        sfn_client=None,
+    )
+
+
+def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[dict]:
+    """Return [{appid, name}, ...] from IStoreService/GetAppList (cursor-paginated)."""
+    if not api_key:
+        raise ValueError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
+    apps: list[dict] = []
+    last_appid: int | None = None
+    while True:
+        params: dict = {"key": api_key, "max_results": 50000, "include_games": 1}
+        if last_appid is not None:
+            params["last_appid"] = last_appid
+        resp = client.get(APP_LIST_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json().get("response", {})
+        batch = data.get("apps", [])
+        apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+        if not data.get("have_more_results"):
+            break
+        last_appid = data.get("last_appid")
+    return apps
 
 
 # ── catalog ──────────────────────────────────────────────────────────────────
@@ -97,7 +157,7 @@ def cmd_catalog_update(dry_run: bool, limit: int | None) -> None:
 
     _info("Fetching Steam app list…")
     with httpx.Client(timeout=30) as client:
-        apps = fetch_app_list(client, api_key=api_key)
+        apps = _fetch_app_list(client, api_key=api_key)
 
     apps = [a for a in apps if a.get("name", "").strip()]
     _info(f"Fetched {len(apps):,} named apps")
@@ -114,35 +174,34 @@ def cmd_catalog_update(dry_run: bool, limit: int | None) -> None:
             print(f"  … and {len(apps) - 10:,} more")
         return
 
-    c = _conn()
-    new_rows = upsert_catalog(c, apps)
-    c.close()
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        new_rows = catalog_repo.bulk_upsert(apps)
+    finally:
+        conn.close()
     _ok(f"Upserted {len(apps):,} apps — {new_rows:,} new, {len(apps) - new_rows:,} existing")
 
 
 def cmd_catalog_status() -> None:
-    with _conn() as c, c.cursor() as cur:
-        cur.execute("""
-            SELECT
-              COUNT(*) FILTER (WHERE meta_status   = 'pending')                        AS meta_pending,
-              COUNT(*) FILTER (WHERE meta_status   = 'done')                           AS meta_done,
-              COUNT(*) FILTER (WHERE meta_status   = 'failed')                         AS meta_failed,
-              COUNT(*) FILTER (WHERE review_status = 'pending' AND meta_status='done') AS rev_pending,
-              COUNT(*) FILTER (WHERE review_status = 'done')                           AS rev_done,
-              COUNT(*) FILTER (WHERE review_status = 'failed')                         AS rev_failed,
-              COUNT(*)                                                                  AS total
-            FROM app_catalog
-        """)
-        mp, md, mf, rp, rd, rf, total = cur.fetchone()
-        cur.execute("SELECT COUNT(*) FROM reports")
-        reports = cur.fetchone()[0]
+    conn, _, catalog_repo, report_repo, _ = _get_repos()
+    try:
+        summary = catalog_repo.status_summary()
+        reports = report_repo.count_all()
+    finally:
+        conn.close()
+
+    meta = summary.get("meta", {})
+    review = summary.get("review", {})
+    total = sum(meta.values())
 
     _table(
         ["Phase", "Pending", "Done", "Failed", "Total"],
         [
-            ["metadata", f"{mp:,}", f"{md:,}", f"{mf:,}", f"{total:,}"],
-            ["reviews",  f"{rp:,}", f"{rd:,}", f"{rf:,}", "—"],
-            ["analysis", "—",       f"{reports:,}", "—",  "—"],
+            ["metadata", f"{meta.get('pending', 0):,}", f"{meta.get('done', 0):,}",
+             f"{meta.get('failed', 0):,}", f"{total:,}"],
+            ["reviews", f"{review.get('pending', 0):,}", f"{review.get('done', 0):,}",
+             f"{review.get('failed', 0):,}", "—"],
+            ["analysis", "—", f"{reports:,}", "—", "—"],
         ],
     )
 
@@ -150,16 +209,14 @@ def cmd_catalog_status() -> None:
 # ── game ─────────────────────────────────────────────────────────────────────
 
 def cmd_game_info(appid: int) -> None:
-    with _conn() as c:
-        with c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM games WHERE appid = %s", (appid,))
-            game = cur.fetchone()
-            cur.execute("SELECT meta_status, review_status FROM app_catalog WHERE appid = %s", (appid,))
-            catalog = cur.fetchone()
-            cur.execute("SELECT COUNT(*) AS n FROM reviews WHERE appid = %s", (appid,))
-            reviews_in_db = cur.fetchone()["n"]
-            cur.execute("SELECT last_analyzed, overall_sentiment FROM reports WHERE appid = %s", (appid,))
-            report = cur.fetchone()
+    conn, game_repo, catalog_repo, report_repo, review_repo = _get_repos()
+    try:
+        game = game_repo.find_by_appid(appid)
+        catalog = catalog_repo.find_by_appid(appid)
+        reviews_in_db = review_repo.count_by_appid(appid)
+        report = report_repo.find_by_appid(appid)
+    finally:
+        conn.close()
 
     if not catalog:
         _err(f"appid {appid} not in app_catalog")
@@ -167,21 +224,22 @@ def cmd_game_info(appid: int) -> None:
 
     rows: list[list[str]] = [
         ["appid",               str(appid)],
-        ["meta_status",         catalog["meta_status"] or "—"],
-        ["review_status",       catalog["review_status"] or "—"],
+        ["meta_status",         catalog.meta_status or "—"],
+        ["review_status",       catalog.review_status or "—"],
     ]
     if game:
         rows += [
-            ["name",            game.get("name") or "—"],
-            ["slug",            game.get("slug") or "—"],
-            ["steam reviews",   f"{game['review_count']:,}" if game.get("review_count") else "—"],
-            ["price",           f"${game['price_usd']:.2f}" if game.get("price_usd") else "—"],
+            ["name",            game.name or "—"],
+            ["slug",            game.slug or "—"],
+            ["steam reviews",   f"{game.review_count:,}" if game.review_count else "—"],
+            ["price",           f"${game.price_usd:.2f}" if game.price_usd else "—"],
         ]
     rows.append(["reviews in DB", f"{reviews_in_db:,}"])
     if report:
+        report_data = report.report_json if isinstance(report.report_json, dict) else {}
         rows += [
-            ["last_analyzed",   str(report["last_analyzed"])],
-            ["sentiment",       report["overall_sentiment"] or "—"],
+            ["last_analyzed",   str(report.last_analyzed)],
+            ["sentiment",       report_data.get("overall_sentiment") or "—"],
         ]
     else:
         rows.append(["report", "none"])
@@ -198,13 +256,14 @@ async def _crawl_one(
     sem: asyncio.Semaphore,
 ) -> str:
     async with sem:
-        c = _conn()
+        c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            svc = _build_crawl_service(c, steam._client)  # type: ignore[attr-defined]
             if phase == "metadata":
-                result = await crawl_app(appid, steam, c)
+                result = await svc.crawl_app(appid)
                 return "done" if result else "skipped"
             else:
-                n = await crawl_reviews(appid, steam, c)
+                n = await svc.crawl_reviews(appid)
                 return "done" if n >= 0 else "skipped"
         except Exception as exc:
             _warn(f"appid={appid} error: {exc}")
@@ -215,15 +274,15 @@ async def _crawl_one(
 
 async def _crawl_specific(appids: list[int], phase: str) -> None:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        steam = DirectSteamSource(client)
         for appid in appids:
-            c = _conn()
+            c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
             try:
+                svc = _build_crawl_service(c, client)
                 if phase == "metadata":
-                    result = await crawl_app(appid, steam, c)
+                    result = await svc.crawl_app(appid)
                     _ok(f"appid={appid} metadata={'done' if result else 'skipped'}")
                 else:
-                    n = await crawl_reviews(appid, steam, c)
+                    n = await svc.crawl_reviews(appid)
                     _ok(f"appid={appid} reviews={n}")
             except Exception as exc:
                 _err(f"appid={appid} failed: {exc}")
@@ -231,7 +290,7 @@ async def _crawl_specific(appids: list[int], phase: str) -> None:
                 c.close()
 
 
-async def _crawl_bulk(phase: str, fetch_fn, concurrency: int) -> None:
+async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
     """Process all pending items for a phase with rate-limited concurrency."""
     batch_size = concurrency * 4
     sem = asyncio.Semaphore(concurrency)
@@ -249,9 +308,12 @@ async def _crawl_bulk(phase: str, fetch_fn, concurrency: int) -> None:
                 *[_crawl_one(a, phase, steam, sem) for a in batch]
             )
             for r in results:
-                if r == "done":    n_done += 1
-                elif r == "skipped": n_skipped += 1
-                else:              n_failed += 1
+                if r == "done":
+                    n_done += 1
+                elif r == "skipped":
+                    n_skipped += 1
+                else:
+                    n_failed += 1
 
             now = time.monotonic()
             if now - last_log >= 30:
@@ -267,26 +329,25 @@ async def _crawl_bulk(phase: str, fetch_fn, concurrency: int) -> None:
 # ── fetch helpers for bulk modes ─────────────────────────────────────────────
 
 def _pending_meta(n: int) -> list[int]:
-    with _conn() as c, c.cursor() as cur:
-        cur.execute(
-            "SELECT appid FROM app_catalog WHERE meta_status='pending' ORDER BY appid LIMIT %s", (n,)
-        )
-        return [r[0] for r in cur.fetchall()]
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        entries = catalog_repo.find_pending_meta(limit=n)
+    finally:
+        conn.close()
+    return [e.appid for e in entries]
 
 
 def _eligible_reviews(n: int) -> list[int]:
-    with _conn() as c, c.cursor() as cur:
-        cur.execute(
-            """SELECT appid FROM app_catalog
-               WHERE review_status='pending' AND meta_status='done'
-               ORDER BY review_count DESC NULLS LAST LIMIT %s""",
-            (n,),
-        )
-        return [r[0] for r in cur.fetchall()]
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        entries = catalog_repo.find_pending_reviews(limit=n)
+    finally:
+        conn.close()
+    return [e.appid for e in entries]
 
 
 def _ready_for_analysis(n: int = 1000) -> list[int]:
-    with _conn() as c, c.cursor() as cur:
+    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
         cur.execute(
             """SELECT g.appid FROM games g
                JOIN app_catalog ac ON ac.appid = g.appid
@@ -295,7 +356,7 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
                ORDER BY g.review_count DESC NULLS LAST LIMIT %s""",
             (n,),
         )
-        return [r[0] for r in cur.fetchall()]
+        return [row[0] for row in cur.fetchall()]
 
 
 # ── subcommand implementations ────────────────────────────────────────────────
@@ -323,10 +384,12 @@ class _MockLambdaContext:
 
 def _analyze_one(appid: int) -> None:
     from lambda_functions.analysis.handler import handler  # lazy import (heavy)
-    with _conn() as c, c.cursor() as cur:
-        cur.execute("SELECT name FROM games WHERE appid = %s", (appid,))
-        row = cur.fetchone()
-    name = row[0] if row else ""
+    conn, game_repo, _, _, _ = _get_repos()
+    try:
+        game = game_repo.find_by_appid(appid)
+    finally:
+        conn.close()
+    name = game.name if game else ""
     result = handler({"appid": appid, "game_name": name}, _MockLambdaContext())
     sentiment = result.get("overall_sentiment", "?") if isinstance(result, dict) else "?"
     _ok(f"appid={appid} sentiment={sentiment}")

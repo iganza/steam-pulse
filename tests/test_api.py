@@ -10,12 +10,12 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(autouse=True)
 def reset_api_state() -> None:
-    """Reset module-level singletons between tests."""
+    """Reset module-level in-memory caches between tests."""
     from lambda_functions.api import handler as api_module
-
-    # Reset storage to a fresh InMemoryStorage
-    from library_layer.storage import InMemoryStorage
-    api_module._storage = InMemoryStorage()
+    api_module._report_cache.clear()
+    api_module._job_cache.clear()
+    # Ensure no DATABASE_URL leaks into tests (use in-memory path)
+    os.environ.pop("DATABASE_URL", None)
 
 
 @pytest.fixture
@@ -42,8 +42,8 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
     """POST /api/preview with cached report returns only preview fields, not full report."""
     from lambda_functions.api import handler as api_module
 
-    # Pre-populate storage with a full report
-    asyncio.run(api_module._storage.upsert_report(440, {
+    # Pre-populate the in-memory cache
+    report = {
         "game_name": "Team Fortress 2",
         "overall_sentiment": "Very Positive",
         "sentiment_score": 0.93,
@@ -53,7 +53,8 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
         "dev_priorities": [{"action": "Fix bots", "why_it_matters": "Ruins casual play"}],
         "design_strengths": ["Class variety", "Map design"],
         "churn_triggers": ["Bot problem in casual mode"],
-    }))
+    }
+    asyncio.run(api_module._upsert_report(440, report))
 
     resp = client.post("/api/preview", json={"appid": 440})
     assert resp.status_code == 200
@@ -75,14 +76,15 @@ def test_preview_unconditional(client: TestClient) -> None:
     """POST /api/preview returns 200 for every request — no rate limiting."""
     from lambda_functions.api import handler as api_module
 
-    asyncio.run(api_module._storage.upsert_report(440, {
+    report = {
         "game_name": "Team Fortress 2",
         "overall_sentiment": "Very Positive",
         "sentiment_score": 0.93,
         "one_liner": "Great game.",
         "audience_profile": {},
         "appid": 440,
-    }))
+    }
+    asyncio.run(api_module._upsert_report(440, report))
 
     # Multiple requests from same client — all should succeed (no 402)
     for _ in range(3):

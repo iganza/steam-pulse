@@ -1,0 +1,88 @@
+"""CatalogService — orchestrates full Steam catalog refresh."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import httpx
+from library_layer.repositories.catalog_repo import CatalogRepository
+from library_layer.utils.sqs import send_sqs_batch
+
+APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
+
+logger = logging.getLogger(__name__)
+
+
+class CatalogService:
+    """Fetch GetAppList → bulk upsert → enqueue pending app crawl."""
+
+    def __init__(
+        self,
+        catalog_repo: CatalogRepository,
+        http_client: httpx.Client,
+        sqs_client: Any,
+        app_crawl_queue_url: str,
+        steam_api_key: str | None = None,
+    ) -> None:
+        self._catalog_repo = catalog_repo
+        self._http = http_client
+        self._sqs = sqs_client
+        self._app_crawl_queue_url = app_crawl_queue_url
+        self._steam_api_key = steam_api_key
+
+    def refresh(self) -> dict:
+        """Fetch GetAppList, bulk upsert new entries, enqueue all pending."""
+        apps = self._fetch_app_list()
+        new_rows = self._catalog_repo.bulk_upsert(apps)
+        enqueued = self.enqueue_pending()
+        logger.info(
+            "Catalog refresh: fetched=%d new=%d enqueued=%d",
+            len(apps), new_rows, enqueued,
+        )
+        return {"apps_fetched": len(apps), "new_rows": new_rows, "enqueued": enqueued}
+
+    def enqueue_pending(self) -> int:
+        """Send all pending catalog entries to app-crawl-queue. Returns total enqueued."""
+        pending = self._catalog_repo.find_pending_meta()
+        if not pending:
+            logger.info("No pending appids to enqueue")
+            return 0
+
+        messages = [{"appid": e.appid} for e in pending]
+        send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
+        return len(messages)
+
+    def status(self) -> dict:
+        """Return counts per status from catalog_repo.status_summary()."""
+        return self._catalog_repo.status_summary()
+
+    def _fetch_app_list(self) -> list[dict]:
+        """Fetch all Steam appids via IStoreService/GetAppList (cursor-paginated)."""
+        if not self._steam_api_key:
+            raise ValueError("steam_api_key is required for IStoreService/GetAppList/v1/")
+
+        apps: list[dict] = []
+        last_appid: int | None = None
+
+        while True:
+            params: dict = {
+                "key": self._steam_api_key,
+                "max_results": 50000,
+                "include_games": 1,
+            }
+            if last_appid is not None:
+                params["last_appid"] = last_appid
+
+            resp = self._http.get(APP_LIST_URL, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json().get("response", {})
+
+            batch = data.get("apps", [])
+            apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+
+            if not data.get("have_more_results"):
+                break
+            last_appid = data.get("last_appid")
+
+        return apps

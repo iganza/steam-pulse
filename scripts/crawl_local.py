@@ -43,8 +43,8 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
-from lambda_functions.app_crawler.handler import crawl_app  # noqa: E402
-from lambda_functions.review_crawler.handler import crawl_reviews  # noqa: E402
+from lambda_functions.crawler.app_crawl import crawl_app  # noqa: E402
+from lambda_functions.crawler.review_crawl import crawl_reviews  # noqa: E402
 
 logging.basicConfig(
     level=logging.WARNING,  # suppress per-game debug noise
@@ -131,9 +131,10 @@ async def _process_one(
         try:
             if phase == "metadata":
                 ok = await crawl_app(appid, steam, c)
+                return "done" if ok else "skipped"
             else:
-                ok = await crawl_reviews(appid, steam, c)
-            return "done" if ok else "skipped"
+                n = await crawl_reviews(appid, steam, c)
+                return "done" if n >= 0 else "skipped"
         except Exception as exc:
             logger.warning("appid=%d unexpected error: %s", appid, exc)
             return "failed"

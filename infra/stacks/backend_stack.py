@@ -81,23 +81,19 @@ class BackendStack(cdk.Stack):
         # ── SQS Queues ────────────────────────────────────────────────────────
         app_crawl_dlq = sqs.Queue(
             self, "AppCrawlDlq",
-            queue_name=f"{env}-steampulse-app-crawl-dlq",
             retention_period=cdk.Duration.days(14),
         )
         review_crawl_dlq = sqs.Queue(
             self, "ReviewCrawlDlq",
-            queue_name=f"{env}-steampulse-review-crawl-dlq",
             retention_period=cdk.Duration.days(14),
         )
         app_crawl_queue = sqs.Queue(
             self, "AppCrawlQueue",
-            queue_name=f"{env}-steampulse-app-crawl",
             visibility_timeout=cdk.Duration.minutes(5),
             dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=app_crawl_dlq),
         )
         review_crawl_queue = sqs.Queue(
             self, "ReviewCrawlQueue",
-            queue_name=f"{env}-steampulse-review-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=review_crawl_dlq),
         )
@@ -138,7 +134,6 @@ class BackendStack(cdk.Stack):
 
         analysis_fn = lambda_.Function(
             self, "AnalysisFn",
-            function_name=f"{env}-steampulse-analysis",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.analysis.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),
@@ -177,7 +172,6 @@ class BackendStack(cdk.Stack):
         )
         state_machine = sfn.StateMachine(
             self, "AnalysisMachine",
-            state_machine_name=f"{env}-steampulse-analysis",
             definition_body=sfn.DefinitionBody.from_chainable(analyze_task),
             state_machine_type=sfn.StateMachineType.EXPRESS,
             timeout=cdk.Duration.minutes(15),
@@ -217,7 +211,6 @@ class BackendStack(cdk.Stack):
 
         api_fn = lambda_.Function(
             self, "ApiFn",
-            function_name=f"{env}-steampulse-api",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.api.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),
@@ -267,7 +260,6 @@ class BackendStack(cdk.Stack):
         )
         frontend_fn = lambda_.Function(
             self, "FrontendFn",
-            function_name=f"{env}-steampulse-frontend",
             runtime=frontend_runtime,
             handler=frontend_handler,
             code=frontend_code,
@@ -421,13 +413,11 @@ class BackendStack(cdk.Stack):
 
         crawler_logs = logs.LogGroup(
             self, "CrawlerLogs",
-            log_group_name=f"/aws/lambda/{env}-steampulse-crawler",
             removal_policy=cdk.RemovalPolicy.DESTROY,
             retention=logs.RetentionDays.ONE_MONTH,
         )
         crawler_fn = lambda_.Function(
             self, "CrawlerFn",
-            function_name=f"{env}-steampulse-crawler",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="lambda_functions.crawler.handler.handler",
             code=lambda_.Code.from_asset("src/lambda-functions"),

@@ -81,7 +81,6 @@ class FoundationStack(cdk.Stack):
                 engine=rds.DatabaseInstanceEngine.postgres(
                     version=rds.PostgresEngineVersion.VER_16_3,
                 ),
-                instance_identifier=f"{env}-steampulse-db",
                 instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
                 vpc=self.vpc,
                 vpc_subnets=isolated_subnets,
@@ -100,7 +99,6 @@ class FoundationStack(cdk.Stack):
                 engine=rds.DatabaseClusterEngine.aurora_postgres(
                     version=rds.AuroraPostgresEngineVersion.VER_16_4,
                 ),
-                cluster_identifier=f"{env}-steampulse-db",
                 default_database_name=db_name,
                 vpc=self.vpc,
                 vpc_subnets=isolated_subnets,

@@ -42,7 +42,7 @@ class MessagingStack(cdk.Stack):
         )
         self.app_crawl_queue = sqs.Queue(
             self, "AppCrawlQueue",
-            visibility_timeout=cdk.Duration.minutes(5),
+            visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3, queue=self.app_crawl_dlq,
             ),

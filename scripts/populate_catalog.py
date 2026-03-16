@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.insert(0, "src/lambda-functions")
-from lambda_functions.catalog_refresher.handler import fetch_app_list, upsert_catalog
+from lambda_functions.crawler.catalog_refresh import fetch_app_list, upsert_catalog
 
 logging.basicConfig(
     level=logging.INFO,

@@ -52,11 +52,13 @@ class ApplicationStage(cdk.Stage):
             termination_protection=config.is_production,
             env=cdk_env,
         )
+        backend.add_dependency(foundation)
 
-        FrontendStack(
+        frontend = FrontendStack(
             self, "Frontend",
             stack_name=f"SteamPulse-{env_name}-Frontend",
             config=config,
             assets_bucket=backend.assets_bucket,
             env=cdk_env,
         )
+        frontend.add_dependency(backend)

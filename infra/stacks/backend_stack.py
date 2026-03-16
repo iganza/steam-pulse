@@ -1,18 +1,8 @@
-"""BackendStack — all SteamPulse infrastructure in one stack.
+"""BackendStack — Lambdas, SQS, Step Functions, CloudFront.
 
-Single-stack design eliminates Fn::ImportValue cross-stack references and the
-CFN export deadlocks they cause. Per AWS CDK best practices:
-
-  - No physical resource names (CDK generates stable unique names)
-  - All decisions at synthesis time via SteamPulseConfig
-  - Config flows in through the constructor — no env var lookups inside stacks
-  - SSM parameters are written as operational outputs only, never read back as
-    CDK wiring inputs (that would re-introduce the Fn::ImportValue problem)
-
-FrontendStack (BucketDeployment only) lives in a separate stack so that
-static-asset deploys don't re-deploy BackendStack. It receives assets_bucket
-as a direct CDK object reference — safe because the bucket has RETAIN removal
-policy and its ARN never changes, so the Fn::ImportValue export is stable.
+Receives VPC, security group, and DB secret directly from FoundationStack
+as constructor arguments — clean CDK cross-stack wiring with no SSM lookups
+or resolve: tokens.
 """
 
 import os
@@ -28,7 +18,6 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
-import aws_cdk.aws_rds as rds
 import aws_cdk.aws_route53 as route53
 import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
@@ -53,7 +42,7 @@ _OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
 
 
 class BackendStack(cdk.Stack):
-    """Everything except BucketDeployment (which lives in FrontendStack)."""
+    """Lambdas, SQS, Step Functions, CloudFront. VPC/DB live in FoundationStack."""
 
     def __init__(
         self,
@@ -61,6 +50,9 @@ class BackendStack(cdk.Stack):
         construct_id: str,
         *,
         config: SteamPulseConfig,
+        vpc: ec2.IVpc,
+        intra_sg: ec2.ISecurityGroup,
+        db_secret: secretsmanager.ISecret,
         **kwargs: object,
     ) -> None:
         # cross_region_references only needed in production where ACM cert
@@ -73,99 +65,10 @@ class BackendStack(cdk.Stack):
 
         env = config.ENVIRONMENT
 
-        # ── Networking ────────────────────────────────────────────────────────
-        # Non-production: no NAT gateway (saves ~$32/mo). Lambdas use public subnets.
-        # Production: NAT gateway keeps Lambdas in private subnets.
-        vpc = ec2.Vpc(
-            self, "Vpc",
-            max_azs=2,
-            nat_gateways=1 if config.is_production else 0,
-            subnet_configuration=[
-                ec2.SubnetConfiguration(
-                    name="Public",
-                    subnet_type=ec2.SubnetType.PUBLIC,
-                    cidr_mask=24,
-                ),
-                ec2.SubnetConfiguration(
-                    name="Private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
-                    cidr_mask=24,
-                ),
-                ec2.SubnetConfiguration(
-                    name="Isolated",
-                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
-                    cidr_mask=24,
-                ),
-            ],
-        )
-
-        # Shared security group for all Lambda functions.
-        intra_sg = ec2.SecurityGroup(
-            self, "IntraSg",
-            vpc=vpc,
-            description="Shared intra-VPC SG for Lambda functions",
-            allow_all_outbound=True,
-        )
-
-        # DB security group — only members of intra_sg can reach Postgres.
-        db_sg = ec2.SecurityGroup(self, "DbSg", vpc=vpc, description="RDS access")
-        db_sg.add_ingress_rule(
-            ec2.Peer.security_group_id(intra_sg.security_group_id),
-            ec2.Port.tcp(5432),
-            "Lambda to Postgres",
-        )
-
-        # Lambda subnet selection (same for all Lambdas in this stack).
         lambda_subnets = ec2.SubnetSelection(
             subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS if config.is_production
             else ec2.SubnetType.PUBLIC,
         )
-
-        # ── Database ──────────────────────────────────────────────────────────
-        # Production: RDS t3.micro — ~$15/month flat, predictable for steady traffic.
-        # Non-production: Aurora Serverless v2 that can pause — near $0 when idle.
-        isolated_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
-        db_name = f"{env}_steampulse"
-
-        if config.is_production:
-            db_instance = rds.DatabaseInstance(
-                self, "Db",
-                engine=rds.DatabaseInstanceEngine.postgres(
-                    version=rds.PostgresEngineVersion.VER_16_3,
-                ),
-                instance_identifier=f"{env}-steampulse-db",
-                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
-                vpc=vpc,
-                vpc_subnets=isolated_subnets,
-                security_groups=[db_sg],
-                database_name=db_name,
-                deletion_protection=True,
-                backup_retention=cdk.Duration.days(7),
-                storage_encrypted=True,
-                multi_az=False,
-                removal_policy=cdk.RemovalPolicy.RETAIN,
-            )
-            db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
-        else:
-            db_cluster = rds.DatabaseCluster(
-                self, "Db",
-                engine=rds.DatabaseClusterEngine.aurora_postgres(
-                    version=rds.AuroraPostgresEngineVersion.VER_16_4,
-                ),
-                cluster_identifier=f"{env}-steampulse-db",
-                default_database_name=db_name,
-                vpc=vpc,
-                vpc_subnets=isolated_subnets,
-                security_groups=[db_sg],
-                deletion_protection=True,
-                backup=rds.BackupProps(retention=cdk.Duration.days(1)),
-                storage_encrypted=True,
-                serverless_v2_min_capacity=0,
-                serverless_v2_max_capacity=1,
-                writer=rds.ClusterInstance.serverless_v2("Writer"),
-                removal_policy=cdk.RemovalPolicy.RETAIN,
-            )
-            db_secret = db_cluster.secret  # type: ignore[assignment]
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
         library_layer = PythonLayerVersion(
@@ -590,9 +493,4 @@ class BackendStack(cdk.Stack):
             self, "AssetsBucketNameParam",
             parameter_name=f"/steampulse/{env}/app/assets-bucket-name",
             string_value=assets_bucket.bucket_name,
-        )
-        ssm.StringParameter(
-            self, "VpcIdParam",
-            parameter_name=f"/steampulse/{env}/network/vpc-id",
-            string_value=vpc.vpc_id,
         )

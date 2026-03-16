@@ -48,6 +48,7 @@ class SteamPulseConfig(BaseSettings):
     # ── Feature flags ─────────────────────────────────────────────────────────
     PRO_ENABLED: bool = False
 
+
     # ── Infrastructure ARNs / URLs (populated by CDK as Lambda env vars) ──────
     DB_SECRET_ARN: str = ""
     SFN_ARN: str = ""

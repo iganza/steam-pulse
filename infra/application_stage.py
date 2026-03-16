@@ -1,12 +1,21 @@
-"""ApplicationStage — three stacks: FoundationStack → BackendStack → FrontendStack.
+"""ApplicationStage — wires all stacks in lifecycle order.
+
+Stack deployment order:
+  NetworkStack  ──────────────────────────────────────────────────────┐
+  DataStack      (needs vpc, intra_sg from Network)                    │
+  MessagingStack (no VPC dependency — SQS is fully managed)            │
+  ComputeStack   (needs Network + Data + Messaging)                    │
+  CertificateStack (production only — us-east-1, ACM for CloudFront)  │
+  DeliveryStack  (needs Compute fn URLs + Certificate if production)   │
+  FrontendStack  (needs assets_bucket from Delivery)                   │
+  MonitoringStack (reads ARNs from SSM — no hard CF dependency)        │
 
 Config is loaded from .env.{environment} at synth time and passed through
-constructors — the CDK best-practice approach (configure with properties,
-not environment variable lookups inside stacks).
+constructors — the CDK best-practice approach.
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "library-layer"))
 
@@ -14,9 +23,14 @@ import aws_cdk as cdk
 from constructs import Construct
 
 from library_layer.config import SteamPulseConfig
-from stacks.foundation_stack import FoundationStack
-from stacks.backend_stack import BackendStack
+from stacks.network_stack import NetworkStack
+from stacks.data_stack import DataStack
+from stacks.messaging_stack import MessagingStack
+from stacks.compute_stack import ComputeStack
+from stacks.certificate_stack import CertificateStack
+from stacks.delivery_stack import DeliveryStack
 from stacks.frontend_stack import FrontendStack
+# from stacks.monitoring_stack import MonitoringStack
 
 
 class ApplicationStage(cdk.Stage):
@@ -34,31 +48,92 @@ class ApplicationStage(cdk.Stage):
         env_name = environment.capitalize()
         cdk_env = cdk.Environment(account=self.account, region=self.region)
 
-        foundation = FoundationStack(
-            self, "Foundation",
-            stack_name=f"SteamPulse-{env_name}-Foundation",
+        # ── Network ───────────────────────────────────────────────────────────
+        network = NetworkStack(
+            self, "Network",
+            stack_name=f"SteamPulse-{env_name}-Network",
             config=config,
             termination_protection=config.is_production,
             env=cdk_env,
         )
 
-        backend = BackendStack(
-            self, "Backend",
-            stack_name=f"SteamPulse-{env_name}-Backend",
+        # ── Data ──────────────────────────────────────────────────────────────
+        data = DataStack(
+            self, "Data",
+            stack_name=f"SteamPulse-{env_name}-Data",
             config=config,
-            vpc=foundation.vpc,
-            intra_sg=foundation.intra_sg,
-            db_secret=foundation.db_secret,
+            vpc=network.vpc,
+            intra_sg=network.intra_sg,
             termination_protection=config.is_production,
             env=cdk_env,
         )
-        backend.add_dependency(foundation)
+        data.add_dependency(network)
 
+        # ── Messaging ─────────────────────────────────────────────────────────
+        messaging = MessagingStack(
+            self, "Messaging",
+            stack_name=f"SteamPulse-{env_name}-Messaging",
+            config=config,
+            env=cdk_env,
+        )
+
+        # ── Compute ───────────────────────────────────────────────────────────
+        compute = ComputeStack(
+            self, "Compute",
+            stack_name=f"SteamPulse-{env_name}-Compute",
+            config=config,
+            vpc=network.vpc,
+            intra_sg=network.intra_sg,
+            db_secret=data.db_secret,
+            app_crawl_queue=messaging.app_crawl_queue,
+            review_crawl_queue=messaging.review_crawl_queue,
+            env=cdk_env,
+        )
+        compute.add_dependency(data)
+        compute.add_dependency(messaging)
+
+        # ── Certificate (production only — must be in us-east-1 for CloudFront)
+        if config.is_production:
+            cert_stack = CertificateStack(
+                self, "Certificate",
+                stack_name=f"SteamPulse-{env_name}-Certificate",
+                config=config,
+                env=cdk.Environment(account=self.account, region="us-east-1"),
+            )
+            certificate = cert_stack.certificate
+        else:
+            cert_stack = None
+            certificate = None
+
+        # ── Delivery ──────────────────────────────────────────────────────────
+        delivery = DeliveryStack(
+            self, "Delivery",
+            stack_name=f"SteamPulse-{env_name}-Delivery",
+            config=config,
+            api_fn_url=compute.api_fn_url,
+            frontend_fn_url=compute.frontend_fn_url,
+            certificate=certificate,
+            env=cdk_env,
+        )
+        delivery.add_dependency(compute)
+        if cert_stack is not None:
+            delivery.add_dependency(cert_stack)
+
+        # ── Frontend ──────────────────────────────────────────────────────────
         frontend = FrontendStack(
             self, "Frontend",
             stack_name=f"SteamPulse-{env_name}-Frontend",
             config=config,
-            assets_bucket=backend.assets_bucket,
+            assets_bucket=delivery.assets_bucket,
             env=cdk_env,
         )
-        frontend.add_dependency(backend)
+        frontend.add_dependency(delivery)
+
+        # ── Monitoring ────────────────────────────────────────────────────────
+        # Disabled — enable when ready to set up alarms.
+        # MonitoringStack(
+        #     self, "Monitoring",
+        #     stack_name=f"SteamPulse-{env_name}-Monitoring",
+        #     config=config,
+        #     env=cdk_env,
+        # )

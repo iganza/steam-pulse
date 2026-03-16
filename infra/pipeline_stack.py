@@ -49,7 +49,10 @@ class PipelineStack(cdk.Stack):
                 ],
                 role_policy_statements=[
                     iam.PolicyStatement(
-                        actions=["ec2:DescribeAvailabilityZones"],
+                        actions=[
+                            "ec2:DescribeAvailabilityZones",
+                            "ec2:DescribeImages",  # fck-nat AMI lookup at synth time
+                        ],
                         resources=["*"],
                     ),
                 ],
@@ -82,7 +85,7 @@ class PipelineStack(cdk.Stack):
                     "InvalidateCDN",
                     commands=[
                         # Read distribution ID from SSM then invalidate HTML paths
-                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/app/distribution-id --query Parameter.Value --output text)',
+                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/delivery/distribution-id --query Parameter.Value --output text)',
                         'aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"',
                     ],
                     role_policy_statements=[

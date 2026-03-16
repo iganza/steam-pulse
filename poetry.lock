@@ -299,6 +299,25 @@ tomlkit = ["tomlkit (>=0.11.8)"]
 ujson = ["ujson (>=5.10.0)"]
 
 [[package]]
+name = "cdk-fck-nat"
+version = "1.6.22"
+description = "A NAT Gateway instance construct built on the fck-nat AMI."
+optional = false
+python-versions = "~=3.9"
+groups = ["infra"]
+files = [
+    {file = "cdk_fck_nat-1.6.22-py3-none-any.whl", hash = "sha256:61bb9b5b70eea83f58cd86c899d247e67e82eb7cf07a444feab34f59c2d0bacf"},
+    {file = "cdk_fck_nat-1.6.22.tar.gz", hash = "sha256:ebfb8fc278a421d28a67346a5983b59e1d9b357c4bad97951f0afdf38205afd2"},
+]
+
+[package.dependencies]
+aws-cdk-lib = ">=2.122.0,<3.0.0"
+constructs = ">=10.0.5,<11.0.0"
+jsii = ">=1.115.0,<2.0.0"
+publication = ">=0.0.3"
+typeguard = ">=2.13.3,<4.3.0"
+
+[[package]]
 name = "cdk-monitoring-constructs"
 version = "9.22.0"
 description = "cdk-monitoring-constructs"
@@ -2613,4 +2632,4 @@ test = ["pytest", "pytest-cov"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "2b81cdfa4b18a72972337bdb271518b46a51109c2655dc38308b88c564f88ed6"
+content-hash = "795b29f84c58b6f8ea119ccc3d3f9f7efc0110c99a4d576ec613784d465a3303"

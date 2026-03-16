@@ -3,11 +3,13 @@
 Deployed once, rarely changed. Downstream stacks receive vpc and intra_sg
 as direct CDK objects — no SSM lookups needed.
 
-Non-production: single fck-nat t4g.nano instance via NatInstanceProviderV2
-                (~$4/mo vs $32/mo for a managed NAT Gateway).
-Production:     HA fck-nat via FckNatInstanceProvider — one Auto Scaling Group
-                per AZ auto-replaces a failed instance in ~2 minutes.
-                Two instances at ~$8/mo vs ~$64/mo for two managed NAT Gateways.
+Non-production: single fck-nat t4g.nano instance (~$4/mo vs $32/mo managed NAT).
+Production:     two fck-nat instances, one per AZ — auto-recovers in ~2 min.
+                (~$8/mo vs ~$64/mo for two managed NAT Gateways).
+
+Both environments use FckNatInstanceProvider (ASG-backed) for consistency.
+nat_gateways=1 for staging means one instance in one AZ; =2 for prod places
+one instance per AZ.
 """
 
 import aws_cdk as cdk
@@ -16,9 +18,6 @@ from cdk_fck_nat import FckNatInstanceProvider
 from constructs import Construct
 
 from library_layer.config import SteamPulseConfig
-
-_FCK_NAT_AMI_NAME = "fck-nat-al2023-*-arm64-ebs"
-_FCK_NAT_AMI_OWNER = "568608671756"
 
 
 class NetworkStack(cdk.Stack):
@@ -32,22 +31,12 @@ class NetworkStack(cdk.Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        if config.is_production:
-            # HA: one ASG per AZ; instance failure auto-recovers in ~2 min.
-            nat_provider: ec2.NatProvider = FckNatInstanceProvider(
-                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
-            )
-            nat_gateways = 2  # one per AZ for true HA
-        else:
-            # Non-HA: single fck-nat instance — fine for staging.
-            nat_provider = ec2.NatInstanceProviderV2(
-                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
-                machine_image=ec2.LookupMachineImage(
-                    name=_FCK_NAT_AMI_NAME,
-                    owners=[_FCK_NAT_AMI_OWNER],
-                ),
-            )
-            nat_gateways = 1
+        # FckNatInstanceProvider works for both envs — one ASG per NAT gateway.
+        # Staging gets 1 instance; prod gets 2 (one per AZ) for HA.
+        nat_gateways = 2 if config.is_production else 1
+        nat_provider: ec2.NatProvider = FckNatInstanceProvider(
+            instance_type=ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+        )
 
         self.vpc = ec2.Vpc(
             self, "Vpc",
@@ -74,8 +63,8 @@ class NetworkStack(cdk.Stack):
         )
 
         # fck-nat instances must accept inbound traffic from the entire VPC CIDR.
-        # Both FckNatInstanceProvider and NatInstanceProviderV2 expose .security_group
-        # after VPC creation; NatProvider base class doesn't declare it statically.
+        # FckNatInstanceProvider exposes .security_group after VPC creation;
+        # NatProvider base class doesn't declare it statically.
         nat_provider.security_group.add_ingress_rule(  # type: ignore[union-attr]
             ec2.Peer.ipv4(self.vpc.vpc_cidr_block),
             ec2.Port.all_traffic(),

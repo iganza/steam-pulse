@@ -20,14 +20,14 @@ One Python codebase. AWS for everything. Feature flags separate tiers.
 | Backend  | Python 3.12, FastAPI (API only — no HTML), uvicorn, httpx                              |
 | Frontend | Next.js (React SSR/ISR) deployed via OpenNext to Lambda + CloudFront                   |
 | LLM      | =claude-3-5-haiku-20241022= (chunks), =claude-3-5-sonnet-20241022= (synthesis + chat). |
-|          | Overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                               |
-| DB       | PostgreSQL on RDS (t3.micro → scale later)                                             |
+|          | AWS Bedrock via Converse API (real-time) and Batch Inference (bulk seed).              |
+|          | Model IDs overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                    |
+| DB       | PostgreSQL on RDS (t3.micro → scale later). All access via Repository classes.         |
 | Hosting  | AWS Lambda (container image) + CloudFront + Route 53. No Railway, no Fargate.          |
 | Infra    | AWS CDK v2 (Python), CDK Pipelines (self-mutating, 2 envs: staging + production)       |
-| Payments | Lemon Squeezy (merchant of record, handles global VAT)                                 |
+| Payments | *Deferred.* =/api/validate-key= stubs full access. No payment provider integrated yet. |
 | Email    | Resend                                                                                 |
 | Deps     | Poetry (=pyproject.toml= is source of truth — no requirements.txt)                     |
-|          |                                                                                        |
 
 * Hosting Architecture
 
@@ -277,22 +277,40 @@ class DirectSteamSource(SteamDataSource):
    - SQS queue: =review-crawl-queue= (batch size 1 — each game is heavyweight)
    - Rate: paced by SQS visibility timeout (~2 min max per game)
 
-** Step Functions: Analysis Pipeline
+** LLM execution paths
 
-State machine triggered after review crawl completes for each game:
+Two paths exist for the two-pass pipeline, sharing the same prompt logic:
+
+| Path       | When used                    | Mechanism                          | Cost saving |
+|------------+------------------------------+------------------------------------+-------------|
+| Real-time  | On-demand single game        | Bedrock Converse API (boto3)       | None        |
+| Batch      | Bulk seed, scheduled refresh | Bedrock Batch Inference + S3 JSONL | ~50%        |
+
+*Real-time* uses =bedrock_runtime.converse()= — model-agnostic, swap model ID via env var, zero
+code changes. Prompt caching (ephemeral cache points) works on this path.
+
+*Batch* submits a JSONL file to S3, creates a Bedrock Batch job, and a Step Functions STANDARD
+workflow polls every 5 minutes until completion. Two sequential jobs: Pass 1 (Haiku, all chunks
+across all games in one job) → Pass 2 (Sonnet, one record per game). Prompt caching is NOT
+supported in Batch Inference — remove =cache_control= from batch JSONL records.
+
+Full design spec: =scripts/prompts/bedrock-batch-analysis.md=
+
+** Step Functions Analysis Pipeline
 
 #+BEGIN_SRC
 StartAnalysis
   └── PrepareChunks   (Lambda: split reviews into 50-review batches + fetch game description)
        └── Map (MaxConcurrency: 5)
-            └── AnalyzeChunk  (Lambda: Haiku — extract themes per chunk)
-       └── SynthesizeReport  (Lambda: Sonnet — merge chunks → structured JSON)
-            └── StoreReport   (Lambda: upsert to RDS reports table)
+            └── AnalyzeChunk  (Lambda: Haiku via Converse API — extract themes per chunk)
+       └── SynthesizeReport  (Lambda: Sonnet via Converse API — merge chunks → structured JSON)
+            └── StoreReport   (Lambda: upsert to RDS via ReportRepository)
                  └── InvalidateCache  (Lambda: targeted CloudFront invalidation)
 #+END_SRC
 
-Step Functions Express Workflows. Cost: ~$0.30 for entire 6k seed crawl (negligible).
-Map(MaxConcurrency=5) means a 2,000-review game (40 chunks) runs in ~8 parallel batches.
+Express Workflows for real-time (single game). STANDARD Workflows for batch (long-running, hours).
+
+
 
 *** Game description as silent synthesis context (POC)
 
@@ -310,7 +328,43 @@ Rationale:
 Implementation: strip HTML with =re.sub(r'<[^>]+>', ' ', text)= before passing to LLM.
 Cap at ~1,000 tokens to avoid inflating Pass 2 cost meaningfully (~$0.001/game extra at most).
 
-* Bootstrap / Generation Strategy
+* Code Architecture
+
+** Repository → Service → Handler (mandatory pattern)
+
+Every data access follows a strict three-layer pattern. *Nothing outside a Repository ever writes SQL.*
+
+#+BEGIN_SRC
+Handler (Lambda / FastAPI route)
+  └── calls Service methods   (business logic only)
+        └── calls Repository  (SQL I/O only)
+#+END_SRC
+
+- *Repository* (=library_layer/repositories/=): pure SQL I/O. One class per domain entity
+  (=GameRepository=, =ReviewRepository=, =ReportRepository=, =CatalogRepository=, =JobRepository=).
+  No business logic, no HTTP, no LLM. Methods return domain models or raise.
+- *Service* (=library_layer/services/=): business logic. Coordinates repositories, calls Steam API,
+  calls Bedrock. No raw SQL — call a repository if you need data.
+- *Handler* (=lambda_functions/*/handler.py=): thin dispatcher. Parse input → call service → return.
+  No SQL, no business logic.
+
+** DRY principle (utils/)
+
+Any logic used by more than one repository or service lives in =library_layer/utils/=:
+
+| Utility         | Location           | Used by                            |
+|-----------------+--------------------+------------------------------------|
+| =slugify()=     | =utils/text.py=    | GameRepository, index page builder |
+| =send_sqs_batch()= | =utils/aws.py=  | CrawlService, seed script          |
+| =row_to_model()= | =utils/db.py=     | All repositories                   |
+| =score_utils=   | =utils/scores.py=  | analyzer.py + batch process Lambda |
+
+Import hierarchy: handlers → services → repositories → utils. No circular imports.
+
+** No ORM
+
+Raw psycopg2 only. No SQLAlchemy, no Peewee. The schema is simple and stable; an ORM adds
+indirection without benefit given single-purpose Lambda functions and direct SQL control.
 
 Games are analyzed in descending review count order. Three phases:
 
@@ -673,9 +727,13 @@ Genre, tag, and developer pages aggregate insights across all games in that grou
 | Stream                    | Audience           | Type          | Notes                                      |
 |---------------------------+--------------------+---------------+--------------------------------------------|
 | Steam affiliate links     | Gamers             | Passive       | ~5% on referred purchases, zero friction   |
-| Per-analysis credits      | Developers         | Transactional | $7 single / $15 for 5-pack (Lemon Squeezy) |
+| Per-analysis credits      | Developers         | Transactional | $7 single / $15 for 5-pack — *deferred*    |
 | Pro subscription ($49/mo) | Indie studios      | Recurring     | V2 — NL chat over full catalog             |
 | Sponsored genre/tag pages | Devs wanting reach | Direct sales  | $10-50 CPM equivalent, post-launch         |
+
+*Payment integration is deferred.* =/api/validate-key= currently stubs full access so the
+frontend and premium sections can be built and tested without a payment provider. When
+payment is added, replace the stub with Lemon Squeezy or Stripe license key validation.
 
 ** Premium CTA placement
 
@@ -695,8 +753,8 @@ Placement:
 | Tier          | Price         | What you get                                                      |
 |---------------+---------------+-------------------------------------------------------------------|
 | Free          | $0            | Full free report (sections 1-8 + 13), unlimited, no account      |
-| Single game   | $7            | Pro sections (9-12) for one game, license key, no account needed |
-| 5-pack        | $15           | Pro sections for 5 games (save $20)                               |
+| Single game   | $7 (/deferred/) | Pro sections (9-12) for one game, no account needed             |
+| 5-pack        | $15 (/deferred/) | Pro sections for 5 games (save $20)                            |
 | Pro monthly   | $29/mo        | Unlimited pro reports + on-demand freshness + custom prompts (V2) |
 
 * API Endpoints (FastAPI)
@@ -704,7 +762,7 @@ Placement:
 | Endpoint                    | Notes                                                        |
 |-----------------------------+--------------------------------------------------------------|
 | =POST /api/preview=         | Free tier: sentiment + one-liner only (1 per IP)            |
-| =POST /api/validate-key=    | Validates Lemon Squeezy key, returns premium JSON payload    |
+| =POST /api/validate-key=    | *Stubbed* — always returns full report, activations_remaining: 99. Payment deferred. |
 | =GET /api/status/{job_id}=  | Step Functions job polling (lazy generation flow)            |
 | =POST /api/analyze=         | Triggers Step Functions for a given appid (internal/admin)  |
 | =GET /health=               | Storage backend + pro_enabled status                         |
@@ -716,7 +774,6 @@ Placement:
 DATABASE_URL            # PostgreSQL. Required — no in-memory fallback in Lambda.
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-LEMONSQUEEZY_API_KEY    # Payment validation
 RESEND_API_KEY          # Email delivery
 PRO_ENABLED             # 'true' enables /api/chat (V2)
 CF_DISTRIBUTION_ID      # CloudFront distribution ID for cache invalidations
@@ -728,9 +785,11 @@ SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
 
 * Open Items
 
-- [ ] Lemon Squeezy webhook handler for subscription events
+- [ ] Payment integration — replace =/api/validate-key= stub with real provider (Lemon Squeezy or Stripe)
 - [ ] CloudFront Function code for KVS-based sponsor banner injection
-- [ ] =hidden_gem_score= algorithm (low review count + high positive pct + low price)
+- [ ] =hidden_gem_score= algorithm extraction to =utils/scores.py= (shared by real-time and batch paths)
 - [ ] HTML stripping in =analyzer.py= — strip =detailed_desc= / =about_the_game= before LLM prompt-build (=re.sub(r'<[^>]+>', ' ', text)=)
-- [ ] sitemap.xml auto-generation (trigger on new analysis completion)
-- [ ] Next.js component library choice (shadcn/ui is current best practice for React)
+- [ ] Sitemap.xml auto-generation (trigger on new analysis completion)
+- [ ] Next.js component library (shadcn/ui is current best practice for React)
+- [ ] Bedrock Batch Inference implementation — see =scripts/prompts/bedrock-batch-analysis.md=
+- [ ] Migrate real-time Bedrock calls from =AnthropicBedrock= SDK to native =boto3= Converse API

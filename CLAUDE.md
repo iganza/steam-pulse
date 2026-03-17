@@ -325,6 +325,30 @@ Frontend shows "Analysis from X days ago" and a "Refresh available" badge after 
 
 ---
 
+## Frontend Testing
+
+Playwright E2E tests live in `frontend/tests/`. Run with:
+
+```bash
+cd frontend
+npm run test:e2e          # all tests (headless, starts prod build)
+npm run test:e2e:ui       # interactive Playwright UI
+PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npm run test:e2e  # against staging
+```
+
+**Rule: any frontend change that alters user-visible behaviour must include test updates in the same PR.**
+
+When making frontend changes, always:
+1. Check `frontend/tests/` for existing tests covering the area you're changing
+2. Update tests that would fail due to your change — don't delete, update
+3. Add new tests for new user-facing behaviour
+4. Mock data is in `frontend/tests/fixtures/mock-data.ts` — update if you add API response fields
+5. API mocking is in `frontend/tests/fixtures/api-mock.ts` — update if endpoints change
+
+Tests are excluded from the Next.js build (`tests/` in `tsconfig.json` exclude array). Never import from `tests/` inside `app/` or `components/`.
+
+---
+
 ## Do Not Build
 
 - No user accounts or login system

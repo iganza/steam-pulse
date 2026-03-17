@@ -1,0 +1,178 @@
+#+TITLE: SteamPulse — LLM Prompt Strategy & Improvement Guide
+#+DATE: 2026-03-17
+#+OPTIONS: toc:2
+
+* Overview
+
+SteamPulse uses a two-pass map-reduce LLM pipeline to process Steam game reviews:
+
+- *Pass 1 (Map) — Haiku:* Each 50-review chunk → extract structured signals
+- *Pass 2 (Reduce) — Sonnet:* All chunk summaries for one game → synthesize final report
+
+Prompt quality is the primary driver of report quality. This document captures strategies
+for improving and evaluating both passes.
+
+* Pass 1 — Haiku Chunk Extraction
+
+The core problem with Pass 1: Haiku is cheap but can be sloppy — it paraphrases instead
+of extracting, misclassifies signal types, or hallucinates themes not present in the text.
+
+** Strategy 1: Force Structured JSON Output
+
+Don't ask for prose. Give Haiku an exact JSON schema and require strict adherence.
+Structured output dramatically reduces noise going into Pass 2.
+
+#+BEGIN_SRC json
+{
+  "complaints": [{"quote": "exact text from review", "theme": "matchmaking"}],
+  "praises":    [{"quote": "...", "theme": "..."}],
+  "requests":   [{"quote": "...", "theme": "..."}],
+  "batch_stats": {"positive_count": 38, "negative_count": 12}
+}
+#+END_SRC
+
+** Strategy 2: Extract Verbatim Quotes
+
+Ask for the actual review quote alongside the extracted theme. This lets Pass 2 verify
+the theme is grounded in real text, not hallucinated. Sonnet can also surface the best
+quotes directly in the report.
+
+** Strategy 3: Explicit Exclusion Rules
+
+Explicit "do NOT include" instructions outperform implicit framing. Be specific:
+
+#+BEGIN_QUOTE
+Do not include complaints about price, refunds, or developer business decisions.
+Only extract in-game experience issues — UX, mechanics, performance, content.
+#+END_QUOTE
+
+** Strategy 4: Test with Adversarial Chunks
+
+Before shipping a prompt change, test edge cases:
+- Chunks that are entirely positive (no complaints to extract)
+- Chunks with reviews in non-English languages
+- Chunks with one-word or very short reviews ("10/10", "bad")
+- Chunks with contradictory signals (same issue praised and criticised)
+
+Check that Haiku handles these gracefully rather than hallucinating content.
+
+* Pass 2 — Sonnet Synthesis
+
+The core problem with Pass 2: without hard constraints, Sonnet duplicates content across
+sections, produces generic output, and buries the most important signals.
+
+** Strategy 1: Explicit Anti-Duplication Rules
+
+The design already enforces this — make the rules even more specific in the prompt:
+
+#+BEGIN_QUOTE
+If an issue appears in =gameplay_friction=, do NOT restate the problem in =dev_priorities=.
+=dev_priorities= contains only the ACTION and its ROI ranking — not a re-description of
+the problem.
+#+END_QUOTE
+
+** Strategy 2: Frequency Weighting
+
+Instruct Sonnet to rank by how many Pass 1 chunks mentioned the theme, not by how
+interesting or vivid it sounds:
+
+#+BEGIN_QUOTE
+Rank items by frequency across chunks. An issue mentioned in 8 chunks outranks a
+dramatic issue mentioned in 1 chunk. The =frequency= field in =dev_priorities= must
+reflect this count.
+#+END_QUOTE
+
+** Strategy 3: Minimum Evidence Threshold
+
+Prevent single-mention signals from polluting the report:
+
+#+BEGIN_QUOTE
+Only include an item in =player_wishlist= if it appears in at least 3 separate chunks.
+Discard single-mention signals entirely — they are noise, not signal.
+#+END_QUOTE
+
+** Strategy 4: Pass =batch_stats= as Context
+
+Send the total review count, positive %, and playtime distribution to Sonnet alongside
+the chunk summaries. This calibrates the language it uses:
+- "most players" vs "a vocal minority"
+- "consistently mentioned" vs "occasionally noted"
+
+It also prevents Sonnet from overstating the importance of a signal that came from
+a chunk covering only 50 of 2,000 reviews.
+
+* Evaluation Strategies
+
+The hardest problem: how do you know if a prompt change actually improved things?
+
+** Strategy 1: Golden Eval Set
+
+Pick 5–10 games you know well (e.g., TF2, Stardew Valley, Elden Ring, Celeste,
+a struggling indie). Manually write what the correct output should be for each
+report section. Run both prompt versions against the same reviews and compare
+outputs against your golden set.
+
+This is the most reliable method. Build it before shipping the first batch.
+
+** Strategy 2: LLM-as-Judge
+
+After generating a report, ask Sonnet (or GPT-4o) to evaluate it:
+
+#+BEGIN_QUOTE
+Rate this report on:
+1. Accuracy — does each section reflect what the reviews actually say? (1–5)
+2. Duplication — does the same point appear in multiple sections? (1–5, 5 = no duplication)
+3. Actionability — are =dev_priorities= specific and rankable? (1–5)
+4. Section fit — does each item belong in the section it was placed in? (1–5)
+#+END_QUOTE
+
+Cheap, automatable, and reliable for catching regressions between prompt versions.
+
+** Strategy 3: A/B on Real Traffic
+
+Once the site has developer traffic, show two report variants and measure which
+drives more premium unlocks. The best prompt is the one that converts — not the
+one that scores best on internal evals.
+
+** Strategy 4: Monitor Pass 1 Quality Separately
+
+Log Pass 1 outputs independently. Check:
+- Are =competitor_refs= actually named games (not generic descriptions)?
+- Are =notable_quotes= verbatim from the review text?
+- Are =batch_stats= counts consistent with the chunk size?
+- Are signal counts plausible (not 0 complaints in a Mixed-sentiment game)?
+
+Catching Pass 1 degradation early prevents Pass 2 from silently producing bad reports.
+
+* Iteration Workflow
+
+The fastest improvement loop:
+
+1. Pick a game with known, verifiable issues (e.g., TF2 bots dominate recent negative reviews)
+2. Run the full pipeline and check whether the known issues surface in the *correct* sections
+3. Change *one thing at a time* — one instruction, one exclusion rule, one format tweak
+4. Compare outputs side-by-side before committing the prompt change
+5. Run the golden eval set to confirm no regressions
+
+**Critical rule:** Never change Pass 1 and Pass 2 prompts in the same test iteration.
+You will not be able to attribute the change to the right prompt.
+
+* Resources
+
+- [[https://docs.anthropic.com/en/docs/build-with-claude/summarize-long-documents][Anthropic: Summarize long documents]] — canonical reference for this pattern
+- [[https://python.langchain.com/docs/tutorials/summarization/][LangChain: Summarization strategies]] — explains map/reduce vs refine vs stuff with diagrams
+- [[https://github.com/anthropics/anthropic-cookbook][Anthropic Cookbook (GitHub)]] — worked examples of multi-document summarization with Claude
+- "Lost in the Middle" (Liu et al., 2023) — explains WHY chunking works: LLMs perform worse
+  on information in the middle of a long context; two-pass avoids this problem entirely
+
+* Three Map-Reduce Strategies (Reference)
+
+| Strategy   | Mechanism                                    | Our use |
+|------------+----------------------------------------------+---------|
+| Map-Reduce | Chunk → summarize each → synthesize          | ✅ Yes  |
+| Refine     | Sequential: each chunk refines previous answer | ✗ No parallelism |
+| Stuff      | Dump everything into one prompt              | ✗ Hits context limits |
+
+Map-reduce is correct for SteamPulse because Pass 1 chunks are *independent* — they can
+run in parallel (or via Bedrock Batch Inference), and Pass 2 only processes condensed
+signals rather than tens of thousands of words of raw review text.

@@ -81,6 +81,14 @@ export default async function GameReportPage({ params }: Props) {
     if (reportData.review_count) {
       gameData.reviewCount = reportData.review_count;
     }
+    if (reportData.game) {
+      const g = reportData.game;
+      if (g.short_desc) gameData.shortDesc = g.short_desc;
+      if (g.developer) gameData.developer = g.developer;
+      if (g.release_date) gameData.releaseDate = g.release_date;
+      if (g.price_usd != null) gameData.priceUsd = g.price_usd;
+      if (g.is_free != null) gameData.isFree = g.is_free;
+    }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
       // No report, try preview

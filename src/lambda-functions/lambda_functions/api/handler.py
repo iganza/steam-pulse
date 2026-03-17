@@ -358,17 +358,30 @@ async def list_games(
 
 @app.get("/api/games/{appid}/report")
 async def get_game_report(appid: int) -> dict:
-    """Return the full report JSON if it exists, or a status object."""
+    """Return the full report JSON if it exists, or a status object.
+    Always includes game metadata (short_desc, developer, etc.) alongside the report.
+    """
+    game = _game_repo.find_by_appid(appid)
+    game_meta: dict = {}
+    if game:
+        game_meta = {
+            "short_desc": game.short_desc,
+            "developer": game.developer,
+            "release_date": game.release_date,
+            "price_usd": float(game.price_usd) if game.price_usd else None,
+            "is_free": game.is_free,
+        }
+
     report = await _get_report(appid)
     if report:
-        return {"status": "available", "report": report}
+        return {"status": "available", "report": report, "game": game_meta}
 
-    # No report — return review count for threshold display
-    review_count = _game_repo.get_review_count(appid)
+    review_count = game.review_count if game else _game_repo.get_review_count(appid)
     return {
         "status": "not_available",
         "review_count": review_count,
         "threshold": 500,
+        "game": game_meta,
     }
 
 

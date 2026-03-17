@@ -67,6 +67,7 @@ export interface Game {
   appid: number;
   name: string;
   slug: string;
+  short_desc?: string;
   developer?: string;
   header_image?: string;
   review_count?: number;

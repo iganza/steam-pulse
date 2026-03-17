@@ -48,6 +48,13 @@ export async function getGameReport(appid: number): Promise<{
   report?: GameReport;
   review_count?: number;
   threshold?: number;
+  game?: {
+    short_desc?: string;
+    developer?: string;
+    release_date?: string;
+    price_usd?: number | null;
+    is_free?: boolean;
+  };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
     next: { revalidate: 3600, tags: [`report-${appid}`] },

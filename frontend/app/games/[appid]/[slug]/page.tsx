@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getPreview } from "@/lib/api";
+import { getGameReport, getPreview } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { GameReportClient } from "./GameReportClient";
 
@@ -9,19 +9,45 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { appid } = await params;
+  const { appid, slug } = await params;
+  const numericAppid = Number(appid);
+  const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
+
   try {
-    const preview = await getPreview(Number(appid));
+    const reportData = await getGameReport(numericAppid);
+    if (reportData.status === "available" && reportData.report) {
+      const report = reportData.report;
+      return {
+        title: `${report.game_name} Reviews & Analysis`,
+        description: report.one_liner,
+        openGraph: {
+          title: `${report.game_name} Reviews & Analysis — SteamPulse`,
+          description: report.one_liner,
+          images: [{ url: headerImage }],
+        },
+      };
+    }
+  } catch {
+    // fall through
+  }
+
+  try {
+    const preview = await getPreview(numericAppid);
     return {
-      title: preview.game_name,
-      description: preview.one_liner,
+      title: `${preview.game_name} Reviews & Analysis`,
+      description: preview.one_liner || `Steam game analysis for ${preview.game_name}`,
       openGraph: {
-        title: `${preview.game_name} — Player Intelligence Report`,
+        title: `${preview.game_name} Reviews & Analysis — SteamPulse`,
         description: preview.one_liner,
+        images: [{ url: headerImage }],
       },
     };
   } catch {
-    return { title: "Game Report" };
+    const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    return {
+      title: `${name} Reviews & Analysis`,
+      description: `Steam game analysis for ${name}`,
+    };
   }
 }
 
@@ -31,34 +57,98 @@ export default async function GameReportPage({ params }: Props) {
 
   if (!numericAppid || isNaN(numericAppid)) notFound();
 
-  let preview;
+  const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
+
+  // Try to get full report first
+  let report = null;
+  let gameData: {
+    gameName?: string;
+    releaseDate?: string;
+    developer?: string;
+    priceUsd?: number | null;
+    isFree?: boolean;
+    genres?: string[];
+    tags?: string[];
+    shortDesc?: string;
+    reviewCount?: number;
+  } = {};
+
   try {
-    preview = await getPreview(numericAppid);
+    const reportData = await getGameReport(numericAppid);
+    if (reportData.status === "available" && reportData.report) {
+      report = reportData.report;
+    }
+    if (reportData.review_count) {
+      gameData.reviewCount = reportData.review_count;
+    }
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) notFound();
-    // Network errors: render without preview rather than hard-failing
-    if (err instanceof ApiError) {
-      preview = null;
+    if (err instanceof ApiError && err.status === 404) {
+      // No report, try preview
+    } else if (err instanceof ApiError) {
+      // API error, continue with fallback
     } else {
       throw err;
     }
   }
 
-  // These would come from /api/games/{appid} in production;
-  // preview is all we need for SSR hydration of the client component.
+  // Fallback to preview if no report
+  if (!report) {
+    try {
+      const preview = await getPreview(numericAppid);
+      if (preview) {
+        gameData.gameName = preview.game_name;
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) notFound();
+      if (!(err instanceof ApiError)) throw err;
+    }
+  }
+
+  // Build JSON-LD structured data
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": report?.game_name ?? gameData.gameName ?? "Unknown Game",
+    "image": headerImage,
+    "gamePlatform": "PC",
+    "applicationCategory": "Game",
+    ...(gameData.genres?.length ? { "genre": gameData.genres } : {}),
+    ...(gameData.releaseDate ? { "datePublished": gameData.releaseDate } : {}),
+    "operatingSystem": "Windows",
+    ...(report ? {
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": ((report.sentiment_score / 10).toFixed(1)),
+        "bestRating": "10",
+        "worstRating": "0",
+        "ratingCount": String(report.total_reviews_analyzed ?? 0),
+      },
+    } : {}),
+  };
+
   return (
-    <GameReportClient
-      preview={preview}
-      appid={numericAppid}
-      headerImage={`https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`}
-      releaseDate={undefined}
-      developer={undefined}
-      priceUsd={undefined}
-      isFree={false}
-      genres={[]}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <GameReportClient
+        report={report}
+        appid={numericAppid}
+        gameName={gameData.gameName}
+        headerImage={headerImage}
+        releaseDate={gameData.releaseDate}
+        developer={gameData.developer}
+        priceUsd={gameData.priceUsd}
+        isFree={gameData.isFree ?? false}
+        genres={gameData.genres ?? []}
+        tags={gameData.tags ?? []}
+        shortDesc={gameData.shortDesc}
+        reviewCount={gameData.reviewCount}
+      />
+    </>
   );
 }
 
-// ISR: revalidate every hour, new appids render on-demand
-export const revalidate = 3600;
+// ISR: revalidate every 24 hours
+export const revalidate = 86400;

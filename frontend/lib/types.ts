@@ -20,7 +20,7 @@ export interface CompetitorRef {
   note: string;
 }
 
-/** Full report — returned by /api/validate-key and /api/status when complete */
+/** Full report — returned by /api/games/{appid}/report and /api/status when complete */
 export interface GameReport {
   game_name: string;
   appid: number;
@@ -33,9 +33,9 @@ export interface GameReport {
   audience_profile: AudienceProfile;
   design_strengths: string[];
   gameplay_friction: string[];
-  player_wishlist: string[]; // PREMIUM
-  churn_triggers: string[]; // PREMIUM
-  dev_priorities: DevPriority[]; // PREMIUM
+  player_wishlist: string[];
+  churn_triggers: string[];
+  dev_priorities: DevPriority[];
   competitive_context: CompetitorRef[];
   genre_context: string;
   hidden_gem_score: number; // 0–100
@@ -85,6 +85,7 @@ export interface Genre {
   name: string;
   slug: string;
   game_count?: number;
+  analyzed_count?: number;
 }
 
 export interface Tag {
@@ -92,4 +93,5 @@ export interface Tag {
   name: string;
   slug: string;
   game_count?: number;
+  analyzed_count?: number;
 }

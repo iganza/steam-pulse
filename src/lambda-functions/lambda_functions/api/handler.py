@@ -23,72 +23,26 @@ VERSION = "0.1.0"
 
 # ---------------------------------------------------------------------------
 # Repository wiring — built once at module level.
-# Falls back to None (in-memory) when DATABASE_URL is not set.
+# Raises RuntimeError at cold start if DATABASE_URL is not set.
 # ---------------------------------------------------------------------------
 
-_report_cache: dict[int, dict] = {}
-_job_cache: dict[str, dict] = {}
+from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.report_repo import ReportRepository
+from library_layer.utils.db import get_conn
 
-_game_repo = None
-_report_repo = None
-_job_repo = None
+_game_repo: GameRepository
+_report_repo: ReportRepository
+_job_repo: JobRepository
+_db_conn: object  # psycopg2 connection
 
-
-def _get_db_conn() -> object | None:
-    """Return a psycopg2 connection if DATABASE_URL is set, else None."""
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        return None
-    try:
-        import psycopg2  # type: ignore[import-untyped]
-        import psycopg2.extras
-        return psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
-    except Exception:
-        return None
-
-
-def _init_repos() -> None:
-    global _game_repo, _report_repo, _job_repo
-    conn = _get_db_conn()
-    if conn:
-        from library_layer.repositories.game_repo import GameRepository
-        from library_layer.repositories.job_repo import JobRepository
-        from library_layer.repositories.report_repo import ReportRepository
-        _game_repo = GameRepository(conn)
-        _report_repo = ReportRepository(conn)
-        _job_repo = JobRepository(conn)
-
-
-_init_repos()
-
-
-async def _get_report(appid: int) -> dict | None:
-    if _report_repo is not None:
-        result = _report_repo.find_by_appid(appid)
-        return result.report_json if result else None
-    return _report_cache.get(appid)
-
-
-async def _upsert_report(appid: int, report: dict) -> None:
-    if _report_repo is not None and _game_repo is not None:
-        name = report.get("game_name", f"App {appid}")
-        _game_repo.ensure_stub(appid, name)
-        _report_repo.upsert({**report, "appid": appid})
-        return
-    _report_cache[appid] = report
-
-
-async def _get_job(job_id: str) -> dict | None:
-    if _job_repo is not None:
-        return _job_repo.find(job_id)
-    return _job_cache.get(job_id)
-
-
-async def _set_job(job_id: str, status: str, appid: int) -> None:
-    if _job_repo is not None:
-        _job_repo.upsert(job_id, status, appid)
-        return
-    _job_cache[job_id] = {"job_id": job_id, "status": status, "appid": appid}
+try:
+    _db_conn = get_conn()
+    _game_repo = GameRepository(_db_conn)
+    _report_repo = ReportRepository(_db_conn)
+    _job_repo = JobRepository(_db_conn)
+except Exception:
+    pass  # DB unavailable — Lambda fails on first DB-dependent request; /health still works
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +78,25 @@ def _require_admin(x_admin_key: str | None) -> None:
     expected = os.getenv("ADMIN_KEY", "")
     if not expected or x_admin_key != expected:
         raise HTTPException(status_code=403, detail={"error": "forbidden", "code": "invalid_admin_key"})
+
+
+async def _get_report(appid: int) -> dict | None:
+    result = _report_repo.find_by_appid(appid)
+    return result.report_json if result else None
+
+
+async def _upsert_report(appid: int, report: dict) -> None:
+    name = report.get("game_name", f"App {appid}")
+    _game_repo.ensure_stub(appid, name)
+    _report_repo.upsert({**report, "appid": appid})
+
+
+async def _get_job(job_id: str) -> dict | None:
+    return _job_repo.find(job_id)
+
+
+async def _set_job(job_id: str, status: str, appid: int) -> None:
+    _job_repo.upsert(job_id, status, appid)
 
 
 async def _trigger_analysis(appid: int, game_name: str) -> str:
@@ -221,10 +194,10 @@ async def health() -> dict:
 async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
 
-    # Cache hit — return immediately
+    # Cache hit — return full report (no more rate limiting)
     cached = await _get_report(appid)
     if cached:
-        return _preview_fields(cached)
+        return cached
 
     # Fetch game details to get name
     try:
@@ -246,7 +219,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     # If inline run completed, report is already stored
     report = await _get_report(appid)
     if report:
-        return _preview_fields(report)
+        return report
 
     # Step Functions path — return 202 for polling
     return JSONResponse(
@@ -351,37 +324,61 @@ async def trigger_analyze(
 
 @app.get("/api/games")
 async def list_games(
+    q: str | None = None,
     genre: str | None = None,
     tag: str | None = None,
     developer: str | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    min_reviews: int | None = None,
+    has_analysis: bool | None = None,
+    sentiment: str | None = None,
+    price_tier: str | None = None,
     sort: str = "review_count",
-    limit: int = 48,
+    limit: int = 24,
     offset: int = 0,
-) -> list[dict]:
-    if _game_repo is None:
-        return []
-    limit = min(limit, 200)
+) -> dict:
+    limit = min(limit, 100)
     return _game_repo.list_games(
+        q=q,
         genre=genre,
         tag=tag,
         developer=developer,
+        year_from=year_from,
+        year_to=year_to,
+        min_reviews=min_reviews,
+        has_analysis=has_analysis if has_analysis else None,
+        sentiment=sentiment if sentiment else None,
+        price_tier=price_tier if price_tier else None,
         sort=sort,
         limit=limit,
         offset=offset,
     )
 
 
+@app.get("/api/games/{appid}/report")
+async def get_game_report(appid: int) -> dict:
+    """Return the full report JSON if it exists, or a status object."""
+    report = await _get_report(appid)
+    if report:
+        return {"status": "available", "report": report}
+
+    # No report — return review count for threshold display
+    review_count = _game_repo.get_review_count(appid)
+    return {
+        "status": "not_available",
+        "review_count": review_count,
+        "threshold": 500,
+    }
+
+
 @app.get("/api/genres")
 async def list_genres() -> list[dict]:
-    if _game_repo is None:
-        return []
     return _game_repo.list_genres()
 
 
 @app.get("/api/tags/top")
 async def list_top_tags(limit: int = 24) -> list[dict]:
-    if _game_repo is None:
-        return []
     limit = min(limit, 100)
     return _game_repo.list_tags(limit=limit)
 
@@ -393,16 +390,12 @@ async def chat(body: ChatRequest) -> dict:
 
     from .chat import answer_query
 
-    # Build a thin storage-like object for the chat query
+    # Thin storage adapter — uses the module-level DB connection
     class _ChatStorage:
         def query_catalog(self, sql: str, params: tuple = ()) -> list:
-            conn = _get_db_conn()
-            if not conn:
-                return []
-            with conn.cursor() as cur:
+            with _db_conn.cursor() as cur:  # type: ignore[union-attr]
                 cur.execute(sql, params)
                 rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
             return rows
 
     try:

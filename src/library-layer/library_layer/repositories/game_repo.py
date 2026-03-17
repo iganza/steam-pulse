@@ -149,31 +149,45 @@ class GameRepository(BaseRepository):
 
     def list_games(
         self,
+        q: str | None = None,
         genre: str | None = None,
         tag: str | None = None,
         developer: str | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
         min_reviews: int | None = None,
-        search: str | None = None,
+        has_analysis: bool | None = None,
+        sentiment: str | None = None,
+        price_tier: str | None = None,
         sort: str = "review_count",
-        limit: int = 48,
+        limit: int = 24,
         offset: int = 0,
-    ) -> list[dict]:
+        # Legacy compat
+        search: str | None = None,
+    ) -> dict:
         """Parameterised query with optional WHERE clauses.
 
-        Returns rows with: appid, name, slug, developer, header_image,
-        review_count, positive_pct, price_usd, is_free, release_date,
-        hidden_gem_score, sentiment_score.
-        ORDER BY is controlled by *sort* (``review_count`` | ``hidden_gem_score``
-        | ``positive_pct``).
+        Returns dict with 'total' count and 'games' list.
         """
         _sort_cols = {
-            "review_count":    "g.review_count DESC NULLS LAST",
+            "review_count":     "g.review_count DESC NULLS LAST",
             "hidden_gem_score": "r.report_json->>'hidden_gem_score' DESC NULLS LAST",
-            "positive_pct":    "g.positive_pct DESC NULLS LAST",
+            "sentiment_score":  "r.report_json->>'sentiment_score' DESC NULLS LAST",
+            "positive_pct":     "g.positive_pct DESC NULLS LAST",
+            "release_date":     "g.release_date DESC NULLS LAST",
+            "last_analyzed":    "r.last_analyzed DESC NULLS LAST",
+            "name":             "g.name ASC",
         }
         order = _sort_cols.get(sort, _sort_cols["review_count"])
         conditions: list[str] = ["1=1"]
         params: list = []
+
+        # Text search — try pg_trgm, fall back to ILIKE
+        search_term = q or search
+        if search_term:
+            conditions.append("g.name ILIKE %s")
+            params.append(f"%{search_term}%")
+
         if genre:
             conditions.append(
                 "EXISTS (SELECT 1 FROM game_genres gg JOIN genres gn ON gg.genre_id=gn.id "
@@ -189,13 +203,50 @@ class GameRepository(BaseRepository):
         if developer:
             conditions.append("g.developer ILIKE %s")
             params.append(f"%{developer}%")
+        if year_from is not None:
+            conditions.append("EXTRACT(YEAR FROM g.release_date) >= %s")
+            params.append(year_from)
+        if year_to is not None:
+            conditions.append("EXTRACT(YEAR FROM g.release_date) <= %s")
+            params.append(year_to)
         if min_reviews is not None:
             conditions.append("g.review_count >= %s")
             params.append(min_reviews)
-        if search:
-            conditions.append("g.name ILIKE %s")
-            params.append(f"%{search}%")
+        if has_analysis:
+            conditions.append("r.appid IS NOT NULL")
+        if sentiment:
+            if sentiment == "positive":
+                conditions.append("(r.report_json->>'sentiment_score')::float >= 0.65")
+            elif sentiment == "mixed":
+                conditions.append(
+                    "(r.report_json->>'sentiment_score')::float >= 0.45 "
+                    "AND (r.report_json->>'sentiment_score')::float < 0.65"
+                )
+            elif sentiment == "negative":
+                conditions.append("(r.report_json->>'sentiment_score')::float < 0.45")
+        if price_tier:
+            if price_tier == "free":
+                conditions.append("g.is_free = TRUE")
+            elif price_tier == "under_10":
+                conditions.append("g.price_usd < 10 AND (g.is_free IS NULL OR g.is_free = FALSE)")
+            elif price_tier == "10_to_20":
+                conditions.append("g.price_usd >= 10 AND g.price_usd <= 20")
+            elif price_tier == "over_20":
+                conditions.append("g.price_usd > 20")
+
         where = " AND ".join(conditions)
+
+        # Count query
+        count_sql = f"""
+            SELECT COUNT(*) AS cnt
+            FROM games g
+            LEFT JOIN reports r ON r.appid = g.appid
+            WHERE {where}
+        """
+        count_row = self._fetchone(count_sql, tuple(params))
+        total = int(count_row["cnt"]) if count_row else 0
+
+        # Data query
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
                    g.review_count, g.positive_pct, g.price_usd, g.is_free,
@@ -208,15 +259,15 @@ class GameRepository(BaseRepository):
             ORDER BY {order}
             LIMIT %s OFFSET %s
         """
-        params += [limit, offset]
-        rows = self._fetchall(sql, tuple(params))
+        data_params = list(params) + [limit, offset]
+        rows = self._fetchall(sql, tuple(data_params))
         result = []
         for row in rows:
             d = dict(row)
             if d.get("release_date"):
                 d["release_date"] = str(d["release_date"])
             result.append(d)
-        return result
+        return {"total": total, "games": result}
 
     def list_genres(self) -> list[dict]:
         """Return genres with game counts, ordered by game_count DESC."""

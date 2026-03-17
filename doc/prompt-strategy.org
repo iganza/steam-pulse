@@ -167,11 +167,11 @@ You will not be able to attribute the change to the right prompt.
 
 * Three Map-Reduce Strategies (Reference)
 
-| Strategy   | Mechanism                                    | Our use |
-|------------+----------------------------------------------+---------|
-| Map-Reduce | Chunk → summarize each → synthesize          | ✅ Yes  |
-| Refine     | Sequential: each chunk refines previous answer | ✗ No parallelism |
-| Stuff      | Dump everything into one prompt              | ✗ Hits context limits |
+| Strategy   | Mechanism                                      | Our use               |
+|------------+------------------------------------------------+-----------------------|
+| Map-Reduce | Chunk → summarize each → synthesize            | ✅ Yes                |
+| Refine     | Sequential: each chunk refines previous answer | ✗ No parallelism      |
+| Stuff      | Dump everything into one prompt                | ✗ Hits context limits |
 
 Map-reduce is correct for SteamPulse because Pass 1 chunks are *independent* — they can
 run in parallel (or via Bedrock Batch Inference), and Pass 2 only processes condensed

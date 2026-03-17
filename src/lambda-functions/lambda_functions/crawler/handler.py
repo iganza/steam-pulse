@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import Any
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -23,7 +22,7 @@ from aws_lambda_powertools.utilities.batch import (
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from pydantic import TypeAdapter, ValidationError
 
-from ._db import get_conn
+from library_layer.utils.db import get_conn
 from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
@@ -41,80 +40,64 @@ review_crawl_processor = BatchProcessor(event_type=EventType.SQS)
 _direct_adapter = TypeAdapter(DirectRequest)
 
 # ── Module-level service singletons ─────────────────────────────────────────
-# Built lazily so tests can inject mocks before first use.
+# Eagerly built at cold start. Test environments inject mocks via module attribute
+# assignment before calling the handler (see tests/handlers/test_crawler_handler.py).
 
-_crawl_service: Any = None
-_catalog_service: Any = None
+from library_layer.repositories.catalog_repo import CatalogRepository
+from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
+from library_layer.services.catalog_service import CatalogService
+from library_layer.services.crawl_service import CrawlService
+from library_layer.steam_source import DirectSteamSource
 
+_crawl_service: CrawlService
+_catalog_service: CatalogService
 
-def _get_services() -> tuple[Any, Any]:
-    """Build (and cache) CrawlService + CatalogService on first call."""
-    global _crawl_service, _catalog_service
-    if _crawl_service is not None and _catalog_service is not None:
-        return _crawl_service, _catalog_service
-
-    import boto3
+try:
+    import boto3  # type: ignore[import-untyped]
     import httpx
-    from library_layer.repositories.catalog_repo import CatalogRepository
-    from library_layer.repositories.game_repo import GameRepository
-    from library_layer.repositories.review_repo import ReviewRepository
-    from library_layer.repositories.tag_repo import TagRepository
-    from library_layer.services.catalog_service import CatalogService
-    from library_layer.services.crawl_service import CrawlService
-    from library_layer.steam_source import DirectSteamSource
 
-    conn = get_conn()
-    sqs = boto3.client("sqs")
-    sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
-    sfn = boto3.client("stepfunctions") if sfn_arn else None
-
-    game_repo = GameRepository(conn)
-    review_repo = ReviewRepository(conn)
-    catalog_repo = CatalogRepository(conn)
-    tag_repo = TagRepository(conn)
-
-    http_async = httpx.AsyncClient(timeout=60.0)
-    steam = DirectSteamSource(http_async)
+    _conn = get_conn()
+    _sqs = boto3.client("sqs")
+    _sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
+    _sfn = boto3.client("stepfunctions") if _sfn_arn else None
 
     _crawl_service = CrawlService(
-        game_repo=game_repo,
-        review_repo=review_repo,
-        catalog_repo=catalog_repo,
-        tag_repo=tag_repo,
-        steam=steam,
-        sqs_client=sqs,
+        game_repo=GameRepository(_conn),
+        review_repo=ReviewRepository(_conn),
+        catalog_repo=CatalogRepository(_conn),
+        tag_repo=TagRepository(_conn),
+        steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
+        sqs_client=_sqs,
         review_queue_url=os.getenv("REVIEW_CRAWL_QUEUE_URL", ""),
-        sfn_arn=sfn_arn,
-        sfn_client=sfn,
+        sfn_arn=_sfn_arn,
+        sfn_client=_sfn,
     )
-
-    http_sync = httpx.Client(timeout=30.0)
     _catalog_service = CatalogService(
-        catalog_repo=catalog_repo,
-        http_client=http_sync,
-        sqs_client=sqs,
+        catalog_repo=CatalogRepository(_conn),
+        http_client=httpx.Client(timeout=30.0),
+        sqs_client=_sqs,
         app_crawl_queue_url=os.getenv("APP_CRAWL_QUEUE_URL", ""),
     )
-
-    return _crawl_service, _catalog_service
+except Exception:
+    pass  # DB unavailable — Lambda fails on first invocation; tests inject mocks
 
 
 # ── SQS record handlers ──────────────────────────────────────────────────────
 
 def _app_crawl_record(record: dict) -> None:
-    crawl_svc, _ = _get_services()
     body = json.loads(record["body"])
     appid = int(body["appid"])
-    result = asyncio.run(crawl_svc.crawl_app(appid))
+    result = asyncio.run(_crawl_service.crawl_app(appid))
     if result:
         metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
 
 
 def _review_crawl_record(record: dict) -> None:
-    crawl_svc, _ = _get_services()
     body = json.loads(record["body"])
     appid = int(body["appid"])
-    count = asyncio.run(crawl_svc.crawl_reviews(appid))
+    count = asyncio.run(_crawl_service.crawl_reviews(appid))
     metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=count)
 
 
@@ -123,12 +106,10 @@ def _review_crawl_record(record: dict) -> None:
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
-    crawl_svc, catalog_svc = _get_services()
-
     # 1. EventBridge scheduled trigger
     if event.get("source") == "aws.events":
         logger.info("EventBridge trigger — running catalog refresh")
-        result = catalog_svc.refresh()
+        result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
         return result
 
@@ -142,13 +123,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("Direct invocation: action=%s", event["action"])
         match req:
             case CrawlAppsRequest():
-                ok = asyncio.run(crawl_svc.crawl_app(req.appid))
+                ok = asyncio.run(_crawl_service.crawl_app(req.appid))
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
-                n = asyncio.run(crawl_svc.crawl_reviews(req.appid, max_reviews=req.max_reviews))
+                n = asyncio.run(_crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews))
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
-                return catalog_svc.refresh()
+                return _catalog_service.refresh()
 
     # 3. SQS batch
     if "Records" in event:

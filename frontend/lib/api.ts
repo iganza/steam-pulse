@@ -33,7 +33,7 @@ async function apiFetch<T>(
   return res.json();
 }
 
-/** POST /api/preview — free fields, rate-limited 1/IP */
+/** POST /api/preview — free fields, unconditional */
 export async function getPreview(appid: number): Promise<PreviewResponse> {
   return apiFetch<PreviewResponse>("/api/preview", {
     method: "POST",
@@ -42,14 +42,15 @@ export async function getPreview(appid: number): Promise<PreviewResponse> {
   });
 }
 
-/** POST /api/validate-key — returns full report on valid Lemon Squeezy key */
-export async function validateKey(
-  licenseKey: string,
-  appid: number,
-): Promise<GameReport> {
-  return apiFetch<GameReport>("/api/validate-key", {
-    method: "POST",
-    body: JSON.stringify({ license_key: licenseKey, appid }),
+/** GET /api/games/{appid}/report — full report JSON */
+export async function getGameReport(appid: number): Promise<{
+  status: string;
+  report?: GameReport;
+  review_count?: number;
+  threshold?: number;
+}> {
+  return apiFetch(`/api/games/${appid}/report`, {
+    next: { revalidate: 3600, tags: [`report-${appid}`] },
   });
 }
 
@@ -58,11 +59,6 @@ export async function pollStatus(jobId: string): Promise<JobStatus> {
   return apiFetch<JobStatus>(`/api/status/${jobId}`);
 }
 
-// TODO: waitForReport is not yet called anywhere in the UI.
-// Before wiring it up, fix the status string mismatch:
-// - Backend returns "running" / "complete" / "failed"
-// - This function checks for "SUCCEEDED" / "FAILED" / "TIMED_OUT" (never matches)
-// Fix: change the checks below to match backend strings, or update the backend to match.
 /** Poll until SUCCEEDED or FAILED, with timeout */
 export async function waitForReport(
   jobId: string,
@@ -85,24 +81,44 @@ export async function waitForReport(
   throw new Error("Analysis timed out");
 }
 
-/** GET /api/games — listing with optional filters (used by home/genre/tag pages) */
+/** Response shape from GET /api/games */
+export interface GamesResponse {
+  total: number;
+  games: Game[];
+}
+
+/** GET /api/games — listing with optional filters */
 export async function getGames(params?: {
+  q?: string;
   genre?: string;
   tag?: string;
   developer?: string;
-  sort?: "review_count" | "hidden_gem_score" | "positive_pct";
+  year_from?: number;
+  year_to?: number;
+  min_reviews?: number;
+  has_analysis?: boolean;
+  sentiment?: string;
+  price_tier?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
-}): Promise<Game[]> {
+}): Promise<GamesResponse> {
   const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
   if (params?.genre) qs.set("genre", params.genre);
   if (params?.tag) qs.set("tag", params.tag);
   if (params?.developer) qs.set("developer", params.developer);
+  if (params?.year_from) qs.set("year_from", String(params.year_from));
+  if (params?.year_to) qs.set("year_to", String(params.year_to));
+  if (params?.min_reviews) qs.set("min_reviews", String(params.min_reviews));
+  if (params?.has_analysis !== undefined) qs.set("has_analysis", String(params.has_analysis));
+  if (params?.sentiment) qs.set("sentiment", params.sentiment);
+  if (params?.price_tier) qs.set("price_tier", params.price_tier);
   if (params?.sort) qs.set("sort", params.sort);
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString() ? `?${qs.toString()}` : "";
-  return apiFetch<Game[]>(`/api/games${query}`, {
+  return apiFetch<GamesResponse>(`/api/games${query}`, {
     next: { revalidate: 3600 },
   });
 }

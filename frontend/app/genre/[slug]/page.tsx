@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import Image from "next/image";
-import { notFound } from "next/navigation";
-import { getGames } from "@/lib/api";
-import type { Game } from "@/lib/types";
+import { Suspense } from "react";
+import { getGames, getGenres } from "@/lib/api";
+import { GameCard } from "@/components/game/GameCard";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import { SearchClient } from "@/app/search/SearchClient";
+import type { Game, Genre } from "@/lib/types";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -14,84 +15,72 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   return {
     title: `${name} Games`,
-    description: `AI-analyzed ${name} games on Steam — sentiment, player insights, and hidden gems.`,
+    description: `Browse ${name} games on Steam with AI-analyzed player sentiment, hidden gems, and review intelligence.`,
   };
-}
-
-function GameRow({ game }: { game: Game }) {
-  const score = game.sentiment_score ?? game.positive_pct;
-  const scoreColor =
-    (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
-
-  return (
-    <Link
-      href={`/games/${game.appid}/${game.slug}`}
-      className="group flex items-center gap-4 p-4 rounded-xl transition-all hover:scale-[1.01]"
-      style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-    >
-      {game.header_image && (
-        <div className="relative w-24 h-11 rounded overflow-hidden flex-shrink-0">
-          <Image src={game.header_image} alt={game.name} fill className="object-cover" />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="font-serif text-sm font-semibold text-foreground group-hover:text-teal-300 transition-colors truncate">
-          {game.name}
-        </p>
-        {game.developer && (
-          <p className="text-[11px] text-muted-foreground font-mono truncate">{game.developer}</p>
-        )}
-      </div>
-      {score != null && (
-        <span className="font-mono text-sm tabular-nums flex-shrink-0" style={{ color: scoreColor }}>
-          {score}
-        </span>
-      )}
-    </Link>
-  );
 }
 
 export default async function GenrePage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  let games: Game[] = [];
-  try {
-    games = await getGames({ genre: slug, sort: "review_count", limit: 50 });
-  } catch {
-    notFound();
-  }
+  // Fetch genre info and top picks in parallel
+  const [genresResult, topPicksResult] = await Promise.allSettled([
+    getGenres(),
+    getGames({ genre: slug, sort: "sentiment_score", min_reviews: 200, limit: 3 }),
+  ]);
+
+  const genres = genresResult.status === "fulfilled" ? genresResult.value : [];
+  const genreInfo = genres.find((g: Genre) => g.slug === slug);
+  const topPicks: Game[] =
+    topPicksResult.status === "fulfilled" ? topPicksResult.value.games ?? [] : [];
 
   return (
-    <div className="min-h-screen bg-background max-w-3xl mx-auto px-6 py-16">
-      <Link
-        href="/"
-        className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors uppercase tracking-widest mb-8 inline-block"
-      >
-        ← Home
-      </Link>
-      <h1
-        className="font-serif text-4xl font-bold mb-2"
-        style={{ letterSpacing: "-0.03em" }}
-      >
-        {name}
-      </h1>
-      <p className="text-sm text-muted-foreground font-mono mb-10">
-        {games.length} games analyzed
-      </p>
-      <div className="space-y-3">
-        {games.map((game) => (
-          <GameRow key={game.appid} game={game} />
-        ))}
-        {games.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-12">
-            No games found for this genre yet.
+    <div className="min-h-screen bg-background">
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Browse", href: "/search" },
+            { label: name },
+          ]}
+        />
+
+        <div className="mt-6 mb-10">
+          <h1
+            className="font-serif text-4xl font-bold mb-2"
+            style={{ letterSpacing: "-0.03em" }}
+          >
+            {name}
+          </h1>
+          <p className="text-sm text-muted-foreground font-mono">
+            {genreInfo?.game_count?.toLocaleString() ?? "?"} games
+            {genreInfo?.analyzed_count != null && ` \u00b7 ${genreInfo.analyzed_count.toLocaleString()} analyzed`}
           </p>
+        </div>
+
+        {/* Top Picks */}
+        {topPicks.length > 0 && (
+          <section className="mb-12">
+            <h2 className="font-serif text-lg font-semibold mb-4">Top Picks</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {topPicks.map((game) => (
+                <GameCard key={game.appid} game={game} />
+              ))}
+            </div>
+          </section>
         )}
+
+        {/* Full catalog with filters */}
+        <Suspense fallback={<p className="text-sm text-muted-foreground font-mono py-8">Loading...</p>}>
+          <SearchClient
+            initialParams={{}}
+            initialFilters={{ genre: slug }}
+            hideGenreFilter
+          />
+        </Suspense>
       </div>
     </div>
   );
 }
 
-// ISR daily
-export const revalidate = 86400;
+export const revalidate = 3600;

@@ -15,9 +15,7 @@ Secrets (DB password, Steam API key) never appear in env files —
 they live in Secrets Manager and are fetched at runtime.
 """
 
-from __future__ import annotations
-
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -63,7 +61,7 @@ class SteamPulseConfig(BaseSettings):
         return self.ENVIRONMENT == "production"
 
     @classmethod
-    def for_environment(cls, environment: str) -> SteamPulseConfig:
+    def for_environment(cls, environment: str) -> Self:
         """Load config from .env.{environment} — used by CDK at synth time."""
         return cls(_env_file=f".env.{environment}")
 

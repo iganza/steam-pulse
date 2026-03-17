@@ -87,7 +87,14 @@ Horizontal scrollable tag cloud. Clicking navigates to `/tag/{slug}`.
 This is the primary browse/search interface. It must handle ~100k records efficiently via server-side pagination.
 
 ### Layout
-Two-column layout: **filter sidebar (left, ~280px)** + **results area (right)**. On mobile, filters collapse to a top filter bar.
+Two-column layout: **filter sidebar (left, ~280px)** + **results area (right)**. On mobile, the sidebar is hidden and replaced by a sticky "Filters" button that opens a **bottom sheet/drawer** (full height, slide up from bottom). This is the mobile-native pattern — not a top filter bar, which is too cramped for multi-select facets.
+
+### Active Filter Chips
+Directly above the results area (below the sort bar), show removable chips for every active filter:
+```
+Genre: Action ×    Tag: Roguelike ×    Sentiment: Positive ×    [Clear all filters]
+```
+Each chip can be clicked to remove that filter. "Clear all filters" resets all filters at once. When no filters are active, this row is hidden. This is a required UX feature — it is now standard expectation on any faceted browse interface (Airbnb, Amazon, Steam all use this pattern).
 
 ### Filter Sidebar
 All filters are reflected in the URL query string so searches are shareable and bookmarkable.
@@ -129,7 +136,13 @@ All column headers are clickable to sort. Active sort column shows direction arr
 - Recently Analyzed
 - Alphabetical A–Z
 
-**Pagination:** Page number navigation (not infinite scroll) — important for SEO and navigating large result sets. Show: `← Prev | 1 2 3 … 142 | Next →`. Show result count: `Showing 25–48 of 2,341 games`.
+**View preference** (grid vs list) is saved to `localStorage` and restored on next visit. URL param `?view=grid|list` takes precedence over saved preference.
+
+**Empty state:** When no results match, show: `"No games match your filters."` with a "Clear filters" button. Do not show a blank page.
+
+**Pagination:** Page number navigation — **not infinite scroll**. NNGroup research confirms infinite scroll is harmful for catalog browsing: it breaks pogo-sticking (users click a game, hit back, and lose their place), has poor SEO, and is inaccessible. Use numbered pages: `← Prev | 1 2 3 … 142 | Next →`. Also offer a "Results per page" control (24 / 48 / 96). Show result count: `Showing 25–48 of 2,341 games`.
+
+The curated **discovery rows** on the home page (horizontal scroll) may use a "Load more" button if 8 cards aren't enough, but the `/search` browse page must use page-number pagination.
 
 ### URL pattern
 `/search?q=hollow+knight&genre=action&tag=roguelike&sort=review_count&view=list&page=2`
@@ -198,7 +211,8 @@ All sections visible, no blur, no lock. Full report:
 10. Churn Triggers
 11. Developer Priorities
 12. Competitive Context
-13. **Related Games** — two rows:
+13. **Tags** — clickable chips linking to `/tag/{slug}` for lateral navigation
+14. **Related Games** — two rows:
     - "More in [Primary Genre]" — 6 games from the same genre, sorted by sentiment
     - "You might also like" — 6 games sharing the most tags with this game
 
@@ -242,6 +256,8 @@ Three curated sections (ISR, 1-hour revalidation):
 ## Part 11: Backend Changes
 
 ### `GET /api/games` — expand filter/sort support
+
+The text search param `q` must use **trigram similarity** (`pg_trgm` extension in PostgreSQL) for fuzzy matching. Game names are frequently misspelled (e.g. "Helldiver" instead of "Helldivers 2"). Enable `pg_trgm`, create a `GIN` index on `games.name`, and use `similarity()` or `word_similarity()` for the `q` param. Fall back to `ILIKE %q%` only if `pg_trgm` is not available.
 
 Must support all of the following query params. All are optional and combinable:
 
@@ -295,7 +311,58 @@ Game report pages, genre pages, and tag pages must be server-rendered (SSR or IS
 - Open Graph tags with header image
 - Genre and tag pages: ISR at 1-hour revalidation
 - Game report pages: ISR at 24-hour revalidation
-- Structured data (JSON-LD): `VideoGame` schema on game pages with `aggregateRating`
+
+### Structured Data (JSON-LD)
+
+Add `schema.org/VideoGame` structured data to every game page. This is a valid schema.org type that Google recognizes. Key fields to populate:
+
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "Half-Life 2",
+  "description": "Steam store description text",
+  "image": "https://cdn.cloudflare.steamstatic.com/steam/apps/220/header.jpg",
+  "gamePlatform": "PC",
+  "applicationCategory": "Game",
+  "genre": ["Action", "Shooter"],
+  "datePublished": "2004-11-16",
+  "operatingSystem": "Windows",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "8.7",
+    "bestRating": "10",
+    "worstRating": "0",
+    "ratingCount": "142389"
+  }
+}
+```
+
+Map the SteamPulse `sentiment_score` (0.0–1.0) to `ratingValue` on a 0–10 scale (`sentiment_score * 10`). Use `review_count` as `ratingCount`. The `aggregateRating` enables Google rich snippets showing star ratings in search results — this is significant organic CTR uplift.
+
+### Sitemap
+
+Generate a `sitemap.xml` (or multiple indexed sitemaps for 100k+ URLs). In Next.js App Router, implement `app/sitemap.ts` to generate sitemaps. For 100k game pages + genre/tag pages, split into multiple sitemaps (Google allows 50k URLs per sitemap file):
+- `/sitemap-games-0.xml`, `/sitemap-games-1.xml`, etc.
+- `/sitemap-genres.xml`
+- `/sitemap-tags.xml`
+- `/sitemap.xml` (index file pointing to all sub-sitemaps)
+
+### robots.txt
+
+Implement `app/robots.ts`:
+- Allow all crawlers
+- Disallow `/api/*` (no need to crawl API endpoints)
+- Point to sitemap: `Sitemap: https://steampulse.io/sitemap.xml`
+
+### Image Performance (Core Web Vitals)
+
+With 100k game pages, image performance is critical. LCP (Largest Contentful Paint) must be under 2.5s:
+- Use Next.js `<Image>` component for all game header images — never raw `<img>` tags
+- Add `priority` prop to the hero image on game report pages (above the fold)
+- Add `sizes` attribute appropriate to the layout (e.g., `sizes="(max-width: 768px) 100vw, 800px"`)
+- Use `placeholder="blur"` with a `blurDataURL` to prevent layout shift (CLS)
+- For `GameCard` thumbnails in grid listings, do NOT use `priority` — only the hero image on detail pages needs it
 
 ---
 
@@ -325,4 +392,13 @@ Game report pages, genre pages, and tag pages must be server-rendered (SSR or IS
 - [ ] `GET /api/games` supports all listed filter/sort params, returns `total`
 - [ ] `GET /api/games/{appid}/report` endpoint added
 - [ ] `POST /api/preview` returns full report, no rate limiter
-- [ ] All pages have correct `<title>`, `<meta description>`, and Open Graph tags
+- [ ] Active filter chips with individual remove + "Clear all" above results
+- [ ] Empty state ("No games match your filters") on search page
+- [ ] View preference (grid/list) saved to `localStorage`
+- [ ] Mobile: filter sidebar becomes a bottom sheet/drawer (not a top bar)
+- [ ] `schema.org/VideoGame` JSON-LD with `aggregateRating` on all game pages
+- [ ] `sitemap.ts` generating paginated sitemaps for all 100k games + genre/tag pages
+- [ ] `robots.ts` allowing crawlers, disallowing `/api/*`, pointing to sitemap
+- [ ] All game images use Next.js `<Image>` with `priority` on hero, `placeholder="blur"` on cards
+- [ ] Game report page: tag chips are clickable and link to `/tag/{slug}`
+- [ ] `GET /api/games` uses `pg_trgm` fuzzy search for the `q` param

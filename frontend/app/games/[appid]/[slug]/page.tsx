@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGameReport, getPreview } from "@/lib/api";
+import { getGameReport } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { GameReportClient } from "./GameReportClient";
 
@@ -27,28 +27,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         },
       };
     }
+    // No report — use game metadata from the same response
+    if (reportData.game) {
+      const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      const desc = reportData.game.short_desc ?? `Steam game — ${name}`;
+      return {
+        title: `${name} — SteamPulse`,
+        description: desc,
+        openGraph: {
+          title: `${name} — SteamPulse`,
+          description: desc,
+          images: [{ url: headerImage }],
+        },
+      };
+    }
   } catch {
     // fall through
   }
 
-  try {
-    const preview = await getPreview(numericAppid);
-    return {
-      title: `${preview.game_name} Reviews & Analysis`,
-      description: preview.one_liner || `Steam game analysis for ${preview.game_name}`,
-      openGraph: {
-        title: `${preview.game_name} Reviews & Analysis — SteamPulse`,
-        description: preview.one_liner,
-        images: [{ url: headerImage }],
-      },
-    };
-  } catch {
-    const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    return {
-      title: `${name} Reviews & Analysis`,
-      description: `Steam game analysis for ${name}`,
-    };
-  }
+  const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return {
+    title: `${name} — SteamPulse`,
+    description: `Steam game — ${name}`,
+  };
 }
 
 export default async function GameReportPage({ params }: Props) {
@@ -59,7 +60,6 @@ export default async function GameReportPage({ params }: Props) {
 
   const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
 
-  // Try to get full report first
   let report = null;
   let gameData: {
     gameName?: string;
@@ -90,26 +90,8 @@ export default async function GameReportPage({ params }: Props) {
       if (g.is_free != null) gameData.isFree = g.is_free;
     }
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      // No report, try preview
-    } else if (err instanceof ApiError) {
-      // API error, continue with fallback
-    } else {
-      throw err;
-    }
-  }
-
-  // Fallback to preview if no report
-  if (!report) {
-    try {
-      const preview = await getPreview(numericAppid);
-      if (preview) {
-        gameData.gameName = preview.game_name;
-      }
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) notFound();
-      if (!(err instanceof ApiError)) throw err;
-    }
+    if (err instanceof ApiError && err.status === 404) notFound();
+    if (!(err instanceof ApiError)) throw err;
   }
 
   // Build JSON-LD structured data

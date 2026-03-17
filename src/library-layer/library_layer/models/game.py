@@ -1,9 +1,9 @@
 """Game domain models."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class Game(BaseModel):
@@ -40,6 +40,15 @@ class Game(BaseModel):
     crawled_at: datetime | None = None
     data_source: str = "steam_direct"
 
+    @field_validator("release_date", mode="before")
+    @classmethod
+    def coerce_release_date(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, (date, datetime)):
+            return v.isoformat()
+        return str(v)
+
 
 class GameSummary(BaseModel):
     """Lightweight projection used in list APIs."""
@@ -56,3 +65,12 @@ class GameSummary(BaseModel):
     price_usd: Decimal | None = None
     is_free: bool = False
     release_date: str | None = None
+
+    @field_validator("release_date", mode="before")
+    @classmethod
+    def coerce_release_date(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, (date, datetime)):
+            return v.isoformat()
+        return str(v)

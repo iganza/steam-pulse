@@ -29,11 +29,13 @@ VERSION = "0.1.0"
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 
 _game_repo: GameRepository
 _report_repo: ReportRepository
 _job_repo: JobRepository
+_tag_repo: TagRepository
 _db_conn: object  # psycopg2 connection
 
 try:
@@ -41,6 +43,7 @@ try:
     _game_repo = GameRepository(_db_conn)
     _report_repo = ReportRepository(_db_conn)
     _job_repo = JobRepository(_db_conn)
+    _tag_repo = TagRepository(_db_conn)
 except Exception:
     pass  # DB unavailable — Lambda fails on first DB-dependent request; /health still works
 
@@ -364,12 +367,16 @@ async def get_game_report(appid: int) -> dict:
     game = _game_repo.find_by_appid(appid)
     game_meta: dict = {}
     if game:
+        genres = [g["name"] for g in _tag_repo.find_genres_for_game(appid)]
+        tags = [t["name"] for t in _tag_repo.find_tags_for_game(appid)]
         game_meta = {
             "short_desc": game.short_desc,
             "developer": game.developer,
             "release_date": game.release_date,
             "price_usd": float(game.price_usd) if game.price_usd else None,
             "is_free": game.is_free,
+            "genres": genres,
+            "tags": tags,
         }
 
     report = await _get_report(appid)

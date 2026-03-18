@@ -54,6 +54,8 @@ export async function getGameReport(appid: number): Promise<{
     release_date?: string;
     price_usd?: number | null;
     is_free?: boolean;
+    genres?: string[];
+    tags?: string[];
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {

@@ -88,6 +88,8 @@ export default async function GameReportPage({ params }: Props) {
       if (g.release_date) gameData.releaseDate = g.release_date;
       if (g.price_usd != null) gameData.priceUsd = g.price_usd;
       if (g.is_free != null) gameData.isFree = g.is_free;
+      if (g.genres?.length) gameData.genres = g.genres;
+      if (g.tags?.length) gameData.tags = g.tags;
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();

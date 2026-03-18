@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Search, Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
+import { Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
+import { HeroSearch } from "@/components/layout/HeroSearch";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game } from "@/lib/types";
@@ -66,9 +67,9 @@ export default async function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Search Hero */}
-      <header className="relative overflow-hidden">
+      <header className="relative">
         <div
-          className="absolute inset-0 opacity-30 pointer-events-none"
+          className="absolute inset-0 opacity-30 pointer-events-none overflow-hidden"
           style={{
             background:
               "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(45,185,212,0.15), transparent)",
@@ -81,15 +82,7 @@ export default async function HomePage() {
           >
             Discover Steam Games
           </h1>
-          <form action="/search" className="relative max-w-xl mx-auto">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
-            <input
-              name="q"
-              type="text"
-              placeholder="Search 100,000+ Steam games..."
-              className="w-full pl-12 pr-4 py-4 rounded-xl bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-400/20 transition-all"
-            />
-          </form>
+          <HeroSearch />
         </div>
       </header>
 

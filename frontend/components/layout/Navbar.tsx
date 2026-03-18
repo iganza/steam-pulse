@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, ChevronDown, Gem, TrendingUp, Sparkles, X, Menu } from "lucide-react";
+import { ChevronDown, Gem, TrendingUp, Sparkles, X, Menu } from "lucide-react";
 import type { Genre, Tag } from "@/lib/types";
+import { SearchAutocomplete } from "./SearchAutocomplete";
 
 export function Navbar() {
   const router = useRouter();
@@ -151,16 +152,13 @@ export function Navbar() {
 
         {/* Search bar — desktop */}
         <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-xs ml-auto">
-          <div className="relative w-full">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search games..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 transition-all"
-            />
-          </div>
+          <SearchAutocomplete
+            value={query}
+            onChange={setQuery}
+            onSubmit={handleSearch}
+            className="w-full"
+            inputClassName="w-full pl-8 pr-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 transition-all"
+          />
         </form>
 
         {/* For Developers */}
@@ -188,16 +186,13 @@ export function Navbar() {
           style={{ borderColor: "var(--border)" }}
         >
           <form onSubmit={handleSearch} className="mt-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search games..."
-                className="w-full pl-10 pr-3 py-2.5 rounded-lg bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
-              />
-            </div>
+            <SearchAutocomplete
+              value={query}
+              onChange={setQuery}
+              onSubmit={handleSearch}
+              className="w-full"
+              inputClassName="w-full pl-8 pr-3 py-2.5 rounded-lg bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            />
           </form>
           <div className="space-y-1">
             <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm text-foreground/70 hover:text-foreground">Browse All Games</Link>

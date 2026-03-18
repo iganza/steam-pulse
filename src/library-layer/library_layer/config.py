@@ -47,18 +47,18 @@ class SteamPulseConfig(BaseSettings):
     PRO_ENABLED: bool = False
 
     # ── Infrastructure ARNs / URLs (populated by CDK as Lambda env vars) ──────
-    DB_SECRET_ARN: str = ""
-    SFN_ARN: str = ""
-    APP_CRAWL_QUEUE_URL: str = ""
-    REVIEW_CRAWL_QUEUE_URL: str = ""
-    STEAM_API_KEY_SECRET_ARN: str = ""
-    ASSETS_BUCKET_NAME: str = ""
-    STEP_FUNCTIONS_ARN: str = ""  # alias used by api handler
+    DB_SECRET_ARN: str
+    SFN_ARN: str
+    APP_CRAWL_QUEUE_URL: str
+    REVIEW_CRAWL_QUEUE_URL: str
+    STEAM_API_KEY_SECRET_ARN: str
+    ASSETS_BUCKET_NAME: str
+    STEP_FUNCTIONS_ARN: str
 
-    # ── SNS Domain Topic ARNs (empty default — publish_event raises if empty) ──
-    GAME_EVENTS_TOPIC_ARN: str = ""
-    CONTENT_EVENTS_TOPIC_ARN: str = ""
-    SYSTEM_EVENTS_TOPIC_ARN: str = ""
+    # ── SNS Domain Topic ARNs ─────────────────────────────────────────────────
+    GAME_EVENTS_TOPIC_ARN: str
+    CONTENT_EVENTS_TOPIC_ARN: str
+    SYSTEM_EVENTS_TOPIC_ARN: str
 
     # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 500
@@ -71,7 +71,3 @@ class SteamPulseConfig(BaseSettings):
     def for_environment(cls, environment: str) -> Self:
         """Load config from .env.{environment} — used by CDK at synth time."""
         return cls(_env_file=f".env.{environment}")
-
-
-# Module-level singleton for Lambda use — loaded once per cold start.
-config = SteamPulseConfig()

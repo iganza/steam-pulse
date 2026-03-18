@@ -17,7 +17,19 @@ from stacks.messaging_stack import MessagingStack
 
 def _synth_messaging_stack() -> assertions.Template:
     app = cdk.App()
-    config = SteamPulseConfig(ENVIRONMENT="staging")
+    config = SteamPulseConfig(
+        ENVIRONMENT="staging",
+        DB_SECRET_ARN="arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
+        SFN_ARN="arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+        APP_CRAWL_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
+        REVIEW_CRAWL_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
+        STEAM_API_KEY_SECRET_ARN="arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
+        ASSETS_BUCKET_NAME="steampulse-assets-test",
+        STEP_FUNCTIONS_ARN="arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:game-events",
+        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:content-events",
+        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:system-events",
+    )
     stack = MessagingStack(app, "TestMessaging", config=config)
     return assertions.Template.from_stack(stack)
 

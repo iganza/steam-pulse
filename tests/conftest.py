@@ -47,6 +47,28 @@ def _safe_test_db_url() -> str:
 # test database. This must happen before any handler import.
 os.environ.setdefault("DATABASE_URL", _safe_test_db_url())
 
+# Set all required SteamPulseConfig env vars before handler imports trigger
+# module-level SteamPulseConfig() construction.
+_TEST_ENV_DEFAULTS = {
+    "AWS_DEFAULT_REGION": "us-east-1",
+    "AWS_ACCESS_KEY_ID": "testing",
+    "AWS_SECRET_ACCESS_KEY": "testing",
+    "AWS_SECURITY_TOKEN": "testing",
+    "AWS_SESSION_TOKEN": "testing",
+    "GAME_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-game-events",
+    "CONTENT_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-content-events",
+    "SYSTEM_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-system-events",
+    "DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
+    "SFN_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "APP_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
+    "REVIEW_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
+    "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
+    "ASSETS_BUCKET_NAME": "steampulse-assets-test",
+    "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+}
+for _k, _v in _TEST_ENV_DEFAULTS.items():
+    os.environ.setdefault(_k, _v)
+
 
 @pytest.fixture(scope="session")
 def db_conn() -> Generator[Any, None, None]:
@@ -172,21 +194,10 @@ def steam_reviews_440() -> dict:
 
 @pytest.fixture(autouse=True)
 def _set_default_aws_credentials() -> None:
-    """Ensure fake AWS credentials are always set — prevents accidental real calls."""
-    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
-    os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
-    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
-    os.environ.setdefault("AWS_SECURITY_TOKEN", "testing")
-    os.environ.setdefault("AWS_SESSION_TOKEN", "testing")
-    os.environ.setdefault(
-        "GAME_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-game-events"
-    )
-    os.environ.setdefault(
-        "CONTENT_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-content-events"
-    )
-    os.environ.setdefault(
-        "SYSTEM_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-system-events"
-    )
+    """Ensure fake AWS credentials are always set — prevents accidental real calls.
+    Core values are set at module level in conftest for handler import safety;
+    this fixture is retained as a no-op hook in case per-test overrides are needed.
+    """
 
 
 @pytest.fixture(autouse=True)

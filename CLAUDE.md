@@ -277,6 +277,9 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 - **No silent failure on init.** Lambda module-level initialization (DB connections, boto3 clients,
   `SteamPulseConfig()`) must run without `try/except`. If it fails, the cold start crashes — that's
   correct. Never swallow init errors with `except Exception: pass` or fall back to `None`.
+- **No default values for infrastructure config.** All ARNs, URLs, and bucket names in `SteamPulseConfig`
+  are required fields with no defaults. Every Lambda gets every env var set by CDK. If a field is missing,
+  `ValidationError` at cold start is the correct behavior — never use `= ""` or `= None` as a silent fallback.
 - Service constructors: required dependencies (`sns_client`, `config`, repos) are **not optional**.
   Type them as required params, not `| None`. If a caller can't provide them, that's a bug.
 - FastAPI endpoints: raise `HTTPException` with appropriate status codes. Never return error dicts with 200.

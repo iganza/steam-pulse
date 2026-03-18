@@ -1,30 +1,35 @@
-"""Tests for SteamPulseConfig — SNS topic ARN fields (tests 48-49)."""
+"""Tests for SteamPulseConfig."""
+
+import pytest
+from pydantic import ValidationError
 
 from library_layer.config import SteamPulseConfig
 
+_ALL_REQUIRED = {
+    "DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
+    "SFN_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "APP_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
+    "REVIEW_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
+    "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
+    "ASSETS_BUCKET_NAME": "steampulse-assets-test",
+    "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "GAME_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:game-events",
+    "CONTENT_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:content-events",
+    "SYSTEM_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:system-events",
+}
 
-def test_config_has_3_topic_arn_fields() -> None:
-    """SteamPulseConfig accepts GAME/CONTENT/SYSTEM_EVENTS_TOPIC_ARN (test 48)."""
-    config = SteamPulseConfig(
-        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-west-2:123456789012:game-events",
-        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-west-2:123456789012:content-events",
-        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-west-2:123456789012:system-events",
-    )
-    assert config.GAME_EVENTS_TOPIC_ARN == "arn:aws:sns:us-west-2:123456789012:game-events"
-    assert config.CONTENT_EVENTS_TOPIC_ARN == "arn:aws:sns:us-west-2:123456789012:content-events"
-    assert config.SYSTEM_EVENTS_TOPIC_ARN == "arn:aws:sns:us-west-2:123456789012:system-events"
 
-
-def test_config_defaults_empty_topic_arns() -> None:
-    """SteamPulseConfig defaults topic ARNs to empty string (test 49).
-
-    Design decision: topic ARNs use str="" defaults (not truly required)
-    so the module-level singleton doesn't break. publish_event() raises
-    EventPublishError at runtime if an ARN is empty.
-    """
-    config = SteamPulseConfig()
-    # Empty defaults — publish_event will raise at runtime, not at config init
-    assert config.GAME_EVENTS_TOPIC_ARN == "" or isinstance(config.GAME_EVENTS_TOPIC_ARN, str)
-    assert config.CONTENT_EVENTS_TOPIC_ARN == "" or isinstance(config.CONTENT_EVENTS_TOPIC_ARN, str)
-    assert config.SYSTEM_EVENTS_TOPIC_ARN == "" or isinstance(config.SYSTEM_EVENTS_TOPIC_ARN, str)
+def test_config_accepts_all_required_fields() -> None:
+    """SteamPulseConfig constructs successfully when all required fields are present."""
+    config = SteamPulseConfig(**_ALL_REQUIRED)
+    assert config.GAME_EVENTS_TOPIC_ARN == "arn:aws:sns:us-east-1:123456789012:game-events"
+    assert config.CONTENT_EVENTS_TOPIC_ARN == "arn:aws:sns:us-east-1:123456789012:content-events"
+    assert config.SYSTEM_EVENTS_TOPIC_ARN == "arn:aws:sns:us-east-1:123456789012:system-events"
     assert config.REVIEW_ELIGIBILITY_THRESHOLD == 500
+
+
+def test_config_raises_when_required_field_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SteamPulseConfig raises ValidationError if any required ARN is missing."""
+    monkeypatch.delenv("DB_SECRET_ARN", raising=False)
+    with pytest.raises(ValidationError):
+        SteamPulseConfig(**{k: v for k, v in _ALL_REQUIRED.items() if k != "DB_SECRET_ARN"})

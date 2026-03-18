@@ -64,12 +64,21 @@ def _mock_sns() -> MagicMock:
     return sns
 
 
+_REQUIRED_ARN_FIELDS: dict = {
+    "DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
+    "SFN_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "APP_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
+    "REVIEW_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
+    "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
+    "ASSETS_BUCKET_NAME": "steampulse-assets-test",
+    "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "GAME_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:game-events",
+    "CONTENT_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:content-events",
+    "SYSTEM_EVENTS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:system-events",
+}
+
 def _test_config() -> SteamPulseConfig:
-    return SteamPulseConfig(
-        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:game-events",
-        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:content-events",
-        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:system-events",
-    )
+    return SteamPulseConfig(**_REQUIRED_ARN_FIELDS)
 
 
 def _make_service(

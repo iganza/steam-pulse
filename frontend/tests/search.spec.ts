@@ -24,8 +24,9 @@ test.describe('Search page', () => {
   test('searching by text updates URL', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Sidebar search input is desktop-only (hidden md:block)')
     // Use the sidebar search input (placeholder "Game name...")
-    await page.getByPlaceholder('Game name...').fill('hollow knight')
-    await page.keyboard.press('Enter')
+    const input = page.getByPlaceholder('Game name...')
+    await input.fill('hollow knight')
+    await input.press('Enter')
     await expect(page).toHaveURL(/q=hollow/)
   })
 

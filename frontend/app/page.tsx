@@ -1,9 +1,31 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
 import { HeroSearch } from "@/components/layout/HeroSearch";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game } from "@/lib/types";
+
+export const metadata: Metadata = {
+  title: "SteamPulse: Steam Game Intelligence",
+  description:
+    "Deep review intelligence for 6,000+ Steam games. Discover what players love, hate, and want next.",
+  openGraph: {
+    title: "SteamPulse: Steam Game Intelligence",
+    description: "Deep review intelligence for 6,000+ Steam games.",
+    url: "https://steampulse.io",
+    images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SteamPulse: Steam Game Intelligence",
+    description: "Deep review intelligence for 6,000+ Steam games.",
+    images: ["/og-default.png"],
+  },
+  alternates: {
+    canonical: "https://steampulse.io",
+  },
+};
 
 export default async function HomePage() {
   const [popular, topRated, hiddenGems, newReleases, justAnalyzed, genres, tags] =

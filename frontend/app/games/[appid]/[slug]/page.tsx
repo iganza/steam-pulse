@@ -12,6 +12,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { appid, slug } = await params;
   const numericAppid = Number(appid);
   const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
+  const canonicalUrl = `https://steampulse.io/games/${appid}/${slug}`;
 
   try {
     const reportData = await getGameReport(numericAppid);
@@ -24,7 +25,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
           title: `${report.game_name} Reviews & Analysis — SteamPulse`,
           description: report.one_liner,
           images: [{ url: headerImage }],
+          url: canonicalUrl,
+          type: "article",
         },
+        twitter: {
+          card: "summary_large_image",
+          title: `${report.game_name} Reviews & Analysis — SteamPulse`,
+          description: report.one_liner,
+          images: [headerImage],
+        },
+        alternates: { canonical: canonicalUrl },
       };
     }
     // No report — use game metadata from the same response
@@ -38,7 +48,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
           title: `${name} — SteamPulse`,
           description: desc,
           images: [{ url: headerImage }],
+          url: canonicalUrl,
+          type: "article",
         },
+        twitter: {
+          card: "summary_large_image",
+          title: `${name} — SteamPulse`,
+          description: desc,
+          images: [headerImage],
+        },
+        alternates: { canonical: canonicalUrl },
       };
     }
   } catch {
@@ -49,11 +68,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${name} — SteamPulse`,
     description: `Steam game — ${name}`,
+    alternates: { canonical: canonicalUrl },
   };
 }
 
 export default async function GameReportPage({ params }: Props) {
-  const { appid } = await params;
+  const { appid, slug } = await params;
   const numericAppid = Number(appid);
 
   if (!numericAppid || isNaN(numericAppid)) notFound();
@@ -97,16 +117,26 @@ export default async function GameReportPage({ params }: Props) {
   }
 
   // Build JSON-LD structured data
+  const canonicalUrl = `https://steampulse.io/games/${appid}/${slug}`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "VideoGame",
     "name": report?.game_name ?? gameData.gameName ?? "Unknown Game",
     "image": headerImage,
+    "url": canonicalUrl,
     "gamePlatform": "PC",
     "applicationCategory": "Game",
     ...(gameData.genres?.length ? { "genre": gameData.genres } : {}),
     ...(gameData.releaseDate ? { "datePublished": gameData.releaseDate } : {}),
     "operatingSystem": "Windows",
+    ...(report?.one_liner
+      ? { "description": report.one_liner }
+      : gameData.shortDesc
+        ? { "description": gameData.shortDesc }
+        : {}),
+    ...(gameData.reviewCount != null
+      ? { "numberOfPlayers": { "@type": "QuantitativeValue", "value": gameData.reviewCount } }
+      : {}),
     ...(report ? {
       "aggregateRating": {
         "@type": "AggregateRating",

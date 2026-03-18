@@ -4,6 +4,18 @@ import { BarChart3, Swords, TrendingUp, Mail } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pro \u2014 For Developers",
   description: "SteamPulse Pro: genre intelligence, developer analytics, and trend analysis for game developers.",
+  openGraph: {
+    title: "SteamPulse Pro — Game Intelligence for Developers",
+    description: "Genre intelligence, developer analytics, and trend analysis for indie game developers.",
+    url: "https://steampulse.io/pro",
+    images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SteamPulse Pro — Game Intelligence for Developers",
+    description: "Genre intelligence, developer analytics, and trend analysis for indie game developers.",
+  },
+  alternates: { canonical: "https://steampulse.io/pro" },
 };
 
 const features = [

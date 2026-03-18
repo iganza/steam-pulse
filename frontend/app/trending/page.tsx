@@ -7,7 +7,19 @@ import type { Game } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Trending",
-  description: "Trending Steam games \u2014 most reviewed, top rated, and hidden gems with AI-powered analysis.",
+  description: "Trending Steam games \u2014 most reviewed, top rated, and hidden gems with in-depth analysis.",
+  openGraph: {
+    title: "Trending Steam Games — SteamPulse",
+    description: "Most reviewed, top rated, and hidden gems with in-depth analysis.",
+    url: "https://steampulse.io/trending",
+    images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Trending Steam Games — SteamPulse",
+    description: "Most reviewed, top rated, and hidden gems with in-depth analysis.",
+  },
+  alternates: { canonical: "https://steampulse.io/trending" },
 };
 
 export default async function TrendingPage() {

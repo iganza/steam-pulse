@@ -104,13 +104,12 @@ test.describe('Data-driven insights — analyzed game', () => {
     await expect(chart.locator('p.italic')).toBeAttached()
   })
 
-  test('competitive benchmark section is present in DOM but blurred for free users', async ({ page }) => {
+  test('competitive benchmark section is present in DOM and fully visible', async ({ page }) => {
     const benchmark = page.getByTestId('competitive-benchmark')
     await expect(benchmark).toBeVisible()
-    // The inner content should be blurred (blur-sm class)
-    await expect(benchmark.locator('.blur-sm')).toBeAttached()
-    // Pro CTA link to /pro is visible
-    await expect(benchmark.getByRole('link', { name: /upgrade to pro/i })).toBeVisible()
+    // isPro = true — content is not blurred and no upgrade CTA
+    await expect(benchmark.locator('.blur-sm')).not.toBeAttached()
+    await expect(benchmark.getByRole('link', { name: /upgrade to pro/i })).not.toBeVisible()
   })
 
   test('score context sentence appears below score bar', async ({ page }) => {
@@ -185,7 +184,7 @@ test.describe('Game report page — unanalyzed game', () => {
   })
 
   test('shows "analysis not yet available" message', async ({ page }) => {
-    await expect(page.getByText(/AI analysis available once this game reaches sufficient reviews/i)).toBeVisible()
+    await expect(page.getByText(/Analysis in progress/i)).toBeVisible()
   })
 
   test('hero section is rendered', async ({ page }) => {

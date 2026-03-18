@@ -12,8 +12,30 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   return {
     title: q ? `Search: ${q}` : "Browse Games",
     description: q
-      ? `Steam games matching "${q}" — AI-analyzed player sentiment and insights.`
-      : "Browse and search 100,000+ Steam games with AI-powered review analysis.",
+      ? `Steam games matching "${q}" — player sentiment analysis and insights.`
+      : "Browse and search 100,000+ Steam games with in-depth review analysis.",
+    openGraph: {
+      title: q ? `Search: ${q} — SteamPulse` : "Browse Steam Games — SteamPulse",
+      description: q
+        ? `Steam games matching "${q}" — player sentiment analysis and insights.`
+        : "Browse and search 100,000+ Steam games with in-depth review analysis.",
+      url: q
+        ? `https://steampulse.io/search?q=${encodeURIComponent(q)}`
+        : "https://steampulse.io/search",
+      images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: q ? `Search: ${q} — SteamPulse` : "Browse Steam Games — SteamPulse",
+      description: q
+        ? `Steam games matching "${q}" — player sentiment analysis and insights.`
+        : "Browse and search 100,000+ Steam games with in-depth review analysis.",
+    },
+    alternates: {
+      canonical: q
+        ? `https://steampulse.io/search?q=${encodeURIComponent(q)}`
+        : "https://steampulse.io/search",
+    },
   };
 }
 

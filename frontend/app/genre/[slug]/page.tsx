@@ -15,7 +15,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   return {
     title: `${name} Games`,
-    description: `Browse ${name} games on Steam with AI-analyzed player sentiment, hidden gems, and review intelligence.`,
+    description: `Browse ${name} games on Steam with player sentiment analysis, hidden gems, and review intelligence.`,
+    openGraph: {
+      title: `${name} Games on Steam — SteamPulse`,
+      description: `Browse ${name} games with player sentiment analysis, hidden gems, and review intelligence.`,
+      url: `https://steampulse.io/genre/${slug}`,
+      images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${name} Games on Steam — SteamPulse`,
+      description: `Browse ${name} games with player sentiment analysis, hidden gems, and review intelligence.`,
+    },
+    alternates: { canonical: `https://steampulse.io/genre/${slug}` },
   };
 }
 

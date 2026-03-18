@@ -317,7 +317,7 @@ export function GameReportClient({
             >
               <Clock className="w-5 h-5 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                AI analysis available once this game reaches sufficient reviews. Check back soon.
+                Analysis in progress — check back once this game reaches sufficient reviews.
               </p>
             </div>
           </section>

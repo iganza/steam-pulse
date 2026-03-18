@@ -2,6 +2,7 @@ import { Page } from '@playwright/test'
 import {
   MOCK_GAMES_LIST, MOCK_GENRES, MOCK_TAGS,
   MOCK_REPORT, MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED,
+  MOCK_REVIEW_STATS, MOCK_BENCHMARKS,
 } from './mock-data'
 
 export async function mockAllApiRoutes(page: Page) {
@@ -34,6 +35,15 @@ export async function mockAllApiRoutes(page: Page) {
         one_liner: MOCK_REPORT.one_liner,
       },
     })
+  )
+
+  // Review stats and benchmarks — specific routes registered LAST (higher LIFO priority)
+  await page.route('**/api/games/*/review-stats', route =>
+    route.fulfill({ json: MOCK_REVIEW_STATS })
+  )
+
+  await page.route('**/api/games/*/benchmarks', route =>
+    route.fulfill({ json: MOCK_BENCHMARKS })
   )
 
   // Specific game report routes — registered LAST so they win over wildcard

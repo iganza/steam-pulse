@@ -83,3 +83,45 @@ export const MOCK_GAMES_LIST = {
   total: 100, // >24 so pagination renders in SearchClient
   games: [MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED],
 }
+
+export const MOCK_REVIEW_STATS = {
+  timeline: [
+    { week: '2023-10-02', total: 120, positive: 96, pct_positive: 80 },
+    { week: '2023-10-09', total: 98, positive: 78, pct_positive: 80 },
+    { week: '2023-10-16', total: 145, positive: 116, pct_positive: 80 },
+    { week: '2023-10-23', total: 132, positive: 112, pct_positive: 85 },
+    { week: '2023-10-30', total: 110, positive: 99, pct_positive: 90 },
+  ],
+  playtime_buckets: [
+    { bucket: '0h', reviews: 22, pct_positive: 55 },
+    { bucket: '<2h', reviews: 45, pct_positive: 59 },
+    { bucket: '2-10h', reviews: 121, pct_positive: 68 },
+    { bucket: '10-50h', reviews: 205, pct_positive: 82 },
+    { bucket: '50-200h', reviews: 212, pct_positive: 88 },
+    { bucket: '200h+', reviews: 150, pct_positive: 71 },
+  ],
+  review_velocity: {
+    reviews_per_day: 12.3,
+    reviews_last_30_days: 320,
+  },
+}
+
+// Fewer than 3 timeline entries — timeline chart should NOT render
+export const MOCK_REVIEW_STATS_SPARSE = {
+  timeline: [
+    { week: '2024-01-01', total: 10, positive: 8, pct_positive: 80 },
+  ],
+  playtime_buckets: [
+    { bucket: '<2h', reviews: 5, pct_positive: 80 },
+  ],
+  review_velocity: {
+    reviews_per_day: 0.5,
+    reviews_last_30_days: 10,
+  },
+}
+
+export const MOCK_BENCHMARKS = {
+  sentiment_rank: 0.77,
+  popularity_rank: 0.45,
+  cohort_size: 312,
+}

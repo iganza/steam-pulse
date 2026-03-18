@@ -81,6 +81,34 @@ export interface Game {
   release_date?: string;
 }
 
+export interface TimelineEntry {
+  week: string;
+  total: number;
+  positive: number;
+  pct_positive: number;
+}
+
+export interface PlaytimeBucket {
+  bucket: string;
+  reviews: number;
+  pct_positive: number;
+}
+
+export interface ReviewStats {
+  timeline: TimelineEntry[];
+  playtime_buckets: PlaytimeBucket[];
+  review_velocity: {
+    reviews_per_day: number;
+    reviews_last_30_days: number;
+  };
+}
+
+export interface Benchmarks {
+  sentiment_rank: number | null;
+  popularity_rank: number | null;
+  cohort_size: number;
+}
+
 export interface Genre {
   id: number;
   name: string;

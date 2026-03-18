@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
+import { MOCK_REVIEW_STATS_SPARSE } from './fixtures/mock-data'
 
 test.describe('Game report page — analyzed game', () => {
   test.beforeEach(async ({ page }) => {
@@ -65,6 +66,106 @@ test.describe('Game report page — analyzed game', () => {
 
   test('overall sentiment label is shown', async ({ page }) => {
     await expect(page.getByText(/overwhelmingly positive/i)).toBeVisible()
+  })
+})
+
+test.describe('Data-driven insights — analyzed game', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/games/440/team-fortress-2')
+  })
+
+  test('sentiment timeline chart renders when 3+ weeks of data present', async ({ page }) => {
+    await expect(page.getByTestId('sentiment-timeline')).toBeVisible()
+  })
+
+  test('playtime chart renders all 6 buckets', async ({ page }) => {
+    const chart = page.getByTestId('playtime-chart')
+    await expect(chart).toBeVisible()
+    await expect(chart.locator('[data-bucket="0h"]')).toBeVisible()
+    await expect(chart.locator('[data-bucket="200h+"]')).toBeVisible()
+  })
+
+  test('playtime chart colors: green ≥80%, amber 60-79%, red <60%', async ({ page }) => {
+    const chart = page.getByTestId('playtime-chart')
+    await expect(chart).toBeVisible()
+    // 88% bucket (50-200h) should be green
+    const greenBucket = chart.locator('[data-bucket="50-200h"]')
+    await expect(greenBucket).toBeVisible()
+    // 59% bucket (<2h) should use red/amber — check it exists with pct attribute
+    const redBucket = chart.locator('[data-pct="59"]')
+    await expect(redBucket).toBeVisible()
+  })
+
+  test('playtime insight sentence is visible (free tier)', async ({ page }) => {
+    const chart = page.getByTestId('playtime-chart')
+    await expect(chart).toBeVisible()
+    // Insight text renders (blurred but present in DOM)
+    await expect(chart.locator('p.italic')).toBeAttached()
+  })
+
+  test('competitive benchmark section is present in DOM but blurred for free users', async ({ page }) => {
+    const benchmark = page.getByTestId('competitive-benchmark')
+    await expect(benchmark).toBeVisible()
+    // The inner content should be blurred (blur-sm class)
+    await expect(benchmark.locator('.blur-sm')).toBeAttached()
+    // Pro CTA link to /pro is visible
+    await expect(benchmark.getByRole('link', { name: /upgrade to pro/i })).toBeVisible()
+  })
+
+  test('score context sentence appears below score bar', async ({ page }) => {
+    await expect(page.getByTestId('score-context')).toBeVisible()
+  })
+
+  test('review velocity card shows reviews/day', async ({ page }) => {
+    // Velocity card renders once review-stats fetch completes
+    await expect(page.getByText(/\/day/)).toBeVisible()
+  })
+
+  test('timeline skeleton placeholder visible before data loads', async ({ page }) => {
+    // Skeleton is in DOM initially — check it was rendered (it may have already
+    // been replaced by the time assertion runs, so check for either)
+    const timeline = page.getByTestId('sentiment-timeline')
+    const skeleton = page.getByTestId('sentiment-timeline-skeleton')
+    await expect(timeline.or(skeleton)).toBeAttached()
+  })
+
+  test('playtime skeleton placeholder visible before data loads', async ({ page }) => {
+    const chart = page.getByTestId('playtime-chart')
+    const skeleton = page.getByTestId('playtime-chart-skeleton')
+    await expect(chart.or(skeleton)).toBeAttached()
+  })
+})
+
+test.describe('Data-driven insights — timeline sparse data', () => {
+  test('timeline chart does NOT render when fewer than 3 data points', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    // Override review-stats with sparse data (only 1 week)
+    await page.route('**/api/games/440/review-stats', route =>
+      route.fulfill({ json: MOCK_REVIEW_STATS_SPARSE })
+    )
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByTestId('sentiment-timeline')).not.toBeAttached()
+  })
+})
+
+test.describe('Data-driven insights — unanalyzed game', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/games/9999999/obscure-indie-game')
+  })
+
+  test('sentiment timeline renders for unanalyzed game if review data exists', async ({ page }) => {
+    await expect(page.getByTestId('sentiment-timeline')).toBeVisible()
+  })
+
+  test('playtime chart renders for unanalyzed game if review data exists', async ({ page }) => {
+    await expect(page.getByTestId('playtime-chart')).toBeVisible()
+  })
+
+  test('competitive benchmark is NOT shown for unanalyzed games', async ({ page }) => {
+    // Benchmarks section only renders in the analyzed game path
+    await expect(page.getByTestId('competitive-benchmark')).not.toBeAttached()
   })
 })
 

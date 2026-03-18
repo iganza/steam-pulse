@@ -29,11 +29,13 @@ VERSION = "0.1.0"
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 
 _game_repo: GameRepository
 _report_repo: ReportRepository
+_review_repo: ReviewRepository
 _job_repo: JobRepository
 _tag_repo: TagRepository
 _db_conn: object  # psycopg2 connection
@@ -42,6 +44,7 @@ try:
     _db_conn = get_conn()
     _game_repo = GameRepository(_db_conn)
     _report_repo = ReportRepository(_db_conn)
+    _review_repo = ReviewRepository(_db_conn)
     _job_repo = JobRepository(_db_conn)
     _tag_repo = TagRepository(_db_conn)
 except Exception:
@@ -390,6 +393,34 @@ async def get_game_report(appid: int) -> dict:
         "threshold": 500,
         "game": game_meta,
     }
+
+
+@app.get("/api/games/{appid}/review-stats")
+async def get_review_stats(appid: int) -> dict:
+    """Weekly sentiment timeline + playtime buckets + velocity for a game."""
+    return _review_repo.find_review_stats(appid)
+
+
+@app.get("/api/games/{appid}/benchmarks")
+async def get_benchmarks(appid: int) -> dict:
+    """Percentile ranking vs. genre+year+price cohort (Pro context)."""
+    game = _game_repo.find_by_appid(appid)
+    if not game:
+        raise HTTPException(status_code=404, detail={"error": "Game not found", "code": "not_found"})
+
+    genres = [g["name"] for g in _tag_repo.find_genres_for_game(appid)]
+    release_date = game.release_date
+    if not genres or not release_date:
+        return {"sentiment_rank": None, "popularity_rank": None, "cohort_size": 0}
+
+    year = int(str(release_date)[:4])
+    return _game_repo.find_benchmarks(
+        appid=appid,
+        genre=genres[0],
+        year=year,
+        price=float(game.price_usd) if game.price_usd else None,
+        is_free=game.is_free or False,
+    )
 
 
 @app.get("/api/genres")

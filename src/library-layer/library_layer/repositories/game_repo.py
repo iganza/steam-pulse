@@ -270,6 +270,46 @@ class GameRepository(BaseRepository):
             result.append(d)
         return {"total": total, "games": result}
 
+    def find_benchmarks(
+        self, appid: int, genre: str, year: int, price: float | None, is_free: bool
+    ) -> dict:
+        """Percentile rankings vs. genre + release-year + price cohort."""
+        rows = self._fetchall(
+            """
+            WITH cohort AS (
+                SELECT g.appid, g.positive_pct, g.review_count
+                FROM games g
+                JOIN game_genres gg ON gg.appid = g.appid
+                JOIN genres gn ON gg.genre_id = gn.id
+                WHERE gn.name = %s
+                  AND EXTRACT(YEAR FROM g.release_date) = %s
+                  AND (
+                      (g.is_free = TRUE AND %s = TRUE)
+                      OR (g.price_usd BETWEEN %s * 0.5 AND %s * 2.0)
+                  )
+                  AND g.review_count > 50
+            ),
+            ranked AS (
+                SELECT appid,
+                       PERCENT_RANK() OVER (ORDER BY positive_pct) AS sentiment_rank,
+                       PERCENT_RANK() OVER (ORDER BY review_count)  AS popularity_rank
+                FROM cohort
+            )
+            SELECT r.sentiment_rank, r.popularity_rank,
+                   (SELECT COUNT(*) FROM cohort) AS cohort_size
+            FROM ranked r WHERE r.appid = %s
+            """,
+            (genre, year, is_free, price or 0.0, price or 0.0, appid),
+        )
+        if not rows:
+            return {"sentiment_rank": None, "popularity_rank": None, "cohort_size": 0}
+        r = rows[0]
+        return {
+            "sentiment_rank": float(r["sentiment_rank"]) if r["sentiment_rank"] is not None else None,
+            "popularity_rank": float(r["popularity_rank"]) if r["popularity_rank"] is not None else None,
+            "cohort_size": int(r["cohort_size"]),
+        }
+
     def list_genres(self) -> list[dict]:
         """Return genres with game counts, ordered by game_count DESC."""
         rows = self._fetchall("""

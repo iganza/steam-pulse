@@ -1,4 +1,4 @@
-import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag } from "./types";
+import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewStats, Benchmarks } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
 // Browser calls use "" (same-origin — Next.js rewrites proxy /api/* to FastAPI in dev,
@@ -142,6 +142,16 @@ export async function getTopTags(limit = 24): Promise<Tag[]> {
   return apiFetch<Tag[]>(`/api/tags/top?limit=${limit}`, {
     next: { revalidate: 86400 },
   });
+}
+
+/** GET /api/games/{appid}/review-stats */
+export async function getReviewStats(appid: number): Promise<ReviewStats> {
+  return apiFetch<ReviewStats>(`/api/games/${appid}/review-stats`);
+}
+
+/** GET /api/games/{appid}/benchmarks */
+export async function getBenchmarks(appid: number): Promise<Benchmarks> {
+  return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`);
 }
 
 export { ApiError };

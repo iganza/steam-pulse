@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -18,12 +19,24 @@ import {
   DollarSign,
   BarChart3,
   Clock,
+  Zap,
 } from "lucide-react";
-import type { GameReport } from "@/lib/types";
+import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
+import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { ScoreBar } from "@/components/game/ScoreBar";
 import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import {
+  SentimentTimeline,
+  SentimentTimelineSkeleton,
+} from "@/components/game/SentimentTimeline";
+import {
+  PlaytimeChart,
+  PlaytimeChartSkeleton,
+  computePlaytimeInsight,
+} from "@/components/game/PlaytimeChart";
+import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -53,6 +66,23 @@ function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+function scoreContextSentence(score: number): string {
+  if (score >= 95) return "Overwhelmingly Positive — fewer than 5% of Steam games with 1,000+ reviews achieve this.";
+  if (score >= 80) return "Very Positive — this puts the game in the top 30% of all reviewed games on Steam.";
+  if (score >= 70) return "Mostly Positive — above the median for reviewed Steam games.";
+  if (score >= 50) return "Mixed — roughly half of players recommend it.";
+  return "Mostly Negative — significant player dissatisfaction.";
+}
+
+function momentumLabel(reviewsLast30: number, reviewsPerDay: number): { label: string; color: string } {
+  const expected = reviewsPerDay * 30;
+  if (expected <= 0) return { label: "—", color: "var(--muted-foreground)" };
+  const ratio = reviewsLast30 / expected;
+  if (ratio >= 1.2) return { label: "Gaining momentum", color: "#22c55e" };
+  if (ratio >= 0.8) return { label: "Steady", color: "var(--muted-foreground)" };
+  return { label: "Slowing", color: "#f59e0b" };
+}
+
 export function GameReportClient({
   report,
   appid,
@@ -67,6 +97,28 @@ export function GameReportClient({
   shortDesc,
   reviewCount,
 }: GameReportClientProps) {
+  const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
+  const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [stats, bench] = await Promise.all([
+          getReviewStats(appid),
+          report ? getBenchmarks(appid).catch(() => null) : Promise.resolve(null),
+        ]);
+        setReviewStats(stats);
+        if (bench) setBenchmarks(bench);
+      } catch {
+        // charts simply won't render
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    load();
+  }, [appid, report]);
+
   const name = report?.game_name ?? gameName ?? "Game Report";
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
   const primaryGenre = genres?.[0];
@@ -131,7 +183,7 @@ export function GameReportClient({
           {/* Quick Stats */}
           <section>
             <SectionLabel>Quick Stats</SectionLabel>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <BarChart3 className="w-4 h-4" />
@@ -168,6 +220,35 @@ export function GameReportClient({
                   </Link>
                 ) : <p className="font-mono text-sm font-medium">—</p>}
               </div>
+              {/* Review Velocity card */}
+              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Zap className="w-4 h-4" />
+                  <span className="text-[10px] uppercase tracking-widest font-mono">Velocity</span>
+                </div>
+                {statsLoading ? (
+                  <div className="h-4 bg-secondary rounded animate-pulse w-20" />
+                ) : reviewStats ? (
+                  <>
+                    <p className="font-mono text-sm font-medium">
+                      {reviewStats.review_velocity.reviews_per_day}/day
+                    </p>
+                    {(() => {
+                      const m = momentumLabel(
+                        reviewStats.review_velocity.reviews_last_30_days,
+                        reviewStats.review_velocity.reviews_per_day
+                      );
+                      return (
+                        <p className="text-[10px] font-mono mt-1" style={{ color: m.color }}>
+                          {m.label}
+                        </p>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <p className="font-mono text-sm font-medium">—</p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -201,6 +282,29 @@ export function GameReportClient({
               </div>
             </section>
           )}
+
+          {/* Sentiment Timeline */}
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
+            {statsLoading ? (
+              <SentimentTimelineSkeleton />
+            ) : reviewStats && reviewStats.timeline.length >= 3 ? (
+              <SentimentTimeline timeline={reviewStats.timeline} />
+            ) : null}
+          </section>
+
+          {/* Playtime Chart */}
+          <section>
+            <SectionLabel>Playtime Sentiment</SectionLabel>
+            {statsLoading ? (
+              <PlaytimeChartSkeleton />
+            ) : reviewStats ? (
+              <PlaytimeChart
+                buckets={reviewStats.playtime_buckets}
+                insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+              />
+            ) : null}
+          </section>
 
           {/* Analysis status */}
           <section className="text-center py-8">
@@ -303,12 +407,15 @@ export function GameReportClient({
             &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
           </blockquote>
           <ScoreBar score={report.sentiment_score ?? 0} />
+          <p className="mt-2 text-xs text-muted-foreground font-mono" data-testid="score-context">
+            {scoreContextSentence(report.sentiment_score ?? 0)}
+          </p>
         </section>
 
         {/* Section 2 - Quick Stats */}
         <section className="animate-fade-up stagger-2">
           <SectionLabel>Quick Stats</SectionLabel>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <BarChart3 className="w-4 h-4" />
@@ -351,6 +458,35 @@ export function GameReportClient({
                 <span className="text-[10px] uppercase tracking-widest font-mono">Analyzed</span>
               </div>
               <p className="font-mono text-sm font-medium truncate">{report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
+            </div>
+            {/* Review Velocity card */}
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <Zap className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Velocity</span>
+              </div>
+              {statsLoading ? (
+                <div className="h-4 bg-secondary rounded animate-pulse w-20" />
+              ) : reviewStats ? (
+                <>
+                  <p className="font-mono text-sm font-medium">
+                    {reviewStats.review_velocity.reviews_per_day}/day
+                  </p>
+                  {(() => {
+                    const m = momentumLabel(
+                      reviewStats.review_velocity.reviews_last_30_days,
+                      reviewStats.review_velocity.reviews_per_day
+                    );
+                    return (
+                      <p className="text-[10px] font-mono mt-1" style={{ color: m.color }}>
+                        {m.label}
+                      </p>
+                    );
+                  })()}
+                </>
+              ) : (
+                <p className="font-mono text-sm font-medium">—</p>
+              )}
             </div>
           </div>
         </section>
@@ -534,6 +670,41 @@ export function GameReportClient({
                 </div>
               ))}
             </div>
+          </section>
+        )}
+
+        {/* Sentiment Timeline */}
+        <section>
+          <SectionLabel>Sentiment History</SectionLabel>
+          {statsLoading ? (
+            <SentimentTimelineSkeleton />
+          ) : reviewStats && reviewStats.timeline.length >= 3 ? (
+            <SentimentTimeline timeline={reviewStats.timeline} />
+          ) : null}
+        </section>
+
+        {/* Playtime Chart + insight */}
+        <section>
+          <SectionLabel>Playtime Sentiment</SectionLabel>
+          {statsLoading ? (
+            <PlaytimeChartSkeleton />
+          ) : reviewStats ? (
+            <PlaytimeChart
+              buckets={reviewStats.playtime_buckets}
+              insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+            />
+          ) : null}
+        </section>
+
+        {/* Competitive Benchmark (Pro — blurred for free users) */}
+        {benchmarks && (
+          <section>
+            <SectionLabel>Competitive Benchmark</SectionLabel>
+            <CompetitiveBenchmark
+              benchmarks={benchmarks}
+              genre={primaryGenre}
+              year={releaseDate ? new Date(releaseDate).getFullYear() : undefined}
+            />
           </section>
         )}
 

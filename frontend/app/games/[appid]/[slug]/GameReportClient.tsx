@@ -132,20 +132,42 @@ export function GameReportClient({
           <section>
             <SectionLabel>Quick Stats</SectionLabel>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { icon: <BarChart3 className="w-4 h-4" />, label: "Reviews", value: reviewCount?.toLocaleString() ?? "\u2014" },
-                { icon: <Calendar className="w-4 h-4" />, label: "Released", value: releaseDate ? new Date(releaseDate).getFullYear().toString() : "\u2014" },
-                { icon: <DollarSign className="w-4 h-4" />, label: "Price", value: price },
-                { icon: <Star className="w-4 h-4" />, label: "Developer", value: developer ?? "\u2014" },
-              ].map((stat) => (
-                <div key={stat.label} className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    {stat.icon}
-                    <span className="text-[10px] uppercase tracking-widest font-mono">{stat.label}</span>
-                  </div>
-                  <p className="font-mono text-sm font-medium truncate">{stat.value}</p>
+              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <BarChart3 className="w-4 h-4" />
+                  <span className="text-[10px] uppercase tracking-widest font-mono">Reviews</span>
                 </div>
-              ))}
+                <p className="font-mono text-sm font-medium truncate">{reviewCount?.toLocaleString() ?? "—"}</p>
+              </div>
+              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Calendar className="w-4 h-4" />
+                  <span className="text-[10px] uppercase tracking-widest font-mono">Released</span>
+                </div>
+                {releaseDate ? (
+                  <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-sm font-medium hover:underline" style={{ color: "var(--teal)" }}>
+                    {new Date(releaseDate).getFullYear()}
+                  </Link>
+                ) : <p className="font-mono text-sm font-medium">—</p>}
+              </div>
+              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <DollarSign className="w-4 h-4" />
+                  <span className="text-[10px] uppercase tracking-widest font-mono">Price</span>
+                </div>
+                <p className="font-mono text-sm font-medium truncate">{price}</p>
+              </div>
+              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Star className="w-4 h-4" />
+                  <span className="text-[10px] uppercase tracking-widest font-mono">Developer</span>
+                </div>
+                {developer ? (
+                  <Link href={`/developer/${slugify(developer)}`} className="font-mono text-sm font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
+                    {developer}
+                  </Link>
+                ) : <p className="font-mono text-sm font-medium">—</p>}
+              </div>
             </div>
           </section>
 
@@ -287,21 +309,49 @@ export function GameReportClient({
         <section className="animate-fade-up stagger-2">
           <SectionLabel>Quick Stats</SectionLabel>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { icon: <BarChart3 className="w-4 h-4" />, label: "Reviews", value: report.total_reviews_analyzed?.toLocaleString() ?? "\u2014" },
-              { icon: <Calendar className="w-4 h-4" />, label: "Released", value: releaseDate ? new Date(releaseDate).getFullYear().toString() : "\u2014" },
-              { icon: <DollarSign className="w-4 h-4" />, label: "Price", value: price },
-              { icon: <Star className="w-4 h-4" />, label: "Developer", value: developer ?? "\u2014" },
-              { icon: <Clock className="w-4 h-4" />, label: "Analyzed", value: report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014" },
-            ].map((stat) => (
-              <div key={stat.label} className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  {stat.icon}
-                  <span className="text-[10px] uppercase tracking-widest font-mono">{stat.label}</span>
-                </div>
-                <p className="font-mono text-sm font-medium truncate">{stat.value}</p>
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Reviews</span>
               </div>
-            ))}
+              <p className="font-mono text-sm font-medium truncate">{report.total_reviews_analyzed?.toLocaleString() ?? "—"}</p>
+            </div>
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <Calendar className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Released</span>
+              </div>
+              {releaseDate ? (
+                <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-sm font-medium hover:underline" style={{ color: "var(--teal)" }}>
+                  {new Date(releaseDate).getFullYear()}
+                </Link>
+              ) : <p className="font-mono text-sm font-medium">—</p>}
+            </div>
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <DollarSign className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Price</span>
+              </div>
+              <p className="font-mono text-sm font-medium truncate">{price}</p>
+            </div>
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <Star className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Developer</span>
+              </div>
+              {developer ? (
+                <Link href={`/developer/${slugify(developer)}`} className="font-mono text-sm font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
+                  {developer}
+                </Link>
+              ) : <p className="font-mono text-sm font-medium">—</p>}
+            </div>
+            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                <Clock className="w-4 h-4" />
+                <span className="text-[10px] uppercase tracking-widest font-mono">Analyzed</span>
+              </div>
+              <p className="font-mono text-sm font-medium truncate">{report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
+            </div>
           </div>
         </section>
 

@@ -23,19 +23,22 @@ test.describe('Home page', () => {
     await expect(page.getByRole('heading', { name: /discover steam games/i })).toBeVisible()
   })
 
-  test('navbar Browse dropdown opens and shows genres', async ({ page }) => {
+  test('navbar Browse dropdown opens and shows genres', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Browse dropdown is desktop-only — mobile uses hamburger menu')
     await page.getByRole('button', { name: /browse/i }).click()
-    await expect(page.getByText('Action')).toBeVisible()
+    // Scope to the dropdown link to avoid strict-mode hits from genre grid
+    await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
   })
 
-  test('clicking a browse genre navigates to genre page', async ({ page }) => {
+  test('clicking a browse genre navigates to genre page', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Browse dropdown is desktop-only — mobile uses hamburger menu')
     await page.getByRole('button', { name: /browse/i }).click()
-    await page.getByText('Action').first().click()
+    await page.getByRole('link', { name: /^Action/ }).first().click()
     await expect(page).toHaveURL(/\/genre\/action/)
   })
 
   test('navbar is visible', async ({ page }) => {
-    await expect(page.getByRole('navigation')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: /main navigation/i })).toBeVisible()
   })
 
   test('no paywall or unlock buttons present', async ({ page }) => {

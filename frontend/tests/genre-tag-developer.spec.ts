@@ -12,7 +12,7 @@ test.describe('Genre page', () => {
   })
 
   test('shows game count or result info', async ({ page }) => {
-    await expect(page.getByText(/\d+/)).toBeVisible()
+    await expect(page.getByText(/games/i).first()).toBeVisible()
   })
 
   test('shows game cards', async ({ page }) => {

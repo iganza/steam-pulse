@@ -50,6 +50,7 @@ export function Navbar() {
 
   return (
     <nav
+      aria-label="Main navigation"
       className="sticky top-0 z-50 border-b"
       style={{
         background: "rgba(12, 12, 15, 0.92)",

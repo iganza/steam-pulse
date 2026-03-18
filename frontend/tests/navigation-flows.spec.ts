@@ -13,11 +13,12 @@ test.describe('User journeys', () => {
     await expect(page.getByRole('heading', { name: 'Team Fortress 2' })).toBeVisible()
   })
 
-  test('home → browse genre → game report', async ({ page }) => {
+  test('home → browse genre → game report', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Browse dropdown is desktop-only')
     await mockAllApiRoutes(page)
     await page.goto('/')
     await page.getByRole('button', { name: /browse/i }).click()
-    await page.getByText('Action').first().click()
+    await page.getByRole('link', { name: /^Action/ }).first().click()
     await expect(page).toHaveURL(/\/genre\/action/)
     await page.getByText('Team Fortress 2').first().click()
     await expect(page).toHaveURL(/\/games\/440\//)
@@ -46,13 +47,14 @@ test.describe('User journeys', () => {
   test('/new-releases page loads with tabs', async ({ page }) => {
     await mockAllApiRoutes(page)
     await page.goto('/new-releases')
-    await expect(page.getByRole('tab', { name: /new on steam/i })).toBeVisible()
-    await expect(page.getByRole('tab', { name: /just analyzed/i })).toBeVisible()
+    // Tabs are <button> elements (not role="tab")
+    await expect(page.getByRole('button', { name: /new on steam/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /just analyzed/i })).toBeVisible()
   })
 
   test('/pro page loads', async ({ page }) => {
     await mockAllApiRoutes(page)
     await page.goto('/pro')
-    await expect(page.getByText(/coming soon|join the waitlist|intelligence for/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: /join the waitlist/i })).toBeVisible()
   })
 })

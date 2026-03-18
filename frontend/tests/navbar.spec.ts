@@ -8,17 +8,17 @@ test.describe('Navbar', () => {
 
   test('is present on home page', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('navigation')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: /main navigation/i })).toBeVisible()
   })
 
   test('is present on search page', async ({ page }) => {
     await page.goto('/search')
-    await expect(page.getByRole('navigation')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: /main navigation/i })).toBeVisible()
   })
 
   test('is present on game report page', async ({ page }) => {
     await page.goto('/games/440/team-fortress-2')
-    await expect(page.getByRole('navigation')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: /main navigation/i })).toBeVisible()
   })
 
   test('logo links to home', async ({ page }) => {
@@ -27,14 +27,16 @@ test.describe('Navbar', () => {
     await expect(page).toHaveURL('/')
   })
 
-  test('Browse dropdown opens and shows genres', async ({ page }) => {
+  test('Browse dropdown opens and shows genres', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Browse dropdown is desktop-only — mobile uses hamburger menu')
     await page.goto('/')
     await page.getByRole('button', { name: /browse/i }).click()
-    // Genres load async via browser fetch — wait for them
-    await expect(page.getByText('Action')).toBeVisible()
+    // Genres load async via browser fetch — wait for dropdown link
+    await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
   })
 
-  test('"For Developers" links to /pro', async ({ page }) => {
+  test('"For Developers" links to /pro', async ({ page, isMobile }) => {
+    test.skip(isMobile, '"For Developers" link is in the desktop nav, hidden on mobile')
     await page.goto('/')
     await page.getByRole('link', { name: /for developers/i }).click()
     await expect(page).toHaveURL('/pro')

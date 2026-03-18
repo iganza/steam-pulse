@@ -153,6 +153,19 @@ export function SearchAutocomplete({
   }, [router, value]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Always handle Enter — even when dropdown is closed
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && activeIndex >= 0 && activeIndex < suggestions.length) {
+        navigateToGame(suggestions[activeIndex]);
+      } else if (open && activeIndex === suggestions.length) {
+        navigateToSearch();
+      } else {
+        onSubmit(e as unknown as React.FormEvent);
+      }
+      return;
+    }
+
     if (!open) return;
 
     // total items = suggestions + footer "See all" row
@@ -166,17 +179,6 @@ export function SearchAutocomplete({
       case "ArrowUp":
         e.preventDefault();
         setActiveIndex((i) => (i - 1 + total) % total);
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (activeIndex >= 0 && activeIndex < suggestions.length) {
-          navigateToGame(suggestions[activeIndex]);
-        } else if (activeIndex === suggestions.length) {
-          navigateToSearch();
-        } else {
-          // no highlight — fall through to form submit
-          onSubmit(e as unknown as React.FormEvent);
-        }
         break;
       case "Escape":
         e.preventDefault();

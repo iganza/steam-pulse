@@ -521,7 +521,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-1 mt-8">
+              <nav aria-label="Pagination" className="flex items-center justify-center gap-1 mt-8">
                 <button
                   onClick={() => updateParams({ page: String(page - 1) })}
                   disabled={page <= 1}
@@ -558,7 +558,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                     <option key={n} value={n}>{n} per page</option>
                   ))}
                 </select>
-              </div>
+              </nav>
             )}
           </div>
         </div>

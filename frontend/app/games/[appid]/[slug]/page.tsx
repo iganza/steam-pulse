@@ -124,20 +124,22 @@ export default async function GameReportPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <GameReportClient
-        report={report}
-        appid={numericAppid}
-        gameName={gameData.gameName}
-        headerImage={headerImage}
-        releaseDate={gameData.releaseDate}
-        developer={gameData.developer}
-        priceUsd={gameData.priceUsd}
-        isFree={gameData.isFree ?? false}
-        genres={gameData.genres ?? []}
-        tags={gameData.tags ?? []}
-        shortDesc={gameData.shortDesc}
-        reviewCount={gameData.reviewCount}
-      />
+      <main>
+        <GameReportClient
+          report={report}
+          appid={numericAppid}
+          gameName={gameData.gameName}
+          headerImage={headerImage}
+          releaseDate={gameData.releaseDate}
+          developer={gameData.developer}
+          priceUsd={gameData.priceUsd}
+          isFree={gameData.isFree ?? false}
+          genres={gameData.genres ?? []}
+          tags={gameData.tags ?? []}
+          shortDesc={gameData.shortDesc}
+          reviewCount={gameData.reviewCount}
+        />
+      </main>
     </>
   );
 }

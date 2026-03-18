@@ -139,6 +139,7 @@ class CrawlService:
             "slug": slug,
             "type": details.get("type") or "game",
             "developer": devs[0] if devs else None,
+            "developer_slug": slugify(devs[0]) if devs else None,
             "publisher": pubs[0] if pubs else None,
             "developers": json.dumps(devs),
             "publishers": json.dumps(pubs),

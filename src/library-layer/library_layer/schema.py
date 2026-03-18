@@ -13,6 +13,7 @@ TABLES: tuple[str, ...] = (
         -- identity
         type             TEXT DEFAULT 'game',        -- game | dlc | demo | music | tool
         developer        TEXT,                        -- primary developer (display)
+        developer_slug   TEXT,                        -- slugified developer for URL routing
         publisher        TEXT,                        -- primary publisher (display)
         developers       JSONB,                       -- full array from Steam API
         publishers       JSONB,                       -- full array from Steam API

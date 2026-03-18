@@ -74,7 +74,7 @@ class CatalogRepository(BaseRepository):
                 """
                 INSERT INTO app_catalog (appid, name, meta_status, meta_crawled_at,
                                          review_count, review_status)
-                VALUES (%s, %s, %s, NOW(), %s, %s)
+                VALUES (%s, %s, %s, NOW(), %s, COALESCE(%s, 'ineligible'))
                 ON CONFLICT (appid) DO UPDATE SET
                     meta_status     = EXCLUDED.meta_status,
                     meta_crawled_at = NOW(),

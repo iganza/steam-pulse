@@ -13,7 +13,7 @@ class GameRepository(BaseRepository):
         """INSERT ... ON CONFLICT (appid) DO UPDATE with all game columns."""
         sql = """
             INSERT INTO games (
-                appid, name, slug, type, developer, publisher, developers, publishers,
+                appid, name, slug, type, developer, developer_slug, publisher, developers, publishers,
                 website, release_date, coming_soon, price_usd, is_free,
                 short_desc, detailed_description, about_the_game,
                 review_count, total_positive, total_negative, positive_pct,
@@ -21,7 +21,7 @@ class GameRepository(BaseRepository):
                 required_age, platforms, supported_languages,
                 achievements_total, metacritic_score, crawled_at, data_source
             ) VALUES (
-                %(appid)s, %(name)s, %(slug)s, %(type)s, %(developer)s, %(publisher)s,
+                %(appid)s, %(name)s, %(slug)s, %(type)s, %(developer)s, %(developer_slug)s, %(publisher)s,
                 %(developers)s, %(publishers)s,
                 %(website)s, %(release_date)s, %(coming_soon)s, %(price_usd)s, %(is_free)s,
                 %(short_desc)s, %(detailed_description)s, %(about_the_game)s,
@@ -36,6 +36,7 @@ class GameRepository(BaseRepository):
                 slug                 = EXCLUDED.slug,
                 type                 = EXCLUDED.type,
                 developer            = EXCLUDED.developer,
+                developer_slug       = EXCLUDED.developer_slug,
                 publisher            = EXCLUDED.publisher,
                 developers           = EXCLUDED.developers,
                 publishers           = EXCLUDED.publishers,
@@ -201,8 +202,8 @@ class GameRepository(BaseRepository):
             )
             params.append(tag)
         if developer:
-            conditions.append("g.developer ILIKE %s")
-            params.append(f"%{developer}%")
+            conditions.append("g.developer_slug = %s")
+            params.append(developer)
         if year_from is not None:
             conditions.append("EXTRACT(YEAR FROM g.release_date) >= %s")
             params.append(year_from)

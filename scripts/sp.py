@@ -298,6 +298,10 @@ async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
     start = time.monotonic()
     last_log = start
 
+    # Fetch total pending count upfront for ETA calculation
+    total_pending = len(fetch_fn(999_999))
+    _info(f"[{phase}] starting — {total_pending:,} items pending")
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         steam = DirectSteamSource(client)
         while True:
@@ -318,12 +322,21 @@ async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
             now = time.monotonic()
             if now - last_log >= 30:
                 processed = n_done + n_skipped + n_failed
-                rate = processed / (now - start) * 60
-                _info(f"[{phase}] {processed} | done={n_done} skipped={n_skipped} failed={n_failed} | {rate:.0f}/min")
+                elapsed = now - start
+                rate = processed / elapsed * 60 if elapsed > 0 else 0
+                remaining = max(0, total_pending - processed)
+                eta_min = remaining / rate if rate > 0 else 0
+                eta_str = f"{eta_min/60:.1f}h" if eta_min >= 60 else f"{eta_min:.0f}m"
+                pct = processed / total_pending * 100 if total_pending else 0
+                _info(
+                    f"[{phase}] {processed:,}/{total_pending:,} ({pct:.1f}%) | "
+                    f"done={n_done:,} skipped={n_skipped:,} failed={n_failed:,} | "
+                    f"{rate:.0f}/min | ETA {eta_str}"
+                )
                 last_log = now
 
     elapsed = time.monotonic() - start
-    _ok(f"[{phase}] done={n_done} skipped={n_skipped} failed={n_failed} in {elapsed/60:.1f} min")
+    _ok(f"[{phase}] done={n_done:,} skipped={n_skipped:,} failed={n_failed:,} in {elapsed/60:.1f} min")
 
 
 # ── fetch helpers for bulk modes ─────────────────────────────────────────────

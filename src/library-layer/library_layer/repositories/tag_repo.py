@@ -34,7 +34,7 @@ class TagRepository(BaseRepository):
                 cur.execute("SELECT id FROM tags WHERE name = %s", (tag_name,))
                 row = cur.fetchone()
                 if row:
-                    tag_id: int = row[0]
+                    tag_id: int = row["id"] if isinstance(row, dict) else row[0]
                     cur.execute(
                         """
                         INSERT INTO game_tags (appid, tag_id, votes) VALUES (%s, %s, %s)

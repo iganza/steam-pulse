@@ -288,7 +288,7 @@ export function SearchAutocomplete({
 
                 {/* Name + meta */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground font-medium truncate">{game.name}</p>
+                  <p className="text-sm text-foreground font-medium truncate">{game.name}</p>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {label && (
                       <>
@@ -296,13 +296,13 @@ export function SearchAutocomplete({
                           className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
                           style={{ background: color }}
                         />
-                        <span className="text-[10px] font-mono" style={{ color }}>
+                        <span className="text-xs font-mono" style={{ color }}>
                           {label}
                         </span>
                       </>
                     )}
                     {game.review_count != null && (
-                      <span className="text-[10px] font-mono text-muted-foreground">
+                      <span className="text-xs font-mono text-muted-foreground">
                         · {formatReviewCount(game.review_count)}
                       </span>
                     )}
@@ -322,7 +322,7 @@ export function SearchAutocomplete({
               navigateToSearch();
             }}
             onMouseEnter={() => setActiveIndex(suggestions.length)}
-            className="flex items-center justify-center px-3 py-2 cursor-pointer text-xs font-mono transition-colors"
+            className="flex items-center justify-center px-3 py-2 cursor-pointer text-sm font-mono transition-colors"
             style={{
               borderTop: "1px solid var(--border)",
               background: activeIndex === suggestions.length ? "var(--border)" : "transparent",

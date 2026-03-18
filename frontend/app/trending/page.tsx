@@ -72,7 +72,7 @@ export default async function TrendingPage() {
                   </div>
                   <Link
                     href={section.seeAll}
-                    className="flex items-center gap-1 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
                   >
                     See all <ChevronRight className="w-3 h-3" />
                   </Link>
@@ -88,7 +88,7 @@ export default async function TrendingPage() {
 
         {rising.length === 0 && topRated.length === 0 && gems.length === 0 && (
           <div className="text-center py-20">
-            <p className="text-sm text-muted-foreground">No trending data available yet.</p>
+            <p className="text-base text-muted-foreground">No trending data available yet.</p>
           </div>
         )}
       </div>

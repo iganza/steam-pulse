@@ -24,15 +24,15 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
   return (
     <div data-testid="playtime-chart">
       <div className="flex items-center gap-2 mb-4">
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
           Sentiment by time invested
         </p>
         <div className="relative group cursor-help">
-          <span className="text-[10px] font-mono text-muted-foreground border border-border rounded-full w-4 h-4 inline-flex items-center justify-center flex-shrink-0">
+          <span className="text-xs font-mono text-muted-foreground border border-border rounded-full w-4 h-4 inline-flex items-center justify-center flex-shrink-0">
             ?
           </span>
           <div
-            className="absolute left-6 top-0 hidden group-hover:block w-52 p-2 rounded-lg text-[10px] text-muted-foreground z-10"
+            className="absolute left-6 top-0 hidden group-hover:block w-52 p-2 rounded-lg text-xs text-muted-foreground z-10"
             style={{ background: "var(--popover)", border: "1px solid var(--border)" }}
           >
             Players who've spent more time generally rate the game differently —
@@ -53,7 +53,7 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
               className={`flex items-center gap-3 px-2 py-1.5 rounded-lg ${isHighest ? "ring-1 ring-inset" : ""}`}
               style={isHighest ? { background: `${color}10` } : undefined}
             >
-              <span className="text-[10px] font-mono text-muted-foreground w-14 flex-shrink-0">
+              <span className="text-xs font-mono text-muted-foreground w-14 flex-shrink-0">
                 {b.bucket}
               </span>
               <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
@@ -63,12 +63,12 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
                 />
               </div>
               <span
-                className="text-xs font-mono font-medium w-8 text-right flex-shrink-0"
+                className="text-sm font-mono font-medium w-8 text-right flex-shrink-0"
                 style={{ color }}
               >
                 {b.pct_positive}%
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground w-16 text-right flex-shrink-0">
+              <span className="text-xs font-mono text-muted-foreground w-16 text-right flex-shrink-0">
                 {b.reviews.toLocaleString()} rev
               </span>
             </div>
@@ -79,7 +79,7 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
       {insight && (
         <div className="mt-4 relative">
           <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
-            <p className="text-xs text-muted-foreground leading-relaxed italic">
+            <p className="text-sm text-muted-foreground leading-relaxed italic">
               {insight}
             </p>
           </div>
@@ -87,7 +87,7 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
             <div className="absolute inset-0 flex items-center justify-center">
               <Link
                 href="/pro"
-                className="text-xs font-mono px-3 py-1 rounded-full"
+                className="text-sm font-mono px-3 py-1 rounded-full"
                 style={{
                   background: "rgba(45,185,212,0.15)",
                   color: "var(--teal)",

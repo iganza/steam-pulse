@@ -55,7 +55,7 @@ export default async function TagPage({ params }: Props) {
         <div className="mt-6 mb-6">
           <div className="flex items-center gap-3 mb-2">
             <span
-              className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded"
+              className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded"
               style={{
                 background: "rgba(45,185,212,0.1)",
                 border: "1px solid rgba(45,185,212,0.2)",
@@ -76,7 +76,7 @@ export default async function TagPage({ params }: Props) {
         {/* Related Tags */}
         {relatedTags.length > 0 && (
           <div className="mb-10">
-            <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">
+            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
               Related Tags
             </p>
             <div className="flex flex-wrap gap-2">
@@ -84,7 +84,7 @@ export default async function TagPage({ params }: Props) {
                 <Link
                   key={t.id}
                   href={`/tag/${t.slug}`}
-                  className="text-xs px-2.5 py-1 rounded-full font-mono transition-colors hover:text-foreground"
+                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
                   style={{
                     background: "rgba(45,185,212,0.06)",
                     border: "1px solid rgba(45,185,212,0.15)",
@@ -99,7 +99,7 @@ export default async function TagPage({ params }: Props) {
         )}
 
         {/* Full catalog with filters */}
-        <Suspense fallback={<p className="text-sm text-muted-foreground font-mono py-8">Loading...</p>}>
+        <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
           <SearchClient
             initialParams={{}}
             initialFilters={{ tag: slug }}

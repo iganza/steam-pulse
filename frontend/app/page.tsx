@@ -121,7 +121,7 @@ export default async function HomePage() {
                   </div>
                   <Link
                     href={row.seeAll}
-                    className="flex items-center gap-1 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
                   >
                     See all <ChevronRight className="w-3 h-3" />
                   </Link>
@@ -145,7 +145,7 @@ export default async function HomePage() {
               </div>
               <Link
                 href="/search?sort=last_analyzed"
-                className="flex items-center gap-1 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
               >
                 See all <ChevronRight className="w-3 h-3" />
               </Link>
@@ -167,14 +167,14 @@ export default async function HomePage() {
                 <Link
                   key={genre.id}
                   href={`/genre/${genre.slug}`}
-                  className="group px-4 py-3 rounded-xl text-sm font-mono transition-all duration-200 hover:scale-[1.02]"
+                  className="group px-4 py-3 rounded-xl text-base font-mono transition-all duration-200 hover:scale-[1.02]"
                   style={{ background: "var(--card)", border: "1px solid var(--border)" }}
                 >
                   <span className="text-foreground/80 group-hover:text-foreground transition-colors">
                     {genre.name}
                   </span>
                   {genre.game_count != null && (
-                    <span className="block text-[10px] text-muted-foreground mt-0.5">
+                    <span className="block text-xs text-muted-foreground mt-0.5">
                       {genre.game_count.toLocaleString()} games
                     </span>
                   )}
@@ -193,7 +193,7 @@ export default async function HomePage() {
                 <Link
                   key={tag.id}
                   href={`/tag/${tag.slug}`}
-                  className="text-xs px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
+                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
                   style={{
                     background: "rgba(45,185,212,0.06)",
                     border: "1px solid rgba(45,185,212,0.15)",
@@ -215,10 +215,10 @@ export default async function HomePage() {
         {/* Empty state */}
         {!hasAnyGames && (
           <div className="text-center py-20">
-            <p className="font-mono text-sm text-muted-foreground mb-2">
+            <p className="font-mono text-base text-muted-foreground mb-2">
               No games in the database yet.
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Run{" "}
               <code className="px-1.5 py-0.5 rounded bg-secondary font-mono text-[11px]">
                 poetry run python scripts/seed.py --limit 500

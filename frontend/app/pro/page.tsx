@@ -40,7 +40,7 @@ export default function ProPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-6 py-20">
-        <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground mb-4 text-center">
+        <p className="font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground mb-4 text-center">
           SteamPulse Pro
         </p>
         <h1
@@ -74,7 +74,7 @@ export default function ProPage() {
                 </div>
                 <div>
                   <h2 className="font-serif text-lg font-semibold mb-2">{feature.title}</h2>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
+                  <p className="text-base text-muted-foreground leading-relaxed">
                     {feature.description}
                   </p>
                 </div>
@@ -85,7 +85,7 @@ export default function ProPage() {
 
         {/* Waitlist CTA */}
         <div className="text-center">
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-4">
+          <p className="font-mono text-sm uppercase tracking-widest text-muted-foreground mb-4">
             Coming soon
           </p>
           <h2 className="font-serif text-2xl font-bold mb-6">Join the waitlist</h2>
@@ -95,18 +95,18 @@ export default function ProPage() {
               <input
                 type="email"
                 placeholder="your@email.com"
-                className="w-full pl-10 pr-3 py-3 rounded-lg bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-400/30"
+                className="w-full pl-10 pr-3 py-3 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-400/30"
               />
             </div>
             <button
               type="button"
-              className="px-5 py-3 rounded-lg text-sm font-mono font-medium flex-shrink-0"
+              className="px-5 py-3 rounded-lg text-base font-mono font-medium flex-shrink-0"
               style={{ background: "var(--teal)", color: "#0c0c0f" }}
             >
               Notify me
             </button>
           </div>
-          <p className="text-xs text-muted-foreground mt-3">
+          <p className="text-sm text-muted-foreground mt-3">
             No spam. We&apos;ll email you once when Pro launches.
           </p>
         </div>

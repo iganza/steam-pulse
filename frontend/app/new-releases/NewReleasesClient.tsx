@@ -75,7 +75,7 @@ export function NewReleasesClient() {
             <button
               key={t.key}
               onClick={() => updateParams({ tab: t.key })}
-              className={`px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-widest transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-mono uppercase tracking-widest transition-colors ${
                 tab === t.key
                   ? "text-foreground border border-border"
                   : "text-muted-foreground hover:text-foreground"
@@ -89,11 +89,11 @@ export function NewReleasesClient() {
 
         {loading ? (
           <div className="text-center py-20">
-            <p className="text-sm text-muted-foreground font-mono">Loading...</p>
+            <p className="text-base text-muted-foreground font-mono">Loading...</p>
           </div>
         ) : games.length === 0 ? (
           <div className="text-center py-20">
-            <p className="text-sm text-muted-foreground">No games found.</p>
+            <p className="text-base text-muted-foreground">No games found.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -109,17 +109,17 @@ export function NewReleasesClient() {
             <button
               onClick={() => updateParams({ page: String(page - 1) })}
               disabled={page <= 1}
-              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
             >
               <ChevronLeft className="w-3 h-3" /> Prev
             </button>
-            <span className="text-xs font-mono text-muted-foreground">
+            <span className="text-sm font-mono text-muted-foreground">
               Page {page} of {totalPages}
             </span>
             <button
               onClick={() => updateParams({ page: String(page + 1) })}
               disabled={page >= totalPages}
-              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
             >
               Next <ChevronRight className="w-3 h-3" />
             </button>

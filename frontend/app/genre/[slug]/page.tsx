@@ -64,7 +64,7 @@ export default async function GenrePage({ params }: Props) {
           >
             {name}
           </h1>
-          <p className="text-sm text-muted-foreground font-mono">
+          <p className="text-base text-muted-foreground font-mono">
             {genreInfo?.game_count?.toLocaleString() ?? "?"} games
             {genreInfo?.analyzed_count != null && ` \u00b7 ${genreInfo.analyzed_count.toLocaleString()} analyzed`}
           </p>
@@ -83,7 +83,7 @@ export default async function GenrePage({ params }: Props) {
         )}
 
         {/* Full catalog with filters */}
-        <Suspense fallback={<p className="text-sm text-muted-foreground font-mono py-8">Loading...</p>}>
+        <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
           <SearchClient
             initialParams={{}}
             initialFilters={{ genre: slug }}

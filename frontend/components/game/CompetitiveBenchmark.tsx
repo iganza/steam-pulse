@@ -21,11 +21,11 @@ function BenchmarkBar({ label, rank, value }: { label: string; rank: number; val
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
           {label}
         </span>
         <span
-          className="text-xs font-mono font-medium"
+          className="text-sm font-mono font-medium"
           style={{ color: "var(--teal)" }}
         >
           {value}
@@ -56,7 +56,7 @@ export function CompetitiveBenchmark({
     <div className="relative" data-testid="competitive-benchmark">
       <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
         <div className="space-y-4">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Compared to {benchmarks.cohort_size.toLocaleString()} similar games
             {genre ? ` in the ${genre} genre` : ""}
             {year ? ` released in ${year}` : ""}.
@@ -79,12 +79,12 @@ export function CompetitiveBenchmark({
       </div>
       {!isPro && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-          <p className="text-xs font-mono text-foreground font-medium">
+          <p className="text-sm font-mono text-foreground font-medium">
             Competitive Intelligence
           </p>
           <Link
             href="/pro"
-            className="text-xs font-mono px-4 py-1.5 rounded-full transition-colors"
+            className="text-sm font-mono px-4 py-1.5 rounded-full transition-colors"
             style={{
               background: "rgba(45,185,212,0.15)",
               color: "var(--teal)",

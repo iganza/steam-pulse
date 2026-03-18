@@ -218,7 +218,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
     <div className="space-y-6">
       {/* Search */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Search</p>
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Search</p>
         <form onSubmit={handleSearch}>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -227,7 +227,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Game name..."
-              className="w-full pl-8 pr-3 py-2 rounded-lg bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+              className="w-full pl-8 pr-3 py-2 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
             />
           </div>
         </form>
@@ -236,10 +236,10 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
       {/* Genres */}
       {!hideGenreFilter && genres.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Genre</p>
+          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Genre</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {genres.slice(0, 20).map((g) => (
-              <label key={g.id} className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+              <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
                 <input
                   type="radio"
                   name="genre"
@@ -258,10 +258,10 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
       {/* Tags */}
       {!hideTagFilter && tags.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Tags</p>
+          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Tags</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {tags.slice(0, 20).map((t) => (
-              <label key={t.id} className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+              <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
                 <input
                   type="radio"
                   name="tag"
@@ -278,10 +278,10 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Min Reviews */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Min Reviews</p>
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Min Reviews</p>
         <div className="space-y-1">
           {REVIEW_PRESETS.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+            <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
               <input
                 type="radio"
                 name="min_reviews"
@@ -297,10 +297,10 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Sentiment */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Sentiment</p>
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Sentiment</p>
         <div className="space-y-1">
           {SENTIMENT_OPTIONS.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+            <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
               <input
                 type="radio"
                 name="sentiment"
@@ -316,7 +316,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Analysis status */}
       <div>
-        <label className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+        <label className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
           <input
             type="checkbox"
             checked={hasAnalysis === "true"}
@@ -329,10 +329,10 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Price */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Price</p>
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Price</p>
         <div className="space-y-1">
           {PRICE_OPTIONS.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 text-xs cursor-pointer hover:text-foreground text-foreground/70">
+            <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
               <input
                 type="radio"
                 name="price_tier"
@@ -348,21 +348,21 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Year Range */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Release Year</p>
+        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Release Year</p>
         <div className="flex gap-2">
           <input
             type="number"
             placeholder="From"
             value={yearFrom}
             onChange={(e) => updateParams({ year_from: e.target.value })}
-            className="w-full px-2 py-1.5 rounded bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            className="w-full px-2 py-1.5 rounded bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
           />
           <input
             type="number"
             placeholder="To"
             value={yearTo}
             onChange={(e) => updateParams({ year_to: e.target.value })}
-            className="w-full px-2 py-1.5 rounded bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            className="w-full px-2 py-1.5 rounded bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
           />
         </div>
       </div>
@@ -384,7 +384,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             <div className="md:hidden mb-4">
               <button
                 onClick={() => setMobileFilters(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono border border-border text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-mono border border-border text-muted-foreground hover:text-foreground"
               >
                 <SlidersHorizontal className="w-4 h-4" /> Filters
               </button>
@@ -396,14 +396,14 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                 <select
                   value={sort}
                   onChange={(e) => updateParams({ sort: e.target.value })}
-                  className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+                  className="bg-card border border-border rounded-lg px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
                 >
                   {SORT_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
                 {total > 0 && (
-                  <span className="text-xs text-muted-foreground font-mono">
+                  <span className="text-sm text-muted-foreground font-mono">
                     Showing {startItem}\u2013{endItem} of {total.toLocaleString()} games
                   </span>
                 )}
@@ -431,14 +431,14 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                   <button
                     key={f.key}
                     onClick={() => removeFilter(f.key)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono border border-border text-foreground/70 hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full text-sm font-mono border border-border text-foreground/70 hover:text-foreground transition-colors"
                   >
                     {f.label} <X className="w-3 h-3" />
                   </button>
                 ))}
                 <button
                   onClick={clearAllFilters}
-                  className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-sm font-mono text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Clear all filters
                 </button>
@@ -448,14 +448,14 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             {/* Results */}
             {loading ? (
               <div className="text-center py-20">
-                <p className="text-sm text-muted-foreground font-mono">Loading...</p>
+                <p className="text-base text-muted-foreground font-mono">Loading...</p>
               </div>
             ) : games.length === 0 ? (
               <div className="text-center py-20">
-                <p className="text-sm text-muted-foreground mb-4">No games match your filters.</p>
+                <p className="text-base text-muted-foreground mb-4">No games match your filters.</p>
                 <button
                   onClick={clearAllFilters}
-                  className="text-xs font-mono px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground"
+                  className="text-sm font-mono px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground"
                 >
                   Clear filters
                 </button>
@@ -469,7 +469,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             ) : (
               <div className="space-y-2">
                 {/* Table header */}
-                <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-widest font-mono text-muted-foreground">
+                <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono text-muted-foreground">
                   <div className="col-span-5">Game</div>
                   <div className="col-span-2">Genre</div>
                   <div className="col-span-1 text-right">Reviews</div>
@@ -493,24 +493,24 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold truncate group-hover:text-teal-300 transition-colors">{game.name}</p>
-                          {game.developer && <p className="text-[10px] text-muted-foreground truncate">{game.developer}</p>}
+                          <p className="text-sm font-semibold truncate group-hover:text-teal-300 transition-colors">{game.name}</p>
+                          {game.developer && <p className="text-xs text-muted-foreground truncate">{game.developer}</p>}
                         </div>
                       </div>
-                      <div className="col-span-2 text-[10px] text-muted-foreground truncate">
+                      <div className="col-span-2 text-xs text-muted-foreground truncate">
                         {game.genres?.[0] ?? "\u2014"}
                       </div>
-                      <div className="col-span-1 text-right text-[10px] font-mono text-muted-foreground">
+                      <div className="col-span-1 text-right text-xs font-mono text-muted-foreground">
                         {game.review_count?.toLocaleString() ?? "\u2014"}
                       </div>
                       <div className="col-span-2 text-right">
                         {score != null ? (
                           <span className="font-mono text-xs" style={{ color: scoreColor }}>{score}</span>
                         ) : (
-                          <span className="text-[10px] text-muted-foreground">\u2014</span>
+                          <span className="text-xs text-muted-foreground">\u2014</span>
                         )}
                       </div>
-                      <div className="col-span-2 text-right text-[10px] font-mono text-muted-foreground">
+                      <div className="col-span-2 text-right text-xs font-mono text-muted-foreground">
                         {game.release_date ? new Date(game.release_date).getFullYear() : "\u2014"}
                       </div>
                     </Link>
@@ -525,18 +525,18 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                 <button
                   onClick={() => updateParams({ page: String(page - 1) })}
                   disabled={page <= 1}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
                 >
                   <ChevronLeft className="w-3 h-3" /> Prev
                 </button>
                 {pageNumbers.map((pn, i) =>
                   pn === "..." ? (
-                    <span key={`dots-${i}`} className="px-2 text-muted-foreground text-xs">\u2026</span>
+                    <span key={`dots-${i}`} className="px-2 text-muted-foreground text-sm">\u2026</span>
                   ) : (
                     <button
                       key={pn}
                       onClick={() => updateParams({ page: String(pn) })}
-                      className={`px-3 py-1.5 rounded text-xs font-mono ${pn === page ? "text-foreground border border-border" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`px-3 py-1.5 rounded text-sm font-mono ${pn === page ? "text-foreground border border-border" : "text-muted-foreground hover:text-foreground"}`}
                     >
                       {pn}
                     </button>
@@ -545,14 +545,14 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                 <button
                   onClick={() => updateParams({ page: String(page + 1) })}
                   disabled={page >= totalPages}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
                 >
                   Next <ChevronRight className="w-3 h-3" />
                 </button>
                 <select
                   value={perPage}
                   onChange={(e) => updateParams({ per_page: e.target.value })}
-                  className="ml-4 bg-card border border-border rounded px-2 py-1 text-xs font-mono text-foreground focus:outline-none"
+                  className="ml-4 bg-card border border-border rounded px-2 py-1 text-sm font-mono text-foreground focus:outline-none"
                 >
                   {PER_PAGE_OPTIONS.map((n) => (
                     <option key={n} value={n}>{n} per page</option>
@@ -573,7 +573,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             style={{ background: "var(--background)" }}
           >
             <div className="flex items-center justify-between mb-6">
-              <p className="text-sm font-mono font-medium">Filters</p>
+              <p className="text-base font-mono font-medium">Filters</p>
               <button onClick={() => setMobileFilters(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
@@ -581,7 +581,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             {filterSidebar}
             <button
               onClick={() => setMobileFilters(false)}
-              className="w-full mt-6 py-3 rounded-lg text-sm font-mono font-medium"
+              className="w-full mt-6 py-3 rounded-lg text-base font-mono font-medium"
               style={{ background: "var(--teal)", color: "#0c0c0f" }}
             >
               Apply Filters

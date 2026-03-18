@@ -74,7 +74,7 @@ export function Navbar() {
           <div ref={browseRef} className="relative">
             <button
               onClick={() => setBrowseOpen(!browseOpen)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
             >
               Browse <ChevronDown className="w-3 h-3" />
             </button>
@@ -88,7 +88,7 @@ export function Navbar() {
               >
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                    <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
                       Genres
                     </p>
                     <div className="space-y-1">
@@ -97,7 +97,7 @@ export function Navbar() {
                           key={g.id}
                           href={`/genre/${g.slug}`}
                           onClick={() => setBrowseOpen(false)}
-                          className="block text-xs text-foreground/70 hover:text-foreground py-0.5 transition-colors"
+                          className="block text-sm text-foreground/70 hover:text-foreground py-0.5 transition-colors"
                         >
                           {g.name}
                           {g.game_count != null && (
@@ -110,7 +110,7 @@ export function Navbar() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                    <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
                       Tags
                     </p>
                     <div className="space-y-1">
@@ -119,7 +119,7 @@ export function Navbar() {
                           key={t.id}
                           href={`/tag/${t.slug}`}
                           onClick={() => setBrowseOpen(false)}
-                          className="block text-xs text-foreground/70 hover:text-foreground py-0.5 transition-colors"
+                          className="block text-sm text-foreground/70 hover:text-foreground py-0.5 transition-colors"
                         >
                           {t.name}
                         </Link>
@@ -133,19 +133,19 @@ export function Navbar() {
 
           <Link
             href="/search?sort=hidden_gem_score"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
             <Gem className="w-3 h-3" /> Hidden Gems
           </Link>
           <Link
             href="/new-releases"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
             <Sparkles className="w-3 h-3" /> New Releases
           </Link>
           <Link
             href="/trending"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
             <TrendingUp className="w-3 h-3" /> Trending
           </Link>
@@ -158,14 +158,14 @@ export function Navbar() {
             onChange={setQuery}
             onSubmit={handleSearch}
             className="w-full"
-            inputClassName="w-full pl-8 pr-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 transition-all"
+            inputClassName="w-full pl-8 pr-3 py-1.5 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 transition-all"
           />
         </form>
 
         {/* For Developers */}
         <Link
           href="/pro"
-          className="hidden md:block flex-shrink-0 text-xs font-mono tracking-widest hover:text-foreground transition-colors"
+          className="hidden md:block flex-shrink-0 text-sm font-mono tracking-widest hover:text-foreground transition-colors"
           style={{ color: "var(--teal)" }}
         >
           For Developers &rarr;
@@ -192,15 +192,15 @@ export function Navbar() {
               onChange={setQuery}
               onSubmit={handleSearch}
               className="w-full"
-              inputClassName="w-full pl-8 pr-3 py-2.5 rounded-lg bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+              inputClassName="w-full pl-8 pr-3 py-2.5 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30"
             />
           </form>
           <div className="space-y-1">
-            <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm text-foreground/70 hover:text-foreground">Browse All Games</Link>
-            <Link href="/search?sort=hidden_gem_score" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm text-foreground/70 hover:text-foreground">Hidden Gems</Link>
-            <Link href="/new-releases" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm text-foreground/70 hover:text-foreground">New Releases</Link>
-            <Link href="/trending" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm text-foreground/70 hover:text-foreground">Trending</Link>
-            <Link href="/pro" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm" style={{ color: "var(--teal)" }}>For Developers &rarr;</Link>
+            <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Browse All Games</Link>
+            <Link href="/search?sort=hidden_gem_score" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Hidden Gems</Link>
+            <Link href="/new-releases" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">New Releases</Link>
+            <Link href="/trending" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Trending</Link>
+            <Link href="/pro" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base" style={{ color: "var(--teal)" }}>For Developers &rarr;</Link>
           </div>
         </div>
       )}

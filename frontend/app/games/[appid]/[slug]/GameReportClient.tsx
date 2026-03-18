@@ -159,7 +159,7 @@ export function GameReportClient({
                 <Link
                   key={g}
                   href={`/genre/${slugify(g)}`}
-                  className="text-[10px] uppercase tracking-widest font-mono px-2 py-0.5 rounded"
+                  className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded"
                   style={{
                     background: "rgba(45,185,212,0.1)",
                     border: "1px solid rgba(45,185,212,0.2)",
@@ -189,50 +189,50 @@ export function GameReportClient({
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <BarChart3 className="w-4 h-4" />
-                  <span className="text-[10px] uppercase tracking-widest font-mono">Reviews</span>
+                  <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
                 </div>
-                <p className="font-mono text-sm font-medium truncate">{reviewCount?.toLocaleString() ?? "—"}</p>
+                <p className="font-mono text-base font-medium truncate">{reviewCount?.toLocaleString() ?? "—"}</p>
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <Calendar className="w-4 h-4" />
-                  <span className="text-[10px] uppercase tracking-widest font-mono">Released</span>
+                  <span className="text-sm uppercase tracking-widest font-mono">Released</span>
                 </div>
                 {releaseDate ? (
-                  <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-sm font-medium hover:underline" style={{ color: "var(--teal)" }}>
+                  <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-base font-medium hover:underline" style={{ color: "var(--teal)" }}>
                     {new Date(releaseDate).getFullYear()}
                   </Link>
-                ) : <p className="font-mono text-sm font-medium">—</p>}
+                ) : <p className="font-mono text-base font-medium">—</p>}
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <DollarSign className="w-4 h-4" />
-                  <span className="text-[10px] uppercase tracking-widest font-mono">Price</span>
+                  <span className="text-sm uppercase tracking-widest font-mono">Price</span>
                 </div>
-                <p className="font-mono text-sm font-medium truncate">{price}</p>
+                <p className="font-mono text-base font-medium truncate">{price}</p>
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <Star className="w-4 h-4" />
-                  <span className="text-[10px] uppercase tracking-widest font-mono">Developer</span>
+                  <span className="text-sm uppercase tracking-widest font-mono">Developer</span>
                 </div>
                 {developer ? (
-                  <Link href={`/developer/${slugify(developer)}`} className="font-mono text-sm font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
+                  <Link href={`/developer/${slugify(developer)}`} className="font-mono text-base font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
                     {developer}
                   </Link>
-                ) : <p className="font-mono text-sm font-medium">—</p>}
+                ) : <p className="font-mono text-base font-medium">—</p>}
               </div>
               {/* Review Velocity card */}
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <Zap className="w-4 h-4" />
-                  <span className="text-[10px] uppercase tracking-widest font-mono">Velocity</span>
+                  <span className="text-sm uppercase tracking-widest font-mono">Velocity</span>
                 </div>
                 {statsLoading ? (
                   <div className="h-4 bg-secondary rounded animate-pulse w-20" />
                 ) : reviewStats ? (
                   <>
-                    <p className="font-mono text-sm font-medium">
+                    <p className="font-mono text-base font-medium">
                       {reviewStats.review_velocity.reviews_per_day}/day
                     </p>
                     {(() => {
@@ -241,14 +241,14 @@ export function GameReportClient({
                         reviewStats.review_velocity.reviews_per_day
                       );
                       return (
-                        <p className="text-[10px] font-mono mt-1" style={{ color: m.color }}>
+                        <p className="text-sm font-mono mt-1" style={{ color: m.color }}>
                           {m.label}
                         </p>
                       );
                     })()}
                   </>
                 ) : (
-                  <p className="font-mono text-sm font-medium">—</p>
+                  <p className="font-mono text-base font-medium">—</p>
                 )}
               </div>
             </div>
@@ -258,7 +258,7 @@ export function GameReportClient({
           {shortDesc && (
             <section>
               <SectionLabel>About</SectionLabel>
-              <p className="text-sm text-foreground/80 leading-relaxed">{shortDesc}</p>
+              <p className="text-base text-foreground/80 leading-relaxed">{shortDesc}</p>
             </section>
           )}
 
@@ -271,7 +271,7 @@ export function GameReportClient({
                   <Link
                     key={tag}
                     href={`/tag/${slugify(tag)}`}
-                    className="text-xs px-2.5 py-1 rounded-full font-mono transition-colors hover:text-foreground"
+                    className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
                     style={{
                       background: "rgba(45,185,212,0.08)",
                       border: "1px solid rgba(45,185,212,0.2)",
@@ -316,7 +316,7 @@ export function GameReportClient({
               style={{ background: "var(--card)", border: "1px solid var(--border)" }}
             >
               <Clock className="w-5 h-5 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 Analysis in progress — check back once this game reaches sufficient reviews.
               </p>
             </div>
@@ -328,7 +328,7 @@ export function GameReportClient({
               href={`https://store.steampowered.com/app/${appid}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm font-mono text-muted-foreground hover:text-foreground transition-colors"
             >
               View on Steam Store &rarr;
             </a>
@@ -364,7 +364,7 @@ export function GameReportClient({
               <Link
                 key={g}
                 href={`/genre/${slugify(g)}`}
-                className="text-[10px] uppercase tracking-widest font-mono px-2 py-0.5 rounded"
+                className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded"
                 style={{
                   background: "rgba(45,185,212,0.1)",
                   border: "1px solid rgba(45,185,212,0.2)",
@@ -410,7 +410,7 @@ export function GameReportClient({
             &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
           </blockquote>
           <ScoreBar score={report.sentiment_score ?? 0} />
-          <p className="mt-2 text-xs text-muted-foreground font-mono" data-testid="score-context">
+          <p className="mt-2 text-sm text-muted-foreground font-mono" data-testid="score-context">
             {scoreContextSentence(report.sentiment_score ?? 0)}
           </p>
         </section>
@@ -422,57 +422,57 @@ export function GameReportClient({
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <BarChart3 className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Reviews</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
               </div>
-              <p className="font-mono text-sm font-medium truncate">{report.total_reviews_analyzed?.toLocaleString() ?? "—"}</p>
+              <p className="font-mono text-base font-medium truncate">{report.total_reviews_analyzed?.toLocaleString() ?? "—"}</p>
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <Calendar className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Released</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Released</span>
               </div>
               {releaseDate ? (
-                <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-sm font-medium hover:underline" style={{ color: "var(--teal)" }}>
+                <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-base font-medium hover:underline" style={{ color: "var(--teal)" }}>
                   {new Date(releaseDate).getFullYear()}
                 </Link>
-              ) : <p className="font-mono text-sm font-medium">—</p>}
+              ) : <p className="font-mono text-base font-medium">—</p>}
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <DollarSign className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Price</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Price</span>
               </div>
-              <p className="font-mono text-sm font-medium truncate">{price}</p>
+              <p className="font-mono text-base font-medium truncate">{price}</p>
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <Star className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Developer</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Developer</span>
               </div>
               {developer ? (
-                <Link href={`/developer/${slugify(developer)}`} className="font-mono text-sm font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
+                <Link href={`/developer/${slugify(developer)}`} className="font-mono text-base font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
                   {developer}
                 </Link>
-              ) : <p className="font-mono text-sm font-medium">—</p>}
+              ) : <p className="font-mono text-base font-medium">—</p>}
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <Clock className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Analyzed</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Analyzed</span>
               </div>
-              <p className="font-mono text-sm font-medium truncate">{report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
+              <p className="font-mono text-base font-medium truncate">{report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
             </div>
             {/* Review Velocity card */}
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
                 <Zap className="w-4 h-4" />
-                <span className="text-[10px] uppercase tracking-widest font-mono">Velocity</span>
+                <span className="text-sm uppercase tracking-widest font-mono">Velocity</span>
               </div>
               {statsLoading ? (
                 <div className="h-4 bg-secondary rounded animate-pulse w-20" />
               ) : reviewStats ? (
                 <>
-                  <p className="font-mono text-sm font-medium">
+                  <p className="font-mono text-base font-medium">
                     {reviewStats.review_velocity.reviews_per_day}/day
                   </p>
                   {(() => {
@@ -481,14 +481,14 @@ export function GameReportClient({
                       reviewStats.review_velocity.reviews_per_day
                     );
                     return (
-                      <p className="text-[10px] font-mono mt-1" style={{ color: m.color }}>
+                      <p className="text-sm font-mono mt-1" style={{ color: m.color }}>
                         {m.label}
                       </p>
                     );
                   })()}
                 </>
               ) : (
-                <p className="font-mono text-sm font-medium">—</p>
+                <p className="font-mono text-base font-medium">—</p>
               )}
             </div>
           </div>
@@ -501,7 +501,7 @@ export function GameReportClient({
             {(report.design_strengths ?? []).map((item, i) => (
               <li key={i} className="flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--positive)" }} />
-                <span className="text-sm text-foreground/80 leading-relaxed">{item}</span>
+                <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
               </li>
             ))}
           </ul>
@@ -514,7 +514,7 @@ export function GameReportClient({
             {(report.gameplay_friction ?? []).map((item, i) => (
               <li key={i} className="flex items-start gap-3">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--negative)" }} />
-                <span className="text-sm text-foreground/80 leading-relaxed">{item}</span>
+                <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
               </li>
             ))}
           </ul>
@@ -527,30 +527,30 @@ export function GameReportClient({
             <div className="grid md:grid-cols-2 gap-6">
               <div className="p-5 rounded-xl space-y-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-1">Ideal Player</p>
-                  <p className="text-sm text-foreground/80">{report.audience_profile.ideal_player}</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">Ideal Player</p>
+                  <p className="text-base text-foreground/80">{report.audience_profile.ideal_player}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-1">Casual Friendliness</p>
-                  <p className="text-sm text-foreground/80">{report.audience_profile.casual_friendliness}</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">Casual Friendliness</p>
+                  <p className="text-base text-foreground/80">{report.audience_profile.casual_friendliness}</p>
                 </div>
               </div>
               <div className="space-y-4">
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Player Archetypes</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Player Archetypes</p>
                   <div className="flex flex-wrap gap-2">
                     {report.audience_profile.archetypes?.map((a) => (
-                      <span key={a} className="text-xs px-2.5 py-1 rounded-full font-mono" style={{ background: "rgba(45,185,212,0.08)", border: "1px solid rgba(45,185,212,0.2)", color: "var(--teal)" }}>
+                      <span key={a} className="text-sm px-3 py-1.5 rounded-full font-mono" style={{ background: "rgba(45,185,212,0.08)", border: "1px solid rgba(45,185,212,0.2)", color: "var(--teal)" }}>
                         {a}
                       </span>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-2">Not For</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Not For</p>
                   <div className="flex flex-wrap gap-2">
                     {report.audience_profile.not_for?.map((n) => (
-                      <span key={n} className="text-xs px-2.5 py-1 rounded-full font-mono" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", color: "rgba(239,68,68,0.8)" }}>
+                      <span key={n} className="text-sm px-3 py-1.5 rounded-full font-mono" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", color: "rgba(239,68,68,0.8)" }}>
                         {n}
                       </span>
                     ))}
@@ -568,8 +568,8 @@ export function GameReportClient({
             <div className="p-5 rounded-xl flex items-start gap-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <TrendIcon trend={report.sentiment_trend} />
               <div>
-                <p className="text-sm font-mono font-medium mb-1">{report.sentiment_trend}</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{report.sentiment_trend_note}</p>
+                <p className="text-base font-mono font-medium mb-1">{report.sentiment_trend}</p>
+                <p className="text-base text-muted-foreground leading-relaxed">{report.sentiment_trend_note}</p>
               </div>
             </div>
           </section>
@@ -579,7 +579,7 @@ export function GameReportClient({
         {report.genre_context && (
           <section>
             <SectionLabel>Genre Context</SectionLabel>
-            <p className="text-sm text-foreground/80 leading-relaxed">{report.genre_context}</p>
+            <p className="text-base text-foreground/80 leading-relaxed">{report.genre_context}</p>
           </section>
         )}
 
@@ -591,7 +591,7 @@ export function GameReportClient({
               {report.player_wishlist.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <Lightbulb className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--gem)" }} />
-                  <span className="text-sm text-foreground/80 leading-relaxed">{item}</span>
+                  <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
                 </li>
               ))}
             </ul>
@@ -606,7 +606,7 @@ export function GameReportClient({
               {report.churn_triggers.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <DoorOpen className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--negative)" }} />
-                  <span className="text-sm text-foreground/80 leading-relaxed">{item}</span>
+                  <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
                 </li>
               ))}
             </ul>
@@ -624,17 +624,17 @@ export function GameReportClient({
                     <span className="font-mono text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0" style={{ background: "rgba(45,185,212,0.1)", color: "var(--teal)" }}>
                       #{i + 1}
                     </span>
-                    <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                    <p className="text-base font-medium text-foreground flex items-center gap-2">
                       <Target className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--teal)" }} />
                       {p.action}
                     </p>
                   </div>
-                  <p className="text-xs text-muted-foreground ml-8 mb-3 leading-relaxed">{p.why_it_matters}</p>
+                  <p className="text-sm text-muted-foreground ml-8 mb-3 leading-relaxed">{p.why_it_matters}</p>
                   <div className="flex gap-4 ml-8">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
                       Freq: <span className="text-foreground/60">{p.frequency}</span>
                     </span>
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
                       Effort: <span className="text-foreground/60">{p.effort}</span>
                     </span>
                   </div>
@@ -643,7 +643,7 @@ export function GameReportClient({
             </div>
             {/* Contextual Pro CTA */}
             {primaryGenre && (
-              <p className="mt-6 text-xs text-muted-foreground">
+              <p className="mt-6 text-sm text-muted-foreground">
                 Researching the {primaryGenre} market? See what players want that no game currently delivers.{" "}
                 <Link href="/pro" className="font-mono hover:text-foreground transition-colors" style={{ color: "var(--teal)" }}>
                   Genre Intelligence (Pro) &rarr;
@@ -663,12 +663,12 @@ export function GameReportClient({
                   <Swords className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-mono font-medium text-foreground">{c.game}</span>
-                      <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--muted-foreground)" }}>
+                      <span className="text-base font-mono font-medium text-foreground">{c.game}</span>
+                      <span className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--muted-foreground)" }}>
                         {c.comparison_sentiment}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{c.note}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{c.note}</p>
                   </div>
                 </div>
               ))}
@@ -722,7 +722,7 @@ export function GameReportClient({
                 <Link
                   key={tag}
                   href={`/tag/${slugify(tag)}`}
-                  className="text-xs px-2.5 py-1 rounded-full font-mono transition-colors hover:text-foreground"
+                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
                   style={{
                     background: "rgba(45,185,212,0.08)",
                     border: "1px solid rgba(45,185,212,0.2)",
@@ -738,7 +738,7 @@ export function GameReportClient({
 
         {/* Footer */}
         <section className="pt-8 border-t border-border">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
             <Users className="w-3.5 h-3.5" />
             <span>
               Analysis based on {report.total_reviews_analyzed?.toLocaleString() ?? "\u2014"} reviews
@@ -759,7 +759,7 @@ export function GameReportClient({
               href={`https://store.steampowered.com/app/${appid}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm font-mono text-muted-foreground hover:text-foreground transition-colors"
             >
               View on Steam Store &rarr;
             </a>

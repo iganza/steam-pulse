@@ -31,7 +31,7 @@ export function GameCard({ game }: GameCardProps) {
         )}
         {(game.hidden_gem_score ?? 0) >= 70 && (
           <div
-            className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-widest"
+            className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono uppercase tracking-widest"
             style={{ background: "rgba(201,151,60,0.85)", color: "#0c0c0f" }}
           >
             <Gem className="w-2.5 h-2.5" />
@@ -40,11 +40,11 @@ export function GameCard({ game }: GameCardProps) {
         )}
       </div>
       <div className="p-4 flex-1 flex flex-col">
-        <h3 className="font-serif text-sm font-semibold text-foreground line-clamp-1 mb-1">
+        <h3 className="font-serif text-base font-semibold text-foreground line-clamp-1 mb-1">
           {game.name}
         </h3>
         {game.developer && (
-          <p className="text-[11px] text-muted-foreground font-mono mb-3 truncate">
+          <p className="text-sm text-muted-foreground font-mono mb-3 truncate">
             {game.developer}
           </p>
         )}
@@ -57,13 +57,13 @@ export function GameCard({ game }: GameCardProps) {
                   style={{ width: `${score}%`, background: scoreColor }}
                 />
               </div>
-              <span className="font-mono text-xs tabular-nums" style={{ color: scoreColor }}>
+              <span className="font-mono text-sm tabular-nums" style={{ color: scoreColor }}>
                 {score}
               </span>
             </>
           ) : (
             game.review_count != null && (
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground">
                 {game.review_count.toLocaleString()} reviews
               </span>
             )

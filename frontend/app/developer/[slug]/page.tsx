@@ -82,7 +82,7 @@ export default async function DeveloperPage({ params }: Props) {
               className="p-4 rounded-xl"
               style={{ background: "var(--card)", border: "1px solid var(--border)" }}
             >
-              <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-1">
+              <p className="text-sm uppercase tracking-widest font-mono text-muted-foreground mb-1">
                 {s.label}
               </p>
               <p className="font-mono text-lg font-bold">{s.value}</p>
@@ -93,7 +93,7 @@ export default async function DeveloperPage({ params }: Props) {
         {/* Sentiment across catalog */}
         {games.length > 0 && (
           <div className="mb-8 p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-            <p className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
               Sentiment Across Catalog
             </p>
             <div className="space-y-2">
@@ -105,7 +105,7 @@ export default async function DeveloperPage({ params }: Props) {
                   <div key={game.appid} className="flex items-center gap-3">
                     <Link
                       href={`/games/${game.appid}/${game.slug}`}
-                      className="text-xs font-mono truncate w-40 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                      className="text-sm font-mono truncate w-40 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
                     >
                       {game.name}
                     </Link>
@@ -117,7 +117,7 @@ export default async function DeveloperPage({ params }: Props) {
                             style={{ width: `${score}%`, background: color }}
                           />
                         </div>
-                        <span className="font-mono text-xs tabular-nums w-6 text-right" style={{ color }}>
+                        <span className="font-mono text-sm tabular-nums w-6 text-right" style={{ color }}>
                           {score}
                         </span>
                       </>
@@ -137,13 +137,13 @@ export default async function DeveloperPage({ params }: Props) {
         </div>
 
         {games.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-12">
+          <p className="text-base text-muted-foreground text-center py-12">
             No games found for this developer.
           </p>
         )}
 
         {/* Pro CTA */}
-        <p className="mt-12 text-xs text-muted-foreground text-center">
+        <p className="mt-12 text-sm text-muted-foreground text-center">
           Want a competitive analysis across all games in this developer&apos;s primary genre?{" "}
           <Link href="/pro" className="font-mono hover:text-foreground transition-colors" style={{ color: "var(--teal)" }}>
             Developer Intelligence (Pro) &rarr;

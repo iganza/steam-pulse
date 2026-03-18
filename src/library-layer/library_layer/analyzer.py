@@ -4,6 +4,8 @@ import json
 import os
 
 import anthropic
+import instructor
+from library_layer.analyzer_models import ChunkSummary, GameReport
 
 HAIKU_MODEL_DEFAULT = "anthropic.claude-3-5-haiku-20241022-v1:0"
 SONNET_MODEL_DEFAULT = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -17,8 +19,9 @@ def _sonnet_model() -> str:
     return os.getenv("SONNET_MODEL", SONNET_MODEL_DEFAULT)
 
 
-def _get_client() -> anthropic.AnthropicBedrock:
-    return anthropic.AnthropicBedrock()
+def _get_instructor_client() -> instructor.Instructor:
+    return instructor.from_anthropic(anthropic.AnthropicBedrock())
+
 
 CHUNK_SYSTEM_PROMPT = (
     "You are a signal extractor for a game review analytics pipeline. Your ONLY job is to "
@@ -63,11 +66,10 @@ def _chunk_reviews(reviews: list[dict], chunk_size: int = CHUNK_SIZE) -> list[li
     return [reviews[i : i + chunk_size] for i in range(0, len(reviews), chunk_size)]
 
 
-def _compute_sentiment_score(chunk_summaries: list[dict]) -> float:
-    total_positive = sum(c.get("batch_stats", {}).get("positive_count", 0) for c in chunk_summaries)
+def _compute_sentiment_score(chunk_summaries: list[ChunkSummary]) -> float:
+    total_positive = sum(c.batch_stats.positive_count for c in chunk_summaries)
     total = sum(
-        c.get("batch_stats", {}).get("positive_count", 0) + c.get("batch_stats", {}).get("negative_count", 0)
-        for c in chunk_summaries
+        c.batch_stats.positive_count + c.batch_stats.negative_count for c in chunk_summaries
     )
     return round(total_positive / total, 3) if total > 0 else 0.5
 
@@ -86,17 +88,22 @@ def _sentiment_label(score: float) -> str:
     elif score >= 0.80:
         return "Very Positive"
     elif score >= 0.65:
-        return "Positive"
+        return "Mostly Positive"
     elif score >= 0.45:
         return "Mixed"
     elif score >= 0.30:
-        return "Negative"
+        return "Mostly Negative"
     elif score >= 0.15:
         return "Very Negative"
     return "Overwhelmingly Negative"
 
 
-def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chunk_index: int, total_chunks: int) -> dict:
+def _summarize_chunk(
+    client: instructor.Instructor,
+    chunk: list[dict],
+    chunk_index: int,
+    total_chunks: int,
+) -> ChunkSummary:
     """Pass 1: extract raw signals from a batch of reviews using Haiku with prompt caching."""
     reviews_text = "\n\n".join(
         f"[{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
@@ -104,9 +111,11 @@ def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chun
         for r in chunk
     )
 
-    response = client.messages.create(
+    summary, _ = client.messages.create_with_completion(
         model=_haiku_model(),
         max_tokens=1024,
+        response_model=ChunkSummary,
+        max_retries=2,
         system=[
             {
                 "type": "text",
@@ -145,37 +154,26 @@ def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chun
             }
         ],
     )
-
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {
-            "design_praise": [], "gameplay_friction": [], "wishlist_items": [],
-            "dropout_moments": [], "competitor_refs": [], "notable_quotes": [],
-            "batch_stats": {"positive_count": 0, "negative_count": 0, "avg_playtime_hours": 0},
-        }
+    return summary
 
 
 def _synthesize(
-    client: anthropic.AnthropicBedrock,
-    chunk_summaries: list[dict],
+    client: instructor.Instructor,
+    chunk_summaries: list[ChunkSummary],
     game_name: str,
     total_reviews: int,
     sentiment_score: float,
     hidden_gem_score: float,
-) -> dict:
+) -> GameReport:
     """Pass 2: synthesize all chunk signals into a final structured report using Sonnet."""
-    summaries_text = json.dumps(chunk_summaries, indent=2)
+    summaries_text = json.dumps([s.model_dump() for s in chunk_summaries], indent=2)
     overall_sentiment = _sentiment_label(sentiment_score)
 
-    response = client.messages.create(
+    report, _ = client.messages.create_with_completion(
         model=_sonnet_model(),
         max_tokens=3500,
+        response_model=GameReport,
+        max_retries=2,
         system=[
             {
                 "type": "text",
@@ -224,7 +222,7 @@ def _synthesize(
                     "  ],\n"
                     '  "churn_triggers": [\n'
                     '    "Specific MOMENTS in the player journey that cause dropout. 2-4 items."\n'
-                    '    "Must include timing language: \'within first 10 minutes\', \'around hour 3\'."\n'
+                    "    \"Must include timing language: 'within first 10 minutes', 'around hour 3'.\"\n"
                     '    "EXCLUDE: the underlying design problem itself — just describe WHEN and WHAT triggers departure."\n'
                     "  ],\n"
                     '  "dev_priorities": [\n'
@@ -247,33 +245,7 @@ def _synthesize(
             }
         ],
     )
-
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {
-            "game_name": game_name,
-            "total_reviews_analyzed": total_reviews,
-            "overall_sentiment": overall_sentiment,
-            "sentiment_score": sentiment_score,
-            "sentiment_trend": "stable",
-            "sentiment_trend_note": "Analysis could not be parsed.",
-            "one_liner": "Analysis could not be parsed.",
-            "audience_profile": {"ideal_player": "", "casual_friendliness": "medium", "archetypes": [], "not_for": []},
-            "design_strengths": [],
-            "gameplay_friction": [],
-            "player_wishlist": [],
-            "churn_triggers": [],
-            "dev_priorities": [],
-            "competitive_context": [],
-            "genre_context": "",
-            "hidden_gem_score": hidden_gem_score,
-        }
+    return report
 
 
 async def analyze_reviews(
@@ -292,17 +264,15 @@ async def analyze_reviews(
     if not reviews:
         raise ValueError("No reviews to analyze")
 
-    client = _get_client()
+    client = _get_instructor_client()
     chunks = _chunk_reviews(reviews)
     total_chunks = len(chunks)
 
     # Pass 1 — run chunk summarizations in a thread pool (SDK is sync)
     loop = asyncio.get_event_loop()
-    chunk_summaries = []
+    chunk_summaries: list[ChunkSummary] = []
     for i, chunk in enumerate(chunks):
-        summary = await loop.run_in_executor(
-            None, _summarize_chunk, client, chunk, i, total_chunks
-        )
+        summary = await loop.run_in_executor(None, _summarize_chunk, client, chunk, i, total_chunks)
         chunk_summaries.append(summary)
 
     # Compute numeric scores in Python before calling Sonnet
@@ -310,12 +280,22 @@ async def analyze_reviews(
     hidden_gem_score = _compute_hidden_gem_score(len(reviews), sentiment_score)
 
     # Pass 2 — synthesize
-    result = await loop.run_in_executor(
-        None, _synthesize, client, chunk_summaries, game_name, len(reviews),
-        sentiment_score, hidden_gem_score,
+    result: GameReport = await loop.run_in_executor(
+        None,
+        _synthesize,
+        client,
+        chunk_summaries,
+        game_name,
+        len(reviews),
+        sentiment_score,
+        hidden_gem_score,
     )
 
-    if appid is not None:
-        result["appid"] = appid
+    # Override with Python-computed scores — more reliable than LLM-guessed values
+    result.sentiment_score = sentiment_score
+    result.hidden_gem_score = hidden_gem_score
 
-    return result
+    if appid is not None:
+        result.appid = appid
+
+    return result.model_dump()

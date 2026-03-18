@@ -20,6 +20,7 @@ rich = "^14.3.3"
 library-layer = {path = "src/library-layer", develop = true}
 lambda-functions = {path = "src/lambda-functions", develop = true}
 pydantic-settings = "^2.13.1"
+instructor = ">=1.0.0"
 
 [tool.poetry.group.infra]
 optional = true

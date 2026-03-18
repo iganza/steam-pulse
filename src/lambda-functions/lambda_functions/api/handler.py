@@ -200,10 +200,10 @@ async def health() -> dict:
 async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
 
-    # Cache hit — return full report (no more rate limiting)
+    # Cache hit — return preview fields only
     cached = await _get_report(appid)
     if cached:
-        return cached
+        return _preview_fields(cached)
 
     # Fetch game details to get name
     try:

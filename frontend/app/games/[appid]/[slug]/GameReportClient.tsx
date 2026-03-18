@@ -83,6 +83,8 @@ function momentumLabel(reviewsLast30: number, reviewsPerDay: number): { label: s
   return { label: "Slowing", color: "#f59e0b" };
 }
 
+const isPro = true; // TODO: wire to auth
+
 export function GameReportClient({
   report,
   appid,
@@ -302,6 +304,7 @@ export function GameReportClient({
               <PlaytimeChart
                 buckets={reviewStats.playtime_buckets}
                 insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+                isPro={isPro}
               />
             ) : null}
           </section>
@@ -692,6 +695,7 @@ export function GameReportClient({
             <PlaytimeChart
               buckets={reviewStats.playtime_buckets}
               insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+              isPro={isPro}
             />
           ) : null}
         </section>
@@ -704,6 +708,7 @@ export function GameReportClient({
               benchmarks={benchmarks}
               genre={primaryGenre}
               year={releaseDate ? new Date(releaseDate).getFullYear() : undefined}
+              isPro={isPro}
             />
           </section>
         )}

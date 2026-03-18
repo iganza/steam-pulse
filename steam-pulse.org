@@ -5,3 +5,21 @@
    - CI runs npx playwright test on the PR → catches regressions before merge
    - Against staging: PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npx playwright test — smoke tests real infrastructure with no
   mocks needed for structural checks
+
+** Local Database Backup & Restore
+   Backup (runs pg_dump inside the Docker container — no version mismatch):
+   #+begin_src bash
+   ./scripts/backup_db.sh
+   # Output: backups/steampulse_YYYYMMDD_HHMMSS.sql.gz
+   #+end_src
+
+   Restore from a backup file:
+   #+begin_src bash
+   gunzip -c backups/steampulse_TIMESTAMP.sql.gz | docker exec -i steam-pulse-db-1 psql -U steampulse -d steampulse
+   #+end_src
+
+   Tests use a separate database — never the dev db:
+   #+begin_src bash
+   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/steampulse_test poetry run pytest tests/ -q
+   #+end_src
+

@@ -103,3 +103,4 @@ secrets/
 .terraform/
 .terraform.lock.hcl
 terraform.tfstate*
+backups/

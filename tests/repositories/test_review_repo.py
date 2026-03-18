@@ -1,6 +1,6 @@
 """Tests for ReviewRepository."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -106,3 +106,118 @@ def test_latest_posted_at_returns_none_for_empty(
     review_repo: ReviewRepository,
 ) -> None:
     assert review_repo.latest_posted_at(9999) is None
+
+
+# ---------------------------------------------------------------------------
+# find_review_stats tests
+# ---------------------------------------------------------------------------
+
+
+def test_find_review_stats_empty_when_no_reviews(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """find_review_stats returns empty structures when the game has no reviews."""
+    _seed_game(game_repo)
+    stats = review_repo.find_review_stats(440)
+    assert stats["timeline"] == []
+    assert stats["playtime_buckets"] == []
+    assert stats["review_velocity"]["reviews_per_day"] == 0.0
+    assert stats["review_velocity"]["reviews_last_30_days"] == 0
+
+
+def test_find_review_stats_timeline_keys_and_pct(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Timeline entries expose week, total, positive, pct_positive with correct values."""
+    _seed_game(game_repo)
+    reviews = [
+        {
+            "appid": 440,
+            "steam_review_id": "rs-1",
+            "voted_up": True,
+            "playtime_hours": 10,
+            "body": "",
+            "posted_at": datetime(2023, 10, 2, 12, 0, 0, tzinfo=UTC),
+        },
+        {
+            "appid": 440,
+            "steam_review_id": "rs-2",
+            "voted_up": False,
+            "playtime_hours": 5,
+            "body": "",
+            "posted_at": datetime(2023, 10, 2, 13, 0, 0, tzinfo=UTC),
+        },
+    ]
+    review_repo.bulk_upsert(reviews)
+    stats = review_repo.find_review_stats(440)
+    assert len(stats["timeline"]) == 1
+    entry = stats["timeline"][0]
+    assert entry["total"] == 2
+    assert entry["positive"] == 1
+    assert entry["pct_positive"] == 50
+
+
+def test_find_review_stats_groups_by_week(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Reviews spanning 3 distinct weeks produce 3 separate timeline entries."""
+    _seed_game(game_repo)
+    base = datetime(2023, 10, 2, 12, 0, 0, tzinfo=UTC)  # a Monday
+    reviews = [
+        {
+            "appid": 440,
+            "steam_review_id": f"wk-{w}",
+            "voted_up": True,
+            "playtime_hours": 10,
+            "body": "",
+            "posted_at": base + timedelta(weeks=w),
+        }
+        for w in range(3)
+    ]
+    review_repo.bulk_upsert(reviews)
+    stats = review_repo.find_review_stats(440)
+    assert len(stats["timeline"]) == 3
+
+
+def test_find_review_stats_playtime_buckets(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """One review per playtime range maps to the correct bucket label."""
+    _seed_game(game_repo)
+    cases = [(0, "0h"), (1, "<2h"), (5, "2-10h"), (20, "10-50h"), (100, "50-200h"), (300, "200h+")]
+    reviews = [
+        {
+            "appid": 440,
+            "steam_review_id": f"pt-{hours}",
+            "voted_up": True,
+            "playtime_hours": hours,
+            "body": "",
+            "posted_at": datetime(2023, 10, 2, 12, 0, 0, tzinfo=UTC),
+        }
+        for hours, _ in cases
+    ]
+    review_repo.bulk_upsert(reviews)
+    stats = review_repo.find_review_stats(440)
+    labels = {b["bucket"] for b in stats["playtime_buckets"]}
+    assert labels == {"0h", "<2h", "2-10h", "10-50h", "50-200h", "200h+"}
+
+
+def test_find_review_stats_velocity_nonzero(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """reviews_per_day is positive when the game has reviews with posted_at set."""
+    _seed_game(game_repo)
+    reviews = [
+        {
+            "appid": 440,
+            "steam_review_id": f"vel-{i}",
+            "voted_up": True,
+            "playtime_hours": 5,
+            "body": "",
+            "posted_at": datetime(2023, 10, 2, 12, 0, 0, tzinfo=UTC),
+        }
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(reviews)
+    stats = review_repo.find_review_stats(440)
+    assert stats["review_velocity"]["reviews_per_day"] > 0

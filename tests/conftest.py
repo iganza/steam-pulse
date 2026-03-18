@@ -24,11 +24,28 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.schema import create_all
 
 
+_TEST_DB_DEFAULT = "postgresql://postgres:postgres@localhost:5432/steampulse_test"
+
+
+def _safe_test_db_url() -> str:
+    """Return the test DB URL, refusing to use a non-test database."""
+    url = os.environ.get("TEST_DATABASE_URL") or _TEST_DB_DEFAULT
+    # Safety: abort hard if the URL doesn't look like a test database.
+    db_name = url.rstrip("/").rsplit("/", 1)[-1].split("?")[0]
+    if "test" not in db_name:
+        pytest.exit(
+            f"\n\n💥 REFUSING TO RUN TESTS: '{db_name}' does not contain 'test'.\n"
+            "Set TEST_DATABASE_URL to a dedicated test database, e.g.:\n"
+            "  TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/steampulse_test\n"
+            "Never point TEST_DATABASE_URL at a production or dev database.\n",
+            returncode=1,
+        )
+    return url
+
+
 @pytest.fixture(scope="session")
 def db_conn() -> Generator[Any, None, None]:
-    url = os.environ.get(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/steampulse_test"
-    )
+    url = _safe_test_db_url()
     try:
         conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
     except Exception:

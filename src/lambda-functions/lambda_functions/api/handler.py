@@ -33,22 +33,12 @@ from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 
-_game_repo: GameRepository
-_report_repo: ReportRepository
-_review_repo: ReviewRepository
-_job_repo: JobRepository
-_tag_repo: TagRepository
-_db_conn: object  # psycopg2 connection
-
-try:
-    _db_conn = get_conn()
-    _game_repo = GameRepository(_db_conn)
-    _report_repo = ReportRepository(_db_conn)
-    _review_repo = ReviewRepository(_db_conn)
-    _job_repo = JobRepository(_db_conn)
-    _tag_repo = TagRepository(_db_conn)
-except Exception:
-    pass  # DB unavailable — Lambda fails on first DB-dependent request; /health still works
+_conn = get_conn()
+_game_repo = GameRepository(_conn)
+_report_repo = ReportRepository(_conn)
+_review_repo = ReviewRepository(_conn)
+_job_repo = JobRepository(_conn)
+_tag_repo = TagRepository(_conn)
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
 import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
@@ -48,6 +49,9 @@ class ComputeStack(cdk.Stack):
         db_secret: secretsmanager.ISecret,
         app_crawl_queue: sqs.IQueue,
         review_crawl_queue: sqs.IQueue,
+        game_events_topic: sns.ITopic,
+        content_events_topic: sns.ITopic,
+        system_events_topic: sns.ITopic,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -57,7 +61,8 @@ class ComputeStack(cdk.Stack):
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
         library_layer = PythonLayerVersion(
-            self, "LibraryLayer",
+            self,
+            "LibraryLayer",
             entry="src/library-layer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
             description="Shared deps (httpx, psycopg2, boto3, anthropic) + steampulse framework",
@@ -65,7 +70,8 @@ class ComputeStack(cdk.Stack):
 
         # ── Analysis Lambda ───────────────────────────────────────────────────
         analysis_role = iam.Role(
-            self, "AnalysisRole",
+            self,
+            "AnalysisRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -73,17 +79,23 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        analysis_role.add_to_policy(iam.PolicyStatement(
-            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret.secret_arn],
-        ))
-        analysis_role.add_to_policy(iam.PolicyStatement(
-            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-            resources=["*"],
-        ))
+        analysis_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                resources=[db_secret.secret_arn],
+            )
+        )
+        analysis_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=["*"],
+            )
+        )
+        content_events_topic.grant_publish(analysis_role)
 
         analysis_fn = PythonFunction(
-            self, "AnalysisFn",
+            self,
+            "AnalysisFn",
             entry="src/lambda-functions",
             index="lambda_functions/analysis/handler.py",
             handler="handler",
@@ -96,7 +108,8 @@ class ComputeStack(cdk.Stack):
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,
             log_group=logs.LogGroup(
-                self, "AnalysisLogs",
+                self,
+                "AnalysisLogs",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -105,12 +118,14 @@ class ComputeStack(cdk.Stack):
                 "DB_SECRET_ARN": db_secret.secret_arn,
                 "HAIKU_MODEL": config.HAIKU_MODEL,
                 "SONNET_MODEL": config.SONNET_MODEL,
+                "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
             },
         )
 
         # ── Step Functions ────────────────────────────────────────────────────
         analyze_task = tasks.LambdaInvoke(
-            self, "AnalyzeGame",
+            self,
+            "AnalyzeGame",
             lambda_function=analysis_fn,
             output_path="$.Payload",
         )
@@ -121,13 +136,15 @@ class ComputeStack(cdk.Stack):
         )
 
         state_machine = sfn.StateMachine(
-            self, "AnalysisMachine",
+            self,
+            "AnalysisMachine",
             definition_body=sfn.DefinitionBody.from_chainable(analyze_task),
             state_machine_type=sfn.StateMachineType.EXPRESS,
             timeout=cdk.Duration.minutes(15),
             logs=sfn.LogOptions(
                 destination=logs.LogGroup(
-                    self, "SfnLogs",
+                    self,
+                    "SfnLogs",
                     retention=logs.RetentionDays.ONE_WEEK,
                     removal_policy=cdk.RemovalPolicy.DESTROY,
                 ),
@@ -137,7 +154,8 @@ class ComputeStack(cdk.Stack):
 
         # ── API Lambda ────────────────────────────────────────────────────────
         api_role = iam.Role(
-            self, "ApiRole",
+            self,
+            "ApiRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -145,21 +163,28 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        api_role.add_to_policy(iam.PolicyStatement(
-            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret.secret_arn],
-        ))
-        api_role.add_to_policy(iam.PolicyStatement(
-            actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-            resources=["*"],
-        ))
-        api_role.add_to_policy(iam.PolicyStatement(
-            actions=["states:StartExecution", "states:DescribeExecution"],
-            resources=[state_machine.state_machine_arn],
-        ))
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                resources=[db_secret.secret_arn],
+            )
+        )
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=["*"],
+            )
+        )
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution", "states:DescribeExecution"],
+                resources=[state_machine.state_machine_arn],
+            )
+        )
 
         api_fn = PythonFunction(
-            self, "ApiFn",
+            self,
+            "ApiFn",
             entry="src/lambda-functions",
             index="lambda_functions/api/handler.py",
             handler="handler",
@@ -172,7 +197,8 @@ class ComputeStack(cdk.Stack):
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
             log_group=logs.LogGroup(
-                self, "ApiLogs",
+                self,
+                "ApiLogs",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -206,14 +232,16 @@ class ComputeStack(cdk.Stack):
             frontend_runtime = lambda_.Runtime.PYTHON_3_12
 
         frontend_fn = lambda_.Function(
-            self, "FrontendFn",
+            self,
+            "FrontendFn",
             runtime=frontend_runtime,
             handler=frontend_handler,
             code=frontend_code,
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
             log_group=logs.LogGroup(
-                self, "FrontendFnLogs",
+                self,
+                "FrontendFnLogs",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -226,12 +254,14 @@ class ComputeStack(cdk.Stack):
 
         # ── Crawler Lambda ────────────────────────────────────────────────────
         steam_secret = secretsmanager.Secret.from_secret_name_v2(
-            self, "SteamApiKey",
+            self,
+            "SteamApiKey",
             f"steampulse/{env}/steam-api-key",
         )
 
         crawler_role = iam.Role(
-            self, "CrawlerRole",
+            self,
+            "CrawlerRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -242,19 +272,27 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        crawler_role.add_to_policy(iam.PolicyStatement(
-            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-            resources=[db_secret.secret_arn, steam_secret.secret_arn],
-        ))
-        crawler_role.add_to_policy(iam.PolicyStatement(
-            actions=["states:StartExecution"],
-            resources=[state_machine.state_machine_arn],
-        ))
+        crawler_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                resources=[db_secret.secret_arn, steam_secret.secret_arn],
+            )
+        )
+        crawler_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution"],
+                resources=[state_machine.state_machine_arn],
+            )
+        )
         app_crawl_queue.grant_send_messages(crawler_role)
         review_crawl_queue.grant_send_messages(crawler_role)
+        game_events_topic.grant_publish(crawler_role)
+        content_events_topic.grant_publish(crawler_role)
+        system_events_topic.grant_publish(crawler_role)
 
         crawler_fn = PythonFunction(
-            self, "CrawlerFn",
+            self,
+            "CrawlerFn",
             entry="src/lambda-functions",
             index="lambda_functions/crawler/handler.py",
             handler="handler",
@@ -268,7 +306,8 @@ class ComputeStack(cdk.Stack):
             memory_size=256,
             tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(
-                self, "CrawlerLogs",
+                self,
+                "CrawlerLogs",
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -281,6 +320,9 @@ class ComputeStack(cdk.Stack):
                 "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
                 "HAIKU_MODEL": config.HAIKU_MODEL,
                 "SONNET_MODEL": config.SONNET_MODEL,
+                "GAME_EVENTS_TOPIC_ARN": game_events_topic.topic_arn,
+                "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
+                "SYSTEM_EVENTS_TOPIC_ARN": system_events_topic.topic_arn,
                 "POWERTOOLS_SERVICE_NAME": "crawler",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
@@ -303,7 +345,8 @@ class ComputeStack(cdk.Stack):
 
         # Weekly catalog refresh — disabled until we're ready to run on a schedule.
         catalog_rule = events.Rule(
-            self, "CatalogRefreshRule",
+            self,
+            "CatalogRefreshRule",
             schedule=events.Schedule.rate(cdk.Duration.days(7)),
             enabled=False,
         )
@@ -313,27 +356,32 @@ class ComputeStack(cdk.Stack):
         # Using SSM avoids Fn::ImportValue so MonitoringStack has no hard
         # CloudFormation dependency on this stack.
         ssm.StringParameter(
-            self, "ApiFnArnParam",
+            self,
+            "ApiFnArnParam",
             parameter_name=f"/steampulse/{env}/compute/api-fn-arn",
             string_value=api_fn.function_arn,
         )
         ssm.StringParameter(
-            self, "CrawlerFnArnParam",
+            self,
+            "CrawlerFnArnParam",
             parameter_name=f"/steampulse/{env}/compute/crawler-fn-arn",
             string_value=crawler_fn.function_arn,
         )
         ssm.StringParameter(
-            self, "AnalysisFnArnParam",
+            self,
+            "AnalysisFnArnParam",
             parameter_name=f"/steampulse/{env}/compute/analysis-fn-arn",
             string_value=analysis_fn.function_arn,
         )
         ssm.StringParameter(
-            self, "SfnArnParam",
+            self,
+            "SfnArnParam",
             parameter_name=f"/steampulse/{env}/compute/sfn-arn",
             string_value=state_machine.state_machine_arn,
         )
         ssm.StringParameter(
-            self, "ApiFnUrlParam",
+            self,
+            "ApiFnUrlParam",
             parameter_name=f"/steampulse/{env}/compute/api-fn-url",
             string_value=self.api_fn_url.url,
         )

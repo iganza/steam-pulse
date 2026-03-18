@@ -3,7 +3,10 @@
 import json
 import re
 
+from unittest.mock import MagicMock
+
 import pytest
+from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -55,6 +58,20 @@ REVIEWS_RESPONSE = {
 }
 
 
+def _mock_sns() -> MagicMock:
+    sns = MagicMock()
+    sns.publish.return_value = {"MessageId": "test-msg-id"}
+    return sns
+
+
+def _test_config() -> SteamPulseConfig:
+    return SteamPulseConfig(
+        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:game-events",
+        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:content-events",
+        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:system-events",
+    )
+
+
 def _make_service(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -75,12 +92,13 @@ def _make_service(
         steam=steam,
         sqs_client=sqs_client,
         review_queue_url=review_queue_url,
+        sns_client=_mock_sns(),
+        config=_test_config(),
         sfn_arn=sfn_arn,
         sfn_client=sfn_client,
     )
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_app_stores_game(
     game_repo: GameRepository,
@@ -93,24 +111,25 @@ async def test_crawl_app_stores_game(
     import boto3
     import httpx as _httpx
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-crawl-q")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-crawl-q")["QueueUrl"]
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        json=steam_appdetails_440,
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            json=steam_appdetails_440,
         )
-        result = await svc.crawl_app(440)
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEW_SUMMARY,
+        )
+
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            result = await svc.crawl_app(440)
 
     assert result is True
     game = game_repo.find_by_appid(440)
@@ -120,7 +139,6 @@ async def test_crawl_app_stores_game(
     assert game.is_free is True
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_app_enqueues_review_crawl_when_eligible(
     game_repo: GameRepository,
@@ -133,32 +151,32 @@ async def test_crawl_app_enqueues_review_crawl_when_eligible(
     import boto3
     import httpx as _httpx
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-q-eligible")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-eligible")["QueueUrl"]
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        json=steam_appdetails_440,
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            json=steam_appdetails_440,
         )
-        await svc.crawl_app(440)
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEW_SUMMARY,
+        )
 
-    msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            await svc.crawl_app(440)
+
+        msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
     assert len(msgs.get("Messages", [])) >= 1
     body = json.loads(msgs["Messages"][0]["Body"])
     assert body["appid"] == 440
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_app_does_not_enqueue_ineligible(
     game_repo: GameRepository,
@@ -172,7 +190,6 @@ async def test_crawl_app_does_not_enqueue_ineligible(
     import boto3
     import httpx as _httpx
 
-    # Override the summary to return only 50 reviews
     small_summary = {
         "success": 1,
         "query_summary": {
@@ -183,33 +200,29 @@ async def test_crawl_app_does_not_enqueue_ineligible(
         "reviews": [],
     }
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-q-ineligible")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-ineligible")["QueueUrl"]
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        json=steam_appdetails_440,
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=small_summary,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            json=steam_appdetails_440,
         )
-        await svc.crawl_app(440)
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=small_summary,
+        )
 
-    # 50 reviews < threshold(50)=25 means delta=50 >= 25 so it WOULD enqueue
-    # But since this is a new game (old_count=0), delta=50 >= threshold(50)=25 -> enqueue
-    # Actually with 50 total reviews threshold is 25 -- delta is 50 so it DOES enqueue.
-    # Let's use 10 total reviews instead: threshold=25, delta=10 < 25 -> no enqueue.
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            await svc.crawl_app(440)
+
     pass
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_app_handles_steam_error(
     game_repo: GameRepository,
@@ -221,27 +234,26 @@ async def test_crawl_app_handles_steam_error(
     import boto3
     import httpx as _httpx
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-q-err")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-err")["QueueUrl"]
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-        status_code=500,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            status_code=500,
         )
-        result = await svc.crawl_app(440)
+
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            result = await svc.crawl_app(440)
 
     assert result is False
-    # Game should not have been inserted
     assert game_repo.find_by_appid(440) is None
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_reviews_stores_reviews(
     game_repo: GameRepository,
@@ -253,29 +265,28 @@ async def test_crawl_reviews_stores_reviews(
     import boto3
     import httpx as _httpx
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-q-reviews")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-reviews")["QueueUrl"]
 
-    # Ensure game stub exists (FK requirement)
-    game_repo.ensure_stub(440)
+        game_repo.ensure_stub(440)
 
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEWS_RESPONSE,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEWS_RESPONSE,
         )
-        count = await svc.crawl_reviews(440)
+
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            count = await svc.crawl_reviews(440)
 
     assert count == 4
     assert review_repo.count_by_appid(440) == 4
 
 
-@mock_aws
 @pytest.mark.asyncio
 async def test_crawl_reviews_deduplicates(
     game_repo: GameRepository,
@@ -287,28 +298,28 @@ async def test_crawl_reviews_deduplicates(
     import boto3
     import httpx as _httpx
 
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="review-q-dedup")["QueueUrl"]
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-dedup")["QueueUrl"]
 
-    game_repo.ensure_stub(440)
+        game_repo.ensure_stub(440)
 
-    # Add response twice
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEWS_RESPONSE,
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEWS_RESPONSE,
-    )
-
-    async with _httpx.AsyncClient() as client:
-        svc = _make_service(
-            game_repo, review_repo, catalog_repo, tag_repo,
-            sqs, queue_url, client,
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEWS_RESPONSE,
         )
-        await svc.crawl_reviews(440)
-        await svc.crawl_reviews(440)
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEWS_RESPONSE,
+        )
+
+        async with _httpx.AsyncClient() as client:
+            svc = _make_service(
+                game_repo, review_repo, catalog_repo, tag_repo,
+                sqs, queue_url, client,
+            )
+            await svc.crawl_reviews(440)
+            await svc.crawl_reviews(440)
 
     # No duplicates — still only 4
     assert review_repo.count_by_appid(440) == 4

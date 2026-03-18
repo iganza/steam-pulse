@@ -13,6 +13,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "slug": f"app-{appid}",
         "type": "game",
         "developer": None,
+        "developer_slug": None,
         "publisher": None,
         "developers": "[]",
         "publishers": "[]",
@@ -207,6 +208,7 @@ def test_find_review_stats_velocity_nonzero(
 ) -> None:
     """reviews_per_day is positive when the game has reviews with posted_at set."""
     _seed_game(game_repo)
+    now = datetime.now(UTC)
     reviews = [
         {
             "appid": 440,
@@ -214,7 +216,7 @@ def test_find_review_stats_velocity_nonzero(
             "voted_up": True,
             "playtime_hours": 5,
             "body": "",
-            "posted_at": datetime(2023, 10, 2, 12, 0, 0, tzinfo=UTC),
+            "posted_at": now - timedelta(days=i),
         }
         for i in range(5)
     ]

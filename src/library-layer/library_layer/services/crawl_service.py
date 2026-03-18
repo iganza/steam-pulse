@@ -8,17 +8,27 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from library_layer.config import SteamPulseConfig
+from library_layer.events import (
+    GameMetadataReadyEvent,
+    GamePriceChangedEvent,
+    GameReleasedEvent,
+    ReviewMilestoneEvent,
+    ReviewsReadyEvent,
+)
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
+from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.slugify import slugify
 from library_layer.utils.time import unix_to_datetime
 
 logger = logging.getLogger(__name__)
 
 MAX_REVIEWS_DEFAULT = 3000
+REVIEW_MILESTONES = [500, 1000, 5000, 10000]
 
 
 def _reanalysis_threshold(total_reviews: int) -> int:
@@ -47,6 +57,8 @@ class CrawlService:
         steam: DirectSteamSource,
         sqs_client: Any,
         review_queue_url: str,
+        sns_client: Any,
+        config: SteamPulseConfig,
         sfn_arn: str | None = None,
         sfn_client: Any | None = None,
     ) -> None:
@@ -59,6 +71,8 @@ class CrawlService:
         self._review_queue_url = review_queue_url
         self._sfn_arn = sfn_arn
         self._sfn = sfn_client
+        self._sns = sns_client
+        self._config = config
 
     # ------------------------------------------------------------------
     # Public API
@@ -107,15 +121,17 @@ class CrawlService:
         price_info = details.get("price_overview") or {}
         is_free: bool = bool(details.get("is_free", False))
         price_usd: float | None = (
-            price_info.get("final", 0) / 100.0
-            if price_info and not is_free
-            else None
+            price_info.get("final", 0) / 100.0 if price_info and not is_free else None
         )
 
         achievements = details.get("achievements") or {}
-        achievements_total = int(achievements.get("total", 0)) if isinstance(achievements, dict) else 0
+        achievements_total = (
+            int(achievements.get("total", 0)) if isinstance(achievements, dict) else 0
+        )
         metacritic = details.get("metacritic") or {}
-        metacritic_score: int | None = metacritic.get("score") if isinstance(metacritic, dict) else None
+        metacritic_score: int | None = (
+            metacritic.get("score") if isinstance(metacritic, dict) else None
+        )
 
         name: str = details.get("name") or f"App {appid}"
         slug = slugify(name, appid)
@@ -125,13 +141,19 @@ class CrawlService:
 
         logger.info(
             "appid=%s name=%r — genres=%d categories=%d reviews=%d",
-            appid, name, len(genres), len(categories), total_reviews,
+            appid,
+            name,
+            len(genres),
+            len(categories),
+            total_reviews,
         )
 
         if dry_run:
             return True
 
-        old_review_count = self._game_repo.get_review_count(appid)
+        # Load existing row BEFORE upsert for state comparison (events)
+        existing = self._game_repo.find_by_appid(appid)
+        old_review_count = existing.review_count if existing else 0
 
         game_data: dict = {
             "appid": appid,
@@ -171,9 +193,11 @@ class CrawlService:
         # Tags (genres + categories combined)
         tag_items = genres + categories
         self._tag_repo.upsert_tags(
-            [{"appid": appid, "name": item.get("description") or "", "votes": 0}
-             for item in tag_items
-             if item.get("description")]
+            [
+                {"appid": appid, "name": item.get("description") or "", "votes": 0}
+                for item in tag_items
+                if item.get("description")
+            ]
         )
         self._tag_repo.upsert_genres(appid, genres)
         self._tag_repo.upsert_categories(appid, categories)
@@ -186,18 +210,25 @@ class CrawlService:
             review_status=review_status,
         )
 
+        # ── Publish domain events ──────────────────────────────────────────
+        self._publish_crawl_app_events(appid, game_data, existing)
+
         delta = total_reviews - old_review_count
         threshold = _reanalysis_threshold(total_reviews)
         if delta >= threshold:
             logger.info(
                 "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
-                appid, delta, threshold,
+                appid,
+                delta,
+                threshold,
             )
             self._enqueue_review_crawl(appid)
         else:
             logger.info(
                 "appid=%s delta=%d < threshold=%d — skipping review crawl",
-                appid, delta, threshold,
+                appid,
+                delta,
+                threshold,
             )
 
         return True
@@ -244,19 +275,35 @@ class CrawlService:
                 except (ValueError, OSError):
                     pass
             playtime_minutes = int(r.get("playtime_at_review") or 0)
-            reviews_to_upsert.append({
-                "appid": appid,
-                "steam_review_id": steam_id,
-                "voted_up": bool(r.get("voted_up", False)),
-                "playtime_hours": playtime_minutes // 60,
-                "body": r.get("review_text", ""),
-                "posted_at": posted_at,
-            })
+            reviews_to_upsert.append(
+                {
+                    "appid": appid,
+                    "steam_review_id": steam_id,
+                    "voted_up": bool(r.get("voted_up", False)),
+                    "playtime_hours": playtime_minutes // 60,
+                    "body": r.get("review_text", ""),
+                    "posted_at": posted_at,
+                }
+            )
 
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Upserted %d reviews for appid=%s", upserted, appid)
 
         self._trigger_analysis(appid, game_name)
+
+        # Publish reviews-ready event
+        try:
+            publish_event(
+                self._sns,
+                self._config.CONTENT_EVENTS_TOPIC_ARN,
+                ReviewsReadyEvent(
+                    appid=appid,
+                    game_name=game_name,
+                    reviews_crawled=upserted,
+                ),
+            )
+        except EventPublishError:
+            logger.warning("Failed to publish reviews-ready for appid=%s", appid)
 
         return upserted
 
@@ -269,6 +316,82 @@ class CrawlService:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _publish_crawl_app_events(
+        self,
+        appid: int,
+        game_data: dict,
+        existing: object | None,
+    ) -> None:
+        """Publish domain events after app metadata upsert."""
+        if not self._sns or not self._config:
+            return
+
+        topic_arn = self._config.GAME_EVENTS_TOPIC_ARN
+        threshold = self._config.REVIEW_ELIGIBILITY_THRESHOLD
+        review_count = game_data["review_count"]
+        is_eligible = review_count >= threshold
+
+        try:
+            # Always: metadata-ready
+            publish_event(
+                self._sns,
+                topic_arn,
+                GameMetadataReadyEvent(
+                    appid=appid,
+                    review_count=review_count,
+                    is_eligible=is_eligible,
+                ),
+                extra_attributes={"is_eligible": str(is_eligible).lower()},
+            )
+
+            # Detect game release: coming_soon flipped True → False
+            if (
+                existing
+                and getattr(existing, "coming_soon", False)
+                and not game_data.get("coming_soon", True)
+            ):
+                publish_event(
+                    self._sns,
+                    topic_arn,
+                    GameReleasedEvent(
+                        appid=appid,
+                        game_name=game_data["name"],
+                        release_date=str(game_data.get("release_date", "")),
+                    ),
+                )
+
+            # Detect price change (compare as floats — existing may be Decimal)
+            if existing:
+                old_price = float(getattr(existing, "price_usd", None) or 0)
+                new_price = float(game_data.get("price_usd") or 0)
+                if old_price != new_price:
+                    publish_event(
+                        self._sns,
+                        topic_arn,
+                        GamePriceChangedEvent(
+                            appid=appid,
+                            old_price=old_price,
+                            new_price=new_price,
+                            is_free=game_data.get("is_free", False),
+                        ),
+                    )
+
+            # Detect review milestones
+            old_count = getattr(existing, "review_count", 0) if existing else 0
+            for milestone in REVIEW_MILESTONES:
+                if old_count < milestone <= review_count:
+                    publish_event(
+                        self._sns,
+                        topic_arn,
+                        ReviewMilestoneEvent(
+                            appid=appid,
+                            milestone=milestone,
+                            review_count=review_count,
+                        ),
+                    )
+        except EventPublishError:
+            logger.warning("Failed to publish crawl_app events for appid=%s", appid)
+
     def _enqueue_review_crawl(self, appid: int) -> None:
         if not self._review_queue_url:
             logger.info("No review_queue_url set — skipping enqueue for appid=%s", appid)
@@ -280,25 +403,21 @@ class CrawlService:
         logger.info("Queued appid=%s to review-crawl-queue", appid)
 
     def _trigger_analysis(self, appid: int, game_name: str) -> str | None:
-        """Start Step Functions execution. Returns execution ARN or None."""
+        """Start Step Functions execution. Returns execution ARN or None if SFN not configured."""
         if not self._sfn_arn or not self._sfn:
             logger.info(
                 "No SFN_ARN configured — skipping Step Functions trigger for appid=%s",
                 appid,
             )
             return None
-        try:
-            resp = self._sfn.start_execution(
-                stateMachineArn=self._sfn_arn,
-                name=f"analysis-{appid}-{uuid.uuid4().hex[:8]}",
-                input=json.dumps({"appid": appid, "game_name": game_name}),
-            )
-            arn: str = resp["executionArn"]
-            logger.info("Started Step Functions execution %s for appid=%s", arn, appid)
-            return arn
-        except Exception as exc:
-            logger.error("Failed to start Step Functions for appid=%s: %s", appid, exc)
-            return None
+        resp = self._sfn.start_execution(
+            stateMachineArn=self._sfn_arn,
+            name=f"analysis-{appid}-{uuid.uuid4().hex[:8]}",
+            input=json.dumps({"appid": appid, "game_name": game_name}),
+        )
+        arn: str = resp["executionArn"]
+        logger.info("Started Step Functions execution %s for appid=%s", arn, appid)
+        return arn
 
 
 def _parse_release_date(raw: str) -> object | None:
@@ -306,6 +425,7 @@ def _parse_release_date(raw: str) -> object | None:
     for fmt in ("%d %b, %Y", "%b %d, %Y", "%Y-%m-%d", "%d %B, %Y", "%b %Y"):
         try:
             from datetime import datetime as _dt
+
             return _dt.strptime(raw.strip(), fmt).date()
         except (ValueError, AttributeError):
             continue

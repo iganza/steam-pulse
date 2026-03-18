@@ -22,6 +22,7 @@ from aws_lambda_powertools.utilities.batch import (
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from pydantic import TypeAdapter, ValidationError
 
+from library_layer.config import SteamPulseConfig
 from library_layer.utils.db import get_conn
 from .events import (
     CatalogRefreshRequest,
@@ -40,8 +41,11 @@ review_crawl_processor = BatchProcessor(event_type=EventType.SQS)
 _direct_adapter = TypeAdapter(DirectRequest)
 
 # ── Module-level service singletons ─────────────────────────────────────────
-# Eagerly built at cold start. Test environments inject mocks via module attribute
-# assignment before calling the handler (see tests/handlers/test_crawler_handler.py).
+# Eagerly built at cold start — fails loud if deps are missing.
+# Tests inject mocks via module attribute assignment before calling handler.
+
+import boto3  # type: ignore[import-untyped]
+import httpx
 
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -51,43 +55,52 @@ from library_layer.services.catalog_service import CatalogService
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 
-_crawl_service: CrawlService
-_catalog_service: CatalogService
+_conn = get_conn()
+_sqs = boto3.client("sqs")
+_sns = boto3.client("sns")
+_sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
+_sfn = boto3.client("stepfunctions") if _sfn_arn else None
+_crawler_config = SteamPulseConfig()
 
-try:
-    import boto3  # type: ignore[import-untyped]
-    import httpx
+_crawl_service = CrawlService(
+    game_repo=GameRepository(_conn),
+    review_repo=ReviewRepository(_conn),
+    catalog_repo=CatalogRepository(_conn),
+    tag_repo=TagRepository(_conn),
+    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
+    sqs_client=_sqs,
+    review_queue_url=os.getenv("REVIEW_CRAWL_QUEUE_URL", ""),
+    sfn_arn=_sfn_arn,
+    sfn_client=_sfn,
+    sns_client=_sns,
+    config=_crawler_config,
+)
+_catalog_service = CatalogService(
+    catalog_repo=CatalogRepository(_conn),
+    http_client=httpx.Client(timeout=30.0),
+    sqs_client=_sqs,
+    app_crawl_queue_url=os.getenv("APP_CRAWL_QUEUE_URL", ""),
+    sns_client=_sns,
+    config=_crawler_config,
+)
 
-    _conn = get_conn()
-    _sqs = boto3.client("sqs")
-    _sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
-    _sfn = boto3.client("stepfunctions") if _sfn_arn else None
 
-    _crawl_service = CrawlService(
-        game_repo=GameRepository(_conn),
-        review_repo=ReviewRepository(_conn),
-        catalog_repo=CatalogRepository(_conn),
-        tag_repo=TagRepository(_conn),
-        steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
-        sqs_client=_sqs,
-        review_queue_url=os.getenv("REVIEW_CRAWL_QUEUE_URL", ""),
-        sfn_arn=_sfn_arn,
-        sfn_client=_sfn,
-    )
-    _catalog_service = CatalogService(
-        catalog_repo=CatalogRepository(_conn),
-        http_client=httpx.Client(timeout=30.0),
-        sqs_client=_sqs,
-        app_crawl_queue_url=os.getenv("APP_CRAWL_QUEUE_URL", ""),
-    )
-except Exception:
-    pass  # DB unavailable — Lambda fails on first invocation; tests inject mocks
+# ── SNS envelope unwrapping ───────────────────────────────────────────────────
+
+
+def _extract_payload(record_body: str) -> dict:
+    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
+    body = json.loads(record_body)
+    if "Type" in body and body["Type"] == "Notification":
+        return json.loads(body["Message"])
+    return body
 
 
 # ── SQS record handlers ──────────────────────────────────────────────────────
 
+
 def _app_crawl_record(record: dict) -> None:
-    body = json.loads(record["body"])
+    body = _extract_payload(record["body"])
     appid = int(body["appid"])
     result = asyncio.run(_crawl_service.crawl_app(appid))
     if result:
@@ -95,13 +108,14 @@ def _app_crawl_record(record: dict) -> None:
 
 
 def _review_crawl_record(record: dict) -> None:
-    body = json.loads(record["body"])
+    body = _extract_payload(record["body"])
     appid = int(body["appid"])
     count = asyncio.run(_crawl_service.crawl_reviews(appid))
     metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=count)
 
 
 # ── Main dispatcher ──────────────────────────────────────────────────────────
+
 
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
@@ -126,7 +140,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 ok = asyncio.run(_crawl_service.crawl_app(req.appid))
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
-                n = asyncio.run(_crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews))
+                n = asyncio.run(
+                    _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
+                )
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 return _catalog_service.refresh()
@@ -134,7 +150,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # 3. SQS batch
     if "Records" in event:
         source_arn = event["Records"][0].get("eventSourceARN", "")
-        if "app-crawl" in source_arn:
+        if "app-crawl" in source_arn or "metadata-enrichment" in source_arn:
             return process_partial_response(
                 event=event,
                 record_handler=_app_crawl_record,

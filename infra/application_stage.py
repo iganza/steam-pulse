@@ -50,7 +50,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Network ───────────────────────────────────────────────────────────
         network = NetworkStack(
-            self, "Network",
+            self,
+            "Network",
             stack_name=f"SteamPulse-{env_name}-Network",
             config=config,
             termination_protection=config.is_production,
@@ -59,7 +60,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Data ──────────────────────────────────────────────────────────────
         data = DataStack(
-            self, "Data",
+            self,
+            "Data",
             stack_name=f"SteamPulse-{env_name}-Data",
             config=config,
             vpc=network.vpc,
@@ -71,7 +73,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Messaging ─────────────────────────────────────────────────────────
         messaging = MessagingStack(
-            self, "Messaging",
+            self,
+            "Messaging",
             stack_name=f"SteamPulse-{env_name}-Messaging",
             config=config,
             env=cdk_env,
@@ -79,7 +82,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Compute ───────────────────────────────────────────────────────────
         compute = ComputeStack(
-            self, "Compute",
+            self,
+            "Compute",
             stack_name=f"SteamPulse-{env_name}-Compute",
             config=config,
             vpc=network.vpc,
@@ -87,6 +91,9 @@ class ApplicationStage(cdk.Stage):
             db_secret=data.db_secret,
             app_crawl_queue=messaging.app_crawl_queue,
             review_crawl_queue=messaging.review_crawl_queue,
+            game_events_topic=messaging.game_events_topic,
+            content_events_topic=messaging.content_events_topic,
+            system_events_topic=messaging.system_events_topic,
             env=cdk_env,
         )
         compute.add_dependency(data)
@@ -95,7 +102,8 @@ class ApplicationStage(cdk.Stage):
         # ── Certificate (production only — must be in us-east-1 for CloudFront)
         if config.is_production:
             cert_stack = CertificateStack(
-                self, "Certificate",
+                self,
+                "Certificate",
                 stack_name=f"SteamPulse-{env_name}-Certificate",
                 config=config,
                 env=cdk.Environment(account=self.account, region="us-east-1"),
@@ -107,7 +115,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Delivery ──────────────────────────────────────────────────────────
         delivery = DeliveryStack(
-            self, "Delivery",
+            self,
+            "Delivery",
             stack_name=f"SteamPulse-{env_name}-Delivery",
             config=config,
             api_fn_url=compute.api_fn_url,
@@ -121,7 +130,8 @@ class ApplicationStage(cdk.Stage):
 
         # ── Frontend ──────────────────────────────────────────────────────────
         frontend = FrontendStack(
-            self, "Frontend",
+            self,
+            "Frontend",
             stack_name=f"SteamPulse-{env_name}-Frontend",
             config=config,
             assets_bucket=delivery.assets_bucket,

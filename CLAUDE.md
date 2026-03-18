@@ -274,6 +274,11 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 **Error handling:**
 - Raise specific exceptions — never bare `except:` or `except Exception:` without re-raise or logging.
+- **No silent failure on init.** Lambda module-level initialization (DB connections, boto3 clients,
+  `SteamPulseConfig()`) must run without `try/except`. If it fails, the cold start crashes — that's
+  correct. Never swallow init errors with `except Exception: pass` or fall back to `None`.
+- Service constructors: required dependencies (`sns_client`, `config`, repos) are **not optional**.
+  Type them as required params, not `| None`. If a caller can't provide them, that's a bug.
 - FastAPI endpoints: raise `HTTPException` with appropriate status codes. Never return error dicts with 200.
 - Log with `logging` (stdlib) — not `print()`. Use structured fields: `logger.error("msg", extra={"appid": appid})`.
 

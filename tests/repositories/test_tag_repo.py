@@ -12,6 +12,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "slug": f"app-{appid}",
         "type": "game",
         "developer": None,
+        "developer_slug": None,
         "publisher": None,
         "developers": "[]",
         "publishers": "[]",
@@ -74,7 +75,7 @@ def test_upsert_categories(game_repo: GameRepository, tag_repo: TagRepository) -
             "SELECT category_name FROM game_categories WHERE appid = 440 ORDER BY category_id"
         )
         rows = cur.fetchall()
-    names = [r[0] for r in rows]
+    names = [r["category_name"] for r in rows]
     assert "Multi-player" in names
     assert "Steam Achievements" in names
 

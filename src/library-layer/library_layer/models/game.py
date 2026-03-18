@@ -14,6 +14,7 @@ class Game(BaseModel):
     slug: str
     type: str | None = None
     developer: str | None = None
+    developer_slug: str | None = None
     publisher: str | None = None
     developers: list[str] = []
     publishers: list[str] = []
@@ -39,6 +40,27 @@ class Game(BaseModel):
     metacritic_score: int | None = None
     crawled_at: datetime | None = None
     data_source: str = "steam_direct"
+
+    @field_validator("developers", "publishers", mode="before")
+    @classmethod
+    def coerce_list(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        return v  # type: ignore[return-value]
+
+    @field_validator("review_count", "total_positive", "total_negative", "required_age", "achievements_total", mode="before")
+    @classmethod
+    def coerce_int(cls, v: object) -> int:
+        if v is None:
+            return 0
+        return v  # type: ignore[return-value]
+
+    @field_validator("platforms", mode="before")
+    @classmethod
+    def coerce_dict(cls, v: object) -> dict:
+        if v is None:
+            return {}
+        return v  # type: ignore[return-value]
 
     @field_validator("release_date", mode="before")
     @classmethod

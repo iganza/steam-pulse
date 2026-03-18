@@ -5,15 +5,19 @@ Reads reviews from DB, runs two-pass LLM analysis, writes report to DB.
 """
 
 import asyncio
-import os
+import logging
 
+import boto3
 import psycopg2
 import psycopg2.extras
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import analyze_reviews
+from library_layer.config import SteamPulseConfig
+from library_layer.events import ReportReadyEvent
 from library_layer.utils.db import get_db_url
+from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -36,6 +40,9 @@ create_all(_conn)
 _game_repo: GameRepository = GameRepository(_conn)
 _review_repo: ReviewRepository = ReviewRepository(_conn)
 _report_repo: ReportRepository = ReportRepository(_conn)
+
+_sns_client = boto3.client("sns")
+_analysis_config = SteamPulseConfig()
 
 
 async def _run(appid: int, game_name: str) -> dict:
@@ -74,6 +81,24 @@ async def _run(appid: int, game_name: str) -> dict:
         appid,
         result.get("overall_sentiment"),
     )
+
+    # Publish report-ready event
+    try:
+        publish_event(
+            _sns_client,
+            _analysis_config.CONTENT_EVENTS_TOPIC_ARN,
+            ReportReadyEvent(
+                appid=appid,
+                game_name=game_name,
+                sentiment=result.get("overall_sentiment", "Unknown"),
+            ),
+        )
+    except EventPublishError:
+        logging.getLogger(__name__).warning(
+            "Failed to publish report-ready for appid=%s",
+            appid,
+        )
+
     return result
 
 

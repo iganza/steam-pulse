@@ -24,7 +24,7 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.schema import create_all
 
 
-_TEST_DB_DEFAULT = "postgresql://postgres:postgres@localhost:5432/steampulse_test"
+_TEST_DB_DEFAULT = "postgresql://steampulse:dev@localhost:5432/steampulse_test"
 
 
 def _safe_test_db_url() -> str:
@@ -41,6 +41,11 @@ def _safe_test_db_url() -> str:
             returncode=1,
         )
     return url
+
+
+# Set DATABASE_URL so that handler module-level init (get_db_url()) uses the
+# test database. This must happen before any handler import.
+os.environ.setdefault("DATABASE_URL", _safe_test_db_url())
 
 
 @pytest.fixture(scope="session")
@@ -118,8 +123,10 @@ def aws_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def sqs_client(aws_credentials: None) -> Generator[Any, None, None]:
     from moto import mock_aws
+
     with mock_aws():
         import boto3
+
         client = boto3.client("sqs", region_name="us-west-2")
         yield client
 
@@ -132,26 +139,35 @@ def mock_queues(sqs_client: Any) -> dict[str, str]:
 
 
 @pytest.fixture
-def sfn_client(aws_credentials: None) -> Generator[Any, None, None]:
+def sns_client(aws_credentials: None) -> Generator[Any, None, None]:
     from moto import mock_aws
+
     with mock_aws():
         import boto3
+
+        client = boto3.client("sns", region_name="us-west-2")
+        yield client
+
+
+@pytest.fixture
+def sfn_client(aws_credentials: None) -> Generator[Any, None, None]:
+    from moto import mock_aws
+
+    with mock_aws():
+        import boto3
+
         client = boto3.client("stepfunctions", region_name="us-west-2")
         yield client
 
 
 @pytest.fixture
 def steam_appdetails_440() -> dict:
-    return json.loads(
-        (Path(__file__).parent / "fixtures/steam_appdetails_440.json").read_text()
-    )
+    return json.loads((Path(__file__).parent / "fixtures/steam_appdetails_440.json").read_text())
 
 
 @pytest.fixture
 def steam_reviews_440() -> dict:
-    return json.loads(
-        (Path(__file__).parent / "fixtures/steam_reviews_440.json").read_text()
-    )
+    return json.loads((Path(__file__).parent / "fixtures/steam_reviews_440.json").read_text())
 
 
 @pytest.fixture(autouse=True)
@@ -162,6 +178,15 @@ def _set_default_aws_credentials() -> None:
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
     os.environ.setdefault("AWS_SECURITY_TOKEN", "testing")
     os.environ.setdefault("AWS_SESSION_TOKEN", "testing")
+    os.environ.setdefault(
+        "GAME_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-game-events"
+    )
+    os.environ.setdefault(
+        "CONTENT_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-content-events"
+    )
+    os.environ.setdefault(
+        "SYSTEM_EVENTS_TOPIC_ARN", "arn:aws:sns:us-west-2:000000000000:test-system-events"
+    )
 
 
 @pytest.fixture(autouse=True)

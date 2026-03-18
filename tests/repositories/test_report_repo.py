@@ -12,6 +12,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "slug": f"team-fortress-2-{appid}",
         "type": "game",
         "developer": "Valve",
+        "developer_slug": "valve",
         "publisher": "Valve",
         "developers": "[]",
         "publishers": "[]",

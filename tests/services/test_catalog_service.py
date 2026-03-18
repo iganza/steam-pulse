@@ -2,6 +2,9 @@
 
 
 import httpx
+from unittest.mock import MagicMock
+
+from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.services.catalog_service import CatalogService
 from moto import mock_aws
@@ -16,18 +19,36 @@ def _app_list_response(apps: list[dict], have_more: bool = False) -> dict:
     }
 
 
+def _mock_sns() -> MagicMock:
+    sns = MagicMock()
+    sns.publish.return_value = {"MessageId": "test-msg-id"}
+    return sns
+
+
+def _test_config() -> SteamPulseConfig:
+    return SteamPulseConfig(
+        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:game-events",
+        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:content-events",
+        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789:system-events",
+    )
+
+
 def _make_service(
     catalog_repo: CatalogRepository,
     sqs_client: object,
     queue_url: str,
     http_client: httpx.Client,
     api_key: str = "test-key",
+    sns_client: object | None = None,
+    config: SteamPulseConfig | None = None,
 ) -> CatalogService:
     return CatalogService(
         catalog_repo=catalog_repo,
         http_client=http_client,
         sqs_client=sqs_client,
         app_crawl_queue_url=queue_url,
+        sns_client=sns_client or _mock_sns(),
+        config=config or _test_config(),
         steam_api_key=api_key,
     )
 

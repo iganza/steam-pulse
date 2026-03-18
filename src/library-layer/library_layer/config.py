@@ -46,7 +46,6 @@ class SteamPulseConfig(BaseSettings):
     # ── Feature flags ─────────────────────────────────────────────────────────
     PRO_ENABLED: bool = False
 
-
     # ── Infrastructure ARNs / URLs (populated by CDK as Lambda env vars) ──────
     DB_SECRET_ARN: str = ""
     SFN_ARN: str = ""
@@ -54,7 +53,15 @@ class SteamPulseConfig(BaseSettings):
     REVIEW_CRAWL_QUEUE_URL: str = ""
     STEAM_API_KEY_SECRET_ARN: str = ""
     ASSETS_BUCKET_NAME: str = ""
-    STEP_FUNCTIONS_ARN: str = ""   # alias used by api handler
+    STEP_FUNCTIONS_ARN: str = ""  # alias used by api handler
+
+    # ── SNS Domain Topic ARNs (empty default — publish_event raises if empty) ──
+    GAME_EVENTS_TOPIC_ARN: str = ""
+    CONTENT_EVENTS_TOPIC_ARN: str = ""
+    SYSTEM_EVENTS_TOPIC_ARN: str = ""
+
+    # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
+    REVIEW_ELIGIBILITY_THRESHOLD: int = 500
 
     @property
     def is_production(self) -> bool:

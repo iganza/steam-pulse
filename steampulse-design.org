@@ -121,6 +121,8 @@ repo-root/
   scripts/
     dev/                    # Local dev helpers (start-local.sh, invoke-*.sh, run-api.sh)
     seed.py                 # Bootstrap top-N games into SQS
+    trigger_crawl.py        # Manual trigger: publish SNS events for crawl/analysis
+    sp.py                   # Local operations CLI (metadata, reviews, analysis)
   main.py                   # CLI tool for local LLM testing
   pyproject.toml            # Python deps (main + infra groups)
   cdk.json                  # "app": "poetry run python infra/app.py"
@@ -408,6 +410,42 @@ badge.
 - Long tail monthly: metadata only, no LLM — negligible
 - *Total ongoing LLM cost: ~$25–50/month*
 - Compare: flat 5% threshold ≈ ~$500–700/month; naive nightly everything ≈ ~$2,700/month
+
+** Manual Trigger Script (=trigger_crawl.py=)
+
+EventBridge schedules are deployed =enabled=False= — enable only after initial seed
+and site launch. Until then (and for ad-hoc operations), use =trigger_crawl.py= to
+publish the same SNS events the automated pipeline uses.
+
+Two subcommands:
+
+*=crawl=* — publishes =GameMetadataReadyEvent= to the game-events SNS topic:
+#+BEGIN_SRC sh
+# Single game (dry-run):
+poetry run python scripts/trigger_crawl.py crawl --appid 440 --dry-run
+
+# All games with 500+ Steam reviews but 0 crawled reviews:
+poetry run python scripts/trigger_crawl.py crawl --needs-reviews --limit 20
+
+# Override the eligibility threshold:
+poetry run python scripts/trigger_crawl.py crawl --needs-reviews --threshold 200 --limit 50
+#+END_SRC
+
+*=analyze=* — publishes =ReviewsReadyEvent= to the content-events SNS topic:
+#+BEGIN_SRC sh
+# Single game:
+poetry run python scripts/trigger_crawl.py analyze --appid 440 --dry-run
+
+# Games with reviews but no report:
+poetry run python scripts/trigger_crawl.py analyze --needs-report --limit 10
+
+# Games with stale reports (older than 30 days):
+poetry run python scripts/trigger_crawl.py analyze --stale-days 30
+#+END_SRC
+
+Both subcommands support =--dry-run= (shows table of matched games, skips SNS publish)
+and =--limit N= (default 50). Requires =DATABASE_URL= and the relevant topic ARN env var
+(=GAME_EVENTS_TOPIC_ARN= or =CONTENT_EVENTS_TOPIC_ARN=).
 
 * Data Model (PostgreSQL)
 

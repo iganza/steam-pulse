@@ -52,11 +52,17 @@ class AnalysisService:
             {
                 "voted_up": r.voted_up,
                 "review_text": r.body or "",
-                "playtime_at_review": (r.playtime_hours or 0) * 60,
+                "playtime_hours": r.playtime_hours or 0,
+                "votes_helpful": r.votes_helpful or 0,
+                "votes_funny": r.votes_funny or 0,
+                "posted_at": r.posted_at.isoformat() if r.posted_at else None,
+                "written_during_early_access": r.written_during_early_access or False,
+                "received_for_free": r.received_for_free or False,
             }
             for r in db_reviews
             if r.body
         ]
+        reviews_for_llm.sort(key=lambda r: r["posted_at"] or "")
 
         if not reviews_for_llm:
             raise ValueError(f"No non-empty review bodies for appid={appid}")

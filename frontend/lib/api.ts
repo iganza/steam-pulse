@@ -1,4 +1,4 @@
-import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewStats, Benchmarks } from "./types";
+import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewStats, Benchmarks, DeckTestResult } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
 // Browser calls use "" (same-origin — Next.js rewrites proxy /api/* to FastAPI in dev,
@@ -56,6 +56,8 @@ export async function getGameReport(appid: number): Promise<{
     is_free?: boolean;
     genres?: string[];
     tags?: string[];
+    deck_compatibility?: number | null;
+    deck_test_results?: DeckTestResult[];
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
@@ -108,6 +110,7 @@ export async function getGames(params?: {
   has_analysis?: boolean;
   sentiment?: string;
   price_tier?: string;
+  deck?: string;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -123,6 +126,7 @@ export async function getGames(params?: {
   if (params?.has_analysis !== undefined) qs.set("has_analysis", String(params.has_analysis));
   if (params?.sentiment) qs.set("sentiment", params.sentiment);
   if (params?.price_tier) qs.set("price_tier", params.price_tier);
+  if (params?.deck) qs.set("deck", params.deck);
   if (params?.sort) qs.set("sort", params.sort);
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));

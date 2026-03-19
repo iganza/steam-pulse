@@ -170,6 +170,8 @@ def _game_row(**overrides: Any) -> dict:
         "supported_languages": "",
         "achievements_total": 0,
         "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
         "data_source": "test",
     }
     base.update(overrides)

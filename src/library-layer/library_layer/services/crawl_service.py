@@ -102,6 +102,7 @@ class CrawlService:
             return False
 
         summary = await self._steam.get_review_summary(appid)
+        deck_compat = await self._steam.get_deck_compatibility(appid)
         total_positive = int(summary.get("total_positive") or 0)
         total_negative = int(summary.get("total_negative") or 0)
         total_reviews = total_positive + total_negative  # English
@@ -192,6 +193,8 @@ class CrawlService:
             "supported_languages": details.get("supported_languages") or "",
             "achievements_total": achievements_total,
             "metacritic_score": metacritic_score,
+            "deck_compatibility": deck_compat.get("resolved_category") if deck_compat else None,
+            "deck_test_results": json.dumps(deck_compat.get("resolved_items", [])) if deck_compat else None,
             "data_source": "steam_direct",
         }
 

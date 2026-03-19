@@ -45,6 +45,9 @@ TABLES: tuple[str, ...] = (
         -- engagement
         achievements_total INTEGER,
         metacritic_score INTEGER,
+        -- steam deck
+        deck_compatibility   INTEGER,                 -- 0=unknown, 1=unsupported, 2=playable, 3=verified
+        deck_test_results    JSONB,                   -- raw resolved_items array from Steam
         -- meta
         crawled_at       TIMESTAMPTZ,
         data_source      TEXT DEFAULT 'steam_direct'
@@ -186,6 +189,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS votes_funny INTEGER DEFAULT 0",
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS written_during_early_access BOOLEAN DEFAULT FALSE",
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS received_for_free BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_compatibility INTEGER",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_test_results JSONB",
 )
 
 

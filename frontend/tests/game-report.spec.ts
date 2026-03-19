@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
-import { MOCK_REVIEW_STATS_SPARSE } from './fixtures/mock-data'
+import { MOCK_REVIEW_STATS_SPARSE, MOCK_REPORT, MOCK_GAME_ANALYZED } from './fixtures/mock-data'
 
 test.describe('Game report page — analyzed game', () => {
   test.beforeEach(async ({ page }) => {
@@ -66,6 +66,18 @@ test.describe('Game report page — analyzed game', () => {
 
   test('overall sentiment label is shown', async ({ page }) => {
     await expect(page.getByText(/overwhelmingly positive/i)).toBeVisible()
+  })
+
+  test('displays Deck Playable badge for analyzed game', async ({ page }) => {
+    const badge = page.getByTestId('deck-badge')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Playable')
+  })
+
+  test('deck badge expands test results on click', async ({ page }) => {
+    const badge = page.getByTestId('deck-badge')
+    await badge.click()
+    await expect(page.getByTestId('deck-test-results')).toBeVisible()
   })
 })
 
@@ -136,6 +148,36 @@ test.describe('Data-driven insights — analyzed game', () => {
   })
 })
 
+test.describe('Steam Deck badge — Verified override', () => {
+  test('displays Deck Verified badge', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    // Override game report with deck_compatibility: 3 (Verified)
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: MOCK_REPORT,
+          game: {
+            short_desc: MOCK_GAME_ANALYZED.short_desc,
+            developer: MOCK_GAME_ANALYZED.developer,
+            release_date: MOCK_GAME_ANALYZED.release_date,
+            price_usd: null,
+            is_free: true,
+            deck_compatibility: 3,
+            deck_test_results: [
+              { display_type: 2, loc_token: '#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant' },
+            ],
+          },
+        },
+      })
+    )
+    await page.goto('/games/440/team-fortress-2')
+    const badge = page.getByTestId('deck-badge')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Verified')
+  })
+})
+
 test.describe('Data-driven insights — timeline sparse data', () => {
   test('timeline chart does NOT render when fewer than 3 data points', async ({ page }) => {
     await mockAllApiRoutes(page)
@@ -190,5 +232,9 @@ test.describe('Game report page — unanalyzed game', () => {
   test('hero section is rendered', async ({ page }) => {
     // The hero with the game name is always rendered even without analysis
     await expect(page.getByRole('main')).toBeVisible()
+  })
+
+  test('hides Deck badge when unknown/null', async ({ page }) => {
+    await expect(page.getByTestId('deck-badge')).not.toBeAttached()
   })
 })

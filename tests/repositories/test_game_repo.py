@@ -40,6 +40,8 @@ def _game_data(appid: int = 440, name: str = "Team Fortress 2") -> dict:
         "supported_languages": "English",
         "achievements_total": 520,
         "metacritic_score": 92,
+        "deck_compatibility": None,
+        "deck_test_results": None,
         "data_source": "steam_direct",
     }
 

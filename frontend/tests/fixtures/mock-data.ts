@@ -14,6 +14,11 @@ export const MOCK_GAME_ANALYZED = {
   tags: ['FPS', 'Multiplayer', 'Shooter', 'Team-Based'],
   release_date: '2007-10-10',
   short_desc: 'Nine distinct classes provide a broad range of tactical abilities and personalities.',
+  deck_compatibility: 2,
+  deck_test_results: [
+    { display_type: 3, loc_token: '#SteamDeckVerified_TestResult_DefaultControllerConfigNotFullyFunctional' },
+    { display_type: 4, loc_token: '#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant' },
+  ],
 }
 
 export const MOCK_GAME_UNANALYZED = {
@@ -32,6 +37,8 @@ export const MOCK_GAME_UNANALYZED = {
   tags: ['Indie', 'Adventure', 'Singleplayer'],
   release_date: '2024-06-01',
   short_desc: 'A small indie adventure game.',
+  deck_compatibility: null,
+  deck_test_results: [],
 }
 
 export const MOCK_REPORT = {

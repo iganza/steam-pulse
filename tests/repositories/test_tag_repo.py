@@ -37,6 +37,8 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "supported_languages": None,
         "achievements_total": 0,
         "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
         "data_source": "steam_direct",
     })
 

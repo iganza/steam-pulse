@@ -330,6 +330,7 @@ async def list_games(
     has_analysis: bool | None = None,
     sentiment: str | None = None,
     price_tier: str | None = None,
+    deck: str | None = None,
     sort: str = "review_count",
     limit: int = 24,
     offset: int = 0,
@@ -346,6 +347,7 @@ async def list_games(
         has_analysis=has_analysis if has_analysis else None,
         sentiment=sentiment if sentiment else None,
         price_tier=price_tier if price_tier else None,
+        deck_status=deck if deck else None,
         sort=sort,
         limit=limit,
         offset=offset,
@@ -370,6 +372,8 @@ async def get_game_report(appid: int) -> dict:
             "is_free": game.is_free,
             "genres": genres,
             "tags": tags,
+            "deck_compatibility": game.deck_compatibility,
+            "deck_test_results": game.deck_test_results,
         }
 
     report = await _get_report(appid)

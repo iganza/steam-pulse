@@ -19,7 +19,9 @@ class GameRepository(BaseRepository):
                 review_count, review_count_english, total_positive, total_negative, positive_pct,
                 review_score_desc, header_image, background_image,
                 required_age, platforms, supported_languages,
-                achievements_total, metacritic_score, crawled_at, data_source
+                achievements_total, metacritic_score,
+                deck_compatibility, deck_test_results,
+                crawled_at, data_source
             ) VALUES (
                 %(appid)s, %(name)s, %(slug)s, %(type)s, %(developer)s, %(developer_slug)s, %(publisher)s,
                 %(developers)s, %(publishers)s,
@@ -29,6 +31,7 @@ class GameRepository(BaseRepository):
                 %(review_score_desc)s, %(header_image)s,
                 %(background_image)s, %(required_age)s, %(platforms)s,
                 %(supported_languages)s, %(achievements_total)s, %(metacritic_score)s,
+                %(deck_compatibility)s, %(deck_test_results)s,
                 NOW(), %(data_source)s
             )
             ON CONFLICT (appid) DO UPDATE SET
@@ -61,6 +64,8 @@ class GameRepository(BaseRepository):
                 supported_languages  = EXCLUDED.supported_languages,
                 achievements_total   = EXCLUDED.achievements_total,
                 metacritic_score     = EXCLUDED.metacritic_score,
+                deck_compatibility   = EXCLUDED.deck_compatibility,
+                deck_test_results    = EXCLUDED.deck_test_results,
                 crawled_at           = NOW(),
                 data_source          = EXCLUDED.data_source
         """
@@ -161,6 +166,7 @@ class GameRepository(BaseRepository):
         has_analysis: bool | None = None,
         sentiment: str | None = None,
         price_tier: str | None = None,
+        deck_status: str | None = None,
         sort: str = "review_count",
         limit: int = 24,
         offset: int = 0,
@@ -235,6 +241,12 @@ class GameRepository(BaseRepository):
                 conditions.append("g.price_usd >= 10 AND g.price_usd <= 20")
             elif price_tier == "over_20":
                 conditions.append("g.price_usd > 20")
+        if deck_status:
+            _deck_map = {"verified": 3, "playable": 2, "unsupported": 1, "unknown": 0}
+            deck_val = _deck_map.get(deck_status)
+            if deck_val is not None:
+                conditions.append("g.deck_compatibility = %s")
+                params.append(deck_val)
 
         where = " AND ".join(conditions)
 
@@ -252,7 +264,7 @@ class GameRepository(BaseRepository):
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
                    g.review_count, g.positive_pct, g.price_usd, g.is_free,
-                   g.release_date,
+                   g.release_date, g.deck_compatibility,
                    r.report_json->>'hidden_gem_score' AS hidden_gem_score,
                    r.report_json->>'sentiment_score'  AS sentiment_score
             FROM games g

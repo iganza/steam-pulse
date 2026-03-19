@@ -1,5 +1,6 @@
 """Game domain models."""
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -39,6 +40,8 @@ class Game(BaseModel):
     supported_languages: str | None = None
     achievements_total: int = 0
     metacritic_score: int | None = None
+    deck_compatibility: int | None = None
+    deck_test_results: list[dict] = []
     crawled_at: datetime | None = None
     data_source: str = "steam_direct"
 
@@ -63,6 +66,15 @@ class Game(BaseModel):
             return {}
         return v  # type: ignore[return-value]
 
+    @field_validator("deck_test_results", mode="before")
+    @classmethod
+    def coerce_deck_results(cls, v: object) -> list[dict]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return json.loads(v)
+        return v  # type: ignore[return-value]
+
     @field_validator("release_date", mode="before")
     @classmethod
     def coerce_release_date(cls, v: object) -> str | None:
@@ -71,6 +83,13 @@ class Game(BaseModel):
         if isinstance(v, (date, datetime)):
             return v.isoformat()
         return str(v)
+
+    @property
+    def deck_status(self) -> str:
+        """Human-readable Steam Deck compatibility status."""
+        return {0: "Unknown", 1: "Unsupported", 2: "Playable", 3: "Verified"}.get(
+            self.deck_compatibility or 0, "Unknown"
+        )
 
 
 class GameSummary(BaseModel):

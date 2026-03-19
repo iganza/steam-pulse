@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
+DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
 
 _RETRY_STATUSES = frozenset({429, 503})
 
@@ -36,6 +37,10 @@ class SteamDataSource(ABC):
     @abstractmethod
     async def get_review_summary(self, appid: int) -> dict:
         """Returns query_summary from Steam reviews API: total_positive, total_negative, total_reviews, review_score_desc."""
+
+    @abstractmethod
+    async def get_deck_compatibility(self, appid: int) -> dict:
+        """Returns Steam Deck compatibility: {resolved_category, resolved_items} or {} if unavailable."""
 
 
 class DirectSteamSource(SteamDataSource):
@@ -210,4 +215,25 @@ class DirectSteamSource(SteamDataSource):
             return result
         except SteamAPIError:
             logger.warning("Review summary unavailable for appid=%s", appid)
+            return {}
+
+    async def get_deck_compatibility(self, appid: int) -> dict:
+        """Fetch Steam Deck compatibility report for an app.
+
+        Returns dict with 'resolved_category' (int) and 'resolved_items' (list),
+        or empty dict if unavailable.
+        """
+        await self._jitter()
+        try:
+            resp = await self._get_with_retry(DECK_COMPAT_URL, nAppID=str(appid))
+            data = resp.json()
+            if not data.get("success"):
+                return {}
+            results = data.get("results", {})
+            return {
+                "resolved_category": results.get("resolved_category", 0),
+                "resolved_items": results.get("resolved_items", []),
+            }
+        except SteamAPIError:
+            logger.debug("Deck compat unavailable for appid=%s", appid)
             return {}

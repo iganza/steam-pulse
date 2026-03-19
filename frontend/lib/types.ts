@@ -62,6 +62,11 @@ export interface JobStatus {
   error?: string;
 }
 
+export interface DeckTestResult {
+  display_type: number;
+  loc_token: string;
+}
+
 /** Game row from DB — used on listing pages */
 export interface Game {
   appid: number;
@@ -79,6 +84,8 @@ export interface Game {
   genres?: string[];
   tags?: string[];
   release_date?: string;
+  deck_compatibility?: number | null;
+  deck_test_results?: DeckTestResult[];
 }
 
 export interface TimelineEntry {

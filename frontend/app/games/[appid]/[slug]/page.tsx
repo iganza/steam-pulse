@@ -91,6 +91,8 @@ export default async function GameReportPage({ params }: Props) {
     tags?: string[];
     shortDesc?: string;
     reviewCount?: number;
+    deckCompatibility?: number | null;
+    deckTestResults?: Array<{ display_type: number; loc_token: string }>;
   } = {};
 
   try {
@@ -110,6 +112,8 @@ export default async function GameReportPage({ params }: Props) {
       if (g.is_free != null) gameData.isFree = g.is_free;
       if (g.genres?.length) gameData.genres = g.genres;
       if (g.tags?.length) gameData.tags = g.tags;
+      if (g.deck_compatibility != null) gameData.deckCompatibility = g.deck_compatibility;
+      if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
@@ -168,6 +172,8 @@ export default async function GameReportPage({ params }: Props) {
           tags={gameData.tags ?? []}
           shortDesc={gameData.shortDesc}
           reviewCount={gameData.reviewCount}
+          deckCompatibility={gameData.deckCompatibility}
+          deckTestResults={gameData.deckTestResults}
         />
       </main>
     </>

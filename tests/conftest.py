@@ -206,6 +206,31 @@ def fast_jitter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("random.uniform", lambda a, b: 0)
 
 
+@pytest.fixture(autouse=True)
+def mock_deck_compat(request: pytest.FixtureRequest) -> None:
+    """Auto-mock the Steam Deck compatibility endpoint for all tests using httpx_mock."""
+    if "httpx_mock" not in request.fixturenames:
+        return
+    import re as _re
+
+    httpx_mock = request.getfixturevalue("httpx_mock")
+    httpx_mock.add_response(
+        url=_re.compile(r"https://store\.steampowered\.com/saleaction/ajaxgetdeckappcompatibilityreport"),
+        json={
+            "success": 1,
+            "results": {
+                "appid": 440,
+                "resolved_category": 2,
+                "resolved_items": [
+                    {"display_type": 3, "loc_token": "#SteamDeckVerified_TestResult_DefaultControllerConfigNotFullyFunctional"},
+                    {"display_type": 4, "loc_token": "#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant"},
+                ],
+            },
+        },
+        is_optional=True,
+    )
+
+
 class MockLambdaContext:
     function_name = "test-function"
     function_version = "$LATEST"

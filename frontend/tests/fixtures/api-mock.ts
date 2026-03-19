@@ -58,6 +58,8 @@ export async function mockAllApiRoutes(page: Page) {
           release_date: MOCK_GAME_ANALYZED.release_date,
           price_usd: null,
           is_free: true,
+          deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
+          deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
         },
       },
     })
@@ -75,6 +77,8 @@ export async function mockAllApiRoutes(page: Page) {
           release_date: MOCK_GAME_UNANALYZED.release_date,
           price_usd: 9.99,
           is_free: false,
+          deck_compatibility: MOCK_GAME_UNANALYZED.deck_compatibility,
+          deck_test_results: MOCK_GAME_UNANALYZED.deck_test_results,
         },
       },
     })

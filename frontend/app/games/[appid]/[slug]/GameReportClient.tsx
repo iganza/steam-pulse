@@ -25,6 +25,7 @@ import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
 import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { ScoreBar } from "@/components/game/ScoreBar";
 import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
+import { DeckCompatibilityBadge } from "@/components/game/DeckCompatibilityBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import {
@@ -51,6 +52,8 @@ interface GameReportClientProps {
   tags?: string[];
   shortDesc?: string;
   reviewCount?: number;
+  deckCompatibility?: number | null;
+  deckTestResults?: Array<{ display_type: number; loc_token: string }>;
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -98,6 +101,8 @@ export function GameReportClient({
   tags,
   shortDesc,
   reviewCount,
+  deckCompatibility,
+  deckTestResults,
 }: GameReportClientProps) {
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
@@ -176,6 +181,9 @@ export function GameReportClient({
             >
               {name}
             </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
+            </div>
           </div>
         </div>
 
@@ -383,6 +391,7 @@ export function GameReportClient({
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
+            <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             <span
               className="inline-block px-3 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
               style={{

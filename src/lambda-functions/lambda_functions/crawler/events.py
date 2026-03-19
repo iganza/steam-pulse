@@ -18,7 +18,7 @@ class CrawlAppsRequest(BaseModel):
 class CrawlReviewsRequest(BaseModel):
     action: Literal["crawl_reviews"]
     appid: int
-    max_reviews: int = 2000
+    max_reviews: int | None = None  # None = fetch all reviews
 
 
 class CatalogRefreshRequest(BaseModel):

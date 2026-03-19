@@ -27,7 +27,7 @@ from library_layer.utils.time import unix_to_datetime
 
 logger = logging.getLogger(__name__)
 
-MAX_REVIEWS_DEFAULT = 3000
+MAX_REVIEWS_DEFAULT = None  # fetch all reviews
 REVIEW_MILESTONES = [500, 1000, 5000, 10000]
 
 
@@ -237,7 +237,7 @@ class CrawlService:
         self,
         appid: int,
         dry_run: bool = False,
-        max_reviews: int = MAX_REVIEWS_DEFAULT,
+        max_reviews: int | None = MAX_REVIEWS_DEFAULT,
     ) -> int:
         """Fetch reviews from Steam. Bulk upsert to DB. Trigger Step Functions.
 

@@ -30,7 +30,7 @@ class SteamDataSource(ABC):
         """Returns game metadata from Steam Store API."""
 
     @abstractmethod
-    async def get_reviews(self, appid: int, max_reviews: int = 500) -> list[dict]:
+    async def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
         """Returns reviews with voted_up, review_text, playtime_at_review."""
 
     @abstractmethod
@@ -125,12 +125,14 @@ class DirectSteamSource(SteamDataSource):
             return {}
         return data[key]["data"]  # type: ignore[no-any-return]
 
-    async def get_reviews(self, appid: int, max_reviews: int = 500) -> list[dict]:
+    async def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
         reviews: list[dict] = []
         cursor = "*"
         url = REVIEWS_URL.format(appid=appid)
 
-        while len(reviews) < max_reviews:
+        while True:
+            if max_reviews is not None and len(reviews) >= max_reviews:
+                break
             if cursor != "*":
                 await self._jitter()
 
@@ -165,7 +167,7 @@ class DirectSteamSource(SteamDataSource):
                 break
             cursor = next_cursor
 
-        return reviews[:max_reviews]
+        return reviews if max_reviews is None else reviews[:max_reviews]
 
     async def get_review_summary(self, appid: int) -> dict:
         """Fetch review counts from Steam reviews API query_summary (num_per_page=1)."""

@@ -25,20 +25,34 @@ class ReviewRepository(BaseRepository):
                 cur.execute(
                     """
                     INSERT INTO reviews (
-                        appid, steam_review_id, voted_up, playtime_hours, body, posted_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                        appid, steam_review_id, author_steamid, voted_up, playtime_hours,
+                        body, posted_at, language, votes_helpful, votes_funny,
+                        written_during_early_access, received_for_free
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (steam_review_id) DO UPDATE SET
-                        voted_up       = EXCLUDED.voted_up,
-                        playtime_hours = EXCLUDED.playtime_hours,
-                        body           = EXCLUDED.body
+                        voted_up                    = EXCLUDED.voted_up,
+                        playtime_hours              = EXCLUDED.playtime_hours,
+                        body                        = EXCLUDED.body,
+                        author_steamid              = EXCLUDED.author_steamid,
+                        language                    = EXCLUDED.language,
+                        votes_helpful               = EXCLUDED.votes_helpful,
+                        votes_funny                 = EXCLUDED.votes_funny,
+                        written_during_early_access = EXCLUDED.written_during_early_access,
+                        received_for_free           = EXCLUDED.received_for_free
                     """,
                     (
                         r["appid"],
                         r["steam_review_id"],
+                        r.get("author_steamid", ""),
                         r["voted_up"],
                         r.get("playtime_hours", 0),
                         r.get("body", ""),
                         r.get("posted_at"),
+                        r.get("language", ""),
+                        r.get("votes_helpful", 0),
+                        r.get("votes_funny", 0),
+                        r.get("written_during_early_access", False),
+                        r.get("received_for_free", False),
                     ),
                 )
                 upserted += 1

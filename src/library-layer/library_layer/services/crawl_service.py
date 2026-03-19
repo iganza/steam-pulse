@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from library_layer.config import SteamPulseConfig
@@ -61,6 +62,8 @@ class CrawlService:
         config: SteamPulseConfig,
         sfn_arn: str | None = None,
         sfn_client: Any | None = None,
+        s3_client: Any | None = None,
+        archive_bucket: str | None = None,
     ) -> None:
         self._game_repo = game_repo
         self._review_repo = review_repo
@@ -73,6 +76,8 @@ class CrawlService:
         self._sfn = sfn_client
         self._sns = sns_client
         self._config = config
+        self._s3 = s3_client
+        self._archive_bucket = archive_bucket
 
     # ------------------------------------------------------------------
     # Public API
@@ -99,7 +104,8 @@ class CrawlService:
         summary = await self._steam.get_review_summary(appid)
         total_positive = int(summary.get("total_positive") or 0)
         total_negative = int(summary.get("total_negative") or 0)
-        total_reviews = total_positive + total_negative
+        total_reviews = total_positive + total_negative  # English
+        total_reviews_all = int(summary.get("total_reviews_all") or 0) or total_reviews
         positive_pct: int | None = (
             round(total_positive / total_reviews * 100) if total_reviews > 0 else None
         )
@@ -173,7 +179,8 @@ class CrawlService:
             "short_desc": (details.get("short_description") or "")[:2000],
             "detailed_description": details.get("detailed_description") or "",
             "about_the_game": details.get("about_the_game") or "",
-            "review_count": total_reviews,
+            "review_count": total_reviews_all,
+            "review_count_english": total_reviews,
             "total_positive": total_positive,
             "total_negative": total_negative,
             "positive_pct": positive_pct,
@@ -206,15 +213,17 @@ class CrawlService:
         self._catalog_repo.set_meta_status(
             appid,
             "done",
-            review_count=total_reviews,
+            review_count=total_reviews_all,
             review_status=review_status,
         )
+
+        self._archive_to_s3(f"app-details/{appid}/{date.today().isoformat()}.json.gz", details)
 
         # ── Publish domain events ──────────────────────────────────────────
         self._publish_crawl_app_events(appid, game_data, existing)
 
-        delta = total_reviews - old_review_count
-        threshold = _reanalysis_threshold(total_reviews)
+        delta = total_reviews_all - old_review_count
+        threshold = _reanalysis_threshold(total_reviews_all)
         if delta >= threshold:
             logger.info(
                 "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
@@ -256,6 +265,8 @@ class CrawlService:
 
         logger.info("Fetched %d reviews for appid=%s", len(raw_reviews), appid)
 
+        self._archive_to_s3(f"reviews/{appid}/{date.today().isoformat()}.json.gz", raw_reviews)
+
         if dry_run:
             return len(raw_reviews)
 
@@ -279,10 +290,16 @@ class CrawlService:
                 {
                     "appid": appid,
                     "steam_review_id": steam_id,
+                    "author_steamid": r.get("author_steamid", ""),
                     "voted_up": bool(r.get("voted_up", False)),
                     "playtime_hours": playtime_minutes // 60,
                     "body": r.get("review_text", ""),
                     "posted_at": posted_at,
+                    "language": r.get("language", ""),
+                    "votes_helpful": int(r.get("votes_helpful") or 0),
+                    "votes_funny": int(r.get("votes_funny") or 0),
+                    "written_during_early_access": bool(r.get("written_during_early_access", False)),
+                    "received_for_free": bool(r.get("received_for_free", False)),
                 }
             )
 
@@ -313,6 +330,26 @@ class CrawlService:
         return delta >= _reanalysis_threshold(review_count)
 
     # ------------------------------------------------------------------
+    # S3 archival
+    # ------------------------------------------------------------------
+
+    def _archive_to_s3(self, key: str, data: dict | list) -> None:
+        """Archive raw API response to S3 as gzip'd JSON. Skips silently if unconfigured."""
+        if not self._s3 or not self._archive_bucket:
+            return
+        try:
+            compressed = gzip.compress(json.dumps(data).encode())
+            self._s3.put_object(
+                Bucket=self._archive_bucket,
+                Key=key,
+                Body=compressed,
+                ContentEncoding="gzip",
+                ContentType="application/json",
+            )
+        except Exception:
+            logger.warning("Failed to archive %s to S3", key)
+
+    # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
@@ -329,7 +366,8 @@ class CrawlService:
         topic_arn = self._config.GAME_EVENTS_TOPIC_ARN
         threshold = self._config.REVIEW_ELIGIBILITY_THRESHOLD
         review_count = game_data["review_count"]
-        is_eligible = review_count >= threshold
+        review_count_english = game_data.get("review_count_english", review_count)
+        is_eligible = review_count_english >= threshold
 
         try:
             # Always: metadata-ready

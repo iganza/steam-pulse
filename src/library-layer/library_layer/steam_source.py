@@ -160,6 +160,12 @@ class DirectSteamSource(SteamDataSource):
                     "voted_up": r.get("voted_up", False),
                     "playtime_at_review": r.get("author", {}).get("playtime_at_review", 0),
                     "timestamp_created": r.get("timestamp_created", 0),
+                    "language": r.get("language", ""),
+                    "author_steamid": r.get("author", {}).get("steamid", ""),
+                    "votes_helpful": r.get("votes_up", 0),
+                    "votes_funny": r.get("votes_funny", 0),
+                    "written_during_early_access": r.get("written_during_early_access", False),
+                    "received_for_free": r.get("received_for_free", False),
                 })
 
             next_cursor = data.get("cursor", "")
@@ -170,17 +176,38 @@ class DirectSteamSource(SteamDataSource):
         return reviews if max_reviews is None else reviews[:max_reviews]
 
     async def get_review_summary(self, appid: int) -> dict:
-        """Fetch review counts from Steam reviews API query_summary (num_per_page=1)."""
-        await self._jitter()
+        """Fetch review counts from Steam reviews API query_summary (num_per_page=1).
+
+        Makes two calls: one with language="english" (for eligibility counts) and
+        one with language="all" (for display total). Returns the English summary
+        dict with an additional ``total_reviews_all`` key.
+        """
         url = REVIEWS_URL.format(appid=appid)
         try:
-            resp = await self._get_with_retry(
+            # English counts — matches what get_reviews actually fetches
+            await self._jitter()
+            eng_resp = await self._get_with_retry(
+                url, json="1", num_per_page="1", language="english", purchase_type="all"
+            )
+            eng_data = eng_resp.json()
+            if not eng_data.get("success"):
+                return {}
+            eng_summary: dict = eng_data.get("query_summary", {})
+
+            # All-language count — for display ("X total reviews on Steam")
+            await self._jitter()
+            all_resp = await self._get_with_retry(
                 url, json="1", num_per_page="1", language="all", purchase_type="all"
             )
-            data = resp.json()
-            if not data.get("success"):
-                return {}
-            return data.get("query_summary", {})  # type: ignore[no-any-return]
+            all_data = all_resp.json()
+            all_summary = all_data.get("query_summary", {}) if all_data.get("success") else {}
+
+            total_positive_all = int(all_summary.get("total_positive") or 0)
+            total_negative_all = int(all_summary.get("total_negative") or 0)
+
+            result = dict(eng_summary)
+            result["total_reviews_all"] = total_positive_all + total_negative_all
+            return result
         except SteamAPIError:
             logger.warning("Review summary unavailable for appid=%s", appid)
             return {}

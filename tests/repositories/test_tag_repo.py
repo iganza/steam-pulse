@@ -25,6 +25,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "detailed_description": None,
         "about_the_game": None,
         "review_count": 1000,
+        "review_count_english": 1000,
         "total_positive": 900,
         "total_negative": 100,
         "positive_pct": 90,

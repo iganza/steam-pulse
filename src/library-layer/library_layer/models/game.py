@@ -27,6 +27,7 @@ class Game(BaseModel):
     detailed_description: str | None = None
     about_the_game: str | None = None
     review_count: int = 0
+    review_count_english: int = 0
     total_positive: int = 0
     total_negative: int = 0
     positive_pct: Decimal | None = None
@@ -48,7 +49,7 @@ class Game(BaseModel):
             return []
         return v  # type: ignore[return-value]
 
-    @field_validator("review_count", "total_positive", "total_negative", "required_age", "achievements_total", mode="before")
+    @field_validator("review_count", "review_count_english", "total_positive", "total_negative", "required_age", "achievements_total", mode="before")
     @classmethod
     def coerce_int(cls, v: object) -> int:
         if v is None:

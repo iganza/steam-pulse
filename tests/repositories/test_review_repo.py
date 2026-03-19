@@ -26,6 +26,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
         "detailed_description": None,
         "about_the_game": None,
         "review_count": 100,
+        "review_count_english": 100,
         "total_positive": 80,
         "total_negative": 20,
         "positive_pct": 80,
@@ -47,10 +48,16 @@ def _make_reviews(appid: int = 440, count: int = 3) -> list[dict]:
         {
             "appid": appid,
             "steam_review_id": f"rev-{appid}-{i}",
+            "author_steamid": f"steam-{appid}-{i}",
             "voted_up": i % 2 == 0,
             "playtime_hours": i * 10,
             "body": f"Review body {i}",
             "posted_at": datetime.fromtimestamp(base_ts + i, tz=UTC),
+            "language": "english",
+            "votes_helpful": i,
+            "votes_funny": 0,
+            "written_during_early_access": False,
+            "received_for_free": False,
         }
         for i in range(count)
     ]

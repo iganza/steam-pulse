@@ -29,7 +29,8 @@ TABLES: tuple[str, ...] = (
         detailed_description TEXT,                   -- main long HTML description
         about_the_game   TEXT,                       -- "About the Game" section
         -- review metrics
-        review_count     INTEGER,                    -- total reviews (positive + negative)
+        review_count     INTEGER,                    -- total reviews all languages (positive + negative)
+        review_count_english INTEGER,                -- English reviews only (drives eligibility)
         total_positive   INTEGER,
         total_negative   INTEGER,
         positive_pct     INTEGER,
@@ -96,6 +97,11 @@ TABLES: tuple[str, ...] = (
         playtime_hours INTEGER,
         body TEXT,
         posted_at TIMESTAMPTZ,
+        language VARCHAR(20),
+        votes_helpful INTEGER DEFAULT 0,
+        votes_funny INTEGER DEFAULT 0,
+        written_during_early_access BOOLEAN DEFAULT FALSE,
+        received_for_free BOOLEAN DEFAULT FALSE,
         crawled_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
@@ -170,11 +176,16 @@ TABLES: tuple[str, ...] = (
         last_analyzed TIMESTAMP
     )
     """,
-    # --- Future migrations ---
-    # When adding a new column to an existing deployed database, append entries here:
-    #   "ALTER TABLE games ADD COLUMN IF NOT EXISTS my_new_col TEXT",
+    # --- Migrations ---
+    # When adding a new column to an existing deployed database, append entries here.
     # These run on every startup and are idempotent (IF NOT EXISTS).
     # No migration framework needed — just append and deploy.
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_count_english INTEGER",
+    "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS language VARCHAR(20)",
+    "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS votes_helpful INTEGER DEFAULT 0",
+    "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS votes_funny INTEGER DEFAULT 0",
+    "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS written_during_early_access BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS received_for_free BOOLEAN DEFAULT FALSE",
 )
 
 

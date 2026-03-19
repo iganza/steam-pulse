@@ -58,6 +58,7 @@ from library_layer.steam_source import DirectSteamSource
 _conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
+_s3 = boto3.client("s3")
 _sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
 _sfn = boto3.client("stepfunctions") if _sfn_arn else None
 _crawler_config = SteamPulseConfig()
@@ -74,6 +75,8 @@ _crawl_service = CrawlService(
     sfn_client=_sfn,
     sns_client=_sns,
     config=_crawler_config,
+    s3_client=_s3,
+    archive_bucket=_crawler_config.ARCHIVE_BUCKET,
 )
 _catalog_service = CatalogService(
     catalog_repo=CatalogRepository(_conn),

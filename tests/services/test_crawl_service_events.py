@@ -21,12 +21,26 @@ from moto import mock_aws
 from pytest_httpx import HTTPXMock
 
 
-REVIEW_SUMMARY = {
+# English review summary (first call)
+REVIEW_SUMMARY_ENGLISH = {
     "success": 1,
     "query_summary": {
         "total_positive": 800,
         "total_negative": 200,
         "total_reviews": 1000,
+        "review_score": 9,
+        "review_score_desc": "Very Positive",
+    },
+    "reviews": [],
+}
+
+# All-language review summary (second call)
+REVIEW_SUMMARY_ALL = {
+    "success": 1,
+    "query_summary": {
+        "total_positive": 900,
+        "total_negative": 250,
+        "total_reviews": 1150,
         "review_score": 9,
         "review_score_desc": "Very Positive",
     },
@@ -56,6 +70,11 @@ REVIEWS_RESPONSE = {
             "timestamp_created": 1700000000 + i,
             "voted_up": i % 2 == 0,
             "playtime_at_review": 120,
+            "language": "english",
+            "votes_up": i * 2,
+            "votes_funny": 0,
+            "written_during_early_access": False,
+            "received_for_free": False,
         }
         for i in range(4)
     ],
@@ -139,6 +158,7 @@ def _game_row(**overrides: Any) -> dict:
         "detailed_description": "",
         "about_the_game": "",
         "review_count": 0,
+        "review_count_english": 0,
         "total_positive": 0,
         "total_negative": 0,
         "positive_pct": None,
@@ -194,7 +214,11 @@ async def test_crawl_app_publishes_metadata_ready(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -236,7 +260,11 @@ async def test_crawl_app_eligible_sets_is_eligible_true(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,  # 1000 reviews > 500 threshold
+        json=REVIEW_SUMMARY_ENGLISH,  # 1000 English reviews > 500 threshold
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -281,7 +309,11 @@ async def test_crawl_app_ineligible_sets_is_eligible_false(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=SMALL_REVIEW_SUMMARY,  # 100 reviews < 500 threshold
+        json=SMALL_REVIEW_SUMMARY,  # 100 English reviews < 500 threshold
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=SMALL_REVIEW_SUMMARY,  # all languages (same for small game)
     )
 
     async with _httpx.AsyncClient() as client:
@@ -327,7 +359,11 @@ async def test_crawl_app_uses_configurable_threshold(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -435,7 +471,11 @@ async def test_crawl_app_detects_game_released(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -479,7 +519,11 @@ async def test_crawl_app_no_release_if_already_released(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -523,7 +567,11 @@ async def test_crawl_app_detects_price_change(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -568,7 +616,11 @@ async def test_crawl_app_no_price_event_if_same(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,
     )
 
     async with _httpx.AsyncClient() as client:
@@ -612,7 +664,11 @@ async def test_crawl_app_detects_review_milestone(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,  # 1000 reviews → crosses 500
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,  # 1150 all-lang reviews → crosses 500, 1000
     )
 
     async with _httpx.AsyncClient() as client:
@@ -658,7 +714,11 @@ async def test_crawl_app_publishes_all_crossed_milestones(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,  # 1000 → crosses 500 and 1000
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,  # 1150 all-lang → crosses 500 and 1000
     )
 
     async with _httpx.AsyncClient() as client:
@@ -704,7 +764,11 @@ async def test_crawl_app_no_milestone_if_already_past(
     )
     httpx_mock.add_response(
         url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-        json=REVIEW_SUMMARY,  # 1000 reviews
+        json=REVIEW_SUMMARY_ENGLISH,
+    )
+    httpx_mock.add_response(
+        url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+        json=REVIEW_SUMMARY_ALL,  # 1150 all-lang reviews
     )
 
     async with _httpx.AsyncClient() as client:

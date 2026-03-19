@@ -63,6 +63,9 @@ class SteamPulseConfig(BaseSettings):
     # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 500
 
+    # ── S3 raw response archival (optional) ─────────────────────────────────
+    ARCHIVE_BUCKET: str = ""  # empty means archival disabled
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"

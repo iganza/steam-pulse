@@ -28,6 +28,7 @@ def _game_data(appid: int = 440, name: str = "Team Fortress 2") -> dict:
         "detailed_description": "A detailed description.",
         "about_the_game": "About TF2.",
         "review_count": 188000,
+        "review_count_english": 155000,
         "total_positive": 182000,
         "total_negative": 6000,
         "positive_pct": 96,

@@ -121,23 +121,38 @@ def _get_repos() -> tuple[
     )
 
 
+
+class _NoOpSnsClient:
+    """Silently discards all SNS publish calls — used when running locally."""
+    def publish(self, **kwargs: object) -> dict:
+        return {"MessageId": "no-op"}
+
+
+def _has_real_aws_credentials() -> bool:
+    """Return True if real AWS credentials are available (not the local dummy values)."""
+    return os.environ.get("AWS_ACCESS_KEY_ID", "local") not in ("local", "testing", "")
+
+
 def _build_crawl_service(
     conn: psycopg2.extensions.connection,
     http_async: httpx.AsyncClient,
 ) -> CrawlService:
     import boto3
+    real_aws = _has_real_aws_credentials()
     return CrawlService(
         game_repo=GameRepository(conn),
         review_repo=ReviewRepository(conn),
         catalog_repo=CatalogRepository(conn),
         tag_repo=TagRepository(conn),
         steam=DirectSteamSource(http_async),
-        sns_client=boto3.client("sns"),
+        sns_client=_NoOpSnsClient(),
         config=SteamPulseConfig(),
         sqs_client=None,
         review_queue_url="",
         sfn_arn=None,
         sfn_client=None,
+        s3_client=boto3.client("s3") if real_aws else None,
+        archive_bucket=os.getenv("ARCHIVE_BUCKET", "steampulse-raw-archive-v1") if real_aws else None,
     )
 
 

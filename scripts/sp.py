@@ -42,15 +42,26 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 # Disable cloud triggers — we drive the pipeline manually
-os.environ.setdefault("SFN_ARN", "")
-os.environ.setdefault("REVIEW_CRAWL_QUEUE_URL", "")
-os.environ.setdefault("DB_SECRET_ARN", "")
+os.environ.setdefault("SFN_ARN", "local")
+os.environ.setdefault("REVIEW_CRAWL_QUEUE_URL", "local")
+os.environ.setdefault("DB_SECRET_ARN", "local")
+os.environ.setdefault("APP_CRAWL_QUEUE_URL", "local")
+os.environ.setdefault("STEAM_API_KEY_SECRET_ARN", "local")
+os.environ.setdefault("ASSETS_BUCKET_NAME", "local")
+os.environ.setdefault("STEP_FUNCTIONS_ARN", "local")
+os.environ.setdefault("GAME_EVENTS_TOPIC_ARN", "local")
+os.environ.setdefault("CONTENT_EVENTS_TOPIC_ARN", "local")
+os.environ.setdefault("SYSTEM_EVENTS_TOPIC_ARN", "local")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
 from library_layer.repositories.game_repo import GameRepository  # noqa: E402
 from library_layer.repositories.report_repo import ReportRepository  # noqa: E402
 from library_layer.repositories.review_repo import ReviewRepository  # noqa: E402
 from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
+from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.services.crawl_service import CrawlService  # noqa: E402
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
 
@@ -114,12 +125,15 @@ def _build_crawl_service(
     conn: psycopg2.extensions.connection,
     http_async: httpx.AsyncClient,
 ) -> CrawlService:
+    import boto3
     return CrawlService(
         game_repo=GameRepository(conn),
         review_repo=ReviewRepository(conn),
         catalog_repo=CatalogRepository(conn),
         tag_repo=TagRepository(conn),
         steam=DirectSteamSource(http_async),
+        sns_client=boto3.client("sns"),
+        config=SteamPulseConfig(),
         sqs_client=None,
         review_queue_url="",
         sfn_arn=None,

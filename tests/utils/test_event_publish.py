@@ -5,7 +5,6 @@ import logging
 from unittest.mock import MagicMock
 
 import pytest
-
 from library_layer.events import GameDiscoveredEvent
 from library_layer.utils.events import EventPublishError, publish_event
 

@@ -34,16 +34,16 @@ def _synth_compute_stack() -> assertions.Template:
 
     config = SteamPulseConfig(
         ENVIRONMENT="staging",
-        DB_SECRET_ARN="arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
-        SFN_ARN="arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
-        APP_CRAWL_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
-        REVIEW_CRAWL_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
-        STEAM_API_KEY_SECRET_ARN="arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
-        ASSETS_BUCKET_NAME="steampulse-assets-test",
-        STEP_FUNCTIONS_ARN="arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
-        GAME_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:game-events",
-        CONTENT_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:content-events",
-        SYSTEM_EVENTS_TOPIC_ARN="arn:aws:sns:us-east-1:123456789012:system-events",
+        DB_SECRET_NAME="steampulse/test/db-credentials",
+        STEAM_API_KEY_SECRET_NAME="steampulse/test/steam-api-key",
+        SFN_PARAM_NAME="/steampulse/test/compute/sfn-arn",
+        STEP_FUNCTIONS_PARAM_NAME="/steampulse/test/compute/sfn-arn",
+        APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/app-crawl-queue-url",
+        REVIEW_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/review-crawl-queue-url",
+        ASSETS_BUCKET_PARAM_NAME="/steampulse/test/app/assets-bucket-name",
+        GAME_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/game-events-topic-arn",
+        CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
+        SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
     )
     compute = ComputeStack(
         app,

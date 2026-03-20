@@ -8,7 +8,33 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import boto3
 from moto import mock_aws
+
+# ── SSM seed — required before handler import (module-level get_parameter) ───
+
+_SSM_PARAMS = {
+    "/steampulse/test/compute/sfn-arn": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "/steampulse/test/messaging/review-crawl-queue-url": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
+    "/steampulse/test/messaging/app-crawl-queue-url": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
+    "/steampulse/test/messaging/game-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:game-events",
+    "/steampulse/test/messaging/content-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:content-events",
+    "/steampulse/test/messaging/system-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:system-events",
+}
+
+
+def _seed_ssm() -> None:
+    """Create SSM parameters and secrets in moto so handler's module-level init works."""
+    ssm = boto3.client("ssm", region_name="us-east-1")
+    for name, value in _SSM_PARAMS.items():
+        ssm.put_parameter(Name=name, Value=value, Type="String", Overwrite=True)
+    # Seed Steam API key secret (Secrets Manager)
+    sm = boto3.client("secretsmanager", region_name="us-east-1")
+    try:
+        sm.create_secret(Name="steampulse/test/steam-api-key", SecretString="test-steam-key")
+    except sm.exceptions.ResourceExistsException:
+        pass
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +60,7 @@ def _make_catalog_service(refresh_result: dict | None = None) -> MagicMock:
 
 
 def _inject_services(mock_crawl: MagicMock, mock_catalog: MagicMock) -> None:
+    _seed_ssm()
     import lambda_functions.crawler.handler as hm
 
     hm._crawl_service = mock_crawl

@@ -2,11 +2,9 @@
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Lightweight in-memory repo mocks — injected at module level before each test

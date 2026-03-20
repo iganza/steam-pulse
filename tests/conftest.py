@@ -23,7 +23,6 @@ from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.schema import create_all
 
-
 _TEST_DB_DEFAULT = "postgresql://steampulse:dev@localhost:5432/steampulse_test"
 
 
@@ -55,16 +54,16 @@ _TEST_ENV_DEFAULTS = {
     "AWS_SECRET_ACCESS_KEY": "testing",
     "AWS_SECURITY_TOKEN": "testing",
     "AWS_SESSION_TOKEN": "testing",
-    "GAME_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-game-events",
-    "CONTENT_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-content-events",
-    "SYSTEM_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000000000000:test-system-events",
-    "DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
-    "SFN_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
-    "APP_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
-    "REVIEW_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
-    "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
-    "ASSETS_BUCKET_NAME": "steampulse-assets-test",
-    "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "DB_SECRET_NAME": "steampulse/test/db-credentials",
+    "STEAM_API_KEY_SECRET_NAME": "steampulse/test/steam-api-key",
+    "SFN_PARAM_NAME": "/steampulse/test/compute/sfn-arn",
+    "STEP_FUNCTIONS_PARAM_NAME": "/steampulse/test/compute/sfn-arn",
+    "APP_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/app-crawl-queue-url",
+    "REVIEW_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/review-crawl-queue-url",
+    "ASSETS_BUCKET_PARAM_NAME": "/steampulse/test/app/assets-bucket-name",
+    "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
+    "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
+    "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
     "LLM_MODEL__CHUNKING": "us.anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "us.anthropic.claude-sonnet-test-v1:0",
 }

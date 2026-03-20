@@ -42,16 +42,22 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 # Disable cloud triggers — we drive the pipeline manually
-os.environ.setdefault("SFN_ARN", "local")
-os.environ.setdefault("REVIEW_CRAWL_QUEUE_URL", "local")
-os.environ.setdefault("DB_SECRET_ARN", "local")
-os.environ.setdefault("APP_CRAWL_QUEUE_URL", "local")
-os.environ.setdefault("STEAM_API_KEY_SECRET_ARN", "local")
-os.environ.setdefault("ASSETS_BUCKET_NAME", "local")
-os.environ.setdefault("STEP_FUNCTIONS_ARN", "local")
-os.environ.setdefault("GAME_EVENTS_TOPIC_ARN", "local")
-os.environ.setdefault("CONTENT_EVENTS_TOPIC_ARN", "local")
-os.environ.setdefault("SYSTEM_EVENTS_TOPIC_ARN", "local")
+# Secrets Manager names (resolved by db.py / steam source at runtime)
+os.environ.setdefault("DB_SECRET_NAME", "local")
+os.environ.setdefault("STEAM_API_KEY_SECRET_NAME", "local")
+# SSM parameter names (not resolved locally — CrawlService accepts explicit values)
+os.environ.setdefault("SFN_PARAM_NAME", "local")
+os.environ.setdefault("STEP_FUNCTIONS_PARAM_NAME", "local")
+os.environ.setdefault("APP_CRAWL_QUEUE_PARAM_NAME", "local")
+os.environ.setdefault("REVIEW_CRAWL_QUEUE_PARAM_NAME", "local")
+os.environ.setdefault("ASSETS_BUCKET_PARAM_NAME", "local")
+os.environ.setdefault("GAME_EVENTS_TOPIC_PARAM_NAME", "local")
+os.environ.setdefault("CONTENT_EVENTS_TOPIC_PARAM_NAME", "local")
+os.environ.setdefault("SYSTEM_EVENTS_TOPIC_PARAM_NAME", "local")
+# LLM model routing defaults — overridden by .env if present
+os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
+# AWS defaults for local dev
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
@@ -147,6 +153,8 @@ def _build_crawl_service(
         steam=DirectSteamSource(http_async),
         sns_client=_NoOpSnsClient(),
         config=SteamPulseConfig(),
+        game_events_topic_arn="noop",
+        content_events_topic_arn="noop",
         sqs_client=None,
         review_queue_url="",
         sfn_arn=None,

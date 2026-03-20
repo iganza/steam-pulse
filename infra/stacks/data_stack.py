@@ -9,7 +9,6 @@ import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_rds as rds
 import aws_cdk.aws_secretsmanager as secretsmanager
 from constructs import Construct
-
 from library_layer.config import SteamPulseConfig
 
 
@@ -36,6 +35,9 @@ class DataStack(cdk.Stack):
             "Lambda to Postgres",
         )
 
+        env = config.ENVIRONMENT
+        secret_name = f"steampulse/{env}/db-credentials"
+
         if config.is_production:
             # t3.micro: ~$15/mo, predictable cost, no cold-start latency.
             db_instance = rds.DatabaseInstance(
@@ -44,6 +46,10 @@ class DataStack(cdk.Stack):
                     version=rds.PostgresEngineVersion.VER_16_3,
                 ),
                 instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+                credentials=rds.Credentials.from_generated_secret(
+                    "postgres",
+                    secret_name=secret_name,
+                ),
                 vpc=vpc,
                 vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
@@ -61,6 +67,10 @@ class DataStack(cdk.Stack):
                 self, "Db",
                 engine=rds.DatabaseClusterEngine.aurora_postgres(
                     version=rds.AuroraPostgresEngineVersion.VER_16_4,
+                ),
+                credentials=rds.Credentials.from_generated_secret(
+                    "postgres",
+                    secret_name=secret_name,
                 ),
                 default_database_name=db_name,
                 vpc=vpc,

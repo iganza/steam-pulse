@@ -62,25 +62,43 @@ class SteamPulseConfig(BaseSettings):
     # ── Feature flags ─────────────────────────────────────────────────────────
     PRO_ENABLED: bool = False
 
-    # ── Infrastructure ARNs / URLs (populated by CDK as Lambda env vars) ──────
-    DB_SECRET_ARN: str
-    SFN_ARN: str
-    APP_CRAWL_QUEUE_URL: str
-    REVIEW_CRAWL_QUEUE_URL: str
-    STEAM_API_KEY_SECRET_ARN: str
-    ASSETS_BUCKET_NAME: str
-    STEP_FUNCTIONS_ARN: str
+    # ── Secrets Manager names (Lambda calls get_secret_value(SecretId=name)) ──
+    DB_SECRET_NAME: str
+    STEAM_API_KEY_SECRET_NAME: str
 
-    # ── SNS Domain Topic ARNs ─────────────────────────────────────────────────
-    GAME_EVENTS_TOPIC_ARN: str
-    CONTENT_EVENTS_TOPIC_ARN: str
-    SYSTEM_EVENTS_TOPIC_ARN: str
+    # ── SSM parameter names (resolved at Lambda cold start via get_parameter()) ─
+    SFN_PARAM_NAME: str
+    STEP_FUNCTIONS_PARAM_NAME: str
+    APP_CRAWL_QUEUE_PARAM_NAME: str
+    REVIEW_CRAWL_QUEUE_PARAM_NAME: str
+    ASSETS_BUCKET_PARAM_NAME: str
+
+    # ── SNS topic SSM parameter names ──────────────────────────────────────────
+    GAME_EVENTS_TOPIC_PARAM_NAME: str
+    CONTENT_EVENTS_TOPIC_PARAM_NAME: str
+    SYSTEM_EVENTS_TOPIC_PARAM_NAME: str
 
     # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 500
 
-    # ── S3 raw response archival (optional) ─────────────────────────────────
-    ARCHIVE_BUCKET: str = ""  # empty means archival disabled
+    def to_lambda_env(self, **overrides: str) -> dict[str, str]:
+        """Build a Lambda environment dict from this config.
+
+        Serialises all config fields as flat key=string pairs.
+        Nested dicts (LLM_MODEL) are flattened with __ delimiter.
+        Overrides are applied last (for POWERTOOLS_* and similar).
+        """
+        env: dict[str, str] = {}
+        for k, v in self.model_dump().items():
+            if isinstance(v, dict):
+                for nk, nv in v.items():
+                    env[f"{k}__{nk.upper()}"] = str(nv)
+            elif isinstance(v, bool):
+                env[k] = str(v).lower()
+            else:
+                env[k] = str(v)
+        env.update(overrides)
+        return env
 
     @property
     def is_production(self) -> bool:

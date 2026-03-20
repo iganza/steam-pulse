@@ -3,8 +3,6 @@
 import json
 
 import pytest
-from pydantic import ValidationError
-
 from library_layer.events import (
     BaseEvent,
     BatchCompleteEvent,
@@ -15,10 +13,11 @@ from library_layer.events import (
     GamePriceChangedEvent,
     GameReleasedEvent,
     GameUpdatedEvent,
+    ReportReadyEvent,
     ReviewMilestoneEvent,
     ReviewsReadyEvent,
-    ReportReadyEvent,
 )
+from pydantic import ValidationError
 
 ALL_EVENT_CLASSES = [
     GameDiscoveredEvent,

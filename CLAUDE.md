@@ -240,11 +240,14 @@ directly as env vars. Instead, CDK publishes them to SSM Parameter Store and the
 Lambda env var holds the **SSM parameter name**. Each Lambda resolves only the
 params it needs at cold start via Powertools `get_parameter()` (cached 5 min).
 
-**Naming rule:** any config field that holds an SSM parameter name ends in `_PARAM_NAME`.
-Fields without this suffix hold literal values used directly.
+**Three kinds of infrastructure env vars — clear naming conventions:**
+
+- **`_SECRET_NAME` fields** — hold a Secrets Manager **name**. Lambda calls `get_secret_value(SecretId=name)` directly (one hop). Set in `.env`. `db.py` already implements this correctly for `DB_SECRET_NAME`.
+- **`_PARAM_NAME` fields** — hold an SSM Parameter Store **path**. Lambda calls `get_parameter(path)` at cold start via Powertools (cached 5 min). Set in `.env`.
+- **Literals** (`ENVIRONMENT`, `LLM_MODEL__*`, `PRO_ENABLED`) — used directly, no resolution needed.
 
 ```
-# Literal values — used directly
+# Literals — in .env, used directly
 ENVIRONMENT             # staging | production
 DATABASE_URL            # PostgreSQL connection string (local dev only)
 AWS_DEFAULT_REGION      # us-west-2
@@ -253,31 +256,39 @@ PRO_ENABLED             # 'true' enables /api/chat (V2)
 LLM_MODEL__CHUNKING     # Bedrock model ID for Haiku pass
 LLM_MODEL__SUMMARIZER   # Bedrock model ID for Sonnet pass
 
-# SSM parameter names — resolved at Lambda cold start via get_parameter()
-DB_SECRET_PARAM_NAME              # → /steampulse/{env}/data/db-secret-arn
-SFN_PARAM_NAME                    # → /steampulse/{env}/compute/sfn-arn
-STEP_FUNCTIONS_PARAM_NAME         # → /steampulse/{env}/compute/sfn-arn (alias)
-APP_CRAWL_QUEUE_PARAM_NAME        # → /steampulse/{env}/messaging/app-crawl-queue-url
-REVIEW_CRAWL_QUEUE_PARAM_NAME     # → /steampulse/{env}/messaging/review-crawl-queue-url
-STEAM_API_KEY_PARAM_NAME          # → /steampulse/{env}/data/steam-api-key-secret-arn
-ASSETS_BUCKET_PARAM_NAME          # → /steampulse/{env}/data/assets-bucket-name
-GAME_EVENTS_TOPIC_PARAM_NAME      # → /steampulse/{env}/messaging/game-events-topic-arn
-CONTENT_EVENTS_TOPIC_PARAM_NAME   # → /steampulse/{env}/messaging/content-events-topic-arn
-SYSTEM_EVENTS_TOPIC_PARAM_NAME    # → /steampulse/{env}/messaging/system-events-topic-arn
+# Secrets Manager names — in .env, Lambda calls get_secret_value(SecretId=name)
+DB_SECRET_NAME                # steampulse/{env}/db-credentials
+STEAM_API_KEY_SECRET_NAME     # steampulse/{env}/steam-api-key
 
-# Non-config overrides (set per-Lambda in CDK, not in .env)
+# SSM parameter names — in .env, resolved at cold start via get_parameter()
+SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
+STEP_FUNCTIONS_PARAM_NAME         # /steampulse/{env}/compute/sfn-arn (alias)
+APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
+ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/data/assets-bucket-name
+GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
+CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
+SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn
+
+# Non-config overrides (per-Lambda in CDK only)
 POWERTOOLS_SERVICE_NAME            # e.g., "crawler", "api"
 POWERTOOLS_METRICS_NAMESPACE       # "SteamPulse"
 PORT                               # 8080 for FastAPI Lambda
-RESEND_API_KEY                     # Email (Secrets Manager, not SSM)
+RESEND_API_KEY                     # Email
 ```
 
-**CDK pattern:** `environment=config.to_lambda_env(POWERTOOLS_SERVICE_NAME="crawler")`
-— zero ARN overrides, zero drift. `.env.staging` / `.env.production` are the single
-source of truth.
+**CDK pattern — `to_lambda_env()` needs only `POWERTOOLS_*` overrides:**
+```python
+environment=config.to_lambda_env(
+    POWERTOOLS_SERVICE_NAME="crawler",
+    POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+)
+```
+
+Everything else comes from `.env`. No CDK token overrides. No ARN passing. The RDS secret must use `credentials=rds.Credentials.from_generated_secret("postgres", secret_name=f"steampulse/{env}/db-credentials")` to get a deterministic name.
 
 **Spoke exception:** cross-region spoke Lambdas can't resolve SSM from the primary
-region, so `_PARAM_NAME` fields hold actual values (not SSM paths) in the spoke stack.
+region, so `_PARAM_NAME` fields hold actual values in the spoke stack's inline env dict.
 The spoke handler uses them directly without `get_parameter()`.
 
 ---

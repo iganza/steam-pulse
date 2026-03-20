@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -122,6 +121,12 @@ for _region in _crawler_config.spoke_region_list:
     if _region not in _lambda_clients:
         _lambda_clients[_region] = boto3.client("lambda", region_name=_region)
 
+if not _spoke_lambda_arns:
+    raise RuntimeError(
+        "SPOKE_REGIONS is empty — at least one spoke region is required. "
+        "Set SPOKE_REGIONS in the environment (e.g. 'us-west-2,us-east-1')."
+    )
+
 
 def _extract_payload(record_body: str) -> dict:
     """Unwrap SNS envelope if present, otherwise return plain SQS body."""
@@ -132,7 +137,7 @@ def _extract_payload(record_body: str) -> dict:
 
 
 def _dispatch_to_spoke(record: dict) -> None:
-    """Parse SQS record and invoke a random spoke Lambda."""
+    """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
 
@@ -142,24 +147,31 @@ def _dispatch_to_spoke(record: dict) -> None:
     else:
         task = "metadata"
 
-    # Round-robin across spoke regions
-    arn = random.choice(_spoke_lambda_arns)
+    # Deterministic: same appid always hits the same spoke, spreading load
+    # evenly and ensuring retries go to the same region.
+    idx = appid % len(_spoke_lambda_arns)
+    arn = _spoke_lambda_arns[idx]
     region = arn.split(":")[3]
     client = _lambda_clients[region]
 
     logger.info("Dispatching appid=%s task=%s → %s", appid, task, arn)
+
+    # Async invoke — returns 202 immediately, spoke runs independently.
+    # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
+    # Spoke failures: Lambda auto-retries async invocations (2 attempts),
+    # then routes to Lambda DLQ. Spoke also notifies with count=0 on
+    # Steam API errors so the ingest handler can log the skip.
     response = client.invoke(
         FunctionName=arn,
-        InvocationType="RequestResponse",
+        InvocationType="Event",
         Payload=json.dumps({"appid": appid, "task": task}),
     )
-    payload = json.loads(response["Payload"].read())
+    status = response["StatusCode"]
+    if status != 202:
+        raise RuntimeError(
+            f"Spoke async invoke failed for appid={appid}: HTTP {status}"
+        )
 
-    if response.get("FunctionError"):
-        logger.error("Spoke error appid=%s: %s", appid, payload)
-        raise RuntimeError(f"Spoke invocation failed for appid={appid}: {payload}")
-
-    logger.info("Spoke result appid=%s: %s", appid, payload)
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
 
 

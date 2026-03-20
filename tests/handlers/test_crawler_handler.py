@@ -118,12 +118,7 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
 
     # Inject mock spoke config so dispatch has targets
     mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {
-        "StatusCode": 200,
-        "Payload": MagicMock(read=MagicMock(return_value=json.dumps(
-            {"appid": 440, "task": "metadata", "success": True, "count": 1}
-        ).encode())),
-    }
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
     hm._spoke_lambda_arns = ["arn:aws:lambda:us-east-1:123456789012:function:test-spoke"]
     hm._lambda_clients = {"us-east-1": mock_lambda_client}
 
@@ -140,4 +135,5 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
 
     mock_lambda_client.invoke.assert_called_once()
     call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert call_kwargs["InvocationType"] == "Event"
     assert json.loads(call_kwargs["Payload"]) == {"appid": 440, "task": "metadata"}

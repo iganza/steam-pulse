@@ -106,22 +106,17 @@ _catalog_service = CatalogService(
 )
 
 # ── Spoke dispatch ──────────────────────────────────────────────────────────
-# Build list of spoke Lambda ARNs from config.spoke_region_list at cold start.
-# Deterministic function names: steampulse-{env}-spoke-crawler-{region}
+# Each spoke region gets a Lambda client + deterministic function name.
+# Invoke by name — no ARN construction, no STS call needed.
 
-_spoke_lambda_arns: list[str] = []
-_lambda_clients: dict[str, object] = {}
+_spoke_targets: list[tuple[str, object]] = []  # [(fn_name, lambda_client), ...]
 
 for _region in _crawler_config.spoke_region_list:
     _fn_name = f"steampulse-{_crawler_config.ENVIRONMENT}-spoke-crawler-{_region}"
-    _spoke_lambda_arns.append(
-        f"arn:aws:lambda:{_region}:{boto3.client('sts').get_caller_identity()['Account']}"
-        f":function:{_fn_name}"
-    )
-    if _region not in _lambda_clients:
-        _lambda_clients[_region] = boto3.client("lambda", region_name=_region)
+    _client = boto3.client("lambda", region_name=_region)
+    _spoke_targets.append((_fn_name, _client))
 
-if not _spoke_lambda_arns:
+if not _spoke_targets:
     raise RuntimeError(
         "SPOKE_REGIONS is empty — at least one spoke region is required. "
         "Set SPOKE_REGIONS in the environment (e.g. 'us-west-2,us-east-1')."
@@ -149,12 +144,10 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     # Deterministic: same appid always hits the same spoke, spreading load
     # evenly and ensuring retries go to the same region.
-    idx = appid % len(_spoke_lambda_arns)
-    arn = _spoke_lambda_arns[idx]
-    region = arn.split(":")[3]
-    client = _lambda_clients[region]
+    idx = appid % len(_spoke_targets)
+    fn_name, client = _spoke_targets[idx]
 
-    logger.info("Dispatching appid=%s task=%s → %s", appid, task, arn)
+    logger.info("Dispatching appid=%s task=%s → %s", appid, task, fn_name)
 
     # Async invoke — returns 202 immediately, spoke runs independently.
     # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
@@ -162,7 +155,7 @@ def _dispatch_to_spoke(record: dict) -> None:
     # then routes to Lambda DLQ. Spoke also notifies with count=0 on
     # Steam API errors so the ingest handler can log the skip.
     response = client.invoke(
-        FunctionName=arn,
+        FunctionName=fn_name,
         InvocationType="Event",
         Payload=json.dumps({"appid": appid, "task": task}),
     )

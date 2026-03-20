@@ -116,11 +116,10 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
 
     import lambda_functions.crawler.handler as hm
 
-    # Inject mock spoke config so dispatch has targets
+    # Inject mock spoke targets so dispatch has targets
     mock_lambda_client = MagicMock()
     mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_lambda_arns = ["arn:aws:lambda:us-east-1:123456789012:function:test-spoke"]
-    hm._lambda_clients = {"us-east-1": mock_lambda_client}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
 
     from lambda_functions.crawler.handler import handler
 

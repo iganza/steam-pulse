@@ -826,7 +826,7 @@ STEAM_API_KEY_SECRET_NAME     # steampulse/{env}/steam-api-key
 SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
 APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
 REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
-ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/data/assets-bucket-name
+ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/delivery/assets-bucket-name
 GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
 CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
 SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn

@@ -34,7 +34,22 @@ Examples:
 - `/steampulse/staging/messaging/app-crawl-queue-url`
 - `/steampulse/staging/compute/sfn-arn`
 
-### `.env.staging` becomes the single source of truth
+### All infrastructure config in `.env` — `to_lambda_env()` needs only `POWERTOOLS_*` overrides
+
+Both Secrets Manager secrets use **deterministic names** so they can live in `.env`
+just like SSM param names. Lambda calls `get_secret_value(SecretId=name)` — one hop,
+no ARN needed.
+
+- `STEAM_API_KEY_SECRET_ARN` already uses `from_secret_name_v2("steampulse/{env}/steam-api-key")` — deterministic name already exists.
+- `DB_SECRET_ARN` — fix: add `credentials=rds.Credentials.from_generated_secret("postgres", secret_name=f"steampulse/{env}/db-credentials")` when creating the RDS instance/cluster. Then the name is known at `.env` time.
+
+Rename both fields to `_SECRET_NAME` (holds a Secrets Manager **name**, not an ARN):
+- `DB_SECRET_NAME` — value: `steampulse/staging/db-credentials`
+- `STEAM_API_KEY_SECRET_NAME` — value: `steampulse/staging/steam-api-key`
+
+**Result:** `to_lambda_env()` only ever needs `POWERTOOLS_*` overrides. No CDK token overrides.
+
+### `.env.staging` — complete source of truth
 
 ```bash
 ENVIRONMENT=staging
@@ -46,27 +61,27 @@ LLM_MODEL__SUMMARIZER=us.anthropic.claude-sonnet-4-6-20250514-v1:0
 # Feature flags
 PRO_ENABLED=false
 
-# Infrastructure — SSM parameter names (resolved at Lambda cold start)
-DB_SECRET_PARAM_NAME=/steampulse/staging/data/db-secret-arn
+# Secrets Manager names — Lambda calls get_secret_value(SecretId=name) directly
+DB_SECRET_NAME=steampulse/staging/db-credentials
+STEAM_API_KEY_SECRET_NAME=steampulse/staging/steam-api-key
+
+# SSM parameter names — resolved at Lambda cold start via get_parameter()
 SFN_PARAM_NAME=/steampulse/staging/compute/sfn-arn
 STEP_FUNCTIONS_PARAM_NAME=/steampulse/staging/compute/sfn-arn
 APP_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/app-crawl-queue-url
 REVIEW_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/review-crawl-queue-url
-STEAM_API_KEY_PARAM_NAME=/steampulse/staging/data/steam-api-key-secret-arn
 ASSETS_BUCKET_PARAM_NAME=/steampulse/staging/data/assets-bucket-name
 GAME_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/game-events-topic-arn
 CONTENT_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/content-events-topic-arn
 SYSTEM_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/system-events-topic-arn
 ```
 
-`.env.production` is identical except `ENVIRONMENT=production` and paths
-use `/steampulse/production/...`.
+`.env.production` is identical except `ENVIRONMENT=production` and names use `staging` → `production`.
 
-### Lambdas resolve SSM at runtime via Powertools
+### Lambdas resolve SSM and Secrets Manager at runtime
 
-Config fields hold SSM parameter names (values starting with `/`). Each
-Lambda resolves only the ones it needs using Powertools `get_parameter()` —
-cached, one-liner. Config itself is a pure data class with no SSM awareness.
+`_PARAM_NAME` fields → Powertools `get_parameter()` (SSM, cached 5 min).
+`_SECRET_NAME` fields → `secretsmanager.get_secret_value(SecretId=name)` (one hop).
 
 ---
 
@@ -103,42 +118,42 @@ class SteamPulseConfig(BaseSettings):
 
 **Also remove `ARCHIVE_BUCKET: str = ""`** — dead code.
 
-### SSM resolution pattern — in Lambda code, NOT in config
+**Also rename** `DB_SECRET_ARN` → `DB_SECRET_NAME` and `STEAM_API_KEY_SECRET_ARN` → `STEAM_API_KEY_SECRET_NAME` in `SteamPulseConfig`. These hold Secrets Manager **names** (not ARNs). Lambda calls `get_secret_value(SecretId=name)` — no CDK override needed.
 
-`SteamPulseConfig` fields hold SSM parameter **names** (e.g.,
-`/steampulse/staging/data/db-secret-arn`). Each Lambda resolves only the
-params it actually uses, via Powertools:
+### Runtime resolution — in Lambda handlers, NOT in config
 
+Two resolution patterns depending on the field suffix:
+
+**`_PARAM_NAME`** — SSM Parameter Store, via Powertools `get_parameter()` (cached 5 min):
 ```python
 from aws_lambda_powertools.utilities.parameters import get_parameter
 
 _config = SteamPulseConfig()
 
-# Resolve only the SSM params this Lambda needs — cached 5 min by default
-db_secret_arn = get_parameter(_config.DB_SECRET_PARAM_NAME)
-sfn_arn = get_parameter(_config.SFN_PARAM_NAME)
+# Resolve only the SSM params this Lambda needs
+sfn_arn       = get_parameter(_config.SFN_PARAM_NAME)
+review_q_url  = get_parameter(_config.REVIEW_CRAWL_QUEUE_PARAM_NAME)
 ```
 
-**Why this is better than bulk resolution in config:**
-- Each Lambda resolves only what it uses (analysis Lambda doesn't fetch queue URLs)
-- Powertools caches with 5-minute TTL — free on warm invocations
-- No boto3 in config.py — config stays a pure data class
-- No `model_validator` complexity, no CDK-vs-Lambda detection hacks
+**`_SECRET_NAME`** — Secrets Manager, direct `get_secret_value()` call (no SSM hop):
+```python
+# db.py already does this — no changes needed:
+sm = boto3.client("secretsmanager")
+secret = json.loads(sm.get_secret_value(SecretId=_config.DB_SECRET_NAME)["SecretString"])
+```
+
+Fields that are NOT resolution paths (LLM_MODEL, PRO_ENABLED, ENVIRONMENT) are used directly.
 
 ### Lambda handler changes
 
-Every handler that reads infrastructure ARNs/URLs from config needs to resolve
-via `get_parameter()`. Example for `crawler/handler.py`:
+Example for `crawler/handler.py`:
 
 ```python
 # Before:
 _config = SteamPulseConfig()
-_sqs = boto3.client("sqs")
 _crawl_service = CrawlService(
-    ...
-    review_queue_url=_config.REVIEW_CRAWL_QUEUE_PARAM_NAME,  # was a real URL
-    sfn_arn=_config.SFN_PARAM_NAME,                          # was a real ARN
-    ...
+    review_queue_url=_config.REVIEW_CRAWL_QUEUE_URL,  # was a real URL
+    sfn_arn=_config.STEP_FUNCTIONS_ARN,               # was a real ARN
 )
 
 # After:
@@ -146,39 +161,48 @@ from aws_lambda_powertools.utilities.parameters import get_parameter
 
 _config = SteamPulseConfig()
 _crawl_service = CrawlService(
-    ...
     review_queue_url=get_parameter(_config.REVIEW_CRAWL_QUEUE_PARAM_NAME),
     sfn_arn=get_parameter(_config.SFN_PARAM_NAME),
-    ...
 )
 ```
 
-Apply the same pattern in every handler that uses infrastructure config fields.
-Fields that are NOT SSM paths (LLM_MODEL, PRO_ENABLED, ENVIRONMENT, etc.)
-are used directly — no `get_parameter()` needed.
+`db.py` needs one rename: `os.getenv("DB_SECRET_ARN")` → `os.getenv("DB_SECRET_NAME")`.
+The `get_secret_value()` call is unchanged — names work as `SecretId` the same as ARNs.
 
-### 2. CDK stacks — add missing SSM parameters
+### 2. CDK stacks — fix RDS secret name + add missing SSM parameters
 
-Some infrastructure values are already published to SSM. Add the missing ones:
-
-**`infra/stacks/data_stack.py`** — add:
+**`infra/stacks/data_stack.py`** — give RDS secret a deterministic name:
 ```python
-ssm.StringParameter(self, "DbSecretArnParam",
-    parameter_name=f"/steampulse/{env}/data/db-secret-arn",
-    string_value=self.db_secret.secret_arn,
+# For DatabaseInstance (production):
+db_instance = rds.DatabaseInstance(
+    self, "Db",
+    ...
+    credentials=rds.Credentials.from_generated_secret(
+        "postgres",
+        secret_name=f"steampulse/{env}/db-credentials",
+    ),
 )
-ssm.StringParameter(self, "SteamApiKeySecretArnParam",
-    parameter_name=f"/steampulse/{env}/data/steam-api-key-secret-arn",
-    string_value=self.steam_api_key_secret.secret_arn,
+
+# For DatabaseCluster (staging):
+db_cluster = rds.DatabaseCluster(
+    self, "Db",
+    ...
+    credentials=rds.Credentials.from_generated_secret(
+        "postgres",
+        secret_name=f"steampulse/{env}/db-credentials",
+    ),
 )
+```
+
+Also add the assets bucket SSM param:
+```python
 ssm.StringParameter(self, "AssetsBucketNameParam",
     parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
     string_value=self.assets_bucket.bucket_name,
 )
 ```
 
-**`infra/stacks/messaging_stack.py`** — add queue URL params (currently only
-publishes ARNs):
+**`infra/stacks/messaging_stack.py`** — add queue URL params (currently only publishes ARNs):
 ```python
 ssm.StringParameter(self, "AppCrawlQueueUrlParam",
     parameter_name=f"/steampulse/{env}/messaging/app-crawl-queue-url",
@@ -191,12 +215,11 @@ ssm.StringParameter(self, "ReviewCrawlQueueUrlParam",
 ```
 
 **`infra/stacks/compute_stack.py`** — SFN ARN param already exists at
-`/steampulse/{env}/compute/sfn-arn`. Verify the path matches what's in
-`.env.staging`.
+`/steampulse/{env}/compute/sfn-arn`. Verify the path matches `.env.staging`.
 
 ### 3. CDK stacks — replace all `environment=` blocks
 
-Every Lambda becomes:
+Every Lambda is now simply:
 
 ```python
 environment=config.to_lambda_env(
@@ -205,9 +228,7 @@ environment=config.to_lambda_env(
 ),
 ```
 
-The only overrides are non-config keys like `POWERTOOLS_*`, `PORT`, `NODE_ENV`.
-All infrastructure ARNs/URLs come from the config (which holds SSM param names
-that resolve at Lambda runtime).
+No secret ARN overrides. No queue URL overrides. Everything is in `.env`.
 
 **`compute_stack.py` — AnalysisFn:**
 ```python
@@ -232,17 +253,15 @@ environment=config.to_lambda_env(
 ),
 ```
 
-**`lambda_stack.py` — AppCrawler:**
+**`lambda_stack.py` — AppCrawler, ReviewCrawler, CatalogRefresher, DbLoaderFn:**
 ```python
 environment=config.to_lambda_env(
-    POWERTOOLS_SERVICE_NAME="app-crawler",
+    POWERTOOLS_SERVICE_NAME="app-crawler",  # adjust per Lambda
     POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
 ),
 ```
 
 Delete the `common_env` dict — no longer needed.
-
-Same pattern for ReviewCrawler, CatalogRefresher, DbLoaderFn.
 
 **`app_stack.py` — ApiFunction:**
 ```python
@@ -265,12 +284,9 @@ role.add_to_policy(iam.PolicyStatement(
 ))
 ```
 
-Add this once per role (crawler_role, api_role, analysis_role, etc.).
 Wildcarded to `/steampulse/{env}/*` — minimal blast radius.
 
 ### 5. Update `.env.staging` and `.env.production`
-
-Replace placeholder values with SSM parameter names:
 
 **`.env.staging`:**
 ```bash
@@ -283,13 +299,15 @@ LLM_MODEL__SUMMARIZER=us.anthropic.claude-sonnet-4-6-20250514-v1:0
 # Feature flags
 PRO_ENABLED=false
 
-# Infrastructure — SSM param names (resolved at Lambda cold start)
-DB_SECRET_PARAM_NAME=/steampulse/staging/data/db-secret-arn
+# Secrets Manager names — Lambda calls get_secret_value(SecretId=name) directly
+DB_SECRET_NAME=steampulse/staging/db-credentials
+STEAM_API_KEY_SECRET_NAME=steampulse/staging/steam-api-key
+
+# SSM parameter names — resolved at Lambda cold start via get_parameter()
 SFN_PARAM_NAME=/steampulse/staging/compute/sfn-arn
 STEP_FUNCTIONS_PARAM_NAME=/steampulse/staging/compute/sfn-arn
 APP_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/app-crawl-queue-url
 REVIEW_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/review-crawl-queue-url
-STEAM_API_KEY_PARAM_NAME=/steampulse/staging/data/steam-api-key-secret-arn
 ASSETS_BUCKET_PARAM_NAME=/steampulse/staging/data/assets-bucket-name
 GAME_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/game-events-topic-arn
 CONTENT_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/content-events-topic-arn
@@ -297,7 +315,7 @@ SYSTEM_EVENTS_TOPIC_PARAM_NAME=/steampulse/staging/messaging/system-events-topic
 ```
 
 **`.env.production`:**
-Same but `ENVIRONMENT=production` and `/steampulse/production/...` paths.
+Same but `ENVIRONMENT=production` and `staging` → `production` in all names/paths.
 
 ---
 
@@ -334,9 +352,10 @@ def test_to_lambda_env_includes_all_fields():
     config = SteamPulseConfig(
         ENVIRONMENT="staging",
         LLM_MODEL={"chunking": "haiku", "summarizer": "sonnet"},
-        DB_SECRET_PARAM_NAME="/steampulse/staging/data/db-secret-arn",
+        DB_SECRET_NAME="steampulse/staging/db-credentials",
+        STEAM_API_KEY_SECRET_NAME="steampulse/staging/steam-api-key",
         SFN_PARAM_NAME="x", APP_CRAWL_QUEUE_PARAM_NAME="x",
-        REVIEW_CRAWL_QUEUE_PARAM_NAME="x", STEAM_API_KEY_PARAM_NAME="x",
+        REVIEW_CRAWL_QUEUE_PARAM_NAME="x",
         ASSETS_BUCKET_PARAM_NAME="x", STEP_FUNCTIONS_PARAM_NAME="x",
         GAME_EVENTS_TOPIC_PARAM_NAME="x", CONTENT_EVENTS_TOPIC_PARAM_NAME="x",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="x",
@@ -346,23 +365,28 @@ def test_to_lambda_env_includes_all_fields():
     assert env["LLM_MODEL__chunking"] == "haiku"
     assert env["LLM_MODEL__summarizer"] == "sonnet"
     assert env["PRO_ENABLED"] == "false"
-    assert env["REVIEW_ELIGIBILITY_THRESHOLD"] == "500"
-    # SSM param names pass through as-is (resolved by Lambda, not config)
-    assert env["DB_SECRET_PARAM_NAME"] == "/steampulse/staging/data/db-secret-arn"
+    # Secrets Manager names pass through as-is (resolved by handlers, not config)
+    assert env["DB_SECRET_NAME"] == "steampulse/staging/db-credentials"
+    assert env["STEAM_API_KEY_SECRET_NAME"] == "steampulse/staging/steam-api-key"
+    # SSM param names pass through as-is (resolved by handlers via get_parameter())
+    assert env["APP_CRAWL_QUEUE_PARAM_NAME"] == "x"
 
 
-def test_to_lambda_env_overrides_applied():
+def test_to_lambda_env_powertools_override():
+    """Only POWERTOOLS_* overrides are needed — no CDK token overrides."""
     config = SteamPulseConfig(
         ENVIRONMENT="staging",
         LLM_MODEL={"chunking": "h", "summarizer": "s"},
-        DB_SECRET_PARAM_NAME="x", SFN_PARAM_NAME="x", APP_CRAWL_QUEUE_PARAM_NAME="x",
-        REVIEW_CRAWL_QUEUE_PARAM_NAME="x", STEAM_API_KEY_PARAM_NAME="x",
+        DB_SECRET_NAME="steampulse/staging/db-credentials",
+        STEAM_API_KEY_SECRET_NAME="steampulse/staging/steam-api-key",
+        SFN_PARAM_NAME="x", APP_CRAWL_QUEUE_PARAM_NAME="x",
+        REVIEW_CRAWL_QUEUE_PARAM_NAME="x",
         ASSETS_BUCKET_PARAM_NAME="x", STEP_FUNCTIONS_PARAM_NAME="x",
         GAME_EVENTS_TOPIC_PARAM_NAME="x", CONTENT_EVENTS_TOPIC_PARAM_NAME="x",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="x",
     )
-    env = config.to_lambda_env(POWERTOOLS_SERVICE_NAME="test", PORT="8080")
-    assert env["POWERTOOLS_SERVICE_NAME"] == "test"
+    env = config.to_lambda_env(POWERTOOLS_SERVICE_NAME="crawler", PORT="8080")
+    assert env["POWERTOOLS_SERVICE_NAME"] == "crawler"
     assert env["PORT"] == "8080"
 ```
 

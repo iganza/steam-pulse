@@ -816,19 +816,22 @@ AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
 PRO_ENABLED             # 'true' enables /api/chat (V2)
 
-# SSM parameter names — resolved at Lambda cold start via get_parameter()
-# Naming rule: _PARAM_NAME suffix = holds an SSM path, not the actual value.
-DB_SECRET_PARAM_NAME              # /steampulse/{env}/data/db-secret-arn
+# Secrets Manager names — Lambda calls get_secret_value(SecretId=name) directly (1 hop)
+# RDS secret must use deterministic name via rds.Credentials.from_generated_secret(secret_name=...)
+DB_SECRET_NAME                # steampulse/{env}/db-credentials
+STEAM_API_KEY_SECRET_NAME     # steampulse/{env}/steam-api-key
+
+# SSM parameter names — resolved at cold start via get_parameter() (Powertools, cached 5min)
+# _PARAM_NAME suffix = field holds an SSM path, not the actual value.
 SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
 APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
 REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
-STEAM_API_KEY_PARAM_NAME          # /steampulse/{env}/data/steam-api-key-secret-arn
 ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/data/assets-bucket-name
 GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
 CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
 SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn
 
-# Non-config overrides (per-Lambda, not in .env)
+# Non-config overrides (per-Lambda in CDK, not in .env)
 RESEND_API_KEY                     # Email delivery
 POWERTOOLS_SERVICE_NAME            # Per-Lambda service name
 LLM_MODEL__CHUNKING                # Bedrock model ID override

@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-
 # --- All event type literals defined in one place ---
 
 EventType = Literal[

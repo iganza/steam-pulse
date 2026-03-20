@@ -60,6 +60,8 @@ class CrawlService:
         review_queue_url: str,
         sns_client: Any,
         config: SteamPulseConfig,
+        game_events_topic_arn: str,
+        content_events_topic_arn: str,
         sfn_arn: str | None = None,
         sfn_client: Any | None = None,
         s3_client: Any | None = None,
@@ -78,6 +80,8 @@ class CrawlService:
         self._config = config
         self._s3 = s3_client
         self._archive_bucket = archive_bucket
+        self._game_events_topic_arn = game_events_topic_arn
+        self._content_events_topic_arn = content_events_topic_arn
 
     # ------------------------------------------------------------------
     # Public API
@@ -315,7 +319,7 @@ class CrawlService:
         try:
             publish_event(
                 self._sns,
-                self._config.CONTENT_EVENTS_TOPIC_ARN,
+                self._content_events_topic_arn,
                 ReviewsReadyEvent(
                     appid=appid,
                     game_name=game_name,
@@ -366,7 +370,7 @@ class CrawlService:
         if not self._sns or not self._config:
             return
 
-        topic_arn = self._config.GAME_EVENTS_TOPIC_ARN
+        topic_arn = self._game_events_topic_arn
         threshold = self._config.REVIEW_ELIGIBILITY_THRESHOLD
         review_count = game_data["review_count"]
         review_count_english = game_data.get("review_count_english", review_count)

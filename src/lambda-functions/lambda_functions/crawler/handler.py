@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -19,11 +18,12 @@ from aws_lambda_powertools.utilities.batch import (
     EventType,
     process_partial_response,
 )
+from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from pydantic import TypeAdapter, ValidationError
-
 from library_layer.config import SteamPulseConfig
 from library_layer.utils.db import get_conn
+from pydantic import TypeAdapter, ValidationError
+
 from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
@@ -46,7 +46,6 @@ _direct_adapter = TypeAdapter(DirectRequest)
 
 import boto3  # type: ignore[import-untyped]
 import httpx
-
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -59,9 +58,22 @@ _conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
-_sfn_arn = os.getenv("SFN_ARN") or os.getenv("STEP_FUNCTIONS_ARN")
-_sfn = boto3.client("stepfunctions") if _sfn_arn else None
 _crawler_config = SteamPulseConfig()
+
+# Resolve SSM parameter names → actual values at cold start
+_sfn_arn = get_parameter(_crawler_config.SFN_PARAM_NAME)
+_sfn = boto3.client("stepfunctions")
+_review_queue_url = get_parameter(_crawler_config.REVIEW_CRAWL_QUEUE_PARAM_NAME)
+_app_crawl_queue_url = get_parameter(_crawler_config.APP_CRAWL_QUEUE_PARAM_NAME)
+_game_events_topic_arn = get_parameter(_crawler_config.GAME_EVENTS_TOPIC_PARAM_NAME)
+_content_events_topic_arn = get_parameter(_crawler_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
+_system_events_topic_arn = get_parameter(_crawler_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME)
+
+# Resolve Steam API key from Secrets Manager at cold start
+_sm = boto3.client("secretsmanager")
+_steam_api_key: str = _sm.get_secret_value(
+    SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
+)["SecretString"]
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -70,21 +82,25 @@ _crawl_service = CrawlService(
     tag_repo=TagRepository(_conn),
     steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
     sqs_client=_sqs,
-    review_queue_url=os.getenv("REVIEW_CRAWL_QUEUE_URL", ""),
+    review_queue_url=_review_queue_url,
     sfn_arn=_sfn_arn,
     sfn_client=_sfn,
     sns_client=_sns,
     config=_crawler_config,
     s3_client=_s3,
-    archive_bucket=_crawler_config.ARCHIVE_BUCKET,
+    game_events_topic_arn=_game_events_topic_arn,
+    content_events_topic_arn=_content_events_topic_arn,
 )
 _catalog_service = CatalogService(
     catalog_repo=CatalogRepository(_conn),
     http_client=httpx.Client(timeout=30.0),
     sqs_client=_sqs,
-    app_crawl_queue_url=os.getenv("APP_CRAWL_QUEUE_URL", ""),
+    app_crawl_queue_url=_app_crawl_queue_url,
     sns_client=_sns,
     config=_crawler_config,
+    steam_api_key=_steam_api_key,
+    game_events_topic_arn=_game_events_topic_arn,
+    system_events_topic_arn=_system_events_topic_arn,
 )
 
 

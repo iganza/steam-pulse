@@ -20,7 +20,6 @@ from library_layer.utils.ssm import _ssm_cache, get_eligibility_threshold
 from moto import mock_aws
 from pytest_httpx import HTTPXMock
 
-
 # English review summary (first call)
 REVIEW_SUMMARY_ENGLISH = {
     "success": 1,
@@ -98,16 +97,16 @@ def _mock_sqs() -> MagicMock:
 
 def _test_config(**overrides: Any) -> SteamPulseConfig:
     defaults: dict = {
-        "DB_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db",
-        "SFN_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
-        "APP_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/app-crawl",
-        "REVIEW_CRAWL_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/review-crawl",
-        "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
-        "ASSETS_BUCKET_NAME": "steampulse-assets-test",
-        "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
-        "GAME_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000:game-events",
-        "CONTENT_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000:content-events",
-        "SYSTEM_EVENTS_TOPIC_ARN": "arn:aws:sns:us-west-2:000:system-events",
+        "DB_SECRET_NAME": "steampulse/test/db-credentials",
+        "STEAM_API_KEY_SECRET_NAME": "steampulse/test/steam-api-key",
+        "SFN_PARAM_NAME": "/steampulse/test/compute/sfn-arn",
+        "STEP_FUNCTIONS_PARAM_NAME": "/steampulse/test/compute/sfn-arn",
+        "APP_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/app-crawl-queue-url",
+        "REVIEW_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/review-crawl-queue-url",
+        "ASSETS_BUCKET_PARAM_NAME": "/steampulse/test/app/assets-bucket-name",
+        "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
+        "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
+        "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
         "REVIEW_ELIGIBILITY_THRESHOLD": 500,
     }
     defaults.update(overrides)
@@ -134,6 +133,8 @@ def _make_crawl_service(
         review_queue_url="https://sqs.fake/review-q",
         sns_client=sns_client,
         config=config,
+        game_events_topic_arn="arn:aws:sns:us-west-2:000:game-events",
+        content_events_topic_arn="arn:aws:sns:us-west-2:000:content-events",
     )
 
 
@@ -861,6 +862,8 @@ def test_catalog_refresh_publishes_discovered_events(
                 steam_api_key="test-key",
                 sns_client=sns,
                 config=config,
+                game_events_topic_arn="arn:aws:sns:us-west-2:000:game-events",
+                system_events_topic_arn="arn:aws:sns:us-west-2:000:system-events",
             )
             svc.refresh()
 
@@ -896,6 +899,8 @@ def test_catalog_refresh_publishes_completion(
                 steam_api_key="test-key",
                 sns_client=sns,
                 config=config,
+                game_events_topic_arn="arn:aws:sns:us-west-2:000:game-events",
+                system_events_topic_arn="arn:aws:sns:us-west-2:000:system-events",
             )
             svc.refresh()
 

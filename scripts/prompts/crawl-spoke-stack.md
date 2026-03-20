@@ -869,7 +869,7 @@ class CrawlSpokeStack(cdk.Stack):
                 "PRIMARY_REGION": primary_region,
                 "SPOKE_RESULTS_QUEUE_URL": spoke_results_queue_url,
                 "ASSETS_BUCKET_PARAM_NAME": assets_bucket_name,       # actual value
-                "STEAM_API_KEY_PARAM_NAME": steam_api_key_secret_arn,  # actual value
+                "STEAM_API_KEY_SECRET_ARN": steam_api_key_secret_arn,  # actual value
                 "POWERTOOLS_SERVICE_NAME": f"crawler-spoke-{spoke_region}",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },

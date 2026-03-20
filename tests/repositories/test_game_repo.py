@@ -1,9 +1,9 @@
 """Tests for GameRepository."""
 
-import pytest
 from datetime import date
 from typing import Any
 
+import pytest
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 

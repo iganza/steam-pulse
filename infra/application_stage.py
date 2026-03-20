@@ -21,15 +21,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "library
 
 import aws_cdk as cdk
 from constructs import Construct
-
 from library_layer.config import SteamPulseConfig
-from stacks.network_stack import NetworkStack
-from stacks.data_stack import DataStack
-from stacks.messaging_stack import MessagingStack
-from stacks.compute_stack import ComputeStack
 from stacks.certificate_stack import CertificateStack
+from stacks.compute_stack import ComputeStack
+from stacks.data_stack import DataStack
 from stacks.delivery_stack import DeliveryStack
 from stacks.frontend_stack import FrontendStack
+from stacks.messaging_stack import MessagingStack
+from stacks.network_stack import NetworkStack
+
 # from stacks.monitoring_stack import MonitoringStack
 
 

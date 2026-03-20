@@ -10,14 +10,13 @@ because they hold a CDK reference to the Lambda function.
 
 import aws_cdk as cdk
 import aws_cdk.aws_events as events
-import aws_cdk.aws_iam as iam
 import aws_cdk.aws_events_targets as events_targets
+import aws_cdk.aws_iam as iam
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sns_subscriptions as subs
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from constructs import Construct
-
 from library_layer.config import SteamPulseConfig
 
 
@@ -204,6 +203,20 @@ class MessagingStack(cdk.Stack):
             "ReviewCrawlDlqArnParam",
             parameter_name=f"/steampulse/{env}/messaging/review-crawl-dlq-arn",
             string_value=self.review_crawl_dlq.queue_arn,
+        )
+
+        # Queue URL SSM params — resolved by Lambda at cold start
+        ssm.StringParameter(
+            self,
+            "AppCrawlQueueUrlParam",
+            parameter_name=f"/steampulse/{env}/messaging/app-crawl-queue-url",
+            string_value=self.app_crawl_queue.queue_url,
+        )
+        ssm.StringParameter(
+            self,
+            "ReviewCrawlQueueUrlParam",
+            parameter_name=f"/steampulse/{env}/messaging/review-crawl-queue-url",
+            string_value=self.review_crawl_queue.queue_url,
         )
 
         # Topic ARN SSM params

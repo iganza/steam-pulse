@@ -28,7 +28,9 @@ class CatalogService:
         app_crawl_queue_url: str,
         sns_client: Any,
         config: SteamPulseConfig,
-        steam_api_key: str | None = None,
+        steam_api_key: str,
+        game_events_topic_arn: str,
+        system_events_topic_arn: str,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._http = http_client
@@ -37,6 +39,8 @@ class CatalogService:
         self._steam_api_key = steam_api_key
         self._sns = sns_client
         self._config = config
+        self._game_events_topic_arn = game_events_topic_arn
+        self._system_events_topic_arn = system_events_topic_arn
 
     def refresh(self) -> dict:
         """Fetch GetAppList, bulk upsert new entries, enqueue all pending."""
@@ -62,7 +66,7 @@ class CatalogService:
         total: int,
     ) -> None:
         """Publish GameDiscoveredEvent per new app + CatalogRefreshCompleteEvent."""
-        topic_arn = self._config.GAME_EVENTS_TOPIC_ARN
+        topic_arn = self._game_events_topic_arn
         # Publish discovered events for new apps (last new_rows entries are new)
         # Since bulk_upsert returns count, publish for all apps — downstream
         # idempotent upserts handle duplicates. In practice we'd track which
@@ -84,7 +88,7 @@ class CatalogService:
         try:
             publish_event(
                 self._sns,
-                self._config.SYSTEM_EVENTS_TOPIC_ARN,
+                self._system_events_topic_arn,
                 CatalogRefreshCompleteEvent(
                     new_games=new_rows,
                     total_games=total,

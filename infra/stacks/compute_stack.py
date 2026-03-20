@@ -64,6 +64,7 @@ class ComputeStack(cdk.Stack):
             "LibraryLayer",
             entry="src/library-layer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            layer_version_name=f"{config.ENVIRONMENT}-steampulse-lambda-library-layer",
             description="Shared deps (httpx, psycopg2, boto3, anthropic) + steampulse framework",
         )
 
@@ -90,6 +91,12 @@ class ComputeStack(cdk.Stack):
                 resources=["*"],
             )
         )
+        analysis_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+            )
+        )
         content_events_topic.grant_publish(analysis_role)
 
         analysis_fn = PythonFunction(
@@ -112,13 +119,7 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                "ENVIRONMENT": env,
-                "DB_SECRET_ARN": db_secret.secret_arn,
-                "LLM_MODEL__CHUNKING": config.model_for("chunking"),
-                "LLM_MODEL__SUMMARIZER": config.model_for("summarizer"),
-                "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
-            },
+            environment=config.to_lambda_env(),
         )
 
         # ── Step Functions ────────────────────────────────────────────────────
@@ -180,6 +181,12 @@ class ComputeStack(cdk.Stack):
                 resources=[state_machine.state_machine_arn],
             )
         )
+        api_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+            )
+        )
 
         api_fn = PythonFunction(
             self,
@@ -201,14 +208,7 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                "ENVIRONMENT": env,
-                "DB_SECRET_ARN": db_secret.secret_arn,
-                "SFN_ARN": state_machine.state_machine_arn,
-                "STEP_FUNCTIONS_ARN": state_machine.state_machine_arn,
-                "PRO_ENABLED": str(config.PRO_ENABLED).lower(),
-                "PORT": "8080",
-            },
+            environment=config.to_lambda_env(PORT="8080"),
         )
 
         self.api_fn_url = api_fn.add_function_url(
@@ -283,6 +283,12 @@ class ComputeStack(cdk.Stack):
                 resources=[state_machine.state_machine_arn],
             )
         )
+        crawler_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+            )
+        )
         app_crawl_queue.grant_send_messages(crawler_role)
         review_crawl_queue.grant_send_messages(crawler_role)
         game_events_topic.grant_publish(crawler_role)
@@ -310,21 +316,10 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                "ENVIRONMENT": env,
-                "APP_CRAWL_QUEUE_URL": app_crawl_queue.queue_url,
-                "REVIEW_CRAWL_QUEUE_URL": review_crawl_queue.queue_url,
-                "DB_SECRET_ARN": db_secret.secret_arn,
-                "SFN_ARN": state_machine.state_machine_arn,
-                "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
-                "LLM_MODEL__CHUNKING": config.model_for("chunking"),
-                "LLM_MODEL__SUMMARIZER": config.model_for("summarizer"),
-                "GAME_EVENTS_TOPIC_ARN": game_events_topic.topic_arn,
-                "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
-                "SYSTEM_EVENTS_TOPIC_ARN": system_events_topic.topic_arn,
-                "POWERTOOLS_SERVICE_NAME": "crawler",
-                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
-            },
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="crawler",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
         )
 
         crawler_fn.add_event_source(

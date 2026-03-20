@@ -5,9 +5,10 @@ import os
 import uuid
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from library_layer.analyzer import analyze_reviews
+from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from pydantic import BaseModel
 
@@ -18,6 +19,21 @@ app = FastAPI(title="SteamPulse", version="0.1.0")
 # Module-level singletons — initialized outside handlers for Lambda warm reuse.
 _http_client: httpx.AsyncClient = httpx.AsyncClient(timeout=30.0)
 _steam = DirectSteamSource(_http_client)
+
+# Config + SSM resolution at cold start.
+# On Lambda: SteamPulseConfig reads env vars set by CDK via to_lambda_env().
+# Locally: falls back to DATABASE_URL and inline analysis (no SSM).
+try:
+    _api_config = SteamPulseConfig()
+    _pro_enabled = _api_config.PRO_ENABLED
+    # Resolve Step Functions ARN from SSM (Lambda only)
+    from aws_lambda_powertools.utilities.parameters import get_parameter
+    _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
+except Exception:
+    # Local dev — no SSM, no full config
+    _api_config = None  # type: ignore[assignment]
+    _pro_enabled = os.getenv("PRO_ENABLED", "false").lower() == "true"
+    _sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
 
 VERSION = "0.1.0"
 
@@ -55,11 +71,6 @@ class ValidateKeyRequest(BaseModel):
     license_key: str = ""  # kept for frontend compatibility, ignored
 
 
-class AnalyzeRequest(BaseModel):
-    appid: int
-    force: bool = False
-
-
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
@@ -68,12 +79,6 @@ class ChatRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _require_admin(x_admin_key: str | None) -> None:
-    expected = os.getenv("ADMIN_KEY", "")
-    if not expected or x_admin_key != expected:
-        raise HTTPException(status_code=403, detail={"error": "forbidden", "code": "invalid_admin_key"})
 
 
 async def _get_report(appid: int) -> dict | None:
@@ -99,8 +104,7 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
     """Start analysis via Step Functions if ARN is set, else run inline (local dev).
     Returns a job_id.
     """
-    sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
-    if sfn_arn:
+    if _sfn_arn:
         try:
             import json as _json
 
@@ -108,7 +112,7 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
 
             sfn = boto3.client("stepfunctions")
             execution = sfn.start_execution(
-                stateMachineArn=sfn_arn,
+                stateMachineArn=_sfn_arn,
                 name=f"analysis-{appid}-{uuid.uuid4().hex[:8]}",
                 input=_json.dumps({"appid": appid, "game_name": game_name}),
             )
@@ -181,7 +185,7 @@ def _backend_name() -> str:
 async def health() -> dict:
     return {
         "storage": _backend_name(),
-        "pro_enabled": os.getenv("PRO_ENABLED", "false").lower() == "true",
+        "pro_enabled": _pro_enabled,
         "version": VERSION,
     }
 
@@ -238,9 +242,7 @@ async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
 
 @app.get("/api/status/{job_id:path}")
 async def job_status(job_id: str) -> dict:
-    sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
-
-    if sfn_arn and not job_id.startswith("local-"):
+    if _sfn_arn and not job_id.startswith("local-"):
         try:
             import boto3  # type: ignore[import-untyped]
 
@@ -285,37 +287,6 @@ async def job_status(job_id: str) -> dict:
             return {"status": "failed"}
         case _:
             return {"status": "running"}
-
-
-@app.post("/api/analyze")
-async def trigger_analyze(
-    body: AnalyzeRequest,
-    x_admin_key: str | None = Header(default=None),
-) -> dict:
-    _require_admin(x_admin_key)
-
-    if not body.force:
-        cached = await _get_report(body.appid)
-        if cached:
-            return {"job_id": f"cached-{body.appid}", "cached": True}
-
-    try:
-        details = await _steam.get_app_details(body.appid)
-    except SteamAPIError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": str(exc), "code": "steam_api_error"},
-        ) from exc
-
-    if not details:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": f"App {body.appid} not found on Steam", "code": "not_found"},
-        )
-
-    game_name = details.get("name", f"App {body.appid}")
-    job_id = await _trigger_analysis(body.appid, game_name)
-    return {"job_id": job_id}
 
 
 @app.get("/api/games")
@@ -430,7 +401,7 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 
 @app.post("/api/chat")
 async def chat(body: ChatRequest) -> dict:
-    if os.getenv("PRO_ENABLED", "false").lower() != "true":
+    if not _pro_enabled:
         raise HTTPException(status_code=404, detail={"error": "Pro features not enabled", "code": "pro_disabled"})
 
     from .chat import answer_query

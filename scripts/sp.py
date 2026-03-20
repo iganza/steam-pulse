@@ -147,6 +147,8 @@ def _build_crawl_service(
         steam=DirectSteamSource(http_async),
         sns_client=_NoOpSnsClient(),
         config=SteamPulseConfig(),
+        game_events_topic_arn="noop",
+        content_events_topic_arn="noop",
         sqs_client=None,
         review_queue_url="",
         sfn_arn=None,

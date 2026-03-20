@@ -12,16 +12,17 @@ import psycopg2
 import psycopg2.extras
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import analyze_reviews
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
-from library_layer.utils.db import get_db_url
-from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.schema import create_all
+from library_layer.utils.db import get_db_url
+from library_layer.utils.events import EventPublishError, publish_event
 
 from .events import AnalyzeRequest
 
@@ -43,6 +44,7 @@ _report_repo: ReportRepository = ReportRepository(_conn)
 
 _sns_client = boto3.client("sns")
 _analysis_config = SteamPulseConfig()
+_content_events_topic_arn = get_parameter(_analysis_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
 
 async def _run(appid: int, game_name: str) -> dict:
@@ -86,7 +88,7 @@ async def _run(appid: int, game_name: str) -> dict:
     try:
         publish_event(
             _sns_client,
-            _analysis_config.CONTENT_EVENTS_TOPIC_ARN,
+            _content_events_topic_arn,
             ReportReadyEvent(
                 appid=appid,
                 game_name=game_name,

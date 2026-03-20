@@ -155,18 +155,16 @@ class ApplicationStage(cdk.Stage):
         # ── Spoke Stacks (one per region) ─────────────────────────────────
         # Every region is a spoke, including the primary. Spoke Lambdas
         # fetch from Steam → S3 → SQS → IngestFn (primary region, above).
-        steam_secret_name = f"steampulse/{environment}/steam-api-key"
         for region in config.spoke_region_list:
             spoke = CrawlSpokeStack(
                 self, f"Spoke-{region}",
                 stack_name=f"SteamPulse-{env_name}-Spoke-{region}",
+                config=config,
                 primary_region=self.region,
-                environment=environment,
                 app_crawl_queue_arn=messaging.app_crawl_queue.queue_arn,
                 review_crawl_queue_arn=messaging.review_crawl_queue.queue_arn,
                 spoke_results_queue_url=messaging.spoke_results_queue.queue_url,
                 assets_bucket_name=data.assets_bucket.bucket_name,
-                steam_api_key_secret_name=steam_secret_name,
                 env=cdk.Environment(account=self.account, region=region),
             )
             spoke.add_dependency(messaging)

@@ -13,6 +13,7 @@ import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
 from constructs import Construct
+from library_layer.config import SteamPulseConfig
 
 
 class CrawlSpokeStack(cdk.Stack):
@@ -22,13 +23,12 @@ class CrawlSpokeStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
+        config: SteamPulseConfig,
         primary_region: str,
-        environment: str,
         app_crawl_queue_arn: str,
         review_crawl_queue_arn: str,
         spoke_results_queue_url: str,
         assets_bucket_name: str,
-        steam_api_key_secret_name: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -85,7 +85,7 @@ class CrawlSpokeStack(cdk.Stack):
         # Cross-region Secrets Manager: Steam API key only
         steam_api_key_secret_arn = (
             f"arn:aws:secretsmanager:{primary_region}:{account}"
-            f":secret:{steam_api_key_secret_name}-??????"
+            f":secret:{config.STEAM_API_KEY_SECRET_NAME}-??????"
         )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue"],
@@ -108,19 +108,16 @@ class CrawlSpokeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
+            environment=config.to_lambda_env(
                 # Spoke Lambda uses inline env — cross-region stack, can't resolve
-                # SSM from primary region. _PARAM_NAME fields hold ACTUAL values
-                # here (not SSM paths). Spoke handler uses them directly without
-                # get_parameter().
-                "ENVIRONMENT": environment,
-                "PRIMARY_REGION": primary_region,
-                "SPOKE_RESULTS_QUEUE_URL": spoke_results_queue_url,
-                "ASSETS_BUCKET_PARAM_NAME": assets_bucket_name,
-                "STEAM_API_KEY_SECRET_NAME": steam_api_key_secret_name,
-                "POWERTOOLS_SERVICE_NAME": f"crawler-spoke-{spoke_region}",
-                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
-            },
+                # SSM from primary region. ASSETS_BUCKET_PARAM_NAME is overridden
+                # with the actual bucket name rather than an SSM path.
+                PRIMARY_REGION=primary_region,
+                SPOKE_RESULTS_QUEUE_URL=spoke_results_queue_url,
+                ASSETS_BUCKET_PARAM_NAME=assets_bucket_name,
+                POWERTOOLS_SERVICE_NAME=f"crawler-spoke-{spoke_region}",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
         )
 
         # Two event sources — one per work type, shared concurrency pool
@@ -137,6 +134,6 @@ class CrawlSpokeStack(cdk.Stack):
 
         ssm.StringParameter(
             self, "SpokeStatus",
-            parameter_name=f"/steampulse/{environment}/spokes/{spoke_region}/status",
+            parameter_name=f"/steampulse/{config.ENVIRONMENT}/spokes/{spoke_region}/status",
             string_value="active",
         )

@@ -1,19 +1,26 @@
-"""Lambda handler — crawler control plane.
+"""Lambda handler — crawler control plane + spoke dispatcher.
 
 Event types handled:
   1. EventBridge (scheduled)  — source == "aws.events" → CatalogService.refresh()
   2. Direct boto3 invocation  — "action" key present   → dispatch via Pydantic model
+  3. SQS (app-crawl / review-crawl) — dispatch to spoke Lambdas cross-region
 
-SQS queue consumption is handled by spoke_handler.py (all regions).
 DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import random
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.utilities.batch import (
+    BatchProcessor,
+    EventType,
+    process_partial_response,
+)
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -32,6 +39,7 @@ tracer = Tracer(service="crawler")
 metrics = Metrics(namespace="SteamPulse", service="crawler")
 
 _direct_adapter = TypeAdapter(DirectRequest)
+_sqs_processor = BatchProcessor(event_type=EventType.SQS)
 
 # ── Module-level service singletons ─────────────────────────────────────────
 # Eagerly built at cold start — fails loud if deps are missing.
@@ -98,6 +106,62 @@ _catalog_service = CatalogService(
     system_events_topic_arn=_system_events_topic_arn,
 )
 
+# ── Spoke dispatch ──────────────────────────────────────────────────────────
+# Build list of spoke Lambda ARNs from config.spoke_region_list at cold start.
+# Deterministic function names: steampulse-{env}-spoke-crawler-{region}
+
+_spoke_lambda_arns: list[str] = []
+_lambda_clients: dict[str, object] = {}
+
+for _region in _crawler_config.spoke_region_list:
+    _fn_name = f"steampulse-{_crawler_config.ENVIRONMENT}-spoke-crawler-{_region}"
+    _spoke_lambda_arns.append(
+        f"arn:aws:lambda:{_region}:{boto3.client('sts').get_caller_identity()['Account']}"
+        f":function:{_fn_name}"
+    )
+    if _region not in _lambda_clients:
+        _lambda_clients[_region] = boto3.client("lambda", region_name=_region)
+
+
+def _extract_payload(record_body: str) -> dict:
+    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
+    body = json.loads(record_body)
+    if "Type" in body and body["Type"] == "Notification":
+        return json.loads(body["Message"])
+    return body
+
+
+def _dispatch_to_spoke(record: dict) -> None:
+    """Parse SQS record and invoke a random spoke Lambda."""
+    body = _extract_payload(record["body"])
+    appid = int(body["appid"])
+
+    source_arn = record.get("eventSourceARN", "")
+    if "review-crawl" in source_arn:
+        task = "reviews"
+    else:
+        task = "metadata"
+
+    # Round-robin across spoke regions
+    arn = random.choice(_spoke_lambda_arns)
+    region = arn.split(":")[3]
+    client = _lambda_clients[region]
+
+    logger.info("Dispatching appid=%s task=%s → %s", appid, task, arn)
+    response = client.invoke(
+        FunctionName=arn,
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"appid": appid, "task": task}),
+    )
+    payload = json.loads(response["Payload"].read())
+
+    if response.get("FunctionError"):
+        logger.error("Spoke error appid=%s: %s", appid, payload)
+        raise RuntimeError(f"Spoke invocation failed for appid={appid}: {payload}")
+
+    logger.info("Spoke result appid=%s: %s", appid, payload)
+    metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
+
 
 # ── Main dispatcher ──────────────────────────────────────────────────────────
 
@@ -131,5 +195,14 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 return _catalog_service.refresh()
+
+    # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
+    if "Records" in event:
+        return process_partial_response(
+            event=event,
+            record_handler=_dispatch_to_spoke,
+            processor=_sqs_processor,
+            context=context,
+        )
 
     raise ValueError(f"Unrecognised event shape: {list(event.keys())}")

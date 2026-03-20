@@ -1,9 +1,10 @@
 """Spoke crawler — fetch from Steam, hand off to primary via S3 + SQS.
 
-No DB access. Task type inferred from which SQS queue triggered the Lambda.
-Routing (same pattern as primary handler.py):
-  "app-crawl" or "metadata" in eventSourceARN → task = metadata
-  "review-crawl" in eventSourceARN             → task = reviews
+Invoked directly by the primary handler (cross-region lambda:Invoke).
+No event source mappings — work is dispatched from the primary region.
+
+Input payload: {"appid": int, "task": "metadata"|"reviews"}
+Returns:       {"appid": int, "task": str, "success": bool, "count": int}
 
 All payloads written to S3 (consistent, handles large metadata HTML).
 """
@@ -14,16 +15,12 @@ import asyncio
 import gzip
 import json
 import os
+import uuid
 
 import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.utilities.batch import (
-    BatchProcessor,
-    EventType,
-    process_partial_response,
-)
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
@@ -31,9 +28,6 @@ from library_layer.steam_source import DirectSteamSource, SteamAPIError
 logger = Logger(service="crawler-spoke")
 tracer = Tracer(service="crawler-spoke")
 metrics = Metrics(namespace="SteamPulse", service="crawler-spoke")
-
-app_crawl_processor = BatchProcessor(event_type=EventType.SQS)
-review_crawl_processor = BatchProcessor(event_type=EventType.SQS)
 
 _config = SteamPulseConfig()
 _PRIMARY_REGION = os.environ["PRIMARY_REGION"]
@@ -51,57 +45,26 @@ _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)
 _s3 = boto3.client("s3")
 
 
-# ── SNS envelope unwrapping ───────────────────────────────────────────────────
-
-
-def _extract_payload(record_body: str) -> dict:
-    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
-    body = json.loads(record_body)
-    if "Type" in body and body["Type"] == "Notification":
-        return json.loads(body["Message"])
-    return body
-
-
-# ── SQS record handlers ──────────────────────────────────────────────────────
-
-
-def _app_crawl_record(record: dict) -> None:
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
-    result = asyncio.run(_process_metadata(appid))
-    if result:
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
-
-
-def _review_crawl_record(record: dict) -> None:
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
-    count = asyncio.run(_process_reviews(appid))
-    metrics.add_metric(name="ReviewsCrawled", unit=MetricUnit.Count, value=count)
-
-
-# ── Main dispatcher ──────────────────────────────────────────────────────────
+# ── Main handler ────────────────────────────────────────────────────────────
 
 
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
-    source_arn = event["Records"][0].get("eventSourceARN", "")
-    if "review-crawl" in source_arn:
-        return process_partial_response(
-            event=event,
-            record_handler=_review_crawl_record,
-            processor=review_crawl_processor,
-            context=context,
-        )
-    if "app-crawl" in source_arn or "metadata" in source_arn:
-        return process_partial_response(
-            event=event,
-            record_handler=_app_crawl_record,
-            processor=app_crawl_processor,
-            context=context,
-        )
-    raise ValueError(f"Unrecognised queue ARN: {source_arn}")
+    appid = int(event["appid"])
+    task = event["task"]
+
+    if task == "metadata":
+        ok = asyncio.run(_process_metadata(appid))
+        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1 if ok else 0)
+        return {"appid": appid, "task": task, "success": ok, "count": 1 if ok else 0}
+
+    if task == "reviews":
+        count = asyncio.run(_process_reviews(appid))
+        metrics.add_metric(name="ReviewsCrawled", unit=MetricUnit.Count, value=count)
+        return {"appid": appid, "task": task, "success": count > 0, "count": count}
+
+    raise ValueError(f"Unknown task: {task}")
 
 
 # ── Steam fetch + S3 handoff ─────────────────────────────────────────────────
@@ -123,7 +86,8 @@ async def _process_metadata(appid: int) -> bool:
     deck_compat = await _steam.get_deck_compatibility(appid)
 
     payload = {"details": details, "summary": summary, "deck_compat": deck_compat}
-    s3_key = _write_s3(f"spoke-results/metadata/{appid}.json.gz", payload)
+    uid = uuid.uuid4().hex[:12]
+    s3_key = _write_s3(f"spoke-results/metadata/{appid}-{uid}.json.gz", payload)
     _notify(appid, task="metadata", s3_key=s3_key, count=1)
     return True
 
@@ -140,7 +104,8 @@ async def _process_reviews(appid: int) -> int:
         _notify(appid, task="reviews", s3_key=None, count=0)
         return 0
 
-    s3_key = _write_s3(f"spoke-results/reviews/{appid}.json.gz", reviews)
+    uid = uuid.uuid4().hex[:12]
+    s3_key = _write_s3(f"spoke-results/reviews/{appid}-{uid}.json.gz", reviews)
     _notify(appid, task="reviews", s3_key=s3_key, count=len(reviews))
     return len(reviews)
 

@@ -326,7 +326,31 @@ class ComputeStack(cdk.Stack):
             ),
         )
 
-        # SQS event sources removed — queue consumption handled by spoke_handler.py
+        # SQS event sources — crawler dispatches work to spoke Lambdas
+        for queue, _source_id in [
+            (app_crawl_queue, "AppCrawlSource"),
+            (review_crawl_queue, "ReviewCrawlSource"),
+        ]:
+            crawler_fn.add_event_source(
+                event_sources.SqsEventSource(
+                    queue,
+                    batch_size=1,
+                    report_batch_item_failures=True,
+                )
+            )
+
+        # Cross-region invoke on spoke Lambdas (deterministic names)
+        spoke_regions = config.spoke_region_list
+        if spoke_regions:
+            spoke_fn_arns = [
+                f"arn:aws:lambda:{r}:{self.account}:function:"
+                f"steampulse-{env}-spoke-crawler-{r}"
+                for r in spoke_regions
+            ]
+            crawler_role.add_to_policy(iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=spoke_fn_arns,
+            ))
 
         # ── Ingest Lambda (spoke results → DB) ────────────────────────────
         ingest_fn = PythonFunction(

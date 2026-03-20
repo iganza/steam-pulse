@@ -1,18 +1,18 @@
 """CrawlSpokeStack — multi-purpose crawl worker for a remote AWS region.
 
-One Lambda, two event sources (metadata + reviews), reserved concurrency = 3.
+One Lambda, invoked directly by the primary handler (cross-region).
+No event source mappings — work dispatched from primary region queues.
 No DB access. Connects to public internet (Steam) and cross-region S3/SQS.
 """
 
 import aws_cdk as cdk
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
-import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
-import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
 from constructs import Construct
+from library_layer.config import SteamPulseConfig
 
 
 class CrawlSpokeStack(cdk.Stack):
@@ -22,10 +22,9 @@ class CrawlSpokeStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
+        config: SteamPulseConfig,
         primary_region: str,
         environment: str,
-        app_crawl_queue_arn: str,
-        review_crawl_queue_arn: str,
         spoke_results_queue_url: str,
         assets_bucket_name: str,
         steam_api_key_secret_name: str,
@@ -50,23 +49,10 @@ class CrawlSpokeStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole",
                 ),
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaSQSQueueExecutionRole",
-                ),
             ],
         )
 
-        # Cross-region SQS: read both work queues
-        role.add_to_policy(iam.PolicyStatement(
-            actions=[
-                "sqs:ReceiveMessage", "sqs:DeleteMessage",
-                "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility",
-            ],
-            resources=[app_crawl_queue_arn, review_crawl_queue_arn],
-        ))
-
         # Cross-region SQS: write to results queue
-        # Construct ARN from URL: https://sqs.{region}.amazonaws.com/{account}/{name}
         spoke_results_queue_arn = (
             f"arn:aws:sqs:{primary_region}:{account}:"
             + spoke_results_queue_url.rsplit("/", 1)[-1]
@@ -92,8 +78,13 @@ class CrawlSpokeStack(cdk.Stack):
             resources=[steam_api_key_secret_arn],
         ))
 
-        crawler_fn = PythonFunction(
+        # Deterministic function name — primary handler constructs ARN from
+        # config.spoke_region_list + this naming convention for cross-region invoke.
+        fn_name = f"steampulse-{environment}-spoke-crawler-{spoke_region}"
+
+        PythonFunction(
             self, "SpokeCrawlerFn",
+            function_name=fn_name,
             entry="src/lambda-functions",
             index="lambda_functions/crawler/spoke_handler.py",
             handler="handler",
@@ -108,32 +99,17 @@ class CrawlSpokeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                # Spoke Lambda uses inline env — cross-region stack, can't resolve
-                # SSM from primary region. _PARAM_NAME fields hold ACTUAL values
-                # here (not SSM paths). Spoke handler uses them directly without
-                # get_parameter().
-                "ENVIRONMENT": environment,
-                "PRIMARY_REGION": primary_region,
-                "SPOKE_RESULTS_QUEUE_URL": spoke_results_queue_url,
-                "ASSETS_BUCKET_PARAM_NAME": assets_bucket_name,
-                "STEAM_API_KEY_SECRET_NAME": steam_api_key_secret_name,
-                "POWERTOOLS_SERVICE_NAME": f"crawler-spoke-{spoke_region}",
-                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
-            },
+            environment=config.to_lambda_env(
+                # Spoke-specific overrides — cross-region stack can't resolve SSM,
+                # so _PARAM_NAME fields hold ACTUAL values (not SSM paths).
+                PRIMARY_REGION=primary_region,
+                SPOKE_RESULTS_QUEUE_URL=spoke_results_queue_url,
+                ASSETS_BUCKET_PARAM_NAME=assets_bucket_name,
+                STEAM_API_KEY_SECRET_NAME=steam_api_key_secret_name,
+                POWERTOOLS_SERVICE_NAME=f"crawler-spoke-{spoke_region}",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
         )
-
-        # Two event sources — one per work type, shared concurrency pool
-        for queue_arn, source_id in [
-            (app_crawl_queue_arn, "AppCrawlSource"),
-            (review_crawl_queue_arn, "ReviewCrawlSource"),
-        ]:
-            queue = sqs.Queue.from_queue_arn(self, source_id, queue_arn=queue_arn)
-            crawler_fn.add_event_source(
-                event_sources.SqsEventSource(
-                    queue, batch_size=1, report_batch_item_failures=True,
-                )
-            )
 
         ssm.StringParameter(
             self, "SpokeStatus",

@@ -1,11 +1,10 @@
-"""End-to-end handler tests for the crawler Lambda (control plane only).
+"""End-to-end handler tests for the crawler Lambda (control plane + dispatcher).
 
 These tests inject mock CrawlService + CatalogService directly into the
 handler's module-level cache, then fire events and assert on service calls.
-
-SQS event processing has moved to spoke_handler.py — tested separately.
 """
 
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -109,13 +108,36 @@ def test_handler_direct_crawl_apps(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_handler_rejects_sqs_events(lambda_context: Any) -> None:
-    """Handler no longer processes SQS events — raises ValueError."""
+def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
+    """SQS app-crawl event → dispatches to a spoke Lambda."""
     mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
 
-    import pytest
+    import lambda_functions.crawler.handler as hm
+
+    # Inject mock spoke config so dispatch has targets
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {
+        "StatusCode": 200,
+        "Payload": MagicMock(read=MagicMock(return_value=json.dumps(
+            {"appid": 440, "task": "metadata", "success": True, "count": 1}
+        ).encode())),
+    }
+    hm._spoke_lambda_arns = ["arn:aws:lambda:us-east-1:123456789012:function:test-spoke"]
+    hm._lambda_clients = {"us-east-1": mock_lambda_client}
+
     from lambda_functions.crawler.handler import handler
-    with pytest.raises(ValueError, match="Unrecognised event shape"):
-        handler({"Records": [{"messageId": "m1", "body": '{"appid": 440}'}]}, lambda_context)
+
+    event = {
+        "Records": [{
+            "messageId": "m1",
+            "body": json.dumps({"appid": 440}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert json.loads(call_kwargs["Payload"]) == {"appid": 440, "task": "metadata"}

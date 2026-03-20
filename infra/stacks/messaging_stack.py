@@ -65,10 +65,12 @@ class MessagingStack(cdk.Stack):
             retention_period=cdk.Duration.days(14),
         )
 
-        # Renamed from AppCrawlQueue → MetadataEnrichmentQueue
+        # Deterministic names — spokes in other regions construct ARN/URL
+        # strings from these names (CDK tokens can't cross regions).
         self.app_crawl_queue = sqs.Queue(
             self,
             "MetadataEnrichmentQueue",
+            queue_name=f"steampulse-{env}-app-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
@@ -78,6 +80,7 @@ class MessagingStack(cdk.Stack):
         self.review_crawl_queue = sqs.Queue(
             self,
             "ReviewCrawlQueue",
+            queue_name=f"steampulse-{env}-review-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
@@ -105,6 +108,7 @@ class MessagingStack(cdk.Stack):
         self.spoke_results_queue = sqs.Queue(
             self,
             "SpokeResultsQueue",
+            queue_name=f"steampulse-{env}-spoke-results",
             visibility_timeout=cdk.Duration.minutes(15),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,

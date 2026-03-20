@@ -790,7 +790,7 @@ class CrawlSpokeStack(cdk.Stack):
         review_crawl_queue_arn: str,
         spoke_results_queue_url: str,
         assets_bucket_name: str,
-        steam_api_key_secret_arn: str,
+        steam_api_key_secret_name: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -838,6 +838,10 @@ class CrawlSpokeStack(cdk.Stack):
         ))
 
         # Cross-region Secrets Manager: Steam API key only
+        # Construct the ARN from the name for the IAM policy resources field
+        steam_api_key_secret_arn = (
+            f"arn:aws:secretsmanager:{primary_region}:{account}:secret:{steam_api_key_secret_name}-??????"
+        )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue"],
             resources=[steam_api_key_secret_arn],
@@ -869,7 +873,7 @@ class CrawlSpokeStack(cdk.Stack):
                 "PRIMARY_REGION": primary_region,
                 "SPOKE_RESULTS_QUEUE_URL": spoke_results_queue_url,
                 "ASSETS_BUCKET_PARAM_NAME": assets_bucket_name,       # actual value
-                "STEAM_API_KEY_SECRET_ARN": steam_api_key_secret_arn,  # actual value
+                "STEAM_API_KEY_SECRET_NAME": steam_api_key_secret_name,  # actual value
                 "POWERTOOLS_SERVICE_NAME": f"crawler-spoke-{spoke_region}",
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
@@ -915,7 +919,7 @@ for region in config.spoke_region_list:
         review_crawl_queue_arn=messaging.review_crawl_queue.queue_arn,
         spoke_results_queue_url=messaging.spoke_results_queue.queue_url,
         assets_bucket_name=data.assets_bucket.bucket_name,
-        steam_api_key_secret_arn=data.steam_api_key_secret_arn,
+        steam_api_key_secret_name=data.steam_api_key_secret.secret_name,
         env=cdk.Environment(account=self.account, region=region),
     )
 ```
@@ -1006,7 +1010,7 @@ def template():
         review_crawl_queue_arn="arn:aws:sqs:us-west-2:123456789012:ReviewCrawlQueue",
         spoke_results_queue_url="https://sqs.us-west-2.amazonaws.com/123456789012/SpokeResultsQueue",
         assets_bucket_name="steampulse-assets-test",
-        steam_api_key_secret_arn="arn:aws:secretsmanager:us-west-2:123456789012:secret:steam-key",
+        steam_api_key_secret_name="steampulse/test/steam-api-key",
         env=cdk.Environment(account="123456789012", region="us-east-1"),
     )
     return Template.from_stack(stack)

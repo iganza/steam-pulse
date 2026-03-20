@@ -107,57 +107,9 @@ class CrawlService:
 
         summary = await self._steam.get_review_summary(appid)
         deck_compat = await self._steam.get_deck_compatibility(appid)
-        total_positive = int(summary.get("total_positive") or 0)
-        total_negative = int(summary.get("total_negative") or 0)
-        total_reviews = total_positive + total_negative  # English
-        total_reviews_all = int(summary.get("total_reviews_all") or 0) or total_reviews
-        positive_pct: int | None = (
-            round(total_positive / total_reviews * 100) if total_reviews > 0 else None
-        )
-        review_score_desc: str = summary.get("review_score_desc", "") or ""
-
-        devs: list[str] = details.get("developers") or []
-        pubs: list[str] = details.get("publishers") or []
-
-        release_info = details.get("release_date") or {}
-        coming_soon: bool = (
-            bool(release_info.get("coming_soon", False))
-            if isinstance(release_info, dict)
-            else False
-        )
-        release_date = _parse_release_date(
-            release_info.get("date", "") if isinstance(release_info, dict) else ""
-        )
-
-        price_info = details.get("price_overview") or {}
-        is_free: bool = bool(details.get("is_free", False))
-        price_usd: float | None = (
-            price_info.get("final", 0) / 100.0 if price_info and not is_free else None
-        )
-
-        achievements = details.get("achievements") or {}
-        achievements_total = (
-            int(achievements.get("total", 0)) if isinstance(achievements, dict) else 0
-        )
-        metacritic = details.get("metacritic") or {}
-        metacritic_score: int | None = (
-            metacritic.get("score") if isinstance(metacritic, dict) else None
-        )
 
         name: str = details.get("name") or f"App {appid}"
-        slug = slugify(name, appid)
-
-        genres: list[dict] = details.get("genres") or []
-        categories: list[dict] = details.get("categories") or []
-
-        logger.info(
-            "appid=%s name=%r — genres=%d categories=%d reviews=%d",
-            appid,
-            name,
-            len(genres),
-            len(categories),
-            total_reviews,
-        )
+        logger.info("appid=%s name=%r", appid, name)
 
         if dry_run:
             return True
@@ -166,69 +118,14 @@ class CrawlService:
         existing = self._game_repo.find_by_appid(appid)
         old_review_count = existing.review_count if existing else 0
 
-        game_data: dict = {
-            "appid": appid,
-            "name": name,
-            "slug": slug,
-            "type": details.get("type") or "game",
-            "developer": devs[0] if devs else None,
-            "developer_slug": slugify(devs[0]) if devs else None,
-            "publisher": pubs[0] if pubs else None,
-            "developers": json.dumps(devs),
-            "publishers": json.dumps(pubs),
-            "website": details.get("website") or None,
-            "release_date": release_date,
-            "coming_soon": coming_soon,
-            "price_usd": price_usd,
-            "is_free": is_free,
-            "short_desc": (details.get("short_description") or "")[:2000],
-            "detailed_description": details.get("detailed_description") or "",
-            "about_the_game": details.get("about_the_game") or "",
-            "review_count": total_reviews_all,
-            "review_count_english": total_reviews,
-            "total_positive": total_positive,
-            "total_negative": total_negative,
-            "positive_pct": positive_pct,
-            "review_score_desc": review_score_desc,
-            "header_image": details.get("header_image") or "",
-            "background_image": details.get("background") or "",
-            "required_age": int(details.get("required_age") or 0),
-            "platforms": json.dumps(details.get("platforms") or {}),
-            "supported_languages": details.get("supported_languages") or "",
-            "achievements_total": achievements_total,
-            "metacritic_score": metacritic_score,
-            "deck_compatibility": deck_compat.get("resolved_category") if deck_compat else None,
-            "deck_test_results": json.dumps(deck_compat.get("resolved_items", [])) if deck_compat else None,
-            "data_source": "steam_direct",
-        }
+        game_data = self._ingest_app_data(appid, details, summary, deck_compat)
+        if not game_data:
+            return False
 
-        self._game_repo.upsert(game_data)
-
-        # Tags (genres + categories combined)
-        tag_items = genres + categories
-        self._tag_repo.upsert_tags(
-            [
-                {"appid": appid, "name": item.get("description") or "", "votes": 0}
-                for item in tag_items
-                if item.get("description")
-            ]
-        )
-        self._tag_repo.upsert_genres(appid, genres)
-        self._tag_repo.upsert_categories(appid, categories)
-
-        review_status = "pending" if total_reviews >= 500 else "ineligible"
-        self._catalog_repo.set_meta_status(
-            appid,
-            "done",
-            review_count=total_reviews_all,
-            review_status=review_status,
-        )
-
-        self._archive_to_s3(f"app-details/{appid}/{date.today().isoformat()}.json.gz", details)
-
-        # ── Publish domain events ──────────────────────────────────────────
+        # ── Publish domain events (only in direct crawl path) ─────────────
         self._publish_crawl_app_events(appid, game_data, existing)
 
+        total_reviews_all = game_data["review_count"]
         delta = total_reviews_all - old_review_count
         threshold = _reanalysis_threshold(total_reviews_all)
         if delta >= threshold:
@@ -330,6 +227,196 @@ class CrawlService:
             logger.warning("Failed to publish reviews-ready for appid=%s", appid)
 
         return upserted
+
+    async def ingest_spoke_metadata(self, appid: int, raw: dict) -> bool:
+        """Ingest metadata fetched by a spoke Lambda.
+
+        Args:
+            appid: Steam app ID
+            raw: dict with keys "details", "summary", "deck_compat"
+
+        Returns:
+            True on success, False if details are empty.
+        """
+        details: dict = raw.get("details") or {}
+        summary: dict = raw.get("summary") or {}
+        deck_compat: dict | None = raw.get("deck_compat")
+
+        if not details:
+            logger.warning("ingest_spoke_metadata: empty details for appid=%s", appid)
+            return False
+
+        game_data = self._ingest_app_data(appid, details, summary, deck_compat)
+        return game_data is not None
+
+    async def ingest_spoke_reviews(self, appid: int, raw_reviews: list[dict]) -> int:
+        """Ingest reviews fetched by a spoke Lambda.
+
+        DB write only — no SNS events, no Step Functions trigger.
+
+        Returns:
+            Number of reviews upserted.
+        """
+        if not raw_reviews:
+            return 0
+
+        self._game_repo.ensure_stub(appid)
+
+        reviews_to_upsert = []
+        for r in raw_reviews:
+            ts = r.get("timestamp_created")
+            steam_id = f"{ts}_{appid}"
+            posted_at: datetime | None = None
+            if ts:
+                try:
+                    posted_at = unix_to_datetime(int(ts))
+                except (ValueError, OSError):
+                    pass
+            playtime_minutes = int(r.get("playtime_at_review") or 0)
+            reviews_to_upsert.append(
+                {
+                    "appid": appid,
+                    "steam_review_id": steam_id,
+                    "author_steamid": r.get("author_steamid", ""),
+                    "voted_up": bool(r.get("voted_up", False)),
+                    "playtime_hours": playtime_minutes // 60,
+                    "body": r.get("review_text", ""),
+                    "posted_at": posted_at,
+                    "language": r.get("language", ""),
+                    "votes_helpful": int(r.get("votes_helpful") or 0),
+                    "votes_funny": int(r.get("votes_funny") or 0),
+                    "written_during_early_access": bool(r.get("written_during_early_access", False)),
+                    "received_for_free": bool(r.get("received_for_free", False)),
+                }
+            )
+
+        upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
+        logger.info("Ingested %d spoke reviews for appid=%s", upserted, appid)
+        return upserted
+
+    # ------------------------------------------------------------------
+    # DB ingest (shared by crawl_app and spoke ingest)
+    # ------------------------------------------------------------------
+
+    def _ingest_app_data(
+        self,
+        appid: int,
+        details: dict,
+        summary: dict,
+        deck_compat: dict | None,
+    ) -> dict | None:
+        """Write pre-fetched Steam app data to DB.
+
+        Called by crawl_app() and ingest_spoke_metadata().
+        Pure DB write: game upsert, tags, catalog status, S3 archive.
+        Does NOT publish SNS events or trigger Step Functions.
+
+        Returns:
+            The game_data dict on success, None on failure.
+        """
+        total_positive = int(summary.get("total_positive") or 0)
+        total_negative = int(summary.get("total_negative") or 0)
+        total_reviews = total_positive + total_negative
+        total_reviews_all = int(summary.get("total_reviews_all") or 0) or total_reviews
+        positive_pct: int | None = (
+            round(total_positive / total_reviews * 100) if total_reviews > 0 else None
+        )
+        review_score_desc: str = summary.get("review_score_desc", "") or ""
+
+        devs: list[str] = details.get("developers") or []
+        pubs: list[str] = details.get("publishers") or []
+
+        release_info = details.get("release_date") or {}
+        coming_soon: bool = (
+            bool(release_info.get("coming_soon", False))
+            if isinstance(release_info, dict)
+            else False
+        )
+        release_date = _parse_release_date(
+            release_info.get("date", "") if isinstance(release_info, dict) else ""
+        )
+
+        price_info = details.get("price_overview") or {}
+        is_free: bool = bool(details.get("is_free", False))
+        price_usd: float | None = (
+            price_info.get("final", 0) / 100.0 if price_info and not is_free else None
+        )
+
+        achievements = details.get("achievements") or {}
+        achievements_total = (
+            int(achievements.get("total", 0)) if isinstance(achievements, dict) else 0
+        )
+        metacritic = details.get("metacritic") or {}
+        metacritic_score: int | None = (
+            metacritic.get("score") if isinstance(metacritic, dict) else None
+        )
+
+        name: str = details.get("name") or f"App {appid}"
+        slug = slugify(name, appid)
+
+        genres: list[dict] = details.get("genres") or []
+        categories: list[dict] = details.get("categories") or []
+
+        game_data: dict = {
+            "appid": appid,
+            "name": name,
+            "slug": slug,
+            "type": details.get("type") or "game",
+            "developer": devs[0] if devs else None,
+            "developer_slug": slugify(devs[0]) if devs else None,
+            "publisher": pubs[0] if pubs else None,
+            "developers": json.dumps(devs),
+            "publishers": json.dumps(pubs),
+            "website": details.get("website") or None,
+            "release_date": release_date,
+            "coming_soon": coming_soon,
+            "price_usd": price_usd,
+            "is_free": is_free,
+            "short_desc": (details.get("short_description") or "")[:2000],
+            "detailed_description": details.get("detailed_description") or "",
+            "about_the_game": details.get("about_the_game") or "",
+            "review_count": total_reviews_all,
+            "review_count_english": total_reviews,
+            "total_positive": total_positive,
+            "total_negative": total_negative,
+            "positive_pct": positive_pct,
+            "review_score_desc": review_score_desc,
+            "header_image": details.get("header_image") or "",
+            "background_image": details.get("background") or "",
+            "required_age": int(details.get("required_age") or 0),
+            "platforms": json.dumps(details.get("platforms") or {}),
+            "supported_languages": details.get("supported_languages") or "",
+            "achievements_total": achievements_total,
+            "metacritic_score": metacritic_score,
+            "deck_compatibility": deck_compat.get("resolved_category") if deck_compat else None,
+            "deck_test_results": json.dumps(deck_compat.get("resolved_items", [])) if deck_compat else None,
+            "data_source": "steam_direct",
+        }
+
+        self._game_repo.upsert(game_data)
+
+        tag_items = genres + categories
+        self._tag_repo.upsert_tags(
+            [
+                {"appid": appid, "name": item.get("description") or "", "votes": 0}
+                for item in tag_items
+                if item.get("description")
+            ]
+        )
+        self._tag_repo.upsert_genres(appid, genres)
+        self._tag_repo.upsert_categories(appid, categories)
+
+        review_status = "pending" if total_reviews >= 500 else "ineligible"
+        self._catalog_repo.set_meta_status(
+            appid,
+            "done",
+            review_count=total_reviews_all,
+            review_status=review_status,
+        )
+
+        self._archive_to_s3(f"app-details/{appid}/{date.today().isoformat()}.json.gz", details)
+
+        return game_data
 
     def _should_enqueue_reviews(self, review_count: int, stored_count: int) -> bool:
         """Return True if delta exceeds the tiered threshold for re-analysis."""

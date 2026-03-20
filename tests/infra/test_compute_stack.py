@@ -6,6 +6,7 @@ import sys
 import aws_cdk as cdk
 import aws_cdk.assertions as assertions
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
@@ -31,6 +32,8 @@ def _synth_compute_stack() -> assertions.Template:
     game_events_topic = sns.Topic(stack, "GameEvents")
     content_events_topic = sns.Topic(stack, "ContentEvents")
     system_events_topic = sns.Topic(stack, "SystemEvents")
+    assets_bucket = s3.Bucket(stack, "AssetsBucket")
+    spoke_results_queue = sqs.Queue(stack, "SpokeResultsQueue")
 
     config = SteamPulseConfig(
         ENVIRONMENT="staging",
@@ -40,7 +43,7 @@ def _synth_compute_stack() -> assertions.Template:
         STEP_FUNCTIONS_PARAM_NAME="/steampulse/test/compute/sfn-arn",
         APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/app-crawl-queue-url",
         REVIEW_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/review-crawl-queue-url",
-        ASSETS_BUCKET_PARAM_NAME="/steampulse/test/app/assets-bucket-name",
+        ASSETS_BUCKET_PARAM_NAME="/steampulse/test/data/assets-bucket-name",
         GAME_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/game-events-topic-arn",
         CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
@@ -57,6 +60,8 @@ def _synth_compute_stack() -> assertions.Template:
         game_events_topic=game_events_topic,
         content_events_topic=content_events_topic,
         system_events_topic=system_events_topic,
+        assets_bucket=assets_bucket,
+        spoke_results_queue=spoke_results_queue,
     )
     return assertions.Template.from_stack(compute)
 

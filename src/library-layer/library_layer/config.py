@@ -78,6 +78,14 @@ class SteamPulseConfig(BaseSettings):
     CONTENT_EVENTS_TOPIC_PARAM_NAME: str
     SYSTEM_EVENTS_TOPIC_PARAM_NAME: str
 
+    # ── Spoke regions (comma-separated, e.g. "us-west-2,us-east-1") ───────────
+    SPOKE_REGIONS: str = ""
+
+    @property
+    def spoke_region_list(self) -> list[str]:
+        """Return list of spoke regions, filtering out empty strings."""
+        return [r.strip() for r in self.SPOKE_REGIONS.split(",") if r.strip()]
+
     # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 500
 

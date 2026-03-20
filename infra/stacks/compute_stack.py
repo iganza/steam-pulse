@@ -17,6 +17,7 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
@@ -51,6 +52,8 @@ class ComputeStack(cdk.Stack):
         game_events_topic: sns.ITopic,
         content_events_topic: sns.ITopic,
         system_events_topic: sns.ITopic,
+        assets_bucket: s3.IBucket,
+        spoke_results_queue: sqs.IQueue,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -268,7 +271,7 @@ class ComputeStack(cdk.Stack):
                 ),
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaSQSQueueExecutionRole",
-                ),
+                ),  # IngestFn (shared role) consumes spoke_results_queue
             ],
         )
         crawler_role.add_to_policy(
@@ -294,6 +297,7 @@ class ComputeStack(cdk.Stack):
         game_events_topic.grant_publish(crawler_role)
         content_events_topic.grant_publish(crawler_role)
         system_events_topic.grant_publish(crawler_role)
+        assets_bucket.grant_read_write(crawler_role)
 
         crawler_fn = PythonFunction(
             self,
@@ -322,16 +326,38 @@ class ComputeStack(cdk.Stack):
             ),
         )
 
-        crawler_fn.add_event_source(
-            event_sources.SqsEventSource(
-                app_crawl_queue,
-                batch_size=10,
-                report_batch_item_failures=True,
-            )
+        # SQS event sources removed — queue consumption handled by spoke_handler.py
+
+        # ── Ingest Lambda (spoke results → DB) ────────────────────────────
+        ingest_fn = PythonFunction(
+            self,
+            "SpokeIngestFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/crawler/ingest_handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=crawler_role,
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(15),
+            memory_size=256,
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=logs.LogGroup(
+                self,
+                "SpokeIngestLogs",
+                retention=logs.RetentionDays.ONE_MONTH,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="spoke-ingest",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
         )
-        crawler_fn.add_event_source(
+        ingest_fn.add_event_source(
             event_sources.SqsEventSource(
-                review_crawl_queue,
+                spoke_results_queue,
                 batch_size=1,
                 report_batch_item_failures=True,
             )
@@ -366,6 +392,12 @@ class ComputeStack(cdk.Stack):
             "AnalysisFnArnParam",
             parameter_name=f"/steampulse/{env}/compute/analysis-fn-arn",
             string_value=analysis_fn.function_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "SpokeIngestFnArnParam",
+            parameter_name=f"/steampulse/{env}/compute/spoke-ingest-fn-arn",
+            string_value=ingest_fn.function_arn,
         )
         ssm.StringParameter(
             self,

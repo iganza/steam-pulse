@@ -29,6 +29,7 @@ from stacks.delivery_stack import DeliveryStack
 from stacks.frontend_stack import FrontendStack
 from stacks.messaging_stack import MessagingStack
 from stacks.network_stack import NetworkStack
+from stacks.spoke_stack import CrawlSpokeStack
 
 # from stacks.monitoring_stack import MonitoringStack
 
@@ -94,6 +95,8 @@ class ApplicationStage(cdk.Stage):
             game_events_topic=messaging.game_events_topic,
             content_events_topic=messaging.content_events_topic,
             system_events_topic=messaging.system_events_topic,
+            assets_bucket=data.assets_bucket,
+            spoke_results_queue=messaging.spoke_results_queue,
             env=cdk_env,
         )
         compute.add_dependency(data)
@@ -121,6 +124,7 @@ class ApplicationStage(cdk.Stage):
             config=config,
             api_fn_url=compute.api_fn_url,
             frontend_fn_url=compute.frontend_fn_url,
+            assets_bucket=data.assets_bucket,
             certificate=certificate,
             env=cdk_env,
         )
@@ -147,3 +151,23 @@ class ApplicationStage(cdk.Stage):
         #     config=config,
         #     env=cdk_env,
         # )
+
+        # ── Spoke Stacks (one per region) ─────────────────────────────────
+        # Every region is a spoke, including the primary. Spoke Lambdas
+        # fetch from Steam → S3 → SQS → IngestFn (primary region, above).
+        steam_secret_name = f"steampulse/{environment}/steam-api-key"
+        for region in config.spoke_region_list:
+            spoke = CrawlSpokeStack(
+                self, f"Spoke-{region}",
+                stack_name=f"SteamPulse-{env_name}-Spoke-{region}",
+                primary_region=self.region,
+                environment=environment,
+                app_crawl_queue_arn=messaging.app_crawl_queue.queue_arn,
+                review_crawl_queue_arn=messaging.review_crawl_queue.queue_arn,
+                spoke_results_queue_url=messaging.spoke_results_queue.queue_url,
+                assets_bucket_name=data.assets_bucket.bucket_name,
+                steam_api_key_secret_name=steam_secret_name,
+                env=cdk.Environment(account=self.account, region=region),
+            )
+            spoke.add_dependency(messaging)
+            spoke.add_dependency(data)

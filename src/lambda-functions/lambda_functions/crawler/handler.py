@@ -1,23 +1,19 @@
-"""Lambda handler — unified crawler dispatcher.
+"""Lambda handler — crawler control plane.
 
 Event types handled:
   1. EventBridge (scheduled)  — source == "aws.events" → CatalogService.refresh()
   2. Direct boto3 invocation  — "action" key present   → dispatch via Pydantic model
-  3. SQS batch               — "Records" key present   → CrawlService methods
+
+SQS queue consumption is handled by spoke_handler.py (all regions).
+DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
-from aws_lambda_powertools.utilities.batch import (
-    BatchProcessor,
-    EventType,
-    process_partial_response,
-)
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -34,9 +30,6 @@ from .events import (
 logger = Logger(service="crawler")
 tracer = Tracer(service="crawler")
 metrics = Metrics(namespace="SteamPulse", service="crawler")
-
-app_crawl_processor = BatchProcessor(event_type=EventType.SQS)
-review_crawl_processor = BatchProcessor(event_type=EventType.SQS)
 
 _direct_adapter = TypeAdapter(DirectRequest)
 
@@ -68,6 +61,7 @@ _app_crawl_queue_url = get_parameter(_crawler_config.APP_CRAWL_QUEUE_PARAM_NAME)
 _game_events_topic_arn = get_parameter(_crawler_config.GAME_EVENTS_TOPIC_PARAM_NAME)
 _content_events_topic_arn = get_parameter(_crawler_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 _system_events_topic_arn = get_parameter(_crawler_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME)
+_assets_bucket_name = get_parameter(_crawler_config.ASSETS_BUCKET_PARAM_NAME)
 
 # Resolve Steam API key from Secrets Manager at cold start
 _sm = boto3.client("secretsmanager")
@@ -88,6 +82,7 @@ _crawl_service = CrawlService(
     sns_client=_sns,
     config=_crawler_config,
     s3_client=_s3,
+    archive_bucket=_assets_bucket_name,
     game_events_topic_arn=_game_events_topic_arn,
     content_events_topic_arn=_content_events_topic_arn,
 )
@@ -102,35 +97,6 @@ _catalog_service = CatalogService(
     game_events_topic_arn=_game_events_topic_arn,
     system_events_topic_arn=_system_events_topic_arn,
 )
-
-
-# ── SNS envelope unwrapping ───────────────────────────────────────────────────
-
-
-def _extract_payload(record_body: str) -> dict:
-    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
-    body = json.loads(record_body)
-    if "Type" in body and body["Type"] == "Notification":
-        return json.loads(body["Message"])
-    return body
-
-
-# ── SQS record handlers ──────────────────────────────────────────────────────
-
-
-def _app_crawl_record(record: dict) -> None:
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
-    result = asyncio.run(_crawl_service.crawl_app(appid))
-    if result:
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
-
-
-def _review_crawl_record(record: dict) -> None:
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
-    count = asyncio.run(_crawl_service.crawl_reviews(appid))
-    metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=count)
 
 
 # ── Main dispatcher ──────────────────────────────────────────────────────────
@@ -165,23 +131,5 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 return _catalog_service.refresh()
-
-    # 3. SQS batch
-    if "Records" in event:
-        source_arn = event["Records"][0].get("eventSourceARN", "")
-        if "app-crawl" in source_arn or "metadata-enrichment" in source_arn:
-            return process_partial_response(
-                event=event,
-                record_handler=_app_crawl_record,
-                processor=app_crawl_processor,
-                context=context,
-            )
-        if "review-crawl" in source_arn:
-            return process_partial_response(
-                event=event,
-                record_handler=_review_crawl_record,
-                processor=review_crawl_processor,
-                context=context,
-            )
 
     raise ValueError(f"Unrecognised event shape: {list(event.keys())}")

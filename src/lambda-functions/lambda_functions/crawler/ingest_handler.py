@@ -96,14 +96,19 @@ def _ingest_record(record: dict) -> None:
     task = msg.task
     s3_key = msg.s3_key
 
+    if not s3_key:
+        logger.warning("success=True but s3_key missing: task=%s appid=%s", task, appid)
+        return
+
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
     data = json.loads(gzip.decompress(response["Body"].read()))
 
     if task == "metadata":
         success = asyncio.run(_crawl_service.ingest_spoke_metadata(appid, data))
-        logger.info("Ingested metadata appid=%s success=%s", appid, success)
-        if success:
-            metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
+        if not success:
+            raise RuntimeError(f"Metadata ingest failed for appid={appid}")
+        logger.info("Ingested metadata appid=%s", appid)
+        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
     elif task == "reviews":
         upserted = asyncio.run(_crawl_service.ingest_spoke_reviews(appid, data))
         logger.info("Ingested %d reviews for appid=%s", upserted, appid)
@@ -111,4 +116,5 @@ def _ingest_record(record: dict) -> None:
     else:
         raise ValueError(f"Unknown task: {task} for appid={appid}")
 
+    # Only delete after successful ingest — failed records retry via SQS visibility timeout
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

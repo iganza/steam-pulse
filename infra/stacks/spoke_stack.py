@@ -74,7 +74,7 @@ class CrawlSpokeStack(cdk.Stack):
         # Cross-region Secrets Manager: Steam API key only
         steam_api_key_secret_arn = (
             f"arn:aws:secretsmanager:{primary_region}:{account}"
-            f":secret:{steam_api_key_secret_name}-??????"
+            f":secret:{steam_api_key_secret_name}-*"
         )
         role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue"],

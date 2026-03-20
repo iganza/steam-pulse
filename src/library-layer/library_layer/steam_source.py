@@ -54,7 +54,7 @@ class DirectSteamSource(SteamDataSource):
     - Summary:     GET https://store.steampowered.com/appreviews/{appid}?json=1&num_per_page=1
                    Returns query_summary with total review counts
 
-    Add jitter (random 0.5-2s sleep) between requests.
+    Add jitter (random 0.3-1s sleep) between requests.
     Retry up to 3 times with exponential backoff on 429/503.
     """
 
@@ -63,7 +63,7 @@ class DirectSteamSource(SteamDataSource):
         self._api_key = api_key
 
     async def _jitter(self) -> None:
-        await asyncio.sleep(random.uniform(1.5, 3.5))
+        await asyncio.sleep(random.uniform(0.3, 1.0))
 
     async def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
         for attempt in range(6):

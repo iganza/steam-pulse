@@ -139,3 +139,35 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 440
     assert payload.task == "metadata"
+
+
+@mock_aws
+def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
+    """SQS review-crawl event → dispatches to spoke with task=reviews."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    event = {
+        "Records": [{
+            "messageId": "m2",
+            "body": json.dumps({"appid": 730}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert call_kwargs["InvocationType"] == "Event"
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 730
+    assert payload.task == "reviews"

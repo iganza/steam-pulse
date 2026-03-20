@@ -334,7 +334,8 @@ class ComputeStack(cdk.Stack):
             crawler_fn.add_event_source(
                 event_sources.SqsEventSource(
                     queue,
-                    batch_size=1,
+                    batch_size=10,
+                    max_concurrency=3,
                     report_batch_item_failures=True,
                 )
             )
@@ -382,7 +383,7 @@ class ComputeStack(cdk.Stack):
         ingest_fn.add_event_source(
             event_sources.SqsEventSource(
                 spoke_results_queue,
-                batch_size=1,
+                batch_size=5,
                 report_batch_item_failures=True,
             )
         )

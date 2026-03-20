@@ -46,6 +46,38 @@ def _reanalysis_threshold(total_reviews: int) -> int:
         return 10_000
 
 
+def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
+    """Transform raw Steam review dicts into the shape expected by ReviewRepository.bulk_upsert()."""
+    result = []
+    for r in raw_reviews:
+        ts = r.get("timestamp_created")
+        steam_id = f"{ts}_{appid}"
+        posted_at: datetime | None = None
+        if ts:
+            try:
+                posted_at = unix_to_datetime(int(ts))
+            except (ValueError, OSError):
+                pass
+        playtime_minutes = int(r.get("playtime_at_review") or 0)
+        result.append(
+            {
+                "appid": appid,
+                "steam_review_id": steam_id,
+                "author_steamid": r.get("author_steamid", ""),
+                "voted_up": bool(r.get("voted_up", False)),
+                "playtime_hours": playtime_minutes // 60,
+                "body": r.get("review_text", ""),
+                "posted_at": posted_at,
+                "language": r.get("language", ""),
+                "votes_helpful": int(r.get("votes_helpful") or 0),
+                "votes_funny": int(r.get("votes_funny") or 0),
+                "written_during_early_access": bool(r.get("written_during_early_access", False)),
+                "received_for_free": bool(r.get("received_for_free", False)),
+            }
+        )
+    return result
+
+
 class CrawlService:
     """Orchestrates app and review crawling: Steam API + repositories + SQS/SFN."""
 
@@ -179,34 +211,7 @@ class CrawlService:
         game = self._game_repo.find_by_appid(appid)
         game_name: str = game.name if game else f"App {appid}"
 
-        reviews_to_upsert = []
-        for r in raw_reviews:
-            ts = r.get("timestamp_created")
-            steam_id = f"{ts}_{appid}"
-            posted_at: datetime | None = None
-            if ts:
-                try:
-                    posted_at = unix_to_datetime(int(ts))
-                except (ValueError, OSError):
-                    pass
-            playtime_minutes = int(r.get("playtime_at_review") or 0)
-            reviews_to_upsert.append(
-                {
-                    "appid": appid,
-                    "steam_review_id": steam_id,
-                    "author_steamid": r.get("author_steamid", ""),
-                    "voted_up": bool(r.get("voted_up", False)),
-                    "playtime_hours": playtime_minutes // 60,
-                    "body": r.get("review_text", ""),
-                    "posted_at": posted_at,
-                    "language": r.get("language", ""),
-                    "votes_helpful": int(r.get("votes_helpful") or 0),
-                    "votes_funny": int(r.get("votes_funny") or 0),
-                    "written_during_early_access": bool(r.get("written_during_early_access", False)),
-                    "received_for_free": bool(r.get("received_for_free", False)),
-                }
-            )
-
+        reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Upserted %d reviews for appid=%s", upserted, appid)
 
@@ -231,6 +236,9 @@ class CrawlService:
     async def ingest_spoke_metadata(self, appid: int, raw: dict) -> bool:
         """Ingest metadata fetched by a spoke Lambda.
 
+        Publishes the same domain events as crawl_app and enqueues review
+        crawl when the review delta exceeds the reanalysis threshold.
+
         Args:
             appid: Steam app ID
             raw: dict with keys "details", "summary", "deck_compat"
@@ -246,8 +254,26 @@ class CrawlService:
             logger.warning("ingest_spoke_metadata: empty details for appid=%s", appid)
             return False
 
+        existing = self._game_repo.find_by_appid(appid)
+        old_review_count = existing.review_count if existing else 0
+
         game_data = self._ingest_app_data(appid, details, summary, deck_compat)
-        return game_data is not None
+        if not game_data:
+            return False
+
+        self._publish_crawl_app_events(appid, game_data, existing)
+
+        total_reviews = game_data["review_count"]
+        delta = total_reviews - old_review_count
+        threshold = _reanalysis_threshold(total_reviews)
+        if delta >= threshold:
+            logger.info(
+                "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
+                appid, delta, threshold,
+            )
+            self._enqueue_review_crawl(appid)
+
+        return True
 
     async def ingest_spoke_reviews(self, appid: int, raw_reviews: list[dict]) -> int:
         """Ingest reviews fetched by a spoke Lambda.
@@ -262,34 +288,7 @@ class CrawlService:
 
         self._game_repo.ensure_stub(appid)
 
-        reviews_to_upsert = []
-        for r in raw_reviews:
-            ts = r.get("timestamp_created")
-            steam_id = f"{ts}_{appid}"
-            posted_at: datetime | None = None
-            if ts:
-                try:
-                    posted_at = unix_to_datetime(int(ts))
-                except (ValueError, OSError):
-                    pass
-            playtime_minutes = int(r.get("playtime_at_review") or 0)
-            reviews_to_upsert.append(
-                {
-                    "appid": appid,
-                    "steam_review_id": steam_id,
-                    "author_steamid": r.get("author_steamid", ""),
-                    "voted_up": bool(r.get("voted_up", False)),
-                    "playtime_hours": playtime_minutes // 60,
-                    "body": r.get("review_text", ""),
-                    "posted_at": posted_at,
-                    "language": r.get("language", ""),
-                    "votes_helpful": int(r.get("votes_helpful") or 0),
-                    "votes_funny": int(r.get("votes_funny") or 0),
-                    "written_during_early_access": bool(r.get("written_during_early_access", False)),
-                    "received_for_free": bool(r.get("received_for_free", False)),
-                }
-            )
-
+        reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Ingested %d spoke reviews for appid=%s", upserted, appid)
         return upserted

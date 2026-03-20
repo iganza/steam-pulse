@@ -42,8 +42,9 @@ def _make_crawl_service() -> CrawlService:
 
 
 def test_ingest_spoke_metadata_delegates() -> None:
-    """ingest_spoke_metadata delegates to _ingest_app_data."""
+    """ingest_spoke_metadata delegates to _ingest_app_data and publishes events."""
     svc = _make_crawl_service()
+    svc._game_repo.find_by_appid = MagicMock(return_value=None)
     svc._ingest_app_data = MagicMock(return_value={"appid": 440, "name": "TF2", "review_count": 100})
     raw = {"details": {"name": "TF2", "type": "game"}, "summary": {}, "deck_compat": None}
     result = asyncio.run(svc.ingest_spoke_metadata(440, raw))

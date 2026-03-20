@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import boto3
+from lambda_functions.crawler.events import SpokeRequest
 from moto import mock_aws
 
 # ── SSM seed — required before handler import (module-level get_parameter) ───
@@ -135,4 +136,6 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     mock_lambda_client.invoke.assert_called_once()
     call_kwargs = mock_lambda_client.invoke.call_args[1]
     assert call_kwargs["InvocationType"] == "Event"
-    assert json.loads(call_kwargs["Payload"]) == {"appid": 440, "task": "metadata"}
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 440
+    assert payload.task == "metadata"

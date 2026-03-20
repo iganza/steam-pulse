@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import boto3
 import pytest
 from aws_lambda_powertools.utilities.batch.exceptions import BatchProcessingError
+from lambda_functions.crawler.events import SpokeResult
 from moto import mock_aws
 
 
@@ -33,11 +34,11 @@ def _get_module() -> Any:
     return ih
 
 
-def _sqs_event(body: dict) -> dict:
+def _sqs_event(result: SpokeResult) -> dict:
     return {
         "Records": [{
             "messageId": "msg-1",
-            "body": json.dumps(body),
+            "body": result.model_dump_json(),
             "receiptHandle": "receipt",
         }],
     }
@@ -60,7 +61,7 @@ def test_metadata_task_calls_ingest_spoke_metadata(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {"name": "TF2"}}))),
     }
 
-    event = _sqs_event({"appid": 440, "task": "metadata", "s3_key": "spoke-results/metadata/440-abc.json.gz", "count": 1})
+    event = _sqs_event(SpokeResult(appid=440, task="metadata", success=True, s3_key="spoke-results/metadata/440-abc.json.gz", count=1, spoke_region="us-east-1"))
     ih.handler(event, lambda_context)
 
     ih._crawl_service.ingest_spoke_metadata.assert_called_once_with(440, {"details": {"name": "TF2"}})
@@ -77,7 +78,7 @@ def test_reviews_task_calls_ingest_spoke_reviews(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
     }
 
-    event = _sqs_event({"appid": 440, "task": "reviews", "s3_key": "spoke-results/reviews/440-abc.json.gz", "count": 3})
+    event = _sqs_event(SpokeResult(appid=440, task="reviews", success=True, s3_key="spoke-results/reviews/440-abc.json.gz", count=3, spoke_region="us-east-1"))
     ih.handler(event, lambda_context)
 
     ih._crawl_service.ingest_spoke_reviews.assert_called_once_with(440, reviews)
@@ -87,12 +88,17 @@ def test_reviews_task_calls_ingest_spoke_reviews(lambda_context: Any) -> None:
 def test_unknown_task_raises(lambda_context: Any) -> None:
     ih = _get_module()
     ih._s3 = MagicMock()
-    ih._s3.get_object.return_value = {
-        "Body": MagicMock(read=MagicMock(return_value=_gzipped({}))),
-    }
 
-    event = _sqs_event({"appid": 440, "task": "bogus", "s3_key": "spoke-results/bogus/440.json.gz", "count": 1})
-    # All records failed → BatchProcessingError raised
+    # SpokeResult validates task as Literal["metadata", "reviews"],
+    # so we pass a raw JSON body to bypass model construction
+    event = {
+        "Records": [{
+            "messageId": "msg-1",
+            "body": json.dumps({"appid": 440, "task": "bogus", "success": True, "s3_key": "x", "count": 1, "spoke_region": "us-east-1"}),
+            "receiptHandle": "receipt",
+        }],
+    }
+    # model_validate_json raises ValidationError → BatchProcessingError
     with pytest.raises(BatchProcessingError):
         ih.handler(event, lambda_context)
 
@@ -101,12 +107,12 @@ def test_unknown_task_raises(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_count_zero_skips_s3_and_ingest(lambda_context: Any) -> None:
+def test_failure_skips_s3_and_ingest(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._s3 = MagicMock()
 
-    event = _sqs_event({"appid": 440, "task": "metadata", "s3_key": None, "count": 0})
+    event = _sqs_event(SpokeResult(appid=440, task="metadata", success=False, spoke_region="us-east-1", error="Steam API: rate limited"))
     ih.handler(event, lambda_context)
 
     ih._s3.get_object.assert_not_called()
@@ -114,12 +120,12 @@ def test_count_zero_skips_s3_and_ingest(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_missing_s3_key_skips_processing(lambda_context: Any) -> None:
+def test_failure_without_error_skips_processing(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._s3 = MagicMock()
 
-    event = _sqs_event({"appid": 440, "task": "reviews", "count": 5})
+    event = _sqs_event(SpokeResult(appid=440, task="reviews", success=False, spoke_region="us-east-1"))
     ih.handler(event, lambda_context)
 
     ih._s3.get_object.assert_not_called()
@@ -139,7 +145,7 @@ def test_s3_object_deleted_after_metadata_ingest(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {}}))),
     }
 
-    event = _sqs_event({"appid": 440, "task": "metadata", "s3_key": s3_key, "count": 1})
+    event = _sqs_event(SpokeResult(appid=440, task="metadata", success=True, s3_key=s3_key, count=1, spoke_region="us-east-1"))
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_called_once_with(Bucket=ih._assets_bucket_name, Key=s3_key)
@@ -156,7 +162,7 @@ def test_s3_object_deleted_after_reviews_ingest(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped([{"r": 1}, {"r": 2}]))),
     }
 
-    event = _sqs_event({"appid": 440, "task": "reviews", "s3_key": s3_key, "count": 2})
+    event = _sqs_event(SpokeResult(appid=440, task="reviews", success=True, s3_key=s3_key, count=2, spoke_region="us-east-1"))
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_called_once_with(Bucket=ih._assets_bucket_name, Key=s3_key)
@@ -173,7 +179,7 @@ def test_s3_not_deleted_on_ingest_failure(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {}}))),
     }
 
-    event = _sqs_event({"appid": 440, "task": "metadata", "s3_key": "spoke-results/metadata/440-abc.json.gz", "count": 1})
+    event = _sqs_event(SpokeResult(appid=440, task="metadata", success=True, s3_key="spoke-results/metadata/440-abc.json.gz", count=1, spoke_region="us-east-1"))
     # All records failed → BatchProcessingError raised
     with pytest.raises(BatchProcessingError):
         ih.handler(event, lambda_context)
@@ -182,11 +188,11 @@ def test_s3_not_deleted_on_ingest_failure(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_s3_not_deleted_when_count_zero(lambda_context: Any) -> None:
+def test_s3_not_deleted_when_failure(lambda_context: Any) -> None:
     ih = _get_module()
     ih._s3 = MagicMock()
 
-    event = _sqs_event({"appid": 440, "task": "metadata", "s3_key": None, "count": 0})
+    event = _sqs_event(SpokeResult(appid=440, task="metadata", success=False, spoke_region="us-east-1", error="empty details"))
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_not_called()

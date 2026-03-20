@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -30,7 +31,9 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
+    CrawlTask,
     DirectRequest,
+    SpokeRequest,
 )
 
 logger = Logger(service="crawler")
@@ -116,7 +119,7 @@ for _region in _crawler_config.spoke_region_list:
     _client = boto3.client("lambda", region_name=_region)
     _spoke_targets.append((_fn_name, _client))
 
-if not _spoke_targets:
+if not _spoke_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     raise RuntimeError(
         "SPOKE_REGIONS is empty — at least one spoke region is required. "
         "Set SPOKE_REGIONS in the environment (e.g. 'us-west-2,us-east-1')."
@@ -137,10 +140,9 @@ def _dispatch_to_spoke(record: dict) -> None:
     appid = int(body["appid"])
 
     source_arn = record.get("eventSourceARN", "")
-    if "review-crawl" in source_arn:
-        task = "reviews"
-    else:
-        task = "metadata"
+    task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
+
+    req = SpokeRequest(appid=appid, task=task)
 
     # Deterministic: same appid always hits the same spoke, spreading load
     # evenly and ensuring retries go to the same region.
@@ -152,12 +154,12 @@ def _dispatch_to_spoke(record: dict) -> None:
     # Async invoke — returns 202 immediately, spoke runs independently.
     # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
     # Spoke failures: Lambda auto-retries async invocations (2 attempts),
-    # then routes to Lambda DLQ. Spoke also notifies with count=0 on
+    # then routes to Lambda DLQ. Spoke also notifies with success=False on
     # Steam API errors so the ingest handler can log the skip.
     response = client.invoke(
         FunctionName=fn_name,
         InvocationType="Event",
-        Payload=json.dumps({"appid": appid, "task": task}),
+        Payload=req.model_dump_json().encode(),
     )
     status = response["StatusCode"]
     if status != 202:

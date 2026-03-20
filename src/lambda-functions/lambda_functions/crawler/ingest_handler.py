@@ -26,6 +26,7 @@ from aws_lambda_powertools.utilities.batch import (
 )
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
+from lambda_functions.crawler.events import SpokeResult
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -82,15 +83,18 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
 
 def _ingest_record(record: dict) -> None:
-    body = json.loads(record["body"])
-    appid = int(body["appid"])
-    task: str = body["task"]
-    s3_key: str | None = body.get("s3_key")
-    count = int(body.get("count", 0))
+    msg = SpokeResult.model_validate_json(record["body"])
 
-    if not s3_key or count == 0:
-        logger.info("Spoke reported 0 results: task=%s appid=%s", task, appid)
+    if not msg.success:
+        logger.info(
+            "Spoke reported failure: task=%s appid=%s error=%s",
+            msg.task, msg.appid, msg.error,
+        )
         return
+
+    appid = msg.appid
+    task = msg.task
+    s3_key = msg.s3_key
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
     data = json.loads(gzip.decompress(response["Body"].read()))

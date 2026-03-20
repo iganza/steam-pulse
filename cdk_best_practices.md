@@ -193,10 +193,11 @@ class BackendStack(Stack):
             ),
             security_groups=[lambda_sg],
             timeout=Duration.seconds(30),
-            environment={
-                "DB_SECRET_ARN": database.secret.secret_arn,
-                "DB_CLUSTER_ARN": database.cluster_arn,
-            }
+            # Use config.to_lambda_env() — no inline ARNs/URLs.
+            # Infrastructure values are SSM param names resolved at runtime.
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="backend",
+            ),
         )
 
         # Grant Lambda access to DB secret

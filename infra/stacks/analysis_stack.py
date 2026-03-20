@@ -11,10 +11,10 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
 import aws_cdk.aws_secretsmanager as secretsmanager
-import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
 from constructs import Construct
+from library_layer.config import SteamPulseConfig
 
 
 class AnalysisStack(cdk.Stack):
@@ -53,13 +53,7 @@ class AnalysisStack(cdk.Stack):
             resources=["*"],
         ))
 
-        # Model names are runtime config, not CDK objects — keep SSM reads
-        haiku_model = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/llm/haiku-model"
-        )
-        sonnet_model = ssm.StringParameter.value_for_string_parameter(
-            self, f"/steampulse/{stage}/llm/sonnet-model"
-        )
+        config = SteamPulseConfig.for_environment(stage)
 
         log_group = logs.LogGroup(
             self,
@@ -87,8 +81,8 @@ class AnalysisStack(cdk.Stack):
             memory_size=1024,
             environment={
                 "DB_SECRET_ARN": db_secret.secret_arn,
-                "HAIKU_MODEL": haiku_model,
-                "SONNET_MODEL": sonnet_model,
+                "LLM_MODEL__CHUNKING": config.model_for("chunking"),
+                "LLM_MODEL__SUMMARIZER": config.model_for("summarizer"),
             },
             log_group=log_group,
         )

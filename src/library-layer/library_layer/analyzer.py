@@ -1,23 +1,20 @@
-"""Two-pass LLM analysis: Haiku for chunk summarization, Sonnet for synthesis."""
+"""Two-pass LLM analysis pipeline.
+
+Pass 1 (LLM_MODEL__CHUNKING):   process 50-review chunks → extract themes and signals.
+Pass 2 (LLM_MODEL__SUMMARIZER): synthesize all chunk summaries → structured GameReport.
+
+Models are configured via the LLM_MODEL task map in .env.staging / .env.production.
+"""
 
 import json
-import os
 from datetime import UTC, datetime, timedelta
 
 import anthropic
 import instructor
 from library_layer.analyzer_models import ChunkSummary, GameReport
+from library_layer.config import SteamPulseConfig
 
-HAIKU_MODEL_DEFAULT = "anthropic.claude-3-5-haiku-20241022-v1:0"
-SONNET_MODEL_DEFAULT = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-
-
-def _haiku_model() -> str:
-    return os.getenv("HAIKU_MODEL", HAIKU_MODEL_DEFAULT)
-
-
-def _sonnet_model() -> str:
-    return os.getenv("SONNET_MODEL", SONNET_MODEL_DEFAULT)
+_config = SteamPulseConfig()
 
 
 def _get_instructor_client() -> instructor.Instructor:
@@ -164,7 +161,7 @@ def _summarize_chunk(
     chunk_index: int,
     total_chunks: int,
 ) -> ChunkSummary:
-    """Pass 1: extract raw signals from a batch of reviews using Haiku with prompt caching."""
+    """Pass 1: extract raw signals from a batch of reviews (LLM_MODEL__CHUNKING, prompt caching enabled)."""
     reviews_text = "\n\n".join(
         f"[{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
         f"{r['playtime_hours']}h played, "
@@ -180,7 +177,7 @@ def _summarize_chunk(
     date_range = f"({min(dates)} to {max(dates)})" if dates else "(dates unknown)"
 
     summary, _ = client.messages.create_with_completion(
-        model=_haiku_model(),
+        model=_config.model_for("chunking"),
         max_tokens=1024,
         response_model=ChunkSummary,
         max_retries=2,
@@ -257,12 +254,12 @@ def _synthesize(
     sentiment_trend: str,
     sentiment_trend_note: str,
 ) -> GameReport:
-    """Pass 2: synthesize all chunk signals into a final structured report using Sonnet."""
+    """Pass 2: synthesize all chunk signals into a final structured report (LLM_MODEL__SUMMARIZER)."""
     summaries_text = json.dumps([s.model_dump() for s in chunk_summaries], indent=2)
     overall_sentiment = _sentiment_label(sentiment_score)
 
     report, _ = client.messages.create_with_completion(
-        model=_sonnet_model(),
+        model=_config.model_for("summarizer"),
         max_tokens=5000,
         response_model=GameReport,
         max_retries=2,
@@ -376,8 +373,8 @@ async def analyze_reviews(
 ) -> dict:
     """
     Full two-pass LLM analysis pipeline.
-    Pass 1: extract raw signals per chunk via Haiku (cheap, parallel).
-    Pass 2: synthesize all chunk signals into a structured report via Sonnet.
+    Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING, cheap, parallel).
+    Pass 2: synthesize all chunk signals into a structured report (LLM_MODEL__SUMMARIZER).
     sentiment_score, hidden_gem_score, and sentiment_trend are computed in Python — not LLM-guessed.
     """
     import asyncio

@@ -84,7 +84,7 @@ cd frontend && npm install && npm run dev
 poetry run pytest -v
 
 # Seed script
-export APP_CRAWL_QUEUE_URL="https://sqs.us-west-2.amazonaws.com/..."
+export APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/staging/messaging/app-crawl-queue-url"
 poetry run python scripts/seed.py --limit 50   # staging
 poetry run python scripts/seed.py --dry-run --limit 5   # smoke test
 poetry run python scripts/seed.py              # production (full crawl)
@@ -233,18 +233,52 @@ CDK rules (mandatory):
 
 ## Environment Variables
 
+### SSM-backed config (`_PARAM_NAME` convention)
+
+Infrastructure resource identifiers (ARNs, URLs, bucket names) are **not** passed
+directly as env vars. Instead, CDK publishes them to SSM Parameter Store and the
+Lambda env var holds the **SSM parameter name**. Each Lambda resolves only the
+params it needs at cold start via Powertools `get_parameter()` (cached 5 min).
+
+**Naming rule:** any config field that holds an SSM parameter name ends in `_PARAM_NAME`.
+Fields without this suffix hold literal values used directly.
+
 ```
-DATABASE_URL            # PostgreSQL. Required for production (no in-memory fallback in Lambda)
+# Literal values — used directly
+ENVIRONMENT             # staging | production
+DATABASE_URL            # PostgreSQL connection string (local dev only)
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-RESEND_API_KEY          # Email
 PRO_ENABLED             # 'true' enables /api/chat (V2)
-CF_DISTRIBUTION_ID      # CloudFront distribution ID
-CF_KVS_ARN              # CloudFront KeyValueStore ARN (featured spots)
-STEP_FUNCTIONS_ARN      # Analysis pipeline state machine ARN
-HAIKU_MODEL             # Override: default claude-3-5-haiku-20241022
-SONNET_MODEL            # Override: default claude-3-5-sonnet-20241022
+LLM_MODEL__CHUNKING     # Bedrock model ID for Haiku pass
+LLM_MODEL__SUMMARIZER   # Bedrock model ID for Sonnet pass
+
+# SSM parameter names — resolved at Lambda cold start via get_parameter()
+DB_SECRET_PARAM_NAME              # → /steampulse/{env}/data/db-secret-arn
+SFN_PARAM_NAME                    # → /steampulse/{env}/compute/sfn-arn
+STEP_FUNCTIONS_PARAM_NAME         # → /steampulse/{env}/compute/sfn-arn (alias)
+APP_CRAWL_QUEUE_PARAM_NAME        # → /steampulse/{env}/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME     # → /steampulse/{env}/messaging/review-crawl-queue-url
+STEAM_API_KEY_PARAM_NAME          # → /steampulse/{env}/data/steam-api-key-secret-arn
+ASSETS_BUCKET_PARAM_NAME          # → /steampulse/{env}/data/assets-bucket-name
+GAME_EVENTS_TOPIC_PARAM_NAME      # → /steampulse/{env}/messaging/game-events-topic-arn
+CONTENT_EVENTS_TOPIC_PARAM_NAME   # → /steampulse/{env}/messaging/content-events-topic-arn
+SYSTEM_EVENTS_TOPIC_PARAM_NAME    # → /steampulse/{env}/messaging/system-events-topic-arn
+
+# Non-config overrides (set per-Lambda in CDK, not in .env)
+POWERTOOLS_SERVICE_NAME            # e.g., "crawler", "api"
+POWERTOOLS_METRICS_NAMESPACE       # "SteamPulse"
+PORT                               # 8080 for FastAPI Lambda
+RESEND_API_KEY                     # Email (Secrets Manager, not SSM)
 ```
+
+**CDK pattern:** `environment=config.to_lambda_env(POWERTOOLS_SERVICE_NAME="crawler")`
+— zero ARN overrides, zero drift. `.env.staging` / `.env.production` are the single
+source of truth.
+
+**Spoke exception:** cross-region spoke Lambdas can't resolve SSM from the primary
+region, so `_PARAM_NAME` fields hold actual values (not SSM paths) in the spoke stack.
+The spoke handler uses them directly without `get_parameter()`.
 
 ---
 

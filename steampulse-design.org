@@ -444,8 +444,8 @@ poetry run python scripts/trigger_crawl.py analyze --stale-days 30
 #+END_SRC
 
 Both subcommands support =--dry-run= (shows table of matched games, skips SNS publish)
-and =--limit N= (default 50). Requires =DATABASE_URL= and the relevant topic ARN env var
-(=GAME_EVENTS_TOPIC_ARN= or =CONTENT_EVENTS_TOPIC_ARN=).
+and =--limit N= (default 50). Requires =DATABASE_URL= and the relevant topic param name env var
+(=GAME_EVENTS_TOPIC_PARAM_NAME= or =CONTENT_EVENTS_TOPIC_PARAM_NAME=).
 
 * Data Model (PostgreSQL)
 
@@ -809,16 +809,30 @@ Placement:
 * Environment Variables
 
 #+BEGIN_SRC
+# Literal values — used directly
+ENVIRONMENT             # staging | production
 DATABASE_URL            # PostgreSQL. Required — no in-memory fallback in Lambda.
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-RESEND_API_KEY          # Email delivery
 PRO_ENABLED             # 'true' enables /api/chat (V2)
-CF_DISTRIBUTION_ID      # CloudFront distribution ID for cache invalidations
-CF_KVS_ARN              # CloudFront KeyValueStore ARN for featured spots
-STEP_FUNCTIONS_ARN      # Analysis pipeline state machine ARN
-HAIKU_MODEL             # Override default claude-3-5-haiku-20241022
-SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
+
+# SSM parameter names — resolved at Lambda cold start via get_parameter()
+# Naming rule: _PARAM_NAME suffix = holds an SSM path, not the actual value.
+DB_SECRET_PARAM_NAME              # /steampulse/{env}/data/db-secret-arn
+SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
+APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
+STEAM_API_KEY_PARAM_NAME          # /steampulse/{env}/data/steam-api-key-secret-arn
+ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/data/assets-bucket-name
+GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
+CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
+SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn
+
+# Non-config overrides (per-Lambda, not in .env)
+RESEND_API_KEY                     # Email delivery
+POWERTOOLS_SERVICE_NAME            # Per-Lambda service name
+LLM_MODEL__CHUNKING                # Bedrock model ID override
+LLM_MODEL__SUMMARIZER              # Bedrock model ID override
 #+END_SRC
 
 * Open Items

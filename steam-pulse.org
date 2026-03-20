@@ -82,12 +82,18 @@
     #+end_src
 
 *** Day 2 — Wire the waitlist + deploy
-**** TODO Wire waitlist form on /pro page (onClick → backend endpoint)
-     Add =POST /api/waitlist= endpoint. Fields: email, role (developer/analyst/publisher/other).
-     Store in a =waitlist= table (email, role, created_at). Send confirmation via Resend.
+**** TODO Run prompt: =scripts/prompts/wire-waitlist.md=
+     Implements: waitlist DB table, WaitlistRepository, POST /api/waitlist,
+     Resend confirmation email, frontend form wiring with success/error states.
+     8 files touched — see prompt for full details.
+**** TODO Set up Resend account + get API key
+     1. Sign up at resend.com (free, 3k emails/month)
+     2. Add DNS records for steampulse.io (DKIM + SPF) — Resend walks you through it
+     3. Add RESEND_API_KEY to .env.staging and .env.production
+     4. Verify sending from hello@steampulse.io works
 **** TODO Deploy to production: merge to main, CDK pipeline deploys
 **** TODO Verify steampulse.io loads, game pages render, reports display
-**** TODO Test waitlist form end-to-end on production
+**** TODO Test waitlist form end-to-end: submit email → DB row → confirmation email arrives
 
 *** Day 3 — Google indexing + analytics
 **** TODO Submit sitemap to Google Search Console (steampulse.io/sitemap.xml)
@@ -103,34 +109,51 @@
 **** TODO Generate 50 more reports (total: 100 games live)
      Focus on: recent popular releases, controversial games, hidden gems.
      Mix ensures diverse long-tail SEO keywords.
-**** TODO Write 3 "sample insight" posts for social media
-     Example: "We analyzed 188,000 TF2 reviews. Here's what players really think."
-     Include a screenshot of the report + link to the full page.
+**** TODO Write 3 Twitter/X threads — the primary signal-collection channel
+     Format: "We analyzed [N] reviews for [Game]. Here's what players actually said."
+     Include report screenshot + link. Tag the developer's account if findable.
+     Why Twitter first: devs retweet things about their own games = organic reach,
+     public replies = free user research, zero infrastructure needed.
 **** TODO Create a simple landing blurb for the home page
      "AI-powered review intelligence for every major Steam game. Free."
 
 *** Day 5 — First public promotion
+**** TODO Post Twitter/X thread for 2-3 games — lead with the most surprising insight
+     ("Players say the tutorial is the #1 reason they refund this $40 game")
+     Tag the dev. Ask one question at the end to invite replies.
 **** TODO Post to r/gamedev: "I built an AI tool that analyzes Steam reviews — here are reports for 100 games"
-**** TODO Post to r/indiegaming with a different angle (hidden gems focus)
-**** TODO Share in 2-3 indie dev Discords (HTMAG, Indie Game Devs, etc.)
-**** TODO Post on Twitter/X with game report screenshots
-**** TODO Monitor: clicks, time on page, waitlist signups, comments
+     Different angle than Twitter — focus on the "competitive research" use case for devs.
+**** TODO Post to r/indiegaming with a hidden gems angle (different audience, different framing)
+**** TODO Share in 1-2 indie dev Discords you are already a member of (HTMAG, Indie Game Devs)
+     Do NOT create a SteamPulse Discord yet — a server with 12 members signals abandonment.
+     Discord community comes after 200+ waitlist signups when users benefit from each other.
+**** TODO Monitor: clicks, time on page, waitlist signups, Twitter replies
 
-*** Day 6 — React to feedback + expand
-**** TODO Read all comments/feedback from Day 5 posts
+*** Day 6 — React + double down on what worked
+**** TODO Read all replies/comments from Day 5 — every response is a research interview
+**** TODO Reply to every comment personally (builds trust, Reddit/Twitter algorithms reward it)
 **** TODO Fix any bugs or UX issues people report
+**** TODO Post 2 more Twitter threads for games people requested or mentioned
 **** TODO Generate 100 more reports if demand signals are positive (total: 200)
-**** TODO If someone requests a specific game, analyze it and reply with the link
 
 *** Day 7 — Measure + decide
 **** TODO Check metrics: unique visitors, pages/session, waitlist signups, bounce rate
+**** TODO Check Twitter: follower count, best-performing thread, any dev retweets?
 **** TODO Document what worked and what didn't in steam-pulse.org
 **** TODO Decision point based on results:
      - 50+ waitlist signups → start building Pro features
-     - 10-50 signups → keep promoting, expand to 500 games
-     - <10 signups → rethink positioning or audience
+     - 10-50 signups → keep promoting, expand to 500 games, try Hacker News
+     - <10 signups → rethink positioning or audience targeting
+     - Devs engaging on Twitter → double down there, it's the right channel
 **** TODO If positive signal: run analyzer upgrade prompt, then scale to 500 games
 **** TODO If positive signal: post to Hacker News ("Show HN: AI-analyzed Steam reviews for 500 games")
+
+*** When to create a Discord (not yet)
+    Create a SteamPulse Discord only when:
+    - 200+ waitlist signups, OR
+    - Users are already asking each other questions you can't answer alone
+    A dead Discord with 12 members is worse than no Discord.
+    Until then: Twitter/X for async signal collection, Reddit for traffic spikes.
 
 *** Launch checklist (before Day 5)
 **** TODO [ ] steampulse.io resolves and loads
@@ -138,8 +161,54 @@
 **** TODO [ ] Waitlist form captures emails to DB
 **** TODO [ ] Sitemap submitted to Google Search Console
 **** TODO [ ] Analytics tracking live
-**** TODO [ ] Social media accounts created (@steampulse on Twitter)
+**** TODO [ ] @steampulse Twitter/X account created with bio + link to site
 **** TODO [ ] OG images render correctly when sharing links
+
+*** Marketing Copy — Notes for Later
+    Rule: never say "AI" in headlines or CTAs. Show the output, not the tech.
+    Let people experience it and draw their own conclusion.
+
+**** Homepage hero — candidates (current is "Discover Steam Games" — too generic)
+     Option A (curiosity):
+       "What do players actually think?"
+       Synthesized review intelligence for 500+ Steam games. Free.
+
+     Option B (human/relatable):
+       "Steam reviews, actually readable."
+       We read 50,000+ player reviews so you don't have to.
+
+     Option C (dev-targeted):
+       "The research tool Steam never built."
+       Deep review analysis for every major Steam game. Free.
+
+     Option D (strongest for r/gamedev):
+       "Know your competition before you ship."
+       Player sentiment, feature gaps, and refund signals — for any Steam game.
+
+     Favourite for general homepage: Option B or C.
+     Favourite for Twitter/Reddit dev audience: Option D.
+
+**** Pro page copy fixes
+     Replace outcome-free buzzword phrases:
+     - "AI-synthesized player intelligence"
+       → "Player intelligence distilled from thousands of reviews"
+     - "AI-powered review analysis"
+       → "Every review read, every pattern surfaced"
+
+**** Twitter/X bio (1 line)
+     Steam review intelligence — synthesized, readable, free. steampulse.io
+
+**** Twitter thread template (per game)
+     "We read [N] player reviews for [Game] so you don't have to.
+      Here's what players actually think:
+      🟢 Top praise: [top_praises[0]]
+      🔴 Top complaint: [top_complaints[0]]
+      💡 Most requested: [feature_requests[0]]
+      Full report → steampulse.io/games/[appid]/[slug]"
+
+**** TODO Write homepage copy update prompt (=scripts/prompts/homepage-copy.md=)
+     Changes: hero h1 + subheadline, metadata title/description, pro page copy.
+     Use Option B or C for hero. Strip "AI" from all visible copy.
 
 *** What we are NOT doing before launch
     - No Pro payment integration (waitlist only)
@@ -152,24 +221,27 @@
 ** Prompt Execution Order
    Implementation prompts in =scripts/prompts/=. Run in this order.
 
-*** Phase 1 — No data dependency (run now)
-    These can run immediately. #1 and #2 can run in parallel (different files).
+*** Phase 1 — No data dependency (run now, while metadata crawl runs)
+    These can run immediately. #1 and #2 were already done.
 
-    1. =steam-deck-compatibility.md= — Schema + crawl change (small, isolated)
-    2. =analyzer-upgrade-richer-signals.md= — Better prompts before the $2k analysis run
-    3. =prompt-eval-pipeline.md= — Score the upgraded prompts, compare before/after
+    1. =steam-deck-compatibility.md= — DONE ✓
+    2. =analyzer-upgrade-richer-signals.md= — DONE ✓
+    3. =rename-analyzer-models.md= — LLM_MODEL task map config refactor (small, fast)
+    4. =prompt-eval-pipeline.md= — Score the upgraded prompts, compare before/after
+    5. =wire-waitlist.md= — Pre-launch blocker: email capture + Resend confirmation
+    6. =crawl-spoke-stack.md= — Multi-region crawl infra (saves days on review crawl)
 
 *** Phase 2 — After metadata crawl completes
-    4. =analytics-engine-backend.md= — 11 analytics API endpoints (needs games + tags populated)
+    7. =analytics-engine-backend.md= — 11 analytics API endpoints (needs games + tags populated)
 
 *** Phase 3 — After reviews crawl completes
-    5. =full-text-search-reviews.md= — tsvector index + search API (needs review bodies in DB)
+    8. =full-text-search-reviews.md= — tsvector index + search API (needs review bodies in DB)
 
 *** Phase 4 — After backend APIs work
-    6. =analytics-engine-frontend.md= — Visualization components (consumes #4's endpoints)
+    9. =analytics-engine-frontend.md= — Visualization components (consumes #7's endpoints)
 
 *** Parked
-    7. =bedrock-batch-analysis.md= — Batch analysis at scale (run when ready to seed all 6k games)
+    10. =bedrock-batch-analysis.md= — Batch analysis at scale (run when ready to seed all 6k games)
 
 ** Testing Front-Endless
    Make a frontend change prompt → Claude Code updates tests alongside the code

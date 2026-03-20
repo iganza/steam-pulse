@@ -19,11 +19,6 @@ from typing import Literal, Self
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Cross-region inference profile IDs for Bedrock (us.*).
-# Verify against AWS Bedrock console if needed.
-_HAIKU_DEFAULT = "us.anthropic.claude-haiku-4-5-20250514-v1:0"
-_SONNET_DEFAULT = "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
-
 
 class SteamPulseConfig(BaseSettings):
     """All runtime configuration for SteamPulse Lambda functions.
@@ -34,14 +29,35 @@ class SteamPulseConfig(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
         env_file_encoding="utf-8",
+        env_nested_delimiter="__",
     )
 
     # ── Deployment ────────────────────────────────────────────────────────────
     ENVIRONMENT: Literal["staging", "production"] = "staging"
 
-    # ── LLM models ────────────────────────────────────────────────────────────
-    HAIKU_MODEL: str = _HAIKU_DEFAULT
-    SONNET_MODEL: str = _SONNET_DEFAULT
+    # ── LLM model routing (required — set LLM_MODEL__<task> in .env files) ──
+    # Known tasks: chunking, summarizer
+    # Add new tasks by adding LLM_MODEL__<newtask>=<model_id> to env files.
+    LLM_MODEL: dict[str, str]
+
+    def model_for(self, task: str) -> str:
+        """Return the configured model ID for a named LLM task.
+
+        Raises ValueError with a clear message if the task is not configured,
+        so misconfiguration fails loudly rather than silently using a wrong model.
+
+        Usage:
+            config.model_for("chunking")    # Pass 1 — review chunk extraction
+            config.model_for("summarizer")  # Pass 2 — final report synthesis
+        """
+        if task not in self.LLM_MODEL:
+            configured = list(self.LLM_MODEL.keys())
+            raise ValueError(
+                f"No model configured for task '{task}'. "
+                f"Add LLM_MODEL__{task.upper()}=<model_id> to your .env file. "
+                f"Currently configured tasks: {configured}"
+            )
+        return self.LLM_MODEL[task]
 
     # ── Feature flags ─────────────────────────────────────────────────────────
     PRO_ENABLED: bool = False

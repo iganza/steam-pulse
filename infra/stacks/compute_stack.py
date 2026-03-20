@@ -25,7 +25,6 @@ import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
 from constructs import Construct
-
 from library_layer.config import SteamPulseConfig
 
 _PLACEHOLDER_HANDLER = (
@@ -116,8 +115,8 @@ class ComputeStack(cdk.Stack):
             environment={
                 "ENVIRONMENT": env,
                 "DB_SECRET_ARN": db_secret.secret_arn,
-                "HAIKU_MODEL": config.HAIKU_MODEL,
-                "SONNET_MODEL": config.SONNET_MODEL,
+                "LLM_MODEL__CHUNKING": config.model_for("chunking"),
+                "LLM_MODEL__SUMMARIZER": config.model_for("summarizer"),
                 "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
             },
         )
@@ -318,8 +317,8 @@ class ComputeStack(cdk.Stack):
                 "DB_SECRET_ARN": db_secret.secret_arn,
                 "SFN_ARN": state_machine.state_machine_arn,
                 "STEAM_API_KEY_SECRET_ARN": steam_secret.secret_arn,
-                "HAIKU_MODEL": config.HAIKU_MODEL,
-                "SONNET_MODEL": config.SONNET_MODEL,
+                "LLM_MODEL__CHUNKING": config.model_for("chunking"),
+                "LLM_MODEL__SUMMARIZER": config.model_for("summarizer"),
                 "GAME_EVENTS_TOPIC_ARN": game_events_topic.topic_arn,
                 "CONTENT_EVENTS_TOPIC_ARN": content_events_topic.topic_arn,
                 "SYSTEM_EVENTS_TOPIC_ARN": system_events_topic.topic_arn,

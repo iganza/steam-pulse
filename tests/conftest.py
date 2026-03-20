@@ -65,6 +65,8 @@ _TEST_ENV_DEFAULTS = {
     "STEAM_API_KEY_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:steam-key",
     "ASSETS_BUCKET_NAME": "steampulse-assets-test",
     "STEP_FUNCTIONS_ARN": "arn:aws:states:us-east-1:123456789012:stateMachine:crawl",
+    "LLM_MODEL__CHUNKING": "us.anthropic.claude-haiku-test-v1:0",
+    "LLM_MODEL__SUMMARIZER": "us.anthropic.claude-sonnet-test-v1:0",
 }
 for _k, _v in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_k, _v)

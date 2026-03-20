@@ -23,14 +23,19 @@ _steam = DirectSteamSource(_http_client)
 # Config + SSM resolution at cold start.
 # On Lambda: SteamPulseConfig reads env vars set by CDK via to_lambda_env().
 # Locally: falls back to DATABASE_URL and inline analysis (no SSM).
-try:
+_is_lambda = bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
+if _is_lambda:
+    # Running inside Lambda — no try/except.  Any config or SSM failure must
+    # crash the cold start immediately; silent fallback would hide misconfigured
+    # SSM parameters or missing IAM permissions and allow the API to run inline
+    # analysis instead of Step Functions.
     _api_config = SteamPulseConfig()
     _pro_enabled = _api_config.PRO_ENABLED
-    # Resolve Step Functions ARN from SSM (Lambda only)
     from aws_lambda_powertools.utilities.parameters import get_parameter
     _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
-except Exception:
-    # Local dev — no SSM, no full config
+else:
+    # Local dev — no SSM, no full config.
     _api_config = None  # type: ignore[assignment]
     _pro_enabled = os.getenv("PRO_ENABLED", "false").lower() == "true"
     _sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")

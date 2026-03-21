@@ -8,7 +8,9 @@ No DB access. Connects to public internet (Steam) and cross-region S3/SQS.
 import aws_cdk as cdk
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
+import aws_cdk.aws_lambda_destinations as destinations
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
 from constructs import Construct
@@ -81,11 +83,19 @@ class CrawlSpokeStack(cdk.Stack):
             resources=[steam_api_key_secret_arn],
         ))
 
+        # DLQ for async invoke failures — catches events after Lambda's 2 auto-retries
+        # so lost work is recoverable without replaying from the primary SQS queue.
+        spoke_dlq = sqs.Queue(
+            self, "SpokeCrawlerDlq",
+            retention_period=cdk.Duration.days(14),
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+
         # Deterministic function name — primary handler constructs ARN from
         # config.spoke_region_list + this naming convention for cross-region invoke.
         fn_name = f"steampulse-{environment}-spoke-crawler-{spoke_region}"
 
-        PythonFunction(
+        spoke_fn = PythonFunction(
             self, "SpokeCrawlerFn",
             function_name=fn_name,
             entry="src/lambda-functions",
@@ -112,6 +122,11 @@ class CrawlSpokeStack(cdk.Stack):
                 POWERTOOLS_SERVICE_NAME=f"crawler-spoke-{spoke_region}",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),
+        )
+
+        spoke_fn.configure_async_invoke(
+            on_failure=destinations.SqsDestination(spoke_dlq),
+            retry_attempts=2,
         )
 
         ssm.StringParameter(

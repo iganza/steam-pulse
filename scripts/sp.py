@@ -491,7 +491,7 @@ def _resolve_queue_url(param_name: str) -> str:
 
 
 def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
-    """Send messages to SQS in batches of 10. Returns count sent."""
+    """Send messages to SQS in batches of 10. Returns count successfully sent."""
     import boto3
     sqs = boto3.client("sqs")
     sent = 0
@@ -501,7 +501,12 @@ def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
             {"Id": str(j), "MessageBody": json.dumps(msg)}
             for j, msg in enumerate(batch)
         ]
-        sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        resp = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        failed = resp.get("Failed", [])
+        if failed:
+            for f in failed:
+                _warn(f"SQS send failed for Id={f['Id']}: [{f['Code']}] {f['Message']}")
+            raise RuntimeError(f"{len(failed)} message(s) failed to enqueue in this batch")
         sent += len(batch)
     return sent
 

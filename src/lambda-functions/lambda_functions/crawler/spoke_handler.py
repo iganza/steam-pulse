@@ -20,11 +20,13 @@ import uuid
 import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit, single_metric
+from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from lambda_functions.crawler.events import CrawlTask, SpokeRequest, SpokeResponse, SpokeResult
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
+
+from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler-spoke")
 tracer = Tracer(service="crawler-spoke")
@@ -41,23 +43,7 @@ _steam_api_key: str = _sm.get_secret_value(
     SecretId=_config.STEAM_API_KEY_SECRET_NAME
 )["SecretString"]
 
-def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
-    env = _config.ENVIRONMENT
-    with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-        m.add_dimension(name="environment", value=env)
-        m.add_dimension(name="region", value=region)
-        m.add_dimension(name="endpoint", value=endpoint)
-        m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
-        if status_code in (429, 503):
-            m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
-    if status_code >= 400:
-        with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-            m.add_dimension(name="environment", value=env)
-            m.add_dimension(name="region", value=region)
-            m.add_dimension(name="endpoint", value=endpoint)
-            m.add_dimension(name="status_code", value=str(status_code))
-
-
+_steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT)
 _http = httpx.AsyncClient(timeout=90.0)
 _steam = DirectSteamSource(_http, api_key=_steam_api_key, on_request=_steam_metrics_callback)
 _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)

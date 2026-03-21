@@ -15,7 +15,7 @@ import json
 import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit, single_metric
+from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
     EventType,
@@ -35,6 +35,7 @@ from .events import (
     DirectRequest,
     SpokeRequest,
 )
+from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler")
 tracer = Tracer(service="crawler")
@@ -58,29 +59,13 @@ from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 
 
-def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
-    env = _crawler_config.ENVIRONMENT
-    with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-        m.add_dimension(name="environment", value=env)
-        m.add_dimension(name="region", value=region)
-        m.add_dimension(name="endpoint", value=endpoint)
-        m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
-        if status_code in (429, 503):
-            m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
-    if status_code >= 400:
-        with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-            m.add_dimension(name="environment", value=env)
-            m.add_dimension(name="region", value=region)
-            m.add_dimension(name="endpoint", value=endpoint)
-            m.add_dimension(name="status_code", value=str(status_code))
-
-
 _conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _crawler_config = SteamPulseConfig()
 metrics.set_default_dimensions(environment=_crawler_config.ENVIRONMENT)
+_steam_metrics_callback = make_steam_metrics_callback(_crawler_config.ENVIRONMENT)
 
 # Resolve SSM parameter names → actual values at cold start
 _sfn_arn = get_parameter(_crawler_config.SFN_PARAM_NAME)
@@ -177,8 +162,8 @@ def _dispatch_to_spoke(record: dict) -> None:
     # Async invoke — returns 202 immediately, spoke runs independently.
     # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
     # Spoke failures: Lambda auto-retries async invocations (2 attempts),
-    # then routes to Lambda DLQ. Spoke also notifies with success=False on
-    # Steam API errors so the ingest handler can log the skip.
+    # then routes to the spoke's DLQ (SpokeCrawlerDlq in CrawlSpokeStack).
+    # Spoke also sends success=False on Steam API errors so ingest_handler logs the skip.
     response = client.invoke(
         FunctionName=fn_name,
         InvocationType="Event",

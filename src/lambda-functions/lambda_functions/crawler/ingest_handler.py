@@ -18,7 +18,7 @@ import json
 import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit, single_metric
+from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
     EventType,
@@ -36,22 +36,7 @@ from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 from library_layer.utils.db import get_conn
 
-
-def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
-    env = _config.ENVIRONMENT
-    with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-        m.add_dimension(name="environment", value=env)
-        m.add_dimension(name="region", value=region)
-        m.add_dimension(name="endpoint", value=endpoint)
-        m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
-        if status_code in (429, 503):
-            m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
-    if status_code >= 400:
-        with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
-            m.add_dimension(name="environment", value=env)
-            m.add_dimension(name="region", value=region)
-            m.add_dimension(name="endpoint", value=endpoint)
-            m.add_dimension(name="status_code", value=str(status_code))
+from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 
 logger = Logger(service="spoke-ingest")
@@ -66,6 +51,7 @@ _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _config = SteamPulseConfig()
 metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
+_steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT)
 
 # Resolve SSM params — ingest runs in primary region, SSM works normally
 _review_queue_url = get_parameter(_config.REVIEW_CRAWL_QUEUE_PARAM_NAME)

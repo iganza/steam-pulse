@@ -10,6 +10,7 @@ import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
+import pytest
 
 # Expose library_layer for config import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "library-layer"))
@@ -20,8 +21,11 @@ from library_layer.config import SteamPulseConfig
 from stacks.compute_stack import ComputeStack
 
 
-def _synth_compute_stack() -> assertions.Template:
-    app = cdk.App()
+@pytest.fixture
+def template() -> assertions.Template:
+    # Skip Docker bundling (PythonFunction pip install) — resource properties
+    # are still fully synthesized, only the asset Code is a placeholder.
+    app = cdk.App(context={"aws:cdk:bundling-stacks": []})
     stack = cdk.Stack(app, "DepsStack")
 
     vpc = ec2.Vpc(stack, "Vpc")
@@ -66,27 +70,21 @@ def _synth_compute_stack() -> assertions.Template:
     return assertions.Template.from_stack(compute)
 
 
-# ── Test 47: Lambda IAM policies include sns:Publish ─────────────────────────
+def test_compute_stack_grants_sns_publish(template: assertions.Template) -> None:
+    """Lambda roles have sns:Publish permission on SNS topics."""
+    policies = template.find_resources("AWS::IAM::Policy")
+    sns_publish_found = False
 
-# TODO:  this test takes forever, investigate
-#def test_compute_stack_grants_sns_publish() -> None:
-#    """Lambda roles have sns:Publish permission on SNS topics (test 47)."""
-#    template = _synth_compute_stack()
-#
-#    # Find IAM policies that grant sns:Publish
-#    policies = template.find_resources("AWS::IAM::Policy")
-#    sns_publish_found = False
-#
-#    for _logical_id, resource in policies.items():
-#        statements = resource.get("Properties", {}).get("PolicyDocument", {}).get("Statement", [])
-#        for stmt in statements:
-#            actions = stmt.get("Action", [])
-#            if isinstance(actions, str):
-#                actions = [actions]
-#            if "sns:Publish" in actions:
-#                sns_publish_found = True
-#                break
-#        if sns_publish_found:
-#            break
-#
-#    assert sns_publish_found, "No IAM policy grants sns:Publish"
+    for _logical_id, resource in policies.items():
+        statements = resource.get("Properties", {}).get("PolicyDocument", {}).get("Statement", [])
+        for stmt in statements:
+            actions = stmt.get("Action", [])
+            if isinstance(actions, str):
+                actions = [actions]
+            if "sns:Publish" in actions:
+                sns_publish_found = True
+                break
+        if sns_publish_found:
+            break
+
+    assert sns_publish_found, "No IAM policy grants sns:Publish"

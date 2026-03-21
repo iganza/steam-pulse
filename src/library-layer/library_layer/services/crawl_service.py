@@ -422,7 +422,7 @@ class CrawlService:
         self._tag_repo.upsert_genres(appid, genres)
         self._tag_repo.upsert_categories(appid, categories)
 
-        review_status = "pending" if total_reviews >= 500 else "ineligible"
+        review_status = "pending" if total_reviews >= self._config.REVIEW_ELIGIBILITY_THRESHOLD else "ineligible"
         self._catalog_repo.set_meta_status(
             appid,
             "done",

@@ -30,7 +30,9 @@ _TEST_CONFIG = SteamPulseConfig(
 
 @pytest.fixture
 def template() -> Template:
-    app = cdk.App()
+    # Skip Docker bundling (PythonFunction pip install) — resource properties
+    # are still fully synthesized, only the asset Code is a placeholder.
+    app = cdk.App(context={"aws:cdk:bundling-stacks": []})
     stack = CrawlSpokeStack(
         app, "TestSpoke",
         config=_TEST_CONFIG,
@@ -44,32 +46,32 @@ def template() -> Template:
     return Template.from_stack(stack)
 
 
-# TODO:  this test takes forever, investigate
-#def test_one_lambda(template: Template) -> None:
-#    template.resource_count_is("AWS::Lambda::Function", 1)
+def test_two_lambda_functions(template: Template) -> None:
+    """Spoke creates one crawler Lambda + one layer bundling Lambda resource."""
+    template.resource_count_is("AWS::Lambda::Function", 1)
 
 
-#def test_reserved_concurrency_three(template: Template) -> None:
-#    template.has_resource_properties("AWS::Lambda::Function", {
-#        "ReservedConcurrentExecutions": 3,
-#    })
+def test_reserved_concurrency_three(template: Template) -> None:
+    template.has_resource_properties("AWS::Lambda::Function", {
+        "ReservedConcurrentExecutions": 3,
+    })
 
 
-#def test_deterministic_function_name(template: Template) -> None:
-#    """Spoke Lambda has a deterministic name for cross-region invocation."""
-#    template.has_resource_properties("AWS::Lambda::Function", {
-#        "FunctionName": "steampulse-staging-spoke-crawler-us-east-1",
-#    })
-#
-#
-#def test_no_vpc(template: Template) -> None:
-#    template.resource_count_is("AWS::EC2::VPC", 0)
-#
-#
-#def test_no_event_source_mappings(template: Template) -> None:
-#    """No SQS event sources — spoke is invoked directly by primary handler."""
-#    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
-#
-#
-#def test_ssm_status_param(template: Template) -> None:
-#    template.resource_count_is("AWS::SSM::Parameter", 1)
+def test_deterministic_function_name(template: Template) -> None:
+    """Spoke Lambda has a deterministic name for cross-region invocation."""
+    template.has_resource_properties("AWS::Lambda::Function", {
+        "FunctionName": "steampulse-staging-spoke-crawler-us-east-1",
+    })
+
+
+def test_no_vpc(template: Template) -> None:
+    template.resource_count_is("AWS::EC2::VPC", 0)
+
+
+def test_no_event_source_mappings(template: Template) -> None:
+    """No SQS event sources — spoke is invoked directly by primary handler."""
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
+
+
+def test_ssm_status_param(template: Template) -> None:
+    template.resource_count_is("AWS::SSM::Parameter", 1)

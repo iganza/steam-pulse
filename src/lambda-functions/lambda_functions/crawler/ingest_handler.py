@@ -112,8 +112,7 @@ def _ingest_record(record: dict) -> None:
     s3_key = msg.s3_key
 
     if not s3_key:
-        logger.warning("success=True but s3_key missing: task=%s appid=%s", task, appid)
-        return
+        raise ValueError(f"success=True but s3_key missing: task={task} appid={appid}")
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
     data = json.loads(gzip.decompress(response["Body"].read()))

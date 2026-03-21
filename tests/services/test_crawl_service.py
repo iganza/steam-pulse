@@ -449,23 +449,23 @@ async def test_crawl_app_eligibility_uses_english_count(
     steam_appdetails_440: dict,
     httpx_mock: HTTPXMock,
 ) -> None:
-    """review_status should be 'ineligible' when English count < 500, even if all-lang > 500."""
+    """review_status should be 'ineligible' when English count < threshold, even if all-lang exceeds it."""
     import boto3
     import httpx as _httpx
 
-    # English: 300 reviews (below 500 threshold)
+    # English: 30 reviews (below default REVIEW_ELIGIBILITY_THRESHOLD=50)
     english_summary = {
         "success": 1,
         "query_summary": {
-            "total_positive": 250,
-            "total_negative": 50,
-            "total_reviews": 300,
-            "review_score": 7,
-            "review_score_desc": "Positive",
+            "total_positive": 20,
+            "total_negative": 10,
+            "total_reviews": 30,
+            "review_score": 5,
+            "review_score_desc": "Mixed",
         },
         "reviews": [],
     }
-    # All languages: 800 reviews (above 500 threshold)
+    # All languages: 800 reviews (above threshold)
     all_summary = {
         "success": 1,
         "query_summary": {
@@ -510,8 +510,8 @@ async def test_crawl_app_eligibility_uses_english_count(
     game = game_repo.find_by_appid(440)
     assert game is not None
     assert game.review_count == 800  # all-lang stored for display
-    assert game.review_count_english == 300  # English stored separately
-    # Catalog status should be ineligible since English < 500
+    assert game.review_count_english == 30  # English stored separately
+    # Catalog status should be ineligible since English count < REVIEW_ELIGIBILITY_THRESHOLD
     entry = catalog_repo.find_by_appid(440)
     assert entry is not None
     assert entry.review_status == "ineligible"

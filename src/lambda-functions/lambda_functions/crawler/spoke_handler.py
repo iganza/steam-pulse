@@ -115,7 +115,7 @@ async def _process_reviews(appid: int) -> int:
 def _write_s3(key: str, data: dict | list) -> str:
     payload = gzip.compress(json.dumps(data).encode())
     _s3.put_object(
-        Bucket=_config.ASSETS_BUCKET_PARAM_NAME,
+        Bucket=_config.ASSETS_BUCKET_NAME,
         Key=key,
         Body=payload,
         ContentEncoding="gzip",
@@ -124,7 +124,7 @@ def _write_s3(key: str, data: dict | list) -> str:
     logger.info(
         "Wrote %d bytes to s3://%s/%s",
         len(payload),
-        _config.ASSETS_BUCKET_PARAM_NAME,
+        _config.ASSETS_BUCKET_NAME,
         key,
     )
     return key

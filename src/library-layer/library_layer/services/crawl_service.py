@@ -51,7 +51,14 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
     result = []
     for r in raw_reviews:
         ts = r.get("timestamp_created")
-        steam_id = f"{ts}_{appid}"
+        # Prefer Steam's unique recommendationid; fall back to author+timestamp
+        # for legacy data that pre-dates the field being passed through.
+        rec_id = r.get("recommendationid")
+        if rec_id:
+            steam_id = str(rec_id)
+        else:
+            author = r.get("author_steamid", "")
+            steam_id = f"{author}_{ts}_{appid}"
         posted_at: datetime | None = None
         if ts:
             try:

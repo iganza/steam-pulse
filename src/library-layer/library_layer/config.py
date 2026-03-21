@@ -73,6 +73,9 @@ class SteamPulseConfig(BaseSettings):
     REVIEW_CRAWL_QUEUE_PARAM_NAME: str
     ASSETS_BUCKET_PARAM_NAME: str
 
+    # ── Spoke overrides (actual values, not SSM paths — cross-region can't resolve SSM) ─
+    ASSETS_BUCKET_NAME: str = ""
+
     # ── SNS topic SSM parameter names ──────────────────────────────────────────
     GAME_EVENTS_TOPIC_PARAM_NAME: str
     CONTENT_EVENTS_TOPIC_PARAM_NAME: str

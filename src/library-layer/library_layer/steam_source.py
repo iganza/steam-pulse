@@ -161,6 +161,7 @@ class DirectSteamSource(SteamDataSource):
 
             for r in batch:
                 reviews.append({
+                    "recommendationid": r.get("recommendationid", ""),
                     "review_text": r.get("review", ""),
                     "voted_up": r.get("voted_up", False),
                     "playtime_at_review": r.get("author", {}).get("playtime_at_review", 0),

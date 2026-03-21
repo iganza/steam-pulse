@@ -38,7 +38,9 @@ from library_layer.utils.db import get_conn
 
 
 def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    env = _config.ENVIRONMENT
     with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+        m.add_dimension(name="environment", value=env)
         m.add_dimension(name="region", value=region)
         m.add_dimension(name="endpoint", value=endpoint)
         m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
@@ -46,6 +48,7 @@ def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latenc
             m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
     if status_code >= 400:
         with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+            m.add_dimension(name="environment", value=env)
             m.add_dimension(name="region", value=region)
             m.add_dimension(name="endpoint", value=endpoint)
             m.add_dimension(name="status_code", value=str(status_code))
@@ -62,6 +65,7 @@ _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _config = SteamPulseConfig()
+metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
 
 # Resolve SSM params — ingest runs in primary region, SSM works normally
 _review_queue_url = get_parameter(_config.REVIEW_CRAWL_QUEUE_PARAM_NAME)

@@ -31,6 +31,7 @@ tracer = Tracer(service="crawler-spoke")
 metrics = Metrics(namespace="SteamPulse", service="crawler-spoke")
 
 _config = SteamPulseConfig()
+metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
 _PRIMARY_REGION = os.environ["PRIMARY_REGION"]
 _SPOKE_RESULTS_QUEUE_URL = os.environ["SPOKE_RESULTS_QUEUE_URL"]
 
@@ -41,7 +42,9 @@ _steam_api_key: str = _sm.get_secret_value(
 )["SecretString"]
 
 def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    env = _config.ENVIRONMENT
     with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+        m.add_dimension(name="environment", value=env)
         m.add_dimension(name="region", value=region)
         m.add_dimension(name="endpoint", value=endpoint)
         m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
@@ -49,6 +52,7 @@ def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latenc
             m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
     if status_code >= 400:
         with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+            m.add_dimension(name="environment", value=env)
             m.add_dimension(name="region", value=region)
             m.add_dimension(name="endpoint", value=endpoint)
             m.add_dimension(name="status_code", value=str(status_code))

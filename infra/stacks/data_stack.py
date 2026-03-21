@@ -1,13 +1,18 @@
-"""DataStack — RDS (Aurora Serverless v2 for staging, t3.micro for production).
+"""DataStack — RDS + S3 assets bucket.
 
 Receives vpc and intra_sg from NetworkStack as CDK objects.
 termination_protection=True in production — never deleted by CDK.
+
+Assets bucket lives here (not DeliveryStack) so ComputeStack can grant
+Lambda roles S3 access without creating a circular dependency.
 """
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_rds as rds
+import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
 
@@ -87,3 +92,23 @@ class DataStack(cdk.Stack):
             db_secret = db_cluster.secret  # type: ignore[assignment]
 
         self.db_secret: secretsmanager.ISecret = db_secret
+
+        # ── S3 Assets Bucket ──────────────────────────────────────────────────
+        # RETAIN — never deleted by CDK. Used by crawlers (archive) and frontend (static assets).
+        # Deterministic name — spokes in other regions reference by name because
+        # CDK tokens can't resolve cross-region.
+        self.assets_bucket = s3.Bucket(
+            self, "AssetsBucket",
+            bucket_name=f"steampulse-{env}-assets",
+            versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        ssm.StringParameter(
+            self, "AssetsBucketNameParam",
+            parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
+            string_value=self.assets_bucket.bucket_name,
+        )

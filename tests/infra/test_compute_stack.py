@@ -6,9 +6,11 @@ import sys
 import aws_cdk as cdk
 import aws_cdk.assertions as assertions
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
+import pytest
 
 # Expose library_layer for config import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "library-layer"))
@@ -19,8 +21,11 @@ from library_layer.config import SteamPulseConfig
 from stacks.compute_stack import ComputeStack
 
 
-def _synth_compute_stack() -> assertions.Template:
-    app = cdk.App()
+@pytest.fixture
+def template() -> assertions.Template:
+    # Skip Docker bundling (PythonFunction pip install) — resource properties
+    # are still fully synthesized, only the asset Code is a placeholder.
+    app = cdk.App(context={"aws:cdk:bundling-stacks": []})
     stack = cdk.Stack(app, "DepsStack")
 
     vpc = ec2.Vpc(stack, "Vpc")
@@ -31,6 +36,8 @@ def _synth_compute_stack() -> assertions.Template:
     game_events_topic = sns.Topic(stack, "GameEvents")
     content_events_topic = sns.Topic(stack, "ContentEvents")
     system_events_topic = sns.Topic(stack, "SystemEvents")
+    assets_bucket = s3.Bucket(stack, "AssetsBucket")
+    spoke_results_queue = sqs.Queue(stack, "SpokeResultsQueue")
 
     config = SteamPulseConfig(
         ENVIRONMENT="staging",
@@ -40,7 +47,7 @@ def _synth_compute_stack() -> assertions.Template:
         STEP_FUNCTIONS_PARAM_NAME="/steampulse/test/compute/sfn-arn",
         APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/app-crawl-queue-url",
         REVIEW_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/review-crawl-queue-url",
-        ASSETS_BUCKET_PARAM_NAME="/steampulse/test/app/assets-bucket-name",
+        ASSETS_BUCKET_PARAM_NAME="/steampulse/test/data/assets-bucket-name",
         GAME_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/game-events-topic-arn",
         CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
@@ -57,18 +64,14 @@ def _synth_compute_stack() -> assertions.Template:
         game_events_topic=game_events_topic,
         content_events_topic=content_events_topic,
         system_events_topic=system_events_topic,
+        assets_bucket=assets_bucket,
+        spoke_results_queue=spoke_results_queue,
     )
     return assertions.Template.from_stack(compute)
 
 
-# ── Test 47: Lambda IAM policies include sns:Publish ─────────────────────────
-
-
-def test_compute_stack_grants_sns_publish() -> None:
-    """Lambda roles have sns:Publish permission on SNS topics (test 47)."""
-    template = _synth_compute_stack()
-
-    # Find IAM policies that grant sns:Publish
+def test_compute_stack_grants_sns_publish(template: assertions.Template) -> None:
+    """Lambda roles have sns:Publish permission on SNS topics."""
     policies = template.find_resources("AWS::IAM::Policy")
     sns_publish_found = False
 

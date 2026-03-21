@@ -1,4 +1,4 @@
-"""End-to-end handler tests for the crawler Lambda.
+"""End-to-end handler tests for the crawler Lambda (control plane + dispatcher).
 
 These tests inject mock CrawlService + CatalogService directly into the
 handler's module-level cache, then fire events and assert on service calls.
@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import boto3
+from lambda_functions.crawler.events import SpokeRequest
 from moto import mock_aws
 
 # ── SSM seed — required before handler import (module-level get_parameter) ───
@@ -20,6 +21,7 @@ _SSM_PARAMS = {
     "/steampulse/test/messaging/game-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:game-events",
     "/steampulse/test/messaging/content-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:content-events",
     "/steampulse/test/messaging/system-events-topic-arn": "arn:aws:sns:us-east-1:123456789012:system-events",
+    "/steampulse/test/data/assets-bucket-name": "test-assets-bucket",
 }
 
 
@@ -67,69 +69,11 @@ def _inject_services(mock_crawl: MagicMock, mock_catalog: MagicMock) -> None:
     hm._catalog_service = mock_catalog
 
 
-def _sqs_app_crawl_event(appids: list[int]) -> dict:
-    return {
-        "Records": [
-            {
-                "messageId": f"msg-{appid}",
-                "body": json.dumps({"appid": appid}),
-                "receiptHandle": "r",
-                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:app-crawl-queue",
-            }
-            for appid in appids
-        ]
-    }
-
-
-def _sqs_review_crawl_event(appids: list[int]) -> dict:
-    return {
-        "Records": [
-            {
-                "messageId": f"msg-r-{appid}",
-                "body": json.dumps({"appid": appid}),
-                "receiptHandle": "r",
-                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:review-crawl-queue",
-            }
-            for appid in appids
-        ]
-    }
-
-
 def _eventbridge_event() -> dict:
     return {"source": "aws.events", "detail-type": "Scheduled Event"}
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
-
-
-@mock_aws
-def test_handler_sqs_app_crawl(lambda_context: Any) -> None:
-    """SQS app-crawl event → CrawlService.crawl_app called with correct appid."""
-    mock_crawl = _make_crawl_service(crawl_app_result=True)
-    mock_catalog = _make_catalog_service()
-    _inject_services(mock_crawl, mock_catalog)
-
-    from lambda_functions.crawler.handler import handler
-
-    result = handler(_sqs_app_crawl_event([440]), lambda_context)
-
-    assert result["batchItemFailures"] == []
-    mock_crawl.crawl_app.assert_called_once_with(440)
-
-
-@mock_aws
-def test_handler_sqs_review_crawl(lambda_context: Any) -> None:
-    """SQS review-crawl event → CrawlService.crawl_reviews called with correct appid."""
-    mock_crawl = _make_crawl_service(reviews_upserted=4)
-    mock_catalog = _make_catalog_service()
-    _inject_services(mock_crawl, mock_catalog)
-
-    from lambda_functions.crawler.handler import handler
-
-    result = handler(_sqs_review_crawl_event([440]), lambda_context)
-
-    assert result["batchItemFailures"] == []
-    mock_crawl.crawl_reviews.assert_called_once_with(440)
 
 
 @mock_aws
@@ -165,88 +109,103 @@ def test_handler_direct_crawl_apps(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_handler_batch_processes_multiple(lambda_context: Any) -> None:
-    """SQS batch of 3 appids → crawl_app called 3 times, all succeed."""
-    mock_crawl = _make_crawl_service(crawl_app_result=True)
+def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
+    """SQS app-crawl event → dispatches to a spoke Lambda."""
+    mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
 
+    import lambda_functions.crawler.handler as hm
+
+    # Inject mock spoke targets so dispatch has targets
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
     from lambda_functions.crawler.handler import handler
 
-    result = handler(_sqs_app_crawl_event([440, 441, 442]), lambda_context)
+    event = {
+        "Records": [{
+            "messageId": "m1",
+            "body": json.dumps({"appid": 440}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+        }],
+    }
+    handler(event, lambda_context)
 
-    assert result["batchItemFailures"] == []
-    assert mock_crawl.crawl_app.call_count == 3
-    called_appids = [call.args[0] for call in mock_crawl.crawl_app.call_args_list]
-    assert set(called_appids) == {440, 441, 442}
-
-
-# ── SNS Envelope Unwrapping Tests (23-26) ─────────────────────────────────────
-
-
-def test_extract_payload_plain_sqs() -> None:
-    """Plain SQS body passes through unchanged (test 23)."""
-    from lambda_functions.crawler.handler import _extract_payload
-
-    payload = _extract_payload('{"appid": 440, "event_type": "game-discovered"}')
-    assert payload["appid"] == 440
-    assert payload["event_type"] == "game-discovered"
-
-
-def test_extract_payload_sns_wrapped() -> None:
-    """SNS envelope unwraps correctly (test 24)."""
-    from lambda_functions.crawler.handler import _extract_payload
-
-    sns_envelope = json.dumps(
-        {
-            "Type": "Notification",
-            "Message": json.dumps({"appid": 440}),
-            "MessageAttributes": {"event_type": {"Type": "String", "Value": "game-discovered"}},
-        }
-    )
-    payload = _extract_payload(sns_envelope)
-    assert payload["appid"] == 440
-
-
-def test_extract_payload_handles_string_attributes() -> None:
-    """MessageAttributes present but ignored in payload (test 25)."""
-    from lambda_functions.crawler.handler import _extract_payload
-
-    sns_envelope = json.dumps(
-        {
-            "Type": "Notification",
-            "Message": json.dumps({"appid": 440}),
-            "MessageAttributes": {"event_type": {"Type": "String", "Value": "game-discovered"}},
-            "TopicArn": "arn:aws:sns:us-west-2:000:game-events",
-        }
-    )
-    payload = _extract_payload(sns_envelope)
-    # Only the inner Message content is returned
-    assert payload == {"appid": 440}
-    assert "MessageAttributes" not in payload
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert call_kwargs["InvocationType"] == "Event"
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 440
+    assert payload.task == "metadata"
 
 
 @mock_aws
-def test_handler_sqs_metadata_enrichment_queue(lambda_context: Any) -> None:
-    """Handler routes metadata-enrichment queue ARN to app crawl (test 26)."""
-    mock_crawl = _make_crawl_service(crawl_app_result=True)
+def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
+    """SQS review-crawl event → dispatches to spoke with task=reviews."""
+    mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
 
-    event = {
-        "Records": [
-            {
-                "messageId": "msg-440",
-                "body": json.dumps({"appid": 440}),
-                "receiptHandle": "r",
-                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:metadata-enrichment-queue",
-            }
-        ]
-    }
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
 
     from lambda_functions.crawler.handler import handler
 
-    result = handler(event, lambda_context)
+    event = {
+        "Records": [{
+            "messageId": "m2",
+            "body": json.dumps({"appid": 730}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
 
-    assert result["batchItemFailures"] == []
-    mock_crawl.crawl_app.assert_called_once_with(440)
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert call_kwargs["InvocationType"] == "Event"
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 730
+    assert payload.task == "reviews"
+
+
+@mock_aws
+def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
+    """SQS record with SNS envelope → _extract_payload unwraps, dispatch succeeds."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    sns_envelope = {
+        "Type": "Notification",
+        "MessageId": "abc-123",
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:game-events",
+        "Message": json.dumps({"appid": 570}),
+        "Timestamp": "2026-03-20T00:00:00.000Z",
+    }
+    event = {
+        "Records": [{
+            "messageId": "m3",
+            "body": json.dumps(sns_envelope),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 570
+    assert payload.task == "metadata"

@@ -59,11 +59,18 @@ class MessagingStack(cdk.Stack):
             "CacheInvalidationDlq",
             retention_period=cdk.Duration.days(14),
         )
+        self.spoke_results_dlq = sqs.Queue(
+            self,
+            "SpokeResultsDlq",
+            retention_period=cdk.Duration.days(14),
+        )
 
-        # Renamed from AppCrawlQueue → MetadataEnrichmentQueue
+        # Deterministic names — spokes in other regions construct ARN/URL
+        # strings from these names (CDK tokens can't cross regions).
         self.app_crawl_queue = sqs.Queue(
             self,
             "MetadataEnrichmentQueue",
+            queue_name=f"steampulse-{env}-app-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
@@ -73,6 +80,7 @@ class MessagingStack(cdk.Stack):
         self.review_crawl_queue = sqs.Queue(
             self,
             "ReviewCrawlQueue",
+            queue_name=f"steampulse-{env}-review-crawl",
             visibility_timeout=cdk.Duration.minutes(10),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
@@ -95,6 +103,16 @@ class MessagingStack(cdk.Stack):
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.cache_invalidation_dlq,
+            ),
+        )
+        self.spoke_results_queue = sqs.Queue(
+            self,
+            "SpokeResultsQueue",
+            queue_name=f"steampulse-{env}-spoke-results",
+            visibility_timeout=cdk.Duration.minutes(15),
+            dead_letter_queue=sqs.DeadLetterQueue(
+                max_receive_count=3,
+                queue=self.spoke_results_dlq,
             ),
         )
 
@@ -237,6 +255,20 @@ class MessagingStack(cdk.Stack):
             "SystemEventsTopicArnParam",
             parameter_name=f"/steampulse/{env}/messaging/system-events-topic-arn",
             string_value=self.system_events_topic.topic_arn,
+        )
+
+        # Spoke results queue SSM params
+        ssm.StringParameter(
+            self,
+            "SpokeResultsQueueArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/spoke-results-queue-arn",
+            string_value=self.spoke_results_queue.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "SpokeResultsQueueUrlParam",
+            parameter_name=f"/steampulse/{env}/messaging/spoke-results-queue-url",
+            string_value=self.spoke_results_queue.queue_url,
         )
 
         # Eligibility threshold SSM param

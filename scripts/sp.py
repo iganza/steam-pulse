@@ -17,15 +17,22 @@ Usage:
 
   poetry run python scripts/sp.py seed [appid...]   # default: TF2, CS2, Dota2, Cyberpunk, Stardew
 
+  poetry run python scripts/sp.py queue metadata <appid...>   # publish to deployed app-crawl queue
+  poetry run python scripts/sp.py queue reviews <appid...>    # publish to deployed review-crawl queue
+  poetry run python scripts/sp.py queue metadata --all        # all pending from app_catalog
+  poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
   ANTHROPIC_API_KEY in .env  (analyze command)
+  AWS credentials        (queue commands — publishes to deployed SQS)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import time
@@ -472,6 +479,63 @@ def cmd_seed(appids: list[int]) -> None:
     _ok("Seed complete")
 
 
+# ── Queue commands (publish to deployed SQS) ──────────────────────────────────
+
+
+def _resolve_queue_url(param_name: str) -> str:
+    """Resolve an SQS queue URL from SSM parameter store."""
+    import boto3
+    ssm = boto3.client("ssm")
+    resp = ssm.get_parameter(Name=param_name)
+    return resp["Parameter"]["Value"]
+
+
+def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
+    """Send messages to SQS in batches of 10. Returns count sent."""
+    import boto3
+    sqs = boto3.client("sqs")
+    sent = 0
+    for i in range(0, len(messages), 10):
+        batch = messages[i : i + 10]
+        entries = [
+            {"Id": str(j), "MessageBody": json.dumps(msg)}
+            for j, msg in enumerate(batch)
+        ]
+        sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        sent += len(batch)
+    return sent
+
+
+def cmd_queue(task: str, appids: list[int], dry_run: bool) -> None:
+    """Publish appids to deployed SQS queues for the spoke pipeline to process."""
+    config = SteamPulseConfig()
+
+    if task == "metadata":
+        param = config.APP_CRAWL_QUEUE_PARAM_NAME
+        label = "app-crawl-queue"
+    else:
+        param = config.REVIEW_CRAWL_QUEUE_PARAM_NAME
+        label = "review-crawl-queue"
+
+    _info(f"Publishing {len(appids)} appids → {label}")
+
+    if dry_run:
+        for appid in appids[:10]:
+            _info(f"  {{'appid': {appid}}}")
+        if len(appids) > 10:
+            _info(f"  ... and {len(appids) - 10} more")
+        _warn(f"[dry-run] Would publish {len(appids)} messages to {label}")
+        return
+
+    _info(f"Resolving queue URL from SSM: {param}")
+    queue_url = _resolve_queue_url(param)
+    _info(f"Queue: {queue_url}")
+
+    messages = [{"appid": appid} for appid in appids]
+    sent = _send_sqs_batch(queue_url, messages)
+    _ok(f"Published {sent} {task} messages to {label}")
+
+
 # ── CLI wiring ────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -526,6 +590,24 @@ def _build_parser() -> argparse.ArgumentParser:
     sd.add_argument("appids", type=int, nargs="*", metavar="appid",
                     help=f"Appids to seed (default: {DEFAULT_SEED_APPIDS})")
 
+    # ── queue (publish to deployed SQS)
+    qu = sub.add_parser("queue", help="Publish appids to deployed SQS queues")
+    qu_sub = qu.add_subparsers(dest="queue_cmd", required=True)
+
+    qm = qu_sub.add_parser("metadata", help="Publish to app-crawl queue")
+    qm.add_argument("appids", type=int, nargs="*", metavar="appid")
+    qm.add_argument("--all", dest="all_pending", action="store_true",
+                    help="Queue all pending entries from app_catalog")
+    qm.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
+    qm.add_argument("--dry-run", action="store_true")
+
+    qr = qu_sub.add_parser("reviews", help="Publish to review-crawl queue")
+    qr.add_argument("appids", type=int, nargs="*", metavar="appid")
+    qr.add_argument("--eligible", action="store_true",
+                    help="Queue all review-eligible games from app_catalog")
+    qr.add_argument("--limit", type=int, metavar="N", help="Limit --eligible to N entries")
+    qr.add_argument("--dry-run", action="store_true")
+
     return p
 
 
@@ -560,6 +642,21 @@ def main() -> None:
 
     elif args.cmd == "seed":
         cmd_seed(args.appids or DEFAULT_SEED_APPIDS)
+
+    elif args.cmd == "queue":
+        appids = args.appids or []
+        if args.queue_cmd == "metadata":
+            if not appids and not args.all_pending:
+                parser.error("queue metadata requires appids or --all")
+            if args.all_pending:
+                appids = _pending_meta(args.limit or 100_000)
+            cmd_queue("metadata", appids, args.dry_run)
+        elif args.queue_cmd == "reviews":
+            if not appids and not args.eligible:
+                parser.error("queue reviews requires appids or --eligible")
+            if args.eligible:
+                appids = _eligible_reviews(args.limit or 100_000)
+            cmd_queue("reviews", appids, args.dry_run)
 
 
 if __name__ == "__main__":

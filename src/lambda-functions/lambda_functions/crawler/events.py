@@ -29,3 +29,33 @@ DirectRequest = Annotated[
     CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest,
     Field(discriminator="action"),
 ]
+
+
+# ── Spoke payload contracts ─────────────────────────────────────────────────
+
+CrawlTask = Literal["metadata", "reviews"]
+
+
+class SpokeRequest(BaseModel):
+    """Primary → Spoke: async Lambda invoke payload."""
+    appid: int
+    task: CrawlTask
+
+
+class SpokeResult(BaseModel):
+    """Spoke → Primary: SQS message body in spoke-results queue."""
+    appid: int
+    task: CrawlTask
+    success: bool
+    s3_key: str | None = None
+    count: int = 0
+    spoke_region: str
+    error: str | None = None
+
+
+class SpokeResponse(BaseModel):
+    """Spoke Lambda return value (logged by Lambda, useful for debugging)."""
+    appid: int
+    task: CrawlTask
+    success: bool
+    count: int

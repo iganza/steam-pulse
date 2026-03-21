@@ -220,7 +220,9 @@ infra/
 ```
 
 CDK rules (mandatory):
-- No physical resource names — let CDK generate (exception: `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console)
+- No physical resource names — let CDK generate. Exceptions:
+  - `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console.
+  - **Cross-region resources** (S3 buckets, SQS queues referenced by spoke stacks) use deterministic names following `steampulse-{env}-{resource}` — CDK tokens cannot resolve cross-region, so spokes must reference by predictable name.
 - No env var lookups inside constructs — pass as props or context
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`

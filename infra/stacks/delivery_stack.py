@@ -1,8 +1,7 @@
-"""DeliveryStack — S3 assets bucket, CloudFront distribution, Route53 (production).
+"""DeliveryStack — CloudFront distribution, Route53 (production).
 
-Receives Lambda function URLs from ComputeStack. Changes rarely — only when
-CloudFront routing, caching config, or domain setup changes. Lambda code
-deploys never touch this stack since function URLs are stable identifiers.
+Receives Lambda function URLs from ComputeStack and assets_bucket from DataStack.
+Changes rarely — only when CloudFront routing, caching config, or domain setup changes.
 
 Production: custom domain + ACM cert from CertificateStack (us-east-1).
             cross_region_references=True required to consume the cert.
@@ -34,6 +33,7 @@ class DeliveryStack(cdk.Stack):
         config: SteamPulseConfig,
         api_fn_url: lambda_.FunctionUrl,
         frontend_fn_url: lambda_.FunctionUrl,
+        assets_bucket: s3.IBucket,
         certificate: acm.ICertificate | None = None,
         **kwargs: object,
     ) -> None:
@@ -45,16 +45,8 @@ class DeliveryStack(cdk.Stack):
 
         env = config.ENVIRONMENT
 
-        # ── S3 Assets Bucket ──────────────────────────────────────────────────
-        # RETAIN — never deleted by CDK. FrontendStack uploads assets here.
-        self.assets_bucket = s3.Bucket(
-            self, "AssetsBucket",
-            versioned=True,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            enforce_ssl=True,
-            removal_policy=cdk.RemovalPolicy.RETAIN,
-        )
+        # ── S3 Assets Bucket (received from DataStack) ──────────────────────
+        self.assets_bucket = assets_bucket
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(

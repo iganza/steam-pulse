@@ -44,6 +44,7 @@ _report_repo: ReportRepository = ReportRepository(_conn)
 
 _sns_client = boto3.client("sns")
 _analysis_config = SteamPulseConfig()
+metrics.set_default_dimensions(environment=_analysis_config.ENVIRONMENT)
 _content_events_topic_arn = get_parameter(_analysis_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
 

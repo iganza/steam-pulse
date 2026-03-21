@@ -1,18 +1,21 @@
-"""Lambda handler — unified crawler dispatcher.
+"""Lambda handler — crawler control plane + spoke dispatcher.
 
 Event types handled:
   1. EventBridge (scheduled)  — source == "aws.events" → CatalogService.refresh()
   2. Direct boto3 invocation  — "action" key present   → dispatch via Pydantic model
-  3. SQS batch               — "Records" key present   → CrawlService methods
+  3. SQS (app-crawl / review-crawl) — dispatch to spoke Lambdas cross-region
+
+DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.metrics import MetricUnit, single_metric
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
     EventType,
@@ -28,17 +31,17 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
+    CrawlTask,
     DirectRequest,
+    SpokeRequest,
 )
 
 logger = Logger(service="crawler")
 tracer = Tracer(service="crawler")
 metrics = Metrics(namespace="SteamPulse", service="crawler")
 
-app_crawl_processor = BatchProcessor(event_type=EventType.SQS)
-review_crawl_processor = BatchProcessor(event_type=EventType.SQS)
-
 _direct_adapter = TypeAdapter(DirectRequest)
+_sqs_processor = BatchProcessor(event_type=EventType.SQS)
 
 # ── Module-level service singletons ─────────────────────────────────────────
 # Eagerly built at cold start — fails loud if deps are missing.
@@ -54,11 +57,30 @@ from library_layer.services.catalog_service import CatalogService
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 
+
+def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    env = _crawler_config.ENVIRONMENT
+    with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+        m.add_dimension(name="environment", value=env)
+        m.add_dimension(name="region", value=region)
+        m.add_dimension(name="endpoint", value=endpoint)
+        m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+        if status_code in (429, 503):
+            m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
+    if status_code >= 400:
+        with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+            m.add_dimension(name="environment", value=env)
+            m.add_dimension(name="region", value=region)
+            m.add_dimension(name="endpoint", value=endpoint)
+            m.add_dimension(name="status_code", value=str(status_code))
+
+
 _conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _crawler_config = SteamPulseConfig()
+metrics.set_default_dimensions(environment=_crawler_config.ENVIRONMENT)
 
 # Resolve SSM parameter names → actual values at cold start
 _sfn_arn = get_parameter(_crawler_config.SFN_PARAM_NAME)
@@ -68,6 +90,7 @@ _app_crawl_queue_url = get_parameter(_crawler_config.APP_CRAWL_QUEUE_PARAM_NAME)
 _game_events_topic_arn = get_parameter(_crawler_config.GAME_EVENTS_TOPIC_PARAM_NAME)
 _content_events_topic_arn = get_parameter(_crawler_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 _system_events_topic_arn = get_parameter(_crawler_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME)
+_assets_bucket_name = get_parameter(_crawler_config.ASSETS_BUCKET_PARAM_NAME)
 
 # Resolve Steam API key from Secrets Manager at cold start
 _sm = boto3.client("secretsmanager")
@@ -80,7 +103,7 @@ _crawl_service = CrawlService(
     review_repo=ReviewRepository(_conn),
     catalog_repo=CatalogRepository(_conn),
     tag_repo=TagRepository(_conn),
-    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
+    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
     sfn_arn=_sfn_arn,
@@ -88,6 +111,7 @@ _crawl_service = CrawlService(
     sns_client=_sns,
     config=_crawler_config,
     s3_client=_s3,
+    archive_bucket=_assets_bucket_name,
     game_events_topic_arn=_game_events_topic_arn,
     content_events_topic_arn=_content_events_topic_arn,
 )
@@ -103,8 +127,22 @@ _catalog_service = CatalogService(
     system_events_topic_arn=_system_events_topic_arn,
 )
 
+# ── Spoke dispatch ──────────────────────────────────────────────────────────
+# Each spoke region gets a Lambda client + deterministic function name.
+# Invoke by name — no ARN construction, no STS call needed.
 
-# ── SNS envelope unwrapping ───────────────────────────────────────────────────
+_spoke_targets: list[tuple[str, object]] = []  # [(fn_name, lambda_client), ...]
+
+for _region in _crawler_config.spoke_region_list:
+    _fn_name = f"steampulse-{_crawler_config.ENVIRONMENT}-spoke-crawler-{_region}"
+    _client = boto3.client("lambda", region_name=_region)
+    _spoke_targets.append((_fn_name, _client))
+
+if not _spoke_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    raise RuntimeError(
+        "SPOKE_REGIONS is empty — at least one spoke region is required. "
+        "Set SPOKE_REGIONS in the environment (e.g. 'us-west-2,us-east-1')."
+    )
 
 
 def _extract_payload(record_body: str) -> dict:
@@ -115,22 +153,44 @@ def _extract_payload(record_body: str) -> dict:
     return body
 
 
-# ── SQS record handlers ──────────────────────────────────────────────────────
+def _dispatch_to_spoke(record: dict) -> None:
+    """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
 
-
-def _app_crawl_record(record: dict) -> None:
+    if not _spoke_targets:
+        raise RuntimeError("No spoke targets configured — cannot dispatch")
+    
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
-    result = asyncio.run(_crawl_service.crawl_app(appid))
-    if result:
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
 
+    source_arn = record.get("eventSourceARN", "")
+    task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
 
-def _review_crawl_record(record: dict) -> None:
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
-    count = asyncio.run(_crawl_service.crawl_reviews(appid))
-    metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=count)
+    req = SpokeRequest(appid=appid, task=task)
+
+    # Deterministic: same appid always hits the same spoke, spreading load
+    # evenly and ensuring retries go to the same region.
+    idx = appid % len(_spoke_targets)
+    fn_name, client = _spoke_targets[idx]
+
+    logger.info("Dispatching appid=%s task=%s → %s", appid, task, fn_name)
+
+    # Async invoke — returns 202 immediately, spoke runs independently.
+    # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
+    # Spoke failures: Lambda auto-retries async invocations (2 attempts),
+    # then routes to Lambda DLQ. Spoke also notifies with success=False on
+    # Steam API errors so the ingest handler can log the skip.
+    response = client.invoke(
+        FunctionName=fn_name,
+        InvocationType="Event",
+        Payload=req.model_dump_json().encode(),
+    )
+    status = response["StatusCode"]
+    if status != 202:
+        raise RuntimeError(
+            f"Spoke async invoke failed for appid={appid}: HTTP {status}"
+        )
+
+    metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
 
 
 # ── Main dispatcher ──────────────────────────────────────────────────────────
@@ -144,6 +204,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
+        metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
+        metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
         return result
 
     # 2. Direct invocation (from web Lambda or manual)
@@ -157,31 +219,27 @@ def handler(event: dict, context: LambdaContext) -> dict:
         match req:
             case CrawlAppsRequest():
                 ok = asyncio.run(_crawl_service.crawl_app(req.appid))
+                metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 n = asyncio.run(
                     _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
                 )
+                metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
-                return _catalog_service.refresh()
+                result = _catalog_service.refresh()
+                metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
+                metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+                return result
 
-    # 3. SQS batch
+    # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:
-        source_arn = event["Records"][0].get("eventSourceARN", "")
-        if "app-crawl" in source_arn or "metadata-enrichment" in source_arn:
-            return process_partial_response(
-                event=event,
-                record_handler=_app_crawl_record,
-                processor=app_crawl_processor,
-                context=context,
-            )
-        if "review-crawl" in source_arn:
-            return process_partial_response(
-                event=event,
-                record_handler=_review_crawl_record,
-                processor=review_crawl_processor,
-                context=context,
-            )
+        return process_partial_response(
+            event=event,
+            record_handler=_dispatch_to_spoke,
+            processor=_sqs_processor,
+            context=context,
+        )
 
     raise ValueError(f"Unrecognised event shape: {list(event.keys())}")

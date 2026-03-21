@@ -60,12 +60,15 @@ _TEST_ENV_DEFAULTS = {
     "STEP_FUNCTIONS_PARAM_NAME": "/steampulse/test/compute/sfn-arn",
     "APP_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/app-crawl-queue-url",
     "REVIEW_CRAWL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/review-crawl-queue-url",
-    "ASSETS_BUCKET_PARAM_NAME": "/steampulse/test/app/assets-bucket-name",
+    "ASSETS_BUCKET_PARAM_NAME": "/steampulse/test/data/assets-bucket-name",
     "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
     "LLM_MODEL__CHUNKING": "us.anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "us.anthropic.claude-sonnet-test-v1:0",
+    "PRIMARY_REGION": "us-east-1",
+    "SPOKE_RESULTS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/spoke-results",
+    "SPOKE_REGIONS": "us-east-1",
 }
 for _k, _v in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_k, _v)

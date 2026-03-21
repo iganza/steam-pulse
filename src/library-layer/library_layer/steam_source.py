@@ -133,6 +133,17 @@ class DirectSteamSource(SteamDataSource):
                     ) from exc
                 wait = min(2**attempt + random.uniform(1, 5), 120)
                 await asyncio.sleep(wait)
+            except httpx.RequestError as exc:
+                latency_ms = (time.monotonic() - t0) * 1000
+                self._emit(endpoint, 0, latency_ms)
+                if attempt == 5:
+                    raise SteamAPIError(f"Network error fetching {url}: {exc}") from exc
+                wait = min(2**attempt + random.uniform(1, 5), 120)
+                logger.warning(
+                    "Network error from %s — retrying in %.0fs (attempt %s/6): %s",
+                    url, wait, attempt + 1, exc,
+                )
+                await asyncio.sleep(wait)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
     async def get_app_list(self, limit: int | None = None) -> list[dict]:

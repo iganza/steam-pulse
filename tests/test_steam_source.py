@@ -1,5 +1,6 @@
 """Tests for steam_source.py — metrics callback + endpoint name mapping."""
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
 
@@ -49,6 +50,10 @@ async def steam(
     metrics_log: list, monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[DirectSteamSource]:
     monkeypatch.setenv("AWS_REGION", "us-west-2")
+    async def _instant_sleep(_: float) -> None:
+        pass
+
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
     client = httpx.AsyncClient()
 
     def callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:

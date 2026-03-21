@@ -46,8 +46,8 @@ def template() -> Template:
     return Template.from_stack(stack)
 
 
-def test_two_lambda_functions(template: Template) -> None:
-    """Spoke creates one crawler Lambda + one layer bundling Lambda resource."""
+def test_one_lambda_function(template: Template) -> None:
+    """Spoke creates exactly one Lambda function — the crawler."""
     template.resource_count_is("AWS::Lambda::Function", 1)
 
 

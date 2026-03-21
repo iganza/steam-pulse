@@ -171,3 +171,41 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 730
     assert payload.task == "reviews"
+
+
+@mock_aws
+def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
+    """SQS record with SNS envelope → _extract_payload unwraps, dispatch succeeds."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    sns_envelope = {
+        "Type": "Notification",
+        "MessageId": "abc-123",
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:game-events",
+        "Message": json.dumps({"appid": 570}),
+        "Timestamp": "2026-03-20T00:00:00.000Z",
+    }
+    event = {
+        "Records": [{
+            "messageId": "m3",
+            "body": json.dumps(sns_envelope),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 570
+    assert payload.task == "metadata"

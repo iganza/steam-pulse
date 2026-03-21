@@ -40,8 +40,20 @@ _steam_api_key: str = _sm.get_secret_value(
     SecretId=_config.STEAM_API_KEY_SECRET_NAME
 )["SecretString"]
 
+def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    metrics.add_dimension(name="region", value=region)
+    metrics.add_dimension(name="endpoint", value=endpoint)
+    metrics.add_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1)
+    metrics.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+    if status_code >= 400:
+        metrics.add_dimension(name="status_code", value=str(status_code))
+        metrics.add_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1)
+    if status_code in (429, 503):
+        metrics.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
+
+
 _http = httpx.AsyncClient(timeout=90.0)
-_steam = DirectSteamSource(_http, api_key=_steam_api_key)
+_steam = DirectSteamSource(_http, api_key=_steam_api_key, on_request=_steam_metrics_callback)
 _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)
 _s3 = boto3.client("s3")
 
@@ -58,12 +70,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     if task == "metadata":
         ok = asyncio.run(_process_metadata(appid))
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1 if ok else 0)
+        metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
         return SpokeResponse(appid=appid, task=task, success=ok, count=1 if ok else 0).model_dump()
 
     if task == "reviews":
         count = asyncio.run(_process_reviews(appid))
-        metrics.add_metric(name="ReviewsCrawled", unit=MetricUnit.Count, value=count)
+        metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
         return SpokeResponse(appid=appid, task=task, success=count > 0, count=count).model_dump()
 
     raise ValueError(f"Unknown task: {task}")
@@ -114,8 +126,9 @@ async def _process_reviews(appid: int) -> int:
 
 def _write_s3(key: str, data: dict | list) -> str:
     payload = gzip.compress(json.dumps(data).encode())
+    bucket = _config.ASSETS_BUCKET_PARAM_NAME
     _s3.put_object(
-        Bucket=_config.ASSETS_BUCKET_NAME,
+        Bucket=bucket,
         Key=key,
         Body=payload,
         ContentEncoding="gzip",
@@ -124,7 +137,7 @@ def _write_s3(key: str, data: dict | list) -> str:
     logger.info(
         "Wrote %d bytes to s3://%s/%s",
         len(payload),
-        _config.ASSETS_BUCKET_NAME,
+        bucket,
         key,
     )
     return key

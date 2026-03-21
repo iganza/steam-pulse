@@ -103,11 +103,11 @@ class CrawlSpokeStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment=config.to_lambda_env(
-                # Spoke-specific overrides — cross-region stack can't resolve SSM.
-                # ASSETS_BUCKET_NAME holds the actual bucket name (not an SSM path).
+                # Spoke-specific overrides — cross-region stack can't resolve SSM,
+                # so _PARAM_NAME fields hold ACTUAL values (not SSM paths).
                 PRIMARY_REGION=primary_region,
                 SPOKE_RESULTS_QUEUE_URL=spoke_results_queue_url,
-                ASSETS_BUCKET_NAME=assets_bucket_name,
+                ASSETS_BUCKET_PARAM_NAME=assets_bucket_name,
                 STEAM_API_KEY_SECRET_NAME=steam_api_key_secret_name,
                 POWERTOOLS_SERVICE_NAME=f"crawler-spoke-{spoke_region}",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",

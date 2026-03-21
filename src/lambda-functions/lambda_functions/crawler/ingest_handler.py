@@ -36,6 +36,19 @@ from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 from library_layer.utils.db import get_conn
 
+
+def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    metrics.add_dimension(name="region", value=region)
+    metrics.add_dimension(name="endpoint", value=endpoint)
+    metrics.add_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1)
+    metrics.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+    if status_code >= 400:
+        metrics.add_dimension(name="status_code", value=str(status_code))
+        metrics.add_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1)
+    if status_code in (429, 503):
+        metrics.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
+
+
 logger = Logger(service="spoke-ingest")
 tracer = Tracer(service="spoke-ingest")
 metrics = Metrics(namespace="SteamPulse", service="spoke-ingest")
@@ -59,7 +72,7 @@ _crawl_service = CrawlService(
     review_repo=ReviewRepository(_conn),
     catalog_repo=CatalogRepository(_conn),
     tag_repo=TagRepository(_conn),
-    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
+    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
     sns_client=_sns,
@@ -108,7 +121,7 @@ def _ingest_record(record: dict) -> None:
         if not success:
             raise RuntimeError(f"Metadata ingest failed for appid={appid}")
         logger.info("Ingested metadata appid=%s", appid)
-        metrics.add_metric(name="AppsCrawled", unit=MetricUnit.Count, value=1)
+        metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
     elif task == "reviews":
         upserted = asyncio.run(_crawl_service.ingest_spoke_reviews(appid, data))
         logger.info("Ingested %d reviews for appid=%s", upserted, appid)

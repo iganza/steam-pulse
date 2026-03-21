@@ -57,6 +57,19 @@ from library_layer.services.catalog_service import CatalogService
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 
+
+def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
+    metrics.add_dimension(name="region", value=region)
+    metrics.add_dimension(name="endpoint", value=endpoint)
+    metrics.add_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1)
+    metrics.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+    if status_code >= 400:
+        metrics.add_dimension(name="status_code", value=str(status_code))
+        metrics.add_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1)
+    if status_code in (429, 503):
+        metrics.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
+
+
 _conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
@@ -84,7 +97,7 @@ _crawl_service = CrawlService(
     review_repo=ReviewRepository(_conn),
     catalog_repo=CatalogRepository(_conn),
     tag_repo=TagRepository(_conn),
-    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0)),
+    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
     sfn_arn=_sfn_arn,
@@ -136,6 +149,10 @@ def _extract_payload(record_body: str) -> dict:
 
 def _dispatch_to_spoke(record: dict) -> None:
     """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
+
+    if not _spoke_targets:
+        raise RuntimeError("No spoke targets configured — cannot dispatch")
+    
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
 
@@ -181,6 +198,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
+        metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
+        metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
         return result
 
     # 2. Direct invocation (from web Lambda or manual)
@@ -194,14 +213,19 @@ def handler(event: dict, context: LambdaContext) -> dict:
         match req:
             case CrawlAppsRequest():
                 ok = asyncio.run(_crawl_service.crawl_app(req.appid))
+                metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 n = asyncio.run(
                     _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
                 )
+                metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
-                return _catalog_service.refresh()
+                result = _catalog_service.refresh()
+                metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
+                metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+                return result
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

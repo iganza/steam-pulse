@@ -2,8 +2,11 @@
 
 import asyncio
 import logging
+import os
 import random
+import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 import httpx
 
@@ -15,6 +18,22 @@ REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
 
 _RETRY_STATUSES = frozenset({429, 503})
+
+MetricsCallback = Callable[[str, str, int, float], None]
+"""(endpoint, region, status_code, latency_ms) -> None"""
+
+
+def _endpoint_name(url: str) -> str:
+    """Map a Steam API URL to a low-cardinality endpoint name."""
+    if "appreviews" in url:
+        return "reviews"
+    if "appdetails" in url:
+        return "app_details"
+    if "deckappcompatibility" in url:
+        return "deck_compat"
+    if "GetAppList" in url:
+        return "app_list"
+    return "unknown"
 
 
 class SteamAPIError(RuntimeError):
@@ -58,17 +77,38 @@ class DirectSteamSource(SteamDataSource):
     Retry up to 3 times with exponential backoff on 429/503.
     """
 
-    def __init__(self, client: httpx.AsyncClient, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        api_key: str | None = None,
+        on_request: MetricsCallback | None = None,
+    ) -> None:
         self._client = client
         self._api_key = api_key
+        self._on_request = on_request
+        self._region = os.environ.get("AWS_REGION", "local")
+        self._jitter_min = float(os.environ.get("STEAM_JITTER_MIN", "0.3"))
+        self._jitter_max = float(os.environ.get("STEAM_JITTER_MAX", "1.0"))
 
     async def _jitter(self) -> None:
-        await asyncio.sleep(random.uniform(0.3, 1.0))
+        await asyncio.sleep(random.uniform(self._jitter_min, self._jitter_max))
+
+    def _emit(self, endpoint: str, status_code: int, latency_ms: float) -> None:
+        """Fire metrics callback if set — never raises."""
+        if self._on_request:
+            try:
+                self._on_request(endpoint, self._region, status_code, latency_ms)
+            except Exception:
+                logger.debug("Metrics callback failed", exc_info=True)
 
     async def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
+        endpoint = _endpoint_name(url)
         for attempt in range(6):
+            t0 = time.monotonic()
             try:
                 resp = await self._client.get(url, params=params or None)  # type: ignore[arg-type]
+                latency_ms = (time.monotonic() - t0) * 1000
+                self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
                     wait = min(2**attempt + random.uniform(1, 5), 120)
                     logger.warning(
@@ -80,6 +120,7 @@ class DirectSteamSource(SteamDataSource):
                 resp.raise_for_status()
                 return resp
             except httpx.HTTPStatusError as exc:
+                # Callback already fired above for the response — no duplicate emit.
                 if exc.response.status_code not in _RETRY_STATUSES or attempt == 5:
                     raise SteamAPIError(
                         f"HTTP {exc.response.status_code} from {url}"

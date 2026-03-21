@@ -9,6 +9,7 @@ via from_bucket_name — no cross-stack CDK construct references needed.
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_iam as iam
 import aws_cdk.aws_rds as rds
 import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
@@ -105,6 +106,24 @@ class DataStack(cdk.Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        # Allow CloudFront OAC to read objects. Scoped to this account so
+        # only distributions we own can access the bucket.  The policy lives
+        # here (not DeliveryStack) because CDK can only manage policies on
+        # the real bucket construct, not an imported reference.
+        self.assets_bucket.add_to_resource_policy(
+            iam.PolicyStatement(
+                sid="AllowCloudFrontOac",
+                actions=["s3:GetObject"],
+                resources=[self.assets_bucket.arn_for_objects("*")],
+                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
+                conditions={
+                    "StringEquals": {
+                        "AWS:SourceAccount": cdk.Stack.of(self).account,
+                    },
+                },
+            )
         )
 
         ssm.StringParameter(

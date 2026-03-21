@@ -130,36 +130,26 @@ class MessagingStack(cdk.Stack):
             )
         )
 
-        # review-crawl-queue ← game-events (two subscriptions)
-        # Sub 1: game-metadata-ready with is_eligible=true
-        self.game_events_topic.add_subscription(
-            subs.SqsSubscription(
-                self.review_crawl_queue,
-                filter_policy={
-                    "event_type": sns.SubscriptionFilter.string_filter(
-                        allowlist=["game-metadata-ready"],
-                    ),
-                    "is_eligible": sns.SubscriptionFilter.string_filter(
-                        allowlist=["true"],
-                    ),
-                },
-            )
-        )
-        # Sub 2: game-released + game-updated (always eligible)
-        # Use lower-level construct to avoid ID collision with Sub 1
-        sns.Subscription(
+        # review-crawl-queue ← game-events
+        # Single subscription with $or filter: game-metadata-ready (only when
+        # eligible) OR game-released/game-updated (always eligible).
+        # SNS does not allow two subscriptions with the same {Topic, Protocol,
+        # Endpoint} but different filter policies, so we use CfnSubscription
+        # with a raw $or filter policy.
+        review_crawl_sub = sns.CfnSubscription(
             self,
-            "ReviewCrawlReleasedUpdatedSub",
-            topic=self.game_events_topic,
-            protocol=sns.SubscriptionProtocol.SQS,
+            "ReviewCrawlSub",
+            protocol="sqs",
+            topic_arn=self.game_events_topic.topic_arn,
             endpoint=self.review_crawl_queue.queue_arn,
             filter_policy={
-                "event_type": sns.SubscriptionFilter.string_filter(
-                    allowlist=["game-released", "game-updated"],
-                ),
+                "$or": [
+                    {"event_type": ["game-metadata-ready"], "is_eligible": ["true"]},
+                    {"event_type": ["game-released", "game-updated"]},
+                ],
             },
         )
-        # Grant SNS permission to send to the queue (Sub 1 adds it but be explicit)
+        # CfnSubscription doesn't auto-grant — allow SNS to deliver to the queue.
         self.review_crawl_queue.grant_send_messages(iam.ServicePrincipal("sns.amazonaws.com"))
 
         # batch-staging-queue ← content-events (reviews-ready only)

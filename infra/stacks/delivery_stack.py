@@ -49,9 +49,14 @@ class DeliveryStack(cdk.Stack):
         self.assets_bucket = assets_bucket
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
+        # origin_access_levels=[] suppresses CDK's auto bucket-policy grant.
+        # The policy lives in DataStack (account-scoped) to avoid a cross-stack
+        # cycle: DataStack owns the bucket, and a distribution-specific policy
+        # would create Data → Delivery while Delivery → Compute → Data already exists.
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(
             self.assets_bucket,
             origin_access_control=oac,
+            origin_access_levels=[],
         )
 
         # ── Cache Policies ────────────────────────────────────────────────────

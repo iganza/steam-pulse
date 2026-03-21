@@ -9,6 +9,7 @@ Lambda roles S3 access without creating a circular dependency.
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_iam as iam
 import aws_cdk.aws_rds as rds
 import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
@@ -106,6 +107,18 @@ class DataStack(cdk.Stack):
             enforce_ssl=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
         )
+
+        # Allow any CloudFront distribution in this account to read static assets.
+        # Scoped to account (not a specific distribution) so DeliveryStack's OAC
+        # can reference this bucket without creating a cross-stack cycle
+        # (Data → Delivery via distribution ID would break the Delivery → Compute → Data chain).
+        self.assets_bucket.add_to_resource_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
+            actions=["s3:GetObject"],
+            resources=[self.assets_bucket.arn_for_objects("*")],
+            conditions={"StringEquals": {"AWS:SourceAccount": self.account}},
+        ))
 
         ssm.StringParameter(
             self, "AssetsBucketNameParam",

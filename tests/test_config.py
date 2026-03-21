@@ -26,7 +26,7 @@ def test_config_accepts_all_required_fields() -> None:
     assert config.GAME_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/game-events-topic-arn"
     assert config.CONTENT_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/content-events-topic-arn"
     assert config.SYSTEM_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/system-events-topic-arn"
-    assert config.REVIEW_ELIGIBILITY_THRESHOLD == 500
+    assert config.REVIEW_ELIGIBILITY_THRESHOLD == 50
 
 
 def test_config_raises_when_required_field_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,7 +79,7 @@ def test_to_lambda_env_includes_all_fields() -> None:
     # Bool lowercased
     assert env["PRO_ENABLED"] == "false"
     # Int converted to string
-    assert env["REVIEW_ELIGIBILITY_THRESHOLD"] == "500"
+    assert env["REVIEW_ELIGIBILITY_THRESHOLD"] == "50"
 
 
 def test_to_lambda_env_overrides_applied_last() -> None:

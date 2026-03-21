@@ -20,7 +20,7 @@ import uuid
 import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.metrics import MetricUnit, single_metric
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from lambda_functions.crawler.events import CrawlTask, SpokeRequest, SpokeResponse, SpokeResult
 from library_layer.config import SteamPulseConfig
@@ -41,15 +41,17 @@ _steam_api_key: str = _sm.get_secret_value(
 )["SecretString"]
 
 def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
-    metrics.add_dimension(name="region", value=region)
-    metrics.add_dimension(name="endpoint", value=endpoint)
-    metrics.add_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1)
-    metrics.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+    with single_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+        m.add_dimension(name="region", value=region)
+        m.add_dimension(name="endpoint", value=endpoint)
+        m.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+        if status_code in (429, 503):
+            m.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
     if status_code >= 400:
-        metrics.add_dimension(name="status_code", value=str(status_code))
-        metrics.add_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1)
-    if status_code in (429, 503):
-        metrics.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
+        with single_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1, namespace="SteamPulse") as m:
+            m.add_dimension(name="region", value=region)
+            m.add_dimension(name="endpoint", value=endpoint)
+            m.add_dimension(name="status_code", value=str(status_code))
 
 
 _http = httpx.AsyncClient(timeout=90.0)
@@ -88,7 +90,7 @@ async def _process_metadata(appid: int) -> bool:
     try:
         details = await _steam.get_app_details(appid)
     except SteamAPIError as exc:
-        logger.warning("Steam metadata error appid=%s: %s", appid, exc)
+        logger.error("Steam app_details error appid=%s: %s", appid, exc)
         _notify(appid, task="metadata", success=False, error=str(exc))
         return False
 
@@ -96,8 +98,18 @@ async def _process_metadata(appid: int) -> bool:
         _notify(appid, task="metadata", success=False, error="empty details from Steam")
         return False
 
-    summary = await _steam.get_review_summary(appid)
-    deck_compat = await _steam.get_deck_compatibility(appid)
+    try:
+        summary = await _steam.get_review_summary(appid)
+    except SteamAPIError as exc:
+        logger.error("Steam review_summary error appid=%s: %s", appid, exc)
+        _notify(appid, task="metadata", success=False, error=str(exc))
+        return False
+
+    try:
+        deck_compat = await _steam.get_deck_compatibility(appid)
+    except SteamAPIError as exc:
+        logger.warning("Steam deck_compat unavailable appid=%s: %s", appid, exc)
+        deck_compat = {}
 
     payload = {"details": details, "summary": summary, "deck_compat": deck_compat}
     uid = uuid.uuid4().hex[:12]

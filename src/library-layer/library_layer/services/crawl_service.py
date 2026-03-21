@@ -135,7 +135,7 @@ class CrawlService:
         try:
             details = await self._steam.get_app_details(appid)
         except SteamAPIError as exc:
-            logger.warning("Steam API error for appid=%s: %s", appid, exc)
+            logger.error("Steam app_details error for appid=%s: %s", appid, exc)
             self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
@@ -144,8 +144,18 @@ class CrawlService:
             self._catalog_repo.set_meta_status(appid, "skipped")
             return False
 
-        summary = await self._steam.get_review_summary(appid)
-        deck_compat = await self._steam.get_deck_compatibility(appid)
+        try:
+            summary = await self._steam.get_review_summary(appid)
+        except SteamAPIError as exc:
+            logger.error("Steam review_summary error for appid=%s: %s", appid, exc)
+            self._catalog_repo.set_meta_status(appid, "failed")
+            return False
+
+        try:
+            deck_compat = await self._steam.get_deck_compatibility(appid)
+        except SteamAPIError as exc:
+            logger.warning("Steam deck_compat unavailable for appid=%s: %s", appid, exc)
+            deck_compat = {}
 
         name: str = details.get("name") or f"App {appid}"
         logger.info("appid=%s name=%r", appid, name)

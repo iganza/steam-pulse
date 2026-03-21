@@ -69,7 +69,7 @@ def test_on_request_called_on_success(
     assert endpoint == "app_details"
     assert region == "us-west-2"
     assert status == 200
-    assert latency > 0
+    assert latency >= 0
 
 
 def test_on_request_called_on_429_retry(

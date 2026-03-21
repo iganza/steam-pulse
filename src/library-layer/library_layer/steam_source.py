@@ -41,13 +41,19 @@ class SteamAPIError(RuntimeError):
 
 
 class SteamDataSource(ABC):
+    """All Steam data access goes through this interface.
+
+    Every method raises SteamAPIError on HTTP failure from Steam.
+    Callers are responsible for catching and handling errors.
+    """
+
     @abstractmethod
     async def get_app_list(self, limit: int | None = None) -> list[dict]:
         """Returns [{appid, name}] for all Steam apps. Optional limit truncates result."""
 
     @abstractmethod
     async def get_app_details(self, appid: int) -> dict:
-        """Returns game metadata from Steam Store API."""
+        """Returns game metadata from Steam Store API, or {} if not found."""
 
     @abstractmethod
     async def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
@@ -55,11 +61,11 @@ class SteamDataSource(ABC):
 
     @abstractmethod
     async def get_review_summary(self, appid: int) -> dict:
-        """Returns query_summary from Steam reviews API: total_positive, total_negative, total_reviews, review_score_desc."""
+        """Returns query_summary: total_positive, total_negative, total_reviews, review_score_desc."""
 
     @abstractmethod
     async def get_deck_compatibility(self, appid: int) -> dict:
-        """Returns Steam Deck compatibility: {resolved_category, resolved_items} or {} if unavailable."""
+        """Returns {resolved_category, resolved_items} or {} if unavailable."""
 
 
 class DirectSteamSource(SteamDataSource):
@@ -74,7 +80,7 @@ class DirectSteamSource(SteamDataSource):
                    Returns query_summary with total review counts
 
     Add jitter (random 0.3-1s sleep) between requests.
-    Retry up to 3 times with exponential backoff on 429/503.
+    Retry up to 5 times with exponential backoff on 429/503.
     """
 
     def __init__(
@@ -228,54 +234,53 @@ class DirectSteamSource(SteamDataSource):
         Makes two calls: one with language="english" (for eligibility counts) and
         one with language="all" (for display total). Returns the English summary
         dict with an additional ``total_reviews_all`` key.
+
+        Raises:
+            SteamAPIError: on HTTP failure from Steam.
         """
         url = REVIEWS_URL.format(appid=appid)
-        try:
-            # English counts — matches what get_reviews actually fetches
-            await self._jitter()
-            eng_resp = await self._get_with_retry(
-                url, json="1", num_per_page="1", language="english", purchase_type="all"
-            )
-            eng_data = eng_resp.json()
-            if not eng_data.get("success"):
-                return {}
-            eng_summary: dict = eng_data.get("query_summary", {})
 
-            # All-language count — for display ("X total reviews on Steam")
-            await self._jitter()
-            all_resp = await self._get_with_retry(
-                url, json="1", num_per_page="1", language="all", purchase_type="all"
-            )
-            all_data = all_resp.json()
-            all_summary = all_data.get("query_summary", {}) if all_data.get("success") else {}
-
-            total_positive_all = int(all_summary.get("total_positive") or 0)
-            total_negative_all = int(all_summary.get("total_negative") or 0)
-
-            result = dict(eng_summary)
-            result["total_reviews_all"] = total_positive_all + total_negative_all
-            return result
-        except SteamAPIError:
-            logger.warning("Review summary unavailable for appid=%s", appid)
+        # English counts — matches what get_reviews actually fetches
+        await self._jitter()
+        eng_resp = await self._get_with_retry(
+            url, json="1", num_per_page="1", language="english", purchase_type="all"
+        )
+        eng_data = eng_resp.json()
+        if not eng_data.get("success"):
             return {}
+        eng_summary: dict = eng_data.get("query_summary", {})
+
+        # All-language count — for display ("X total reviews on Steam")
+        await self._jitter()
+        all_resp = await self._get_with_retry(
+            url, json="1", num_per_page="1", language="all", purchase_type="all"
+        )
+        all_data = all_resp.json()
+        all_summary = all_data.get("query_summary", {}) if all_data.get("success") else {}
+
+        total_positive_all = int(all_summary.get("total_positive") or 0)
+        total_negative_all = int(all_summary.get("total_negative") or 0)
+
+        result = dict(eng_summary)
+        result["total_reviews_all"] = total_positive_all + total_negative_all
+        return result
 
     async def get_deck_compatibility(self, appid: int) -> dict:
         """Fetch Steam Deck compatibility report for an app.
 
         Returns dict with 'resolved_category' (int) and 'resolved_items' (list),
         or empty dict if unavailable.
+
+        Raises:
+            SteamAPIError: on HTTP failure from Steam.
         """
         await self._jitter()
-        try:
-            resp = await self._get_with_retry(DECK_COMPAT_URL, nAppID=str(appid))
-            data = resp.json()
-            if not data.get("success"):
-                return {}
-            results = data.get("results", {})
-            return {
-                "resolved_category": results.get("resolved_category", 0),
-                "resolved_items": results.get("resolved_items", []),
-            }
-        except SteamAPIError:
-            logger.debug("Deck compat unavailable for appid=%s", appid)
+        resp = await self._get_with_retry(DECK_COMPAT_URL, nAppID=str(appid))
+        data = resp.json()
+        if not data.get("success"):
             return {}
+        results = data.get("results", {})
+        return {
+            "resolved_category": results.get("resolved_category", 0),
+            "resolved_items": results.get("resolved_items", []),
+        }

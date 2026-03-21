@@ -7,7 +7,7 @@ Stack deployment order:
   ComputeStack   (needs Network + Data + Messaging)                    │
   CertificateStack (production only — us-east-1, ACM for CloudFront)  │
   DeliveryStack  (needs Compute fn URLs + Certificate if production)   │
-  FrontendStack  (needs assets_bucket from Delivery)                   │
+  FrontendStack  (looks up assets bucket by name)                       │
   MonitoringStack (reads ARNs from SSM — no hard CF dependency)        │
 
 Config is loaded from .env.{environment} at synth time and passed through
@@ -95,7 +95,6 @@ class ApplicationStage(cdk.Stage):
             game_events_topic=messaging.game_events_topic,
             content_events_topic=messaging.content_events_topic,
             system_events_topic=messaging.system_events_topic,
-            assets_bucket=data.assets_bucket,
             spoke_results_queue=messaging.spoke_results_queue,
             env=cdk_env,
         )
@@ -124,7 +123,6 @@ class ApplicationStage(cdk.Stage):
             config=config,
             api_fn_url=compute.api_fn_url,
             frontend_fn_url=compute.frontend_fn_url,
-            assets_bucket=data.assets_bucket,
             certificate=certificate,
             env=cdk_env,
         )
@@ -138,7 +136,6 @@ class ApplicationStage(cdk.Stage):
             "Frontend",
             stack_name=f"SteamPulse-{env_name}-Frontend",
             config=config,
-            assets_bucket=delivery.assets_bucket,
             env=cdk_env,
         )
         frontend.add_dependency(delivery)

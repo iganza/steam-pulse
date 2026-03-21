@@ -1,10 +1,7 @@
 """FrontendStack — uploads Next.js static assets to S3.
 
 Kept as a separate stack so that frontend-only deploys don't re-synthesise
-BackendStack. Receives assets_bucket as a direct CDK object reference, which is
-the CDK best-practice approach for two stacks in the same app. The resulting
-Fn::ImportValue is safe here because the bucket has RETAIN removal policy — its
-ARN never changes, so the export value is stable and can never deadlock.
+ComputeStack. Looks up the assets bucket by deterministic name.
 """
 
 import os
@@ -25,10 +22,14 @@ class FrontendStack(cdk.Stack):
         construct_id: str,
         *,
         config: SteamPulseConfig,
-        assets_bucket: s3.IBucket,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        env = config.ENVIRONMENT
+        assets_bucket = s3.Bucket.from_bucket_name(
+            self, "AssetsBucket", f"steampulse-{env}-assets",
+        )
 
         if os.path.isdir(_OPEN_NEXT_ASSETS):
             s3deploy.BucketDeployment(

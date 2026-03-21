@@ -1,6 +1,6 @@
 """DeliveryStack — CloudFront distribution, Route53 (production).
 
-Receives Lambda function URLs from ComputeStack and assets_bucket from DataStack.
+Receives Lambda function URLs from ComputeStack. Looks up assets bucket by name.
 Changes rarely — only when CloudFront routing, caching config, or domain setup changes.
 
 Production: custom domain + ACM cert from CertificateStack (us-east-1).
@@ -33,7 +33,6 @@ class DeliveryStack(cdk.Stack):
         config: SteamPulseConfig,
         api_fn_url: lambda_.FunctionUrl,
         frontend_fn_url: lambda_.FunctionUrl,
-        assets_bucket: s3.IBucket,
         certificate: acm.ICertificate | None = None,
         **kwargs: object,
     ) -> None:
@@ -45,18 +44,18 @@ class DeliveryStack(cdk.Stack):
 
         env = config.ENVIRONMENT
 
-        # ── S3 Assets Bucket (received from DataStack) ──────────────────────
-        self.assets_bucket = assets_bucket
+        # ── S3 Assets Bucket ──────────────────────────────────────────────────
+        # Looked up by deterministic name — avoids cross-stack CDK construct
+        # references that would create a Data ↔ Delivery cycle.
+        # OAC bucket policy lives in DataStack (account-scoped).
+        self.assets_bucket = s3.Bucket.from_bucket_name(
+            self, "AssetsBucket", f"steampulse-{env}-assets",
+        )
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
-        # origin_access_levels=[] suppresses CDK's auto bucket-policy grant.
-        # The policy lives in DataStack (account-scoped) to avoid a cross-stack
-        # cycle: DataStack owns the bucket, and a distribution-specific policy
-        # would create Data → Delivery while Delivery → Compute → Data already exists.
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(
             self.assets_bucket,
             origin_access_control=oac,
-            origin_access_levels=[],
         )
 
         # ── Cache Policies ────────────────────────────────────────────────────

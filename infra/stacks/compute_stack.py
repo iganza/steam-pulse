@@ -52,7 +52,6 @@ class ComputeStack(cdk.Stack):
         game_events_topic: sns.ITopic,
         content_events_topic: sns.ITopic,
         system_events_topic: sns.ITopic,
-        assets_bucket: s3.IBucket,
         spoke_results_queue: sqs.IQueue,
         **kwargs: object,
     ) -> None:
@@ -60,6 +59,10 @@ class ComputeStack(cdk.Stack):
 
         env = config.ENVIRONMENT
         private_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)
+
+        assets_bucket = s3.Bucket.from_bucket_name(
+            self, "AssetsBucket", f"steampulse-{env}-assets",
+        )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
         library_layer = PythonLayerVersion(

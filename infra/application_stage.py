@@ -161,7 +161,7 @@ class ApplicationStage(cdk.Stage):
         primary_region = self.region
         acct = self.account
         results_q_name = f"steampulse-{environment}-spoke-results"
-        bucket_name = f"steampulse-{environment}-{acct}-assets"
+        bucket_name = f"steampulse-{environment}-assets"
 
         for region in config.spoke_region_list:
             spoke = CrawlSpokeStack(

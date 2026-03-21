@@ -57,7 +57,7 @@ def _steam_metrics_callback(endpoint: str, region: str, status_code: int, latenc
 _http = httpx.AsyncClient(timeout=90.0)
 _steam = DirectSteamSource(_http, api_key=_steam_api_key, on_request=_steam_metrics_callback)
 _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)
-_s3 = boto3.client("s3")
+_s3 = boto3.client("s3", region_name=_PRIMARY_REGION)
 
 
 # ── Main handler ────────────────────────────────────────────────────────────

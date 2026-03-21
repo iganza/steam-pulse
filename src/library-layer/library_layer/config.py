@@ -87,7 +87,7 @@ class SteamPulseConfig(BaseSettings):
         return [r.strip() for r in self.SPOKE_REGIONS.split(",") if r.strip()]
 
     # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
-    REVIEW_ELIGIBILITY_THRESHOLD: int = 500
+    REVIEW_ELIGIBILITY_THRESHOLD: int = 50
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

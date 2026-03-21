@@ -95,13 +95,11 @@ class DataStack(cdk.Stack):
 
         # ── S3 Assets Bucket ──────────────────────────────────────────────────
         # RETAIN — never deleted by CDK. Used by crawlers (archive) and frontend (static assets).
-        # Deterministic name with account ID — spokes in other regions reference
-        # by name (CDK tokens can't cross regions). Account ID avoids global
-        # S3 namespace collisions.
-        acct = cdk.Stack.of(self).account
+        # Deterministic name — spokes in other regions reference by name because
+        # CDK tokens can't resolve cross-region.
         self.assets_bucket = s3.Bucket(
             self, "AssetsBucket",
-            bucket_name=f"steampulse-{env}-{acct}-assets",
+            bucket_name=f"steampulse-{env}-assets",
             versioned=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,

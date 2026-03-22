@@ -392,6 +392,46 @@ class ComputeStack(cdk.Stack):
             )
         )
 
+        # ── Admin Lambda (DB operations — invoked by sp.py) ──────────────────
+        admin_fn = PythonFunction(
+            self,
+            "AdminFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/admin/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=iam.Role(
+                self, "AdminRole",
+                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                managed_policies=[
+                    iam.ManagedPolicy.from_aws_managed_policy_name(
+                        "service-role/AWSLambdaVPCAccessExecutionRole",
+                    ),
+                ],
+                inline_policies={
+                    "db": iam.PolicyDocument(statements=[
+                        iam.PolicyStatement(
+                            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                            resources=[db_secret.secret_arn],
+                        ),
+                    ]),
+                },
+            ),
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.seconds(30),
+            memory_size=256,
+            log_group=logs.LogGroup(
+                self,
+                "AdminLogs",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(),
+        )
+
         # Weekly catalog refresh — disabled until we're ready to run on a schedule.
         catalog_rule = events.Rule(
             self,
@@ -439,4 +479,10 @@ class ComputeStack(cdk.Stack):
             "ApiFnUrlParam",
             parameter_name=f"/steampulse/{env}/compute/api-fn-url",
             string_value=self.api_fn_url.url,
+        )
+        ssm.StringParameter(
+            self,
+            "AdminFnNameParam",
+            parameter_name=f"/steampulse/{env}/compute/admin-fn-name",
+            string_value=admin_fn.function_name,
         )

@@ -6,7 +6,6 @@ import sys
 import aws_cdk as cdk
 import aws_cdk.assertions as assertions
 import aws_cdk.aws_ec2 as ec2
-import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
@@ -36,7 +35,6 @@ def template() -> assertions.Template:
     game_events_topic = sns.Topic(stack, "GameEvents")
     content_events_topic = sns.Topic(stack, "ContentEvents")
     system_events_topic = sns.Topic(stack, "SystemEvents")
-    assets_bucket = s3.Bucket(stack, "AssetsBucket")
     spoke_results_queue = sqs.Queue(stack, "SpokeResultsQueue")
 
     config = SteamPulseConfig(
@@ -64,7 +62,6 @@ def template() -> assertions.Template:
         game_events_topic=game_events_topic,
         content_events_topic=content_events_topic,
         system_events_topic=system_events_topic,
-        assets_bucket=assets_bucket,
         spoke_results_queue=spoke_results_queue,
     )
     return assertions.Template.from_stack(compute)

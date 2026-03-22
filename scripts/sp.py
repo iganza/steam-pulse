@@ -52,25 +52,23 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "library-layer"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 
-# Commands that talk to deployed AWS resources load config from
-# .env.{environment} via SteamPulseConfig.for_environment().
-# Skip load_dotenv for those — pydantic-settings prioritises env vars
-# over env files, so a .env with dummy values would win.
-_AWS_COMMANDS = {"spokes", "queue", "analyze", "seed", "db"}
-_is_aws_command = len(sys.argv) >= 2 and sys.argv[1] in _AWS_COMMANDS
+# Commands that resolve config from .env.{environment} via for_environment().
+# Skipping load_dotenv for these prevents dummy .env values from overriding
+# real SSM paths that pydantic-settings would read from the env file.
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db"}
+_cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
-if not _is_aws_command:
+if _cmd not in _DEPLOYED_COMMANDS:
+    # All local and analyze/seed commands read from .env
     load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-west-2")
+os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
 
-if _is_aws_command:
-    # LLM defaults still useful as fallbacks for analyze/seed
-    os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-    os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
-else:
-    # Local-only commands: inject dummy config so SteamPulseConfig()
-    # can be instantiated without a .env.{environment} file.
+if _cmd not in _DEPLOYED_COMMANDS and _cmd not in {"analyze", "seed"}:
+    # Local-only commands: inject dummy infra config so SteamPulseConfig()
+    # instantiates without real AWS. analyze/seed use real Bedrock creds.
     os.environ.setdefault("DB_SECRET_NAME", "local")
     os.environ.setdefault("STEAM_API_KEY_SECRET_NAME", "local")
     os.environ.setdefault("SFN_PARAM_NAME", "local")
@@ -81,8 +79,6 @@ else:
     os.environ.setdefault("GAME_EVENTS_TOPIC_PARAM_NAME", "local")
     os.environ.setdefault("CONTENT_EVENTS_TOPIC_PARAM_NAME", "local")
     os.environ.setdefault("SYSTEM_EVENTS_TOPIC_PARAM_NAME", "local")
-    os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-    os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
@@ -560,19 +556,13 @@ def cmd_queue(task: str, appids: list[int], dry_run: bool, env: str = "staging")
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
-def _find_lambda(env: str, pattern: str) -> str:
-    """Find a Lambda function name by pattern for the given environment."""
+def _resolve_admin_fn_name(env: str) -> str:
+    """Resolve Admin Lambda name from SSM."""
     import boto3
 
-    env_name = env.capitalize()
-    client = boto3.client("lambda", region_name="us-west-2")
-    paginator = client.get_paginator("list_functions")
-    prefix = f"SteamPulse-{env_name}"
-    for page in paginator.paginate():
-        for fn in page["Functions"]:
-            if fn["FunctionName"].startswith(prefix) and pattern in fn["FunctionName"]:
-                return fn["FunctionName"]
-    raise RuntimeError(f"No Lambda matching '{prefix}*{pattern}*' found")
+    ssm = boto3.client("ssm", region_name="us-west-2")
+    resp = ssm.get_parameter(Name=f"/steampulse/{env}/compute/admin-fn-name")
+    return resp["Parameter"]["Value"]
 
 
 def _invoke_lambda(fn_name: str, payload: dict) -> dict:
@@ -583,7 +573,7 @@ def _invoke_lambda(fn_name: str, payload: dict) -> dict:
     resp = client.invoke(
         FunctionName=fn_name,
         InvocationType="RequestResponse",
-        Payload=json.dumps(payload),
+        Payload=json.dumps(payload).encode("utf-8"),
     )
     result = json.loads(resp["Payload"].read())
     if resp.get("FunctionError"):
@@ -593,8 +583,8 @@ def _invoke_lambda(fn_name: str, payload: dict) -> dict:
 
 
 def _invoke_admin(env: str, payload: dict) -> dict:
-    """Find and invoke the Admin Lambda for the given environment."""
-    fn_name = _find_lambda(env, "AdminFn")
+    """Resolve and invoke the Admin Lambda for the given environment."""
+    fn_name = _resolve_admin_fn_name(env)
     _info(f"Invoking {fn_name}...")
     return _invoke_lambda(fn_name, payload)
 
@@ -630,7 +620,10 @@ def cmd_db_query(env: str, sql: str) -> None:
         return
     display_rows = [[str(row.get(c, "")) for c in columns] for row in query_rows]
     _table(columns, display_rows)
-    _info(f"{count:,} row(s)")
+    if result.get("truncated"):
+        _warn(f"Showing first {count:,} rows — add LIMIT to your query for full control")
+    else:
+        _info(f"{count:,} row(s)")
 
 
 # ── Spokes ───────────────────────────────────────────────────────────────────

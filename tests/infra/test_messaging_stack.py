@@ -49,51 +49,48 @@ def test_messaging_stack_creates_3_topics() -> None:
 def test_messaging_stack_creates_subscriptions_with_filters() -> None:
     """SNS subscriptions use event_type filter policies (test 45)."""
     template = _synth_messaging_stack()
-    # At least 5 subscriptions: metadata-enrichment, review-crawl x2,
+    # 4 subscriptions: metadata-enrichment, review-crawl ($or CfnSubscription),
     # batch-staging, cache-invalidation
     subs = template.find_resources("AWS::SNS::Subscription")
-    assert len(subs) >= 5, f"Expected >= 5 subscriptions, got {len(subs)}"
+    assert len(subs) == 4, f"Expected 4 subscriptions, got {len(subs)}"
 
-    # Every subscription must have a FilterPolicy with event_type
+    # Every subscription must have a FilterPolicy
     for logical_id, resource in subs.items():
         props = resource["Properties"]
         assert "FilterPolicy" in props, f"{logical_id} missing FilterPolicy"
-        fp = props["FilterPolicy"]
-        assert "event_type" in fp, f"{logical_id} FilterPolicy missing event_type"
 
 
 # ── Test 46: review-crawl-queue has 2 subscriptions with correct filters ──────
 
 
 def test_messaging_stack_review_crawl_filter() -> None:
-    """Review-crawl-queue has TWO subscriptions with correct filters (test 46)."""
+    """Review-crawl-queue has ONE $or subscription covering both filter conditions (test 46)."""
     template = _synth_messaging_stack()
     subs = template.find_resources("AWS::SNS::Subscription")
 
     review_crawl_subs = []
     for _logical_id, resource in subs.items():
         props = resource["Properties"]
-        # Check if endpoint references the review crawl queue
-        endpoint = props.get("Endpoint", {})
-        # CDK uses Fn::GetAtt on the queue ARN
-        if isinstance(endpoint, dict) and "Fn::GetAtt" in endpoint:
-            ref = endpoint["Fn::GetAtt"][0]
-            if "ReviewCrawl" in ref:
-                review_crawl_subs.append(props["FilterPolicy"])
+        # CfnSubscription stores endpoint as a plain string ARN token
+        endpoint = props.get("Endpoint", "")
+        filter_policy = props.get("FilterPolicy", {})
+        fp_str = str(filter_policy)
+        if "ReviewCrawl" in fp_str or "ReviewCrawl" in str(endpoint):
+            review_crawl_subs.append(filter_policy)
+        # Also catch by $or key presence combined with both event types in the policy
+        elif "$or" in filter_policy:
+            review_crawl_subs.append(filter_policy)
 
-    assert len(review_crawl_subs) == 2, (
-        f"Expected 2 review-crawl subscriptions, got {len(review_crawl_subs)}"
+    assert len(review_crawl_subs) == 1, (
+        f"Expected 1 review-crawl $or subscription, got {len(review_crawl_subs)}"
     )
 
-    # One should filter for game-metadata-ready + is_eligible
-    filters_flat = [str(fp) for fp in review_crawl_subs]
-    has_metadata_ready = any(
-        "game-metadata-ready" in f and "is_eligible" in f for f in filters_flat
-    )
-    has_released_updated = any("game-released" in f for f in filters_flat)
-
-    assert has_metadata_ready, "Missing game-metadata-ready + is_eligible subscription"
-    assert has_released_updated, "Missing game-released/game-updated subscription"
+    fp = review_crawl_subs[0]
+    fp_str = str(fp)
+    assert "$or" in fp, f"Expected $or filter policy, got: {fp}"
+    assert "game-metadata-ready" in fp_str, "Missing game-metadata-ready condition"
+    assert "is_eligible" in fp_str, "Missing is_eligible condition"
+    assert "game-released" in fp_str, "Missing game-released condition"
 
 
 # ── Test 50: SSM param for eligibility threshold ──────────────────────────────

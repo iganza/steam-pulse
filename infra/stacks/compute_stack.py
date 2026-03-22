@@ -480,3 +480,9 @@ class ComputeStack(cdk.Stack):
             parameter_name=f"/steampulse/{env}/compute/api-fn-url",
             string_value=self.api_fn_url.url,
         )
+        ssm.StringParameter(
+            self,
+            "AdminFnNameParam",
+            parameter_name=f"/steampulse/{env}/compute/admin-fn-name",
+            string_value=admin_fn.function_name,
+        )

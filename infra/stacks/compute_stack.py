@@ -280,9 +280,10 @@ class ComputeStack(cdk.Stack):
         crawler_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn, steam_secret.secret_arn],
+                resources=[db_secret.secret_arn],
             )
         )
+        steam_secret.grant_read(crawler_role)
         crawler_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["states:StartExecution"],

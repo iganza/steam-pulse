@@ -44,8 +44,11 @@ _steam_api_key: str = _sm.get_secret_value(
 )["SecretString"]
 
 _steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT)
-_http = httpx.AsyncClient(timeout=90.0)
-_steam = DirectSteamSource(_http, api_key=_steam_api_key, on_request=_steam_metrics_callback)
+_steam = DirectSteamSource(
+    httpx.AsyncClient(timeout=90.0),
+    api_key=_steam_api_key,
+    on_request=_steam_metrics_callback,
+)
 _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)
 _s3 = boto3.client("s3", region_name=_PRIMARY_REGION)
 
@@ -59,6 +62,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
     req = SpokeRequest.model_validate(event)
     appid = req.appid
     task = req.task
+
+    # Refresh the HTTP client before each asyncio.run() call. asyncio.run() closes
+    # the event loop on exit, so connections from the previous invocation are bound
+    # to a dead loop. A fresh client avoids "Event loop is closed" on warm containers.
+    _steam._client = httpx.AsyncClient(timeout=90.0)
 
     if task == "metadata":
         ok = asyncio.run(_process_metadata(appid))

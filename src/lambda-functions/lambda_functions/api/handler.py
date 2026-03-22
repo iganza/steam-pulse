@@ -7,7 +7,6 @@ import uuid
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from library_layer.analyzer import analyze_reviews
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from pydantic import BaseModel
@@ -131,17 +130,10 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
         await _set_job(job_id, "running", appid)
         return job_id
 
-    # Local dev: run inline synchronously, store result
-    job_id = f"local-{appid}-{uuid.uuid4().hex[:8]}"
-    await _set_job(job_id, "running", appid)
-    reviews = await _steam.get_reviews(appid)
-    if reviews:
-        result = await analyze_reviews(reviews, game_name, appid=appid)
-        await _upsert_report(appid, result)
-        await _set_job(job_id, "complete", appid)
-    else:
-        await _set_job(job_id, "failed", appid)
-    return job_id
+    raise HTTPException(
+        status_code=503,
+        detail={"error": "step_functions_unavailable", "code": "sfn_arn_not_configured"},
+    )
 
 
 async def _send_confirmation_email(to_email: str, game_name: str) -> None:

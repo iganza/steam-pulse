@@ -22,6 +22,12 @@ Usage:
   poetry run python scripts/sp.py queue metadata --all        # all pending from app_catalog
   poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
 
+  poetry run python scripts/sp.py db init [--env staging|production]
+  poetry run python scripts/sp.py db status [--env staging|production]
+  poetry run python scripts/sp.py db query "SELECT * FROM games LIMIT 5" [--env staging|production]
+
+  poetry run python scripts/sp.py spokes status [--env staging|production]
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
@@ -46,28 +52,39 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "library-layer"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 
-load_dotenv(os.path.join(REPO_ROOT, ".env"))
+# Commands that talk to deployed AWS resources load config from
+# .env.{environment} via SteamPulseConfig.for_environment().
+# Skip load_dotenv for those — pydantic-settings prioritises env vars
+# over env files, so a .env with dummy values would win.
+_AWS_COMMANDS = {"spokes", "queue", "analyze", "seed", "db"}
+_is_aws_command = len(sys.argv) >= 2 and sys.argv[1] in _AWS_COMMANDS
 
-# Disable cloud triggers — we drive the pipeline manually
-# Secrets Manager names (resolved by db.py / steam source at runtime)
-os.environ.setdefault("DB_SECRET_NAME", "local")
-os.environ.setdefault("STEAM_API_KEY_SECRET_NAME", "local")
-# SSM parameter names (not resolved locally — CrawlService accepts explicit values)
-os.environ.setdefault("SFN_PARAM_NAME", "local")
-os.environ.setdefault("STEP_FUNCTIONS_PARAM_NAME", "local")
-os.environ.setdefault("APP_CRAWL_QUEUE_PARAM_NAME", "local")
-os.environ.setdefault("REVIEW_CRAWL_QUEUE_PARAM_NAME", "local")
-os.environ.setdefault("ASSETS_BUCKET_PARAM_NAME", "local")
-os.environ.setdefault("GAME_EVENTS_TOPIC_PARAM_NAME", "local")
-os.environ.setdefault("CONTENT_EVENTS_TOPIC_PARAM_NAME", "local")
-os.environ.setdefault("SYSTEM_EVENTS_TOPIC_PARAM_NAME", "local")
-# LLM model routing defaults — overridden by .env if present
-os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
-# AWS defaults for local dev
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
+if not _is_aws_command:
+    load_dotenv(os.path.join(REPO_ROOT, ".env"))
+
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-west-2")
+
+if _is_aws_command:
+    # LLM defaults still useful as fallbacks for analyze/seed
+    os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
+else:
+    # Local-only commands: inject dummy config so SteamPulseConfig()
+    # can be instantiated without a .env.{environment} file.
+    os.environ.setdefault("DB_SECRET_NAME", "local")
+    os.environ.setdefault("STEAM_API_KEY_SECRET_NAME", "local")
+    os.environ.setdefault("SFN_PARAM_NAME", "local")
+    os.environ.setdefault("STEP_FUNCTIONS_PARAM_NAME", "local")
+    os.environ.setdefault("APP_CRAWL_QUEUE_PARAM_NAME", "local")
+    os.environ.setdefault("REVIEW_CRAWL_QUEUE_PARAM_NAME", "local")
+    os.environ.setdefault("ASSETS_BUCKET_PARAM_NAME", "local")
+    os.environ.setdefault("GAME_EVENTS_TOPIC_PARAM_NAME", "local")
+    os.environ.setdefault("CONTENT_EVENTS_TOPIC_PARAM_NAME", "local")
+    os.environ.setdefault("SYSTEM_EVENTS_TOPIC_PARAM_NAME", "local")
+    os.environ.setdefault("LLM_MODEL__CHUNKING", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    os.environ.setdefault("LLM_MODEL__SUMMARIZER", "us.anthropic.claude-sonnet-4-6")
+    os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
+    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
 from library_layer.repositories.game_repo import GameRepository  # noqa: E402
@@ -511,9 +528,9 @@ def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
     return sent
 
 
-def cmd_queue(task: str, appids: list[int], dry_run: bool) -> None:
+def cmd_queue(task: str, appids: list[int], dry_run: bool, env: str = "staging") -> None:
     """Publish appids to deployed SQS queues for the spoke pipeline to process."""
-    config = SteamPulseConfig()
+    config = SteamPulseConfig.for_environment(env)
 
     if task == "metadata":
         param = config.APP_CRAWL_QUEUE_PARAM_NAME
@@ -539,6 +556,137 @@ def cmd_queue(task: str, appids: list[int], dry_run: bool) -> None:
     messages = [{"appid": appid} for appid in appids]
     sent = _send_sqs_batch(queue_url, messages)
     _ok(f"Published {sent} {task} messages to {label}")
+
+
+# ── DB ───────────────────────────────────────────────────────────────────────
+
+def _find_lambda(env: str, pattern: str) -> str:
+    """Find a Lambda function name by pattern for the given environment."""
+    import boto3
+
+    env_name = env.capitalize()
+    client = boto3.client("lambda", region_name="us-west-2")
+    paginator = client.get_paginator("list_functions")
+    prefix = f"SteamPulse-{env_name}"
+    for page in paginator.paginate():
+        for fn in page["Functions"]:
+            if fn["FunctionName"].startswith(prefix) and pattern in fn["FunctionName"]:
+                return fn["FunctionName"]
+    raise RuntimeError(f"No Lambda matching '{prefix}*{pattern}*' found")
+
+
+def _invoke_lambda(fn_name: str, payload: dict) -> dict:
+    """Invoke a Lambda synchronously and return the parsed response."""
+    import boto3
+
+    client = boto3.client("lambda", region_name="us-west-2")
+    resp = client.invoke(
+        FunctionName=fn_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload),
+    )
+    result = json.loads(resp["Payload"].read())
+    if resp.get("FunctionError"):
+        error_msg = result.get("errorMessage", "Unknown error")
+        raise RuntimeError(f"Lambda error: {error_msg}")
+    return result
+
+
+def _invoke_admin(env: str, payload: dict) -> dict:
+    """Find and invoke the Admin Lambda for the given environment."""
+    fn_name = _find_lambda(env, "AdminFn")
+    _info(f"Invoking {fn_name}...")
+    return _invoke_lambda(fn_name, payload)
+
+
+def cmd_db_init(env: str) -> None:
+    """Create all tables in the deployed RDS database."""
+    result = _invoke_admin(env, {"action": "init"})
+    _ok(result.get("message", "done"))
+
+
+def cmd_db_status(env: str) -> None:
+    """Show tables and row counts in the deployed RDS database."""
+    result = _invoke_admin(env, {"action": "status"})
+    tables = result.get("tables", [])
+    if not tables:
+        _warn("No tables found")
+        return
+    rows = [[t["table"], f"{t['rows']:,}"] for t in tables]
+    _table(["Table", "Rows"], rows)
+
+
+def cmd_db_query(env: str, sql: str) -> None:
+    """Run a read-only SQL query against the deployed RDS database."""
+    result = _invoke_admin(env, {"action": "query", "sql": sql})
+    if result.get("status") == "error":
+        _err(result.get("message", "Unknown error"))
+        return
+    columns = result.get("columns", [])
+    query_rows = result.get("rows", [])
+    count = result.get("count", 0)
+    if not query_rows:
+        _warn("No rows returned")
+        return
+    display_rows = [[str(row.get(c, "")) for c in columns] for row in query_rows]
+    _table(columns, display_rows)
+    _info(f"{count:,} row(s)")
+
+
+# ── Spokes ───────────────────────────────────────────────────────────────────
+
+def cmd_spokes_status(env: str) -> None:
+    """Show deployed spoke Lambdas across all regions."""
+    import boto3
+
+    config = SteamPulseConfig.for_environment(env)
+    regions = config.spoke_region_list
+    if not regions:
+        _warn(f"No spoke regions configured for {env} (SPOKE_REGIONS is empty)")
+        return
+
+    _info(f"Checking spokes for {env}: {', '.join(regions)}")
+    rows: list[list[str]] = []
+
+    for region in regions:
+        fn_name = f"steampulse-{env}-spoke-crawler-{region}"
+        lambda_client = boto3.client("lambda", region_name=region)
+        try:
+            fn = lambda_client.get_function(FunctionName=fn_name)
+            cfg = fn["Configuration"]
+            state = cfg.get("State", "?")
+            last_modified = cfg.get("LastModified", "?")
+            memory = str(cfg.get("MemorySize", "?"))
+            timeout = str(cfg.get("Timeout", "?"))
+            runtime = cfg.get("Runtime", "?")
+            reserved = str(fn.get("Concurrency", {}).get("ReservedConcurrentExecutions", "—"))
+            rows.append([region, fn_name, state, runtime, memory, timeout, reserved, last_modified])
+        except lambda_client.exceptions.ResourceNotFoundException:
+            rows.append([region, fn_name, "NOT FOUND", "—", "—", "—", "—", "—"])
+        except Exception as exc:
+            rows.append([region, fn_name, f"ERROR: {exc}", "—", "—", "—", "—", "—"])
+
+    _table(
+        ["Region", "Function", "State", "Runtime", "Memory", "Timeout", "Concurrency", "Last Modified"],
+        rows,
+    )
+
+    # Check SSM spoke status params — each spoke writes to its own region
+    ssm_rows: list[list[str]] = []
+    for region in regions:
+        ssm_client = boto3.client("ssm", region_name=region)
+        try:
+            resp = ssm_client.get_parameters_by_path(
+                Path=f"/steampulse/{env}/spokes/",
+                Recursive=True,
+            )
+            for p in resp.get("Parameters", []):
+                ssm_rows.append([region, p["Name"], p["Value"]])
+        except Exception as exc:
+            ssm_rows.append([region, "ERROR", str(exc)])
+    if ssm_rows:
+        _info("SSM spoke parameters:")
+        _table(["Region", "Parameter", "Value"], ssm_rows)
 
 
 # ── CLI wiring ────────────────────────────────────────────────────────────────
@@ -590,13 +738,32 @@ def _build_parser() -> argparse.ArgumentParser:
     az.add_argument("--ready", action="store_true",
                     help="Analyze all games that have reviews but no report yet")
 
+    # ── db
+    db = sub.add_parser("db", help="Database operations on deployed RDS")
+    db.add_argument("--env", default="staging", choices=["staging", "production"],
+                    help="Environment (default: staging)")
+    db_sub = db.add_subparsers(dest="db_cmd", required=True)
+    db_sub.add_parser("init", help="Create all tables (idempotent)")
+    db_sub.add_parser("status", help="Show tables and row counts")
+    db_q = db_sub.add_parser("query", help="Run a read-only SQL query")
+    db_q.add_argument("sql", help="SQL query to execute")
+
     # ── seed
     sd = sub.add_parser("seed", help="Full pipeline: metadata → reviews → analysis")
     sd.add_argument("appids", type=int, nargs="*", metavar="appid",
                     help=f"Appids to seed (default: {DEFAULT_SEED_APPIDS})")
 
+    # ── spokes
+    sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
+    sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
+    ss = sp_sub.add_parser("status", help="Show deployed spoke Lambdas")
+    ss.add_argument("--env", default="staging", choices=["staging", "production"],
+                    help="Environment to check (default: staging)")
+
     # ── queue (publish to deployed SQS)
     qu = sub.add_parser("queue", help="Publish appids to deployed SQS queues")
+    qu.add_argument("--env", default="staging", choices=["staging", "production"],
+                    help="Environment to publish to (default: staging)")
     qu_sub = qu.add_subparsers(dest="queue_cmd", required=True)
 
     qm = qu_sub.add_parser("metadata", help="Publish to app-crawl queue")
@@ -648,6 +815,18 @@ def main() -> None:
     elif args.cmd == "seed":
         cmd_seed(args.appids or DEFAULT_SEED_APPIDS)
 
+    elif args.cmd == "db":
+        if args.db_cmd == "init":
+            cmd_db_init(args.env)
+        elif args.db_cmd == "status":
+            cmd_db_status(args.env)
+        elif args.db_cmd == "query":
+            cmd_db_query(args.env, args.sql)
+
+    elif args.cmd == "spokes":
+        if args.spokes_cmd == "status":
+            cmd_spokes_status(args.env)
+
     elif args.cmd == "queue":
         appids = args.appids or []
         if args.queue_cmd == "metadata":
@@ -655,13 +834,13 @@ def main() -> None:
                 parser.error("queue metadata requires appids or --all")
             if args.all_pending:
                 appids = _pending_meta(args.limit or 100_000)
-            cmd_queue("metadata", appids, args.dry_run)
+            cmd_queue("metadata", appids, args.dry_run, args.env)
         elif args.queue_cmd == "reviews":
             if not appids and not args.eligible:
                 parser.error("queue reviews requires appids or --eligible")
             if args.eligible:
                 appids = _eligible_reviews(args.limit or 100_000)
-            cmd_queue("reviews", appids, args.dry_run)
+            cmd_queue("reviews", appids, args.dry_run, args.env)
 
 
 if __name__ == "__main__":

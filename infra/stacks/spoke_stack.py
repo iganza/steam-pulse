@@ -93,7 +93,7 @@ class CrawlSpokeStack(cdk.Stack):
 
         # Deterministic function name — primary handler constructs ARN from
         # config.spoke_region_list + this naming convention for cross-region invoke.
-        fn_name = f"{environment}-steampulse-spoke-crawler-{spoke_region}"
+        fn_name = f"steampulse-spoke-crawler-{spoke_region}-{environment}"
 
         spoke_fn = PythonFunction(
             self, "SpokeCrawlerFn",

@@ -642,7 +642,7 @@ def cmd_spokes_status(env: str) -> None:
     rows: list[list[str]] = []
 
     for region in regions:
-        fn_name = f"{env}-steampulse-spoke-crawler-{region}"
+        fn_name = f"steampulse-spoke-crawler-{region}-{env}"
         lambda_client = boto3.client("lambda", region_name=region)
         try:
             fn = lambda_client.get_function(FunctionName=fn_name)

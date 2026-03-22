@@ -62,7 +62,7 @@ class ComputeStack(cdk.Stack):
         private_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)
 
         assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"{env}-steampulse-assets",
+            self, "AssetsBucket", f"steampulse-assets-{env}",
         )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
@@ -234,7 +234,7 @@ class ComputeStack(cdk.Stack):
         opennext_cache_table = dynamodb.Table(
             self,
             "OpenNextCacheTable",
-            table_name=f"{env}-steampulse-opennext-cache",
+            table_name=f"steampulse-opennext-cache-{env}",
             partition_key=dynamodb.Attribute(name="tag", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -272,7 +272,7 @@ class ComputeStack(cdk.Stack):
                 "NODE_ENV": "production",
                 # OpenNext ISR cache — must point at a real bucket or every
                 # cache read/write will fail with NoSuchBucket.
-                "CACHE_BUCKET_NAME": f"{env}-steampulse-assets",
+                "CACHE_BUCKET_NAME": f"steampulse-assets-{env}",
                 "CACHE_BUCKET_REGION": self.region,
                 "CACHE_BUCKET_KEY_PREFIX": "cache/",
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
@@ -377,7 +377,7 @@ class ComputeStack(cdk.Stack):
         if spoke_regions:
             spoke_fn_arns = [
                 f"arn:aws:lambda:{r}:{self.account}:function:"
-                f"{env}-steampulse-spoke-crawler-{r}"
+                f"steampulse-spoke-crawler-{r}-{env}"
                 for r in spoke_regions
             ]
             crawler_role.add_to_policy(iam.PolicyStatement(

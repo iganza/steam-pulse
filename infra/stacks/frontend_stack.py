@@ -28,7 +28,7 @@ class FrontendStack(cdk.Stack):
 
         env = config.ENVIRONMENT
         assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"{env}-steampulse-assets",
+            self, "AssetsBucket", f"steampulse-assets-{env}",
         )
 
         if os.path.isdir(_OPEN_NEXT_ASSETS):

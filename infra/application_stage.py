@@ -157,8 +157,8 @@ class ApplicationStage(cdk.Stage):
         steam_secret_name = f"steampulse/{environment}/steam-api-key"
         primary_region = self.region
         acct = self.account
-        results_q_name = f"steampulse-{environment}-spoke-results"
-        bucket_name = f"steampulse-{environment}-assets"
+        results_q_name = f"steampulse-spoke-results-{environment}"
+        bucket_name = f"steampulse-assets-{environment}"
 
         for region in config.spoke_region_list:
             spoke = CrawlSpokeStack(

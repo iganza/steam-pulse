@@ -100,7 +100,7 @@ class DataStack(cdk.Stack):
         # CDK tokens can't resolve cross-region.
         self.assets_bucket = s3.Bucket(
             self, "AssetsBucket",
-            bucket_name=f"{env}-steampulse-assets",
+            bucket_name=f"steampulse-assets-{env}",
             versioned=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,

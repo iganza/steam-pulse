@@ -250,8 +250,16 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={"NODE_ENV": "production"},
+            environment={
+                "NODE_ENV": "production",
+                # OpenNext ISR cache — must point at a real bucket or every
+                # cache read/write will fail with NoSuchBucket.
+                "CACHE_BUCKET_NAME": f"steampulse-{env}-assets",
+                "CACHE_BUCKET_REGION": self.region,
+                "CACHE_BUCKET_KEY_PREFIX": "cache/",
+            },
         )
+        assets_bucket.grant_read_write(frontend_fn)
 
         self.frontend_fn_url = frontend_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,

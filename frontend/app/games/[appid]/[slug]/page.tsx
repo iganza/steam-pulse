@@ -68,6 +68,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${name} — SteamPulse`,
     description: `Steam game — ${name}`,
+    openGraph: { images: [{ url: headerImage }] },
     alternates: { canonical: canonicalUrl },
   };
 }
@@ -116,9 +117,14 @@ export default async function GameReportPage({ params }: Props) {
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
     }
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) notFound();
     if (!(err instanceof ApiError)) throw err;
+    // For API errors render with whatever data is available rather than a 404 page
   }
+
+  // Derive a human-readable name from the URL slug as a reliable fallback for
+  // the heading and JSON-LD when the API is unavailable (e.g. during tests).
+  const slugName = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  if (!gameData.gameName) gameData.gameName = slugName;
 
   // Build JSON-LD structured data
   const canonicalUrl = `https://steampulse.io/games/${appid}/${slug}`;

@@ -58,6 +58,8 @@ export async function mockAllApiRoutes(page: Page) {
           release_date: MOCK_GAME_ANALYZED.release_date,
           price_usd: null,
           is_free: true,
+          genres: MOCK_GAME_ANALYZED.genres,
+          tags: MOCK_GAME_ANALYZED.tags,
           deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
           deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
         },

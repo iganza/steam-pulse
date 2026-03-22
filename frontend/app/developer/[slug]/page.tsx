@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { getGames } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -46,7 +45,7 @@ export default async function DeveloperPage({ params }: Props) {
     const result = await getGames({ developer: slug, sort: "review_count", limit: 100 });
     games = result.games ?? [];
   } catch {
-    notFound();
+    // Render with empty games rather than 404 — Pro CTA and heading still show
   }
 
   const avgScore = avg(games, "sentiment_score") ?? avg(games, "positive_pct");

@@ -20,14 +20,14 @@ One Python codebase. AWS for everything. Feature flags separate tiers.
 | Backend  | Python 3.12, FastAPI (API only — no HTML), uvicorn, httpx                              |
 | Frontend | Next.js (React SSR/ISR) deployed via OpenNext to Lambda + CloudFront                   |
 | LLM      | =claude-3-5-haiku-20241022= (chunks), =claude-3-5-sonnet-20241022= (synthesis + chat). |
-|          | Overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                               |
-| DB       | PostgreSQL on RDS (t3.micro → scale later)                                             |
+|          | AWS Bedrock via Converse API (real-time) and Batch Inference (bulk seed).              |
+|          | Model IDs overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                    |
+| DB       | PostgreSQL on RDS (t3.micro → scale later). All access via Repository classes.         |
 | Hosting  | AWS Lambda (container image) + CloudFront + Route 53. No Railway, no Fargate.          |
 | Infra    | AWS CDK v2 (Python), CDK Pipelines (self-mutating, 2 envs: staging + production)       |
-| Payments | Lemon Squeezy (merchant of record, handles global VAT)                                 |
+| Payments | *Deferred.* =/api/validate-key= stubs full access. No payment provider integrated yet. |
 | Email    | Resend                                                                                 |
 | Deps     | Poetry (=pyproject.toml= is source of truth — no requirements.txt)                     |
-|          |                                                                                        |
 
 * Hosting Architecture
 
@@ -121,6 +121,8 @@ repo-root/
   scripts/
     dev/                    # Local dev helpers (start-local.sh, invoke-*.sh, run-api.sh)
     seed.py                 # Bootstrap top-N games into SQS
+    trigger_crawl.py        # Manual trigger: publish SNS events for crawl/analysis
+    sp.py                   # Local operations CLI (metadata, reviews, analysis)
   main.py                   # CLI tool for local LLM testing
   pyproject.toml            # Python deps (main + infra groups)
   cdk.json                  # "app": "poetry run python infra/app.py"
@@ -253,8 +255,8 @@ SteamPulse uses Steam's own APIs directly via a =SteamDataSource= abstraction
 | Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, categories, price, review counts |
 | Steam Reviews    | store.steampowered.com/appreviews/{appid}  | Review text, thumbs, playtime |
 
-SteamSpy is NOT used. Steam's own API provides all required fields (genres, categories,
-review counts, metadata). =get_steamspy_data()= is not part of the abstraction.
+Steam's own APIs provide all required fields (genres, categories, review counts, metadata).
+No third-party data sources are used.
 
 ** SteamDataSource abstraction
 #+BEGIN_SRC python
@@ -277,24 +279,94 @@ class DirectSteamSource(SteamDataSource):
    - SQS queue: =review-crawl-queue= (batch size 1 — each game is heavyweight)
    - Rate: paced by SQS visibility timeout (~2 min max per game)
 
-** Step Functions: Analysis Pipeline
+** LLM execution paths
 
-State machine triggered after review crawl completes for each game:
+Two paths exist for the two-pass pipeline, sharing the same prompt logic:
+
+| Path       | When used                    | Mechanism                          | Cost saving |
+|------------+------------------------------+------------------------------------+-------------|
+| Real-time  | On-demand single game        | Bedrock Converse API (boto3)       | None        |
+| Batch      | Bulk seed, scheduled refresh | Bedrock Batch Inference + S3 JSONL | ~50%        |
+
+*Real-time* uses =bedrock_runtime.converse()= — model-agnostic, swap model ID via env var, zero
+code changes. Prompt caching (ephemeral cache points) works on this path.
+
+*Batch* submits a JSONL file to S3, creates a Bedrock Batch job, and a Step Functions STANDARD
+workflow polls every 5 minutes until completion. Two sequential jobs: Pass 1 (Haiku, all chunks
+across all games in one job) → Pass 2 (Sonnet, one record per game). Prompt caching is NOT
+supported in Batch Inference — remove =cache_control= from batch JSONL records.
+
+Full design spec: =scripts/prompts/bedrock-batch-analysis.md=
+
+** Step Functions Analysis Pipeline
 
 #+BEGIN_SRC
 StartAnalysis
-  └── PrepareChunks   (Lambda: split reviews into 50-review batches)
+  └── PrepareChunks   (Lambda: split reviews into 50-review batches + fetch game description)
        └── Map (MaxConcurrency: 5)
-            └── AnalyzeChunk  (Lambda: Haiku — extract themes per chunk)
-       └── SynthesizeReport  (Lambda: Sonnet — merge chunks → structured JSON)
-            └── StoreReport   (Lambda: upsert to RDS reports table)
+            └── AnalyzeChunk  (Lambda: Haiku via Converse API — extract themes per chunk)
+       └── SynthesizeReport  (Lambda: Sonnet via Converse API — merge chunks → structured JSON)
+            └── StoreReport   (Lambda: upsert to RDS via ReportRepository)
                  └── InvalidateCache  (Lambda: targeted CloudFront invalidation)
 #+END_SRC
 
-Step Functions Express Workflows. Cost: ~$0.30 for entire 6k seed crawl (negligible).
-Map(MaxConcurrency=5) means a 2,000-review game (40 chunks) runs in ~8 parallel batches.
+Express Workflows for real-time (single game). STANDARD Workflows for batch (long-running, hours).
 
-* Bootstrap / Generation Strategy
+
+
+*** Game description as silent synthesis context (POC)
+
+The game's Steam description (=short_description= + =about_the_game=, HTML-stripped) is passed
+to the *Pass 2 Sonnet synthesis prompt only* — not to the Pass 1 Haiku chunk calls.
+
+Rationale:
+- Already crawled — free, already in DB
+- Zero extra cost — additional context in the same synthesis call, not a new LLM call
+- Improves =one_liner=, =audience_profile=, =genre_context= quality without any new UI sections
+- Enables implicit expectation mismatch detection (e.g., "claims deep story, players say thin
+  narrative") — surfaces naturally in existing free sections
+- Explicit description intelligence UI (Store Page Intelligence, Tag Optimization etc.) deferred to V2 Pro
+
+Implementation: strip HTML with =re.sub(r'<[^>]+>', ' ', text)= before passing to LLM.
+Cap at ~1,000 tokens to avoid inflating Pass 2 cost meaningfully (~$0.001/game extra at most).
+
+* Code Architecture
+
+** Repository → Service → Handler (mandatory pattern)
+
+Every data access follows a strict three-layer pattern. *Nothing outside a Repository ever writes SQL.*
+
+#+BEGIN_SRC
+Handler (Lambda / FastAPI route)
+  └── calls Service methods   (business logic only)
+        └── calls Repository  (SQL I/O only)
+#+END_SRC
+
+- *Repository* (=library_layer/repositories/=): pure SQL I/O. One class per domain entity
+  (=GameRepository=, =ReviewRepository=, =ReportRepository=, =CatalogRepository=, =JobRepository=).
+  No business logic, no HTTP, no LLM. Methods return domain models or raise.
+- *Service* (=library_layer/services/=): business logic. Coordinates repositories, calls Steam API,
+  calls Bedrock. No raw SQL — call a repository if you need data.
+- *Handler* (=lambda_functions/*/handler.py=): thin dispatcher. Parse input → call service → return.
+  No SQL, no business logic.
+
+** DRY principle (utils/)
+
+Any logic used by more than one repository or service lives in =library_layer/utils/=:
+
+| Utility         | Location           | Used by                            |
+|-----------------+--------------------+------------------------------------|
+| =slugify()=     | =utils/text.py=    | GameRepository, index page builder |
+| =send_sqs_batch()= | =utils/aws.py=  | CrawlService, seed script          |
+| =row_to_model()= | =utils/db.py=     | All repositories                   |
+| =score_utils=   | =utils/scores.py=  | analyzer.py + batch process Lambda |
+
+Import hierarchy: handlers → services → repositories → utils. No circular imports.
+
+** No ORM
+
+Raw psycopg2 only. No SQLAlchemy, no Peewee. The schema is simple and stable; an ORM adds
+indirection without benefit given single-purpose Lambda functions and direct SQL control.
 
 Games are analyzed in descending review count order. Three phases:
 
@@ -339,10 +411,62 @@ badge.
 - *Total ongoing LLM cost: ~$25–50/month*
 - Compare: flat 5% threshold ≈ ~$500–700/month; naive nightly everything ≈ ~$2,700/month
 
+** Manual Trigger Script (=trigger_crawl.py=)
+
+EventBridge schedules are deployed =enabled=False= — enable only after initial seed
+and site launch. Until then (and for ad-hoc operations), use =trigger_crawl.py= to
+publish the same SNS events the automated pipeline uses.
+
+Two subcommands:
+
+*=crawl=* — publishes =GameMetadataReadyEvent= to the game-events SNS topic:
+#+BEGIN_SRC sh
+# Single game (dry-run):
+poetry run python scripts/trigger_crawl.py crawl --appid 440 --dry-run
+
+# All games with 500+ Steam reviews but 0 crawled reviews:
+poetry run python scripts/trigger_crawl.py crawl --needs-reviews --limit 20
+
+# Override the eligibility threshold:
+poetry run python scripts/trigger_crawl.py crawl --needs-reviews --threshold 200 --limit 50
+#+END_SRC
+
+*=analyze=* — publishes =ReviewsReadyEvent= to the content-events SNS topic:
+#+BEGIN_SRC sh
+# Single game:
+poetry run python scripts/trigger_crawl.py analyze --appid 440 --dry-run
+
+# Games with reviews but no report:
+poetry run python scripts/trigger_crawl.py analyze --needs-report --limit 10
+
+# Games with stale reports (older than 30 days):
+poetry run python scripts/trigger_crawl.py analyze --stale-days 30
+#+END_SRC
+
+Both subcommands support =--dry-run= (shows table of matched games, skips SNS publish)
+and =--limit N= (default 50). Requires =DATABASE_URL= and the relevant topic param name env var
+(=GAME_EVENTS_TOPIC_PARAM_NAME= or =CONTENT_EVENTS_TOPIC_PARAM_NAME=).
+
 * Data Model (PostgreSQL)
 
 #+BEGIN_SRC sql
--- All Steam games (~100k apps from crawl)
+-- Lightweight index of every appid from GetAppList (~170k rows).
+-- Inserted on catalog fetch; updated as crawl progresses.
+-- games table only gets a row once metadata is fully crawled.
+CREATE TABLE app_catalog (
+  appid             INTEGER PRIMARY KEY,
+  name              TEXT NOT NULL,
+  -- phase 1: metadata crawl
+  meta_status       TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped
+  meta_crawled_at   TIMESTAMPTZ,
+  -- phase 2: review crawl (only for games with 500+ reviews)
+  review_count      INTEGER,                          -- populated after meta crawl
+  review_status     TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped | ineligible
+  review_crawled_at TIMESTAMPTZ,
+  discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- All fully-crawled Steam games (~100k rows)
 CREATE TABLE games (
   appid         INTEGER PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -440,10 +564,8 @@ CREATE TABLE rate_limits (
 
 ** LLM synthesis output (Pass 2 — Sonnet)
 
-The root cause of duplication in the old schema: `top_complaints`, `refund_risk_signals`,
-and `dev_action_items` all answered the same question ("what's wrong?"). The new schema
-gives every section a different *question*, a different *output format*, and an explicit
-exclusion rule about what does NOT belong there.
+Each section answers a distinct question with a distinct output format. Explicit exclusion rules
+prevent duplication across sections.
 
 #+BEGIN_SRC json
 {
@@ -540,34 +662,57 @@ The same root cause CAN appear in multiple sections ONLY if each instance descri
 
 If the same SENTENCE or FRAMING appears in two sections — that is duplication. Remove it from the section whose definition fits least.
 
-** Backward compatibility mapping
+** Freemium Philosophy
 
-| Old field           | New field              | Change                                      |
-|---------------------+------------------------+---------------------------------------------|
-| top_praises         | design_strengths       | Narrowed: design decisions only             |
-| top_complaints      | gameplay_friction      | Narrowed: in-game design issues only        |
-| feature_requests    | player_wishlist        | Narrowed: net-new only (not fixes)          |
-| refund_risk_signals | churn_triggers         | Reframed: journey events with timing        |
-| dev_action_items    | dev_priorities         | Now structured objects: action+why+freq+effort |
-| competitive_mentions| competitive_context    | Now structured objects                      |
+Two clean conceptual tiers:
+- *Free = "What players think"* — consumer-facing intelligence, SEO value, useful to anyone
+- *Pro = "What you should do about it"* — developer-facing action intelligence, worth paying for
+
+Each free section is designed to naturally create desire for the adjacent pro section:
+- Design Strengths → sets up "what should I build next?" → Player Wishlist
+- Gameplay Friction → sets up "why are people leaving?" → Churn Triggers
+- Audience Profile → sets up "how does this compare?" → Competitive Context
+- Sentiment Trend → sets up "what changed and why?" → deeper via Pro
+
+*No rate limiter on free content.* The free report is unconditional — no account, no IP limit,
+no friction. The public site is a sales funnel, not a profit center.
 
 ** Report page sections (in order)
 
-| #  | Section                     | Free? | Notes                                     |
-|----+-----------------------------+-------+-------------------------------------------|
-|  1 | Hero (name, cover, badge)   | ✅    |                                           |
-|  2 | The Verdict (one_liner)     | ✅    | SEO hook, max 25 words                    |
-|  3 | Quick stats                 | ✅    | reviews, price, release, developer        |
-|  4 | Design Strengths            | ✅    | Chips — what design decisions are working |
-|  5 | Gameplay Friction           | ✅    | Chips — in-game UX problems               |
-|  6 | Audience Profile            | ✅    | "Who this game is for"                    |
-|  7 | Dev Priorities              | 🔒    | Numbered, action + frequency + effort     |
-|  8 | Player Wishlist             | 🔒    | Net-new features only                     |
-|  9 | Churn Triggers              | 🔒    | Journey moments with timing — most valuable for devs |
-| 10 | Competitive Context         | ✅    | Named games cross-linked to their reports |
-| 11 | Sentiment Trend             | ✅    | improving / stable / declining badge      |
-| 12 | Genre Context               | ✅    | vs genre average                          |
-| 13 | Related Games               | ✅    | Internal SEO cross-links                  |
+| #  | Section              | Tier | Notes                                                          |
+|----+----------------------+------+----------------------------------------------------------------|
+|  1 | Hero                 | Free | Game name, cover image, sentiment badge, hidden gem score      |
+|  2 | The Verdict          | Free | one_liner (25 words max) + sentiment score bar. SEO hook.      |
+|  3 | Quick Stats          | Free | Review count, release year, price, genre                       |
+|  4 | Design Strengths     | Free | Top 3-5 things players love. Sets up Wishlist.                 |
+|  5 | Gameplay Friction    | Free | Top 3-5 pain points. Sets up Churn Triggers.                   |
+|  6 | Audience Profile     | Free | Ideal player, archetypes, not-for. Sets up Competitive.        |
+|  7 | Sentiment Trend      | Free | Improving / stable / declining + narrative note                |
+|  8 | Genre Context        | Free | How the game fits its genre — narrative paragraph              |
+|  9 | Player Wishlist      | Pro  | Features players are begging for. Maps directly to roadmap.    |
+| 10 | Churn Triggers       | Pro  | When & why players quit or refund. Journey moments + timing.   |
+| 11 | Developer Priorities | Pro  | AI-prioritized action items with effort + impact estimates     |
+| 12 | Competitive Context  | Pro  | How this game compares to named similar titles (cross-linked)  |
+| 13 | Related Games        | Free | Internal SEO cross-links to similar games                      |
+
+*** Pro section display rules
+
+- Pro sections are visible as blurred previews with *realistic placeholder content* (not grey boxes)
+- Users see the *shape* of what they're missing — real-looking data increases conversion
+- A single =PremiumUnlock= gate covers sections 9-12 together (one purchase unlocks all)
+- After unlock, all sections animate in — no page reload
+
+*** Future Pro sections (not yet in schema — flag for V2+)
+
+| Section                  | Priority | Description                                                              |
+|--------------------------+----------+--------------------------------------------------------------------------|
+| Store Page Intelligence  | High     | Explicit description mining: positioning gaps, expectation mismatches,   |
+|                          |          | "dev claims X, players experience Y" — the killer differentiator         |
+| Tag Optimization         | High     | Are they using the right/highest-traffic Steam tags? Gaps vs competitors |
+| Refund Risk Score        | Med      | Quantified signal — % of negative reviews mentioning refund/regret       |
+| Launch Reception         | Med      | First 30 days of reviews vs ongoing trend delta — did launch go well?    |
+| Price Positioning        | Med      | Right price for genre, review volume, sentiment score?                   |
+| Custom Prompt            | Low      | Ask anything about this game's reviews (power user, subscription only)   |
 
 * Site Architecture
 
@@ -620,27 +765,42 @@ Genre, tag, and developer pages aggregate insights across all games in that grou
 | Stream                    | Audience           | Type          | Notes                                      |
 |---------------------------+--------------------+---------------+--------------------------------------------|
 | Steam affiliate links     | Gamers             | Passive       | ~5% on referred purchases, zero friction   |
-| Per-analysis credits      | Developers         | Transactional | $7 single / $15 for 5-pack (Lemon Squeezy) |
+| Per-analysis credits      | Developers         | Transactional | $7 single / $15 for 5-pack — *deferred*    |
 | Pro subscription ($49/mo) | Indie studios      | Recurring     | V2 — NL chat over full catalog             |
 | Sponsored genre/tag pages | Devs wanting reach | Direct sales  | $10-50 CPM equivalent, post-launch         |
 
-** Premium CTA placement
+*Payment integration is deferred.* =/api/validate-key= currently stubs full access so the
+frontend and premium sections can be built and tested without a payment provider. When
+payment is added, replace the stub with Lemon Squeezy or Stripe license key validation.
 
-1. After the Complaints section: "8 developer action items ranked by frequency →"
-2. Genre index pages: "Analyze your own game in this genre" at top
-3. Bottom of free report: "You're a developer? Run this on your own game."
+** Premium CTA placement
 
 CTAs always speak to *developers*, never to gamers. Gamers won't pay. Developers will.
 
 - ❌ "Unlock the full report — $7"
 - ✅ "Get action items, refund signals, and feature gaps your competitors haven't fixed — $7"
 
+Placement:
+1. *After Gameplay Friction*: "See 8 prioritised developer action items →" (inline teaser)
+2. *Pro section blur gate*: Realistic placeholder content visible through blur with single CTA
+3. *Genre index pages*: "Analyse your own game in this genre" at top
+4. *Bottom of free report*: "You're a developer? Get the action intelligence — $7 one-time."
+
+** Pricing tiers
+
+| Tier          | Price         | What you get                                                      |
+|---------------+---------------+-------------------------------------------------------------------|
+| Free          | $0            | Full free report (sections 1-8 + 13), unlimited, no account      |
+| Single game   | $7 (/deferred/) | Pro sections (9-12) for one game, no account needed             |
+| 5-pack        | $15 (/deferred/) | Pro sections for 5 games (save $20)                            |
+| Pro monthly   | $29/mo        | Unlimited pro reports + on-demand freshness + custom prompts (V2) |
+
 * API Endpoints (FastAPI)
 
 | Endpoint                    | Notes                                                        |
 |-----------------------------+--------------------------------------------------------------|
 | =POST /api/preview=         | Free tier: sentiment + one-liner only (1 per IP)            |
-| =POST /api/validate-key=    | Validates Lemon Squeezy key, returns premium JSON payload    |
+| =POST /api/validate-key=    | *Stubbed* — always returns full report, activations_remaining: 99. Payment deferred. |
 | =GET /api/status/{job_id}=  | Step Functions job polling (lazy generation flow)            |
 | =POST /api/analyze=         | Triggers Step Functions for a given appid (internal/admin)  |
 | =GET /health=               | Storage backend + pro_enabled status                         |
@@ -649,25 +809,42 @@ CTAs always speak to *developers*, never to gamers. Gamers won't pay. Developers
 * Environment Variables
 
 #+BEGIN_SRC
+# Literal values — used directly
+ENVIRONMENT             # staging | production
 DATABASE_URL            # PostgreSQL. Required — no in-memory fallback in Lambda.
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-LEMONSQUEEZY_API_KEY    # Payment validation
-RESEND_API_KEY          # Email delivery
 PRO_ENABLED             # 'true' enables /api/chat (V2)
-CF_DISTRIBUTION_ID      # CloudFront distribution ID for cache invalidations
-CF_KVS_ARN              # CloudFront KeyValueStore ARN for featured spots
-STEP_FUNCTIONS_ARN      # Analysis pipeline state machine ARN
-HAIKU_MODEL             # Override default claude-3-5-haiku-20241022
-SONNET_MODEL            # Override default claude-3-5-sonnet-20241022
+
+# Secrets Manager names — Lambda calls get_secret_value(SecretId=name) directly (1 hop)
+# RDS secret must use deterministic name via rds.Credentials.from_generated_secret(secret_name=...)
+DB_SECRET_NAME                # steampulse/{env}/db-credentials
+STEAM_API_KEY_SECRET_NAME     # steampulse/{env}/steam-api-key
+
+# SSM parameter names — resolved at cold start via get_parameter() (Powertools, cached 5min)
+# _PARAM_NAME suffix = field holds an SSM path, not the actual value.
+SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
+APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
+ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/delivery/assets-bucket-name
+GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
+CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
+SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn
+
+# Non-config overrides (per-Lambda in CDK, not in .env)
+RESEND_API_KEY                     # Email delivery
+POWERTOOLS_SERVICE_NAME            # Per-Lambda service name
+LLM_MODEL__CHUNKING                # Bedrock model ID override
+LLM_MODEL__SUMMARIZER              # Bedrock model ID override
 #+END_SRC
 
 * Open Items
 
-- [ ] Lemon Squeezy webhook handler for subscription events
+- [ ] Payment integration — replace =/api/validate-key= stub with real provider (Lemon Squeezy or Stripe)
 - [ ] CloudFront Function code for KVS-based sponsor banner injection
-- [ ] =hidden_gem_score= algorithm (low review count + high positive pct + low price)
+- [ ] =hidden_gem_score= algorithm extraction to =utils/scores.py= (shared by real-time and batch paths)
 - [ ] HTML stripping in =analyzer.py= — strip =detailed_desc= / =about_the_game= before LLM prompt-build (=re.sub(r'<[^>]+>', ' ', text)=)
-- [ ] sitemap.xml auto-generation (trigger on new analysis completion)
-- [ ] Next.js component library choice (shadcn/ui is current best practice for React)
-- [ ] Execute SteamSpy removal from =app_crawler/handler.py= (prompt written, not yet run)
+- [ ] Sitemap.xml auto-generation (trigger on new analysis completion)
+- [ ] Next.js component library (shadcn/ui is current best practice for React)
+- [ ] Bedrock Batch Inference implementation — see =scripts/prompts/bedrock-batch-analysis.md=
+- [ ] Migrate real-time Bedrock calls from =AnthropicBedrock= SDK to native =boto3= Converse API

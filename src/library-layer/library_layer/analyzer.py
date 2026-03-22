@@ -1,22 +1,25 @@
-"""Two-pass LLM analysis: Haiku for chunk summarization, Sonnet for synthesis."""
+"""Two-pass LLM analysis pipeline.
+
+Pass 1 (LLM_MODEL__CHUNKING):   process 50-review chunks → extract themes and signals.
+Pass 2 (LLM_MODEL__SUMMARIZER): synthesize all chunk summaries → structured GameReport.
+
+Models are configured via the LLM_MODEL task map in .env.staging / .env.production.
+"""
 
 import json
-import os
+from datetime import UTC, datetime, timedelta
 
 import anthropic
+import instructor
+from library_layer.analyzer_models import ChunkSummary, GameReport
+from library_layer.config import SteamPulseConfig
 
-HAIKU_MODEL_DEFAULT = "anthropic.claude-3-5-haiku-20241022-v1:0"
-SONNET_MODEL_DEFAULT = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-
-
-def _haiku_model() -> str:
-    return os.getenv("HAIKU_MODEL", HAIKU_MODEL_DEFAULT)
+_config = SteamPulseConfig()
 
 
-def _sonnet_model() -> str:
-    return os.getenv("SONNET_MODEL", SONNET_MODEL_DEFAULT)
+def _get_instructor_client() -> instructor.Instructor:
+    return instructor.from_anthropic(anthropic.AnthropicBedrock())
 
-CHUNK_SIZE = 50
 
 CHUNK_SYSTEM_PROMPT = (
     "You are a signal extractor for a game review analytics pipeline. Your ONLY job is to "
@@ -27,7 +30,14 @@ CHUNK_SYSTEM_PROMPT = (
     "- Do not invent, generalize, or embellish.\n"
     "- Quotes must be word-for-word from the reviews.\n"
     "- Counts must be exact from this batch.\n"
-    "Return ONLY valid JSON. No prose."
+    "Return ONLY valid JSON. No prose.\n\n"
+    "Signal weighting:\n"
+    "- Reviews with more helpful votes carry stronger signal. A complaint from a review "
+    "with 500 helpful votes represents broad community agreement, not just one person's opinion.\n"
+    "- Reviews with high playtime (50h+) come from invested players — their friction points "
+    "and wishlist items are more informed.\n"
+    "- Free-key reviews may be biased; note them but don't weight them equally.\n"
+    "- Early Access reviews reflect a prior state of the game; tag signals from them as [EA] when extracting."
 )
 
 SYNTHESIS_SYSTEM_PROMPT = (
@@ -45,7 +55,11 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "- 'Bots are ruining the game' → gameplay_friction ONLY.\n"
     "- 'New players encounter bots in their first match' → churn_triggers ONLY.\n"
     "- 'Deploy anti-cheat' → dev_priorities ONLY.\n"
-    "- player_wishlist = features that DON'T EXIST. Fixes to broken things = gameplay_friction.\n\n"
+    "- player_wishlist = features that DON'T EXIST. Fixes to broken things = gameplay_friction.\n"
+    "- 'Game crashes every 30 minutes' → technical_issues ONLY (not gameplay_friction).\n"
+    "- 'DLC is overpriced' → monetization_sentiment ONLY (not gameplay_friction).\n"
+    "- 'Dead multiplayer lobbies' → community_health ONLY (not churn_triggers).\n"
+    "- 'Refunded after 2 hours' → refund_risk ONLY (not churn_triggers).\n\n"
     "TONE:\n"
     "- Be specific. 'Bots present in 7 of 10 batches' beats 'bots are a problem.'\n"
     "- Be honest about severity. Use 'critical', 'significant', or 'minor' deliberately.\n"
@@ -54,21 +68,17 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "- Avoid corporate language: no 'leverage', 'synergy', or 'pain points'."
 )
 
-
-def _get_client() -> anthropic.AnthropicBedrock:
-    # Uses Lambda's IAM role via boto3 — no API key needed
-    return anthropic.AnthropicBedrock()
+CHUNK_SIZE = 50
 
 
 def _chunk_reviews(reviews: list[dict], chunk_size: int = CHUNK_SIZE) -> list[list[dict]]:
     return [reviews[i : i + chunk_size] for i in range(0, len(reviews), chunk_size)]
 
 
-def _compute_sentiment_score(chunk_summaries: list[dict]) -> float:
-    total_positive = sum(c.get("batch_stats", {}).get("positive_count", 0) for c in chunk_summaries)
+def _compute_sentiment_score(chunk_summaries: list[ChunkSummary]) -> float:
+    total_positive = sum(c.batch_stats.positive_count for c in chunk_summaries)
     total = sum(
-        c.get("batch_stats", {}).get("positive_count", 0) + c.get("batch_stats", {}).get("negative_count", 0)
-        for c in chunk_summaries
+        c.batch_stats.positive_count + c.batch_stats.negative_count for c in chunk_summaries
     )
     return round(total_positive / total, 3) if total > 0 else 0.5
 
@@ -81,33 +91,96 @@ def _compute_hidden_gem_score(total_reviews: int, sentiment_score: float) -> flo
     return round(review_scarcity * quality_signal, 2)
 
 
+def _compute_sentiment_trend(reviews: list[dict]) -> tuple[str, str]:
+    """Compute sentiment trend from review timestamps.
+
+    Compares positive_pct of last 90 days vs. prior 90 days.
+    Returns (trend_label, trend_note).
+    """
+    now = datetime.now(UTC)
+    cutoff_recent = now - timedelta(days=90)
+    cutoff_prior = now - timedelta(days=180)
+
+    recent_str = cutoff_recent.strftime("%Y-%m-%d")
+    prior_str = cutoff_prior.strftime("%Y-%m-%d")
+
+    recent = [
+        r for r in reviews
+        if r.get("posted_at") and r["posted_at"][:10] >= recent_str
+    ]
+    prior = [
+        r for r in reviews
+        if r.get("posted_at") and prior_str <= r["posted_at"][:10] < recent_str
+    ]
+
+    if len(recent) < 10 or len(prior) < 10:
+        return "stable", "Insufficient recent review volume to determine trend."
+
+    recent_pct = sum(1 for r in recent if r["voted_up"]) / len(recent)
+    prior_pct = sum(1 for r in prior if r["voted_up"]) / len(prior)
+    delta = recent_pct - prior_pct
+
+    if delta > 0.05:
+        return (
+            "improving",
+            f"Sentiment rose from {prior_pct:.0%} to {recent_pct:.0%} positive "
+            f"over the last 90 days ({len(recent)} reviews vs {len(prior)} prior).",
+        )
+    elif delta < -0.05:
+        return (
+            "declining",
+            f"Sentiment dropped from {prior_pct:.0%} to {recent_pct:.0%} positive "
+            f"over the last 90 days ({len(recent)} reviews vs {len(prior)} prior).",
+        )
+    return (
+        "stable",
+        f"Sentiment steady at ~{recent_pct:.0%} positive "
+        f"over the last 180 days ({len(recent) + len(prior)} reviews).",
+    )
+
+
 def _sentiment_label(score: float) -> str:
     if score >= 0.95:
         return "Overwhelmingly Positive"
     elif score >= 0.80:
         return "Very Positive"
     elif score >= 0.65:
-        return "Positive"
+        return "Mostly Positive"
     elif score >= 0.45:
         return "Mixed"
     elif score >= 0.30:
-        return "Negative"
+        return "Mostly Negative"
     elif score >= 0.15:
         return "Very Negative"
     return "Overwhelmingly Negative"
 
 
-def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chunk_index: int, total_chunks: int) -> dict:
-    """Pass 1: extract raw signals from a batch of reviews using Haiku with prompt caching."""
+def _summarize_chunk(
+    client: instructor.Instructor,
+    chunk: list[dict],
+    chunk_index: int,
+    total_chunks: int,
+) -> ChunkSummary:
+    """Pass 1: extract raw signals from a batch of reviews (LLM_MODEL__CHUNKING, prompt caching enabled)."""
     reviews_text = "\n\n".join(
         f"[{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
-        f"{r['playtime_at_review'] // 60}h playtime]: {r['review_text'][:800]}"
+        f"{r['playtime_hours']}h played, "
+        f"{r['votes_helpful']} helpful votes, "
+        f"{'Early Access' if r['written_during_early_access'] else 'Post-launch'}, "
+        f"{'Free Key' if r['received_for_free'] else 'Paid'}, "
+        f"{r['posted_at'][:10] if r.get('posted_at') else 'unknown date'}]: "
+        f"{r['review_text'][:800]}"
         for r in chunk
     )
 
-    response = client.messages.create(
-        model=_haiku_model(),
+    dates = [r["posted_at"][:10] for r in chunk if r.get("posted_at")]
+    date_range = f"({min(dates)} to {max(dates)})" if dates else "(dates unknown)"
+
+    summary, _ = client.messages.create_with_completion(
+        model=_config.model_for("chunking"),
         max_tokens=1024,
+        response_model=ChunkSummary,
+        max_retries=2,
         system=[
             {
                 "type": "text",
@@ -120,14 +193,14 @@ def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chun
                 "role": "user",
                 "content": (
                     f"Analyze this batch of {len(chunk)} Steam reviews "
-                    f"(batch {chunk_index + 1} of {total_chunks}).\n\n"
+                    f"(batch {chunk_index + 1} of {total_chunks}, {date_range}).\n\n"
                     f"{reviews_text}\n\n"
                     "Extract these signals. Each key is defined precisely:\n\n"
                     '- "design_praise": Specific DESIGN ELEMENTS players praise (mechanics, art, '
                     "audio, controls, progression). EXCLUDE: community praise, price, nostalgia.\n\n"
                     '- "gameplay_friction": Specific IN-GAME friction points (balance, pacing, '
                     "missing UI, difficulty spikes). EXCLUDE: pricing, developer neglect, "
-                    "community behaviour, platform issues.\n\n"
+                    "community behaviour, platform issues, TECHNICAL BUGS (those go in technical_issues).\n\n"
                     '- "wishlist_items": NET-NEW features players wish existed. EXCLUDE: anything '
                     "that already exists but is broken — those go in gameplay_friction.\n\n"
                     '- "dropout_moments": Specific MOMENTS or STAGES when players say they stopped '
@@ -137,46 +210,59 @@ def _summarize_chunk(client: anthropic.AnthropicBedrock, chunk: list[dict], chun
                     '{"game": "name", "sentiment": "positive|negative|neutral", "context": "one phrase"}. '
                     "ONLY include if a specific game title is named.\n\n"
                     '- "notable_quotes": 0-2 verbatim quotes, vivid and representative, under 40 words each.\n\n'
-                    '- "batch_stats": {"positive_count": N, "negative_count": N, "avg_playtime_hours": N}\n\n'
+                    '- "technical_issues": Specific TECHNICAL problems: crashes, FPS drops, bugs, '
+                    "save corruption, compatibility issues, loading times. EXCLUDE: game design "
+                    'problems (those go in gameplay_friction). Examples: "crashes to desktop every '
+                    '30 minutes", "FPS drops to 10 in large battles", "save file corrupted after 20 hours".\n\n'
+                    '- "refund_signals": Exact phrases indicating refund intent or completed refunds. '
+                    'Copy verbatim: "refunded", "got my money back", "waste of money", "returned this", '
+                    '"steam refund", "want my money back". Include the context sentence. '
+                    "Only include if EXPLICIT refund language is present.\n\n"
+                    '- "community_health": Signals about the player community and multiplayer ecosystem. '
+                    '"dead servers", "toxic chat", "great Discord", "no one plays anymore", '
+                    '"cheaters everywhere", "helpful community". EXCLUDE: single-player game design issues.\n\n'
+                    '- "monetization_sentiment": Player feelings about pricing, DLC, microtransactions, '
+                    'battle passes, loot boxes, pay-to-win. "overpriced DLC", "great value for the price", '
+                    '"pay-to-win garbage", "fair monetization". EXCLUDE: the base game price.\n\n'
+                    '- "content_depth": Player descriptions of game length, replayability, and content '
+                    'volume. "beat it in 4 hours", "200 hours and still finding new things", "felt short", '
+                    '"endless replayability", "not enough content for the price". '
+                    "Include the reviewer's playtime for context.\n\n"
+                    '- "batch_stats": {"positive_count": N, "negative_count": N, "avg_playtime_hours": N, '
+                    '"high_playtime_count": N (reviews with >50h played), "early_access_count": N, "free_key_count": N}\n\n'
                     "Return ONLY this JSON:\n"
                     '{"design_praise": [], "gameplay_friction": [], "wishlist_items": [], '
                     '"dropout_moments": [], "competitor_refs": [], "notable_quotes": [], '
-                    '"batch_stats": {"positive_count": 0, "negative_count": 0, "avg_playtime_hours": 0}}'
+                    '"technical_issues": [], "refund_signals": [], "community_health": [], '
+                    '"monetization_sentiment": [], "content_depth": [], '
+                    '"batch_stats": {"positive_count": 0, "negative_count": 0, "avg_playtime_hours": 0, '
+                    '"high_playtime_count": 0, "early_access_count": 0, "free_key_count": 0}}'
                 ),
             }
         ],
     )
-
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {
-            "design_praise": [], "gameplay_friction": [], "wishlist_items": [],
-            "dropout_moments": [], "competitor_refs": [], "notable_quotes": [],
-            "batch_stats": {"positive_count": 0, "negative_count": 0, "avg_playtime_hours": 0},
-        }
+    return summary
 
 
 def _synthesize(
-    client: anthropic.AnthropicBedrock,
-    chunk_summaries: list[dict],
+    client: instructor.Instructor,
+    chunk_summaries: list[ChunkSummary],
     game_name: str,
     total_reviews: int,
     sentiment_score: float,
     hidden_gem_score: float,
-) -> dict:
-    """Pass 2: synthesize all chunk signals into a final structured report using Sonnet."""
-    summaries_text = json.dumps(chunk_summaries, indent=2)
+    sentiment_trend: str,
+    sentiment_trend_note: str,
+) -> GameReport:
+    """Pass 2: synthesize all chunk signals into a final structured report (LLM_MODEL__SUMMARIZER)."""
+    summaries_text = json.dumps([s.model_dump() for s in chunk_summaries], indent=2)
     overall_sentiment = _sentiment_label(sentiment_score)
 
-    response = client.messages.create(
-        model=_sonnet_model(),
-        max_tokens=3500,
+    report, _ = client.messages.create_with_completion(
+        model=_config.model_for("summarizer"),
+        max_tokens=5000,
+        response_model=GameReport,
+        max_retries=2,
         system=[
             {
                 "type": "text",
@@ -193,7 +279,8 @@ def _synthesize(
                     f"Chunks processed: {len(chunk_summaries)}\n"
                     f"Pre-calculated sentiment_score: {sentiment_score} "
                     f"(overall_sentiment: {overall_sentiment})\n"
-                    f"Pre-calculated hidden_gem_score: {hidden_gem_score}\n\n"
+                    f"Pre-calculated hidden_gem_score: {hidden_gem_score}\n"
+                    f"Pre-calculated sentiment_trend: {sentiment_trend} ({sentiment_trend_note})\n\n"
                     f"CHUNK SUMMARIES (raw signals from Pass 1):\n{summaries_text}\n\n"
                     "Synthesize a complete analysis report. Return ONLY valid JSON.\n"
                     "Read each section definition carefully — they have strict exclusion rules.\n\n"
@@ -202,8 +289,8 @@ def _synthesize(
                     f'  "total_reviews_analyzed": {total_reviews},\n'
                     f'  "overall_sentiment": "{overall_sentiment}",\n'
                     f'  "sentiment_score": {sentiment_score},\n'
-                    '  "sentiment_trend": "improving|stable|declining",\n'
-                    '  "sentiment_trend_note": "One sentence explaining WHY — not a restatement of the trend value.",\n'
+                    f'  "sentiment_trend": "{sentiment_trend}",\n'
+                    f'  "sentiment_trend_note": "{sentiment_trend_note}",\n'
                     '  "one_liner": "Max 25 words. Vivid and honest. For a gamer deciding whether to buy.",\n'
                     '  "audience_profile": {\n'
                     '    "ideal_player": "One-sentence persona of who will love this game",\n'
@@ -212,25 +299,51 @@ def _synthesize(
                     '    "not_for": ["2-3 specific player types who will regret buying — identity-based, not moment-based"]\n'
                     "  },\n"
                     '  "design_strengths": [\n'
-                    '    "Specific design decisions that are working. 4-8 items."\n'
+                    '    "Specific design decisions that are working. 2-8 items."\n'
                     '    "EXCLUDE: community praise, price, nostalgia, external factors dev does not control."\n'
                     "  ],\n"
                     '  "gameplay_friction": [\n'
-                    '    "In-game UX and design problems. 3-7 items. Player-experience language."\n'
-                    '    "EXCLUDE: pricing, developer neglect, community behaviour, platform issues."\n'
+                    '    "In-game UX and design problems. 1-7 items. Player-experience language."\n'
+                    '    "EXCLUDE: pricing, developer neglect, community behaviour, platform issues, TECHNICAL BUGS."\n'
                     "  ],\n"
                     '  "player_wishlist": [\n'
-                    '    "NET-NEW features that do not exist yet. 3-6 items."\n'
+                    '    "NET-NEW features that do not exist yet. 1-6 items."\n'
                     '    "EXCLUDE: fixes to broken things — those belong in gameplay_friction."\n'
                     "  ],\n"
                     '  "churn_triggers": [\n'
-                    '    "Specific MOMENTS in the player journey that cause dropout. 2-4 items."\n'
-                    '    "Must include timing language: \'within first 10 minutes\', \'around hour 3\'."\n'
+                    '    "Specific MOMENTS in the player journey that cause dropout. 1-4 items."\n'
+                    "    \"Must include timing language: 'within first 10 minutes', 'around hour 3'.\"\n"
                     '    "EXCLUDE: the underlying design problem itself — just describe WHEN and WHAT triggers departure."\n'
                     "  ],\n"
+                    '  "technical_issues": [\n'
+                    '    "Specific technical problems: crashes, performance, bugs, compatibility. 0-6 items."\n'
+                    "    \"Format: 'Issue — severity — affected % of negative reviews'.\"\n"
+                    '    "If no technical issues were reported, use an empty array."\n'
+                    "  ],\n"
+                    '  "refund_risk": {\n'
+                    '    "refund_language_frequency": "none|rare|moderate|frequent",\n'
+                    '    "primary_refund_drivers": ["1-3 reasons players cited for refunding"],\n'
+                    '    "risk_level": "low|medium|high"\n'
+                    "  },\n"
+                    '  "community_health": {\n'
+                    '    "overall": "thriving|active|declining|dead|not_applicable",\n'
+                    '    "signals": ["2-4 specific community signals from reviews"],\n'
+                    '    "multiplayer_population": "healthy|shrinking|critical|not_applicable"\n'
+                    "  },\n"
+                    '  "monetization_sentiment": {\n'
+                    '    "overall": "fair|mixed|predatory|not_applicable",\n'
+                    '    "signals": ["1-3 specific monetization opinions from reviews"],\n'
+                    '    "dlc_sentiment": "positive|mixed|negative|not_applicable"\n'
+                    "  },\n"
+                    '  "content_depth": {\n'
+                    '    "perceived_length": "short|medium|long|endless",\n'
+                    '    "replayability": "low|medium|high",\n'
+                    '    "value_perception": "poor|fair|good|excellent",\n'
+                    '    "signals": ["2-3 specific player descriptions of content volume"]\n'
+                    "  },\n"
                     '  "dev_priorities": [\n'
                     '    {"action": "Imperative sentence — what to build/fix", "why_it_matters": "Business impact in plain English", "frequency": "~X% of negative reviews", "effort": "low|medium|high"}\n'
-                    '    "3-5 items RANKED by impact × frequency. This section is DECISIONS, not re-descriptions of problems."\n'
+                    '    "3-5 items RANKED by impact x frequency. This section is DECISIONS, not re-descriptions of problems."\n'
                     "  ],\n"
                     '  "competitive_context": [\n'
                     '    {"game": "exact name", "comparison_sentiment": "positive|negative|neutral", "note": "one phrase"}\n'
@@ -242,39 +355,15 @@ def _synthesize(
                     "BEFORE RETURNING: Self-check for duplication. For each issue you've written, "
                     "verify it appears with a DIFFERENT FRAMING in each section — friction describes "
                     "the flaw, churn_triggers describes when it causes departure, dev_priorities "
-                    "prescribes the fix. If you have the same sentence in two sections, delete the "
+                    "prescribes the fix, technical_issues covers crashes/bugs, community_health covers "
+                    "multiplayer ecosystem, monetization_sentiment covers pricing/DLC. "
+                    "If you have the same sentence in two sections, delete the "
                     "duplicate and keep it only where the definition fits best."
                 ),
             }
         ],
     )
-
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {
-            "game_name": game_name,
-            "total_reviews_analyzed": total_reviews,
-            "overall_sentiment": overall_sentiment,
-            "sentiment_score": sentiment_score,
-            "sentiment_trend": "stable",
-            "sentiment_trend_note": "Analysis could not be parsed.",
-            "one_liner": "Analysis could not be parsed.",
-            "audience_profile": {"ideal_player": "", "casual_friendliness": "medium", "archetypes": [], "not_for": []},
-            "design_strengths": [],
-            "gameplay_friction": [],
-            "player_wishlist": [],
-            "churn_triggers": [],
-            "dev_priorities": [],
-            "competitive_context": [],
-            "genre_context": "",
-            "hidden_gem_score": hidden_gem_score,
-        }
+    return report
 
 
 async def analyze_reviews(
@@ -284,39 +373,52 @@ async def analyze_reviews(
 ) -> dict:
     """
     Full two-pass LLM analysis pipeline.
-    Pass 1: extract raw signals per chunk via Haiku (cheap, parallel).
-    Pass 2: synthesize all chunk signals into a structured report via Sonnet.
-    sentiment_score and hidden_gem_score are computed in Python — not LLM-guessed.
+    Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING, cheap, parallel).
+    Pass 2: synthesize all chunk signals into a structured report (LLM_MODEL__SUMMARIZER).
+    sentiment_score, hidden_gem_score, and sentiment_trend are computed in Python — not LLM-guessed.
     """
     import asyncio
 
     if not reviews:
         raise ValueError("No reviews to analyze")
 
-    client = _get_client()
+    client = _get_instructor_client()
     chunks = _chunk_reviews(reviews)
     total_chunks = len(chunks)
 
     # Pass 1 — run chunk summarizations in a thread pool (SDK is sync)
     loop = asyncio.get_event_loop()
-    chunk_summaries = []
+    chunk_summaries: list[ChunkSummary] = []
     for i, chunk in enumerate(chunks):
-        summary = await loop.run_in_executor(
-            None, _summarize_chunk, client, chunk, i, total_chunks
-        )
+        summary = await loop.run_in_executor(None, _summarize_chunk, client, chunk, i, total_chunks)
         chunk_summaries.append(summary)
 
-    # Compute numeric scores in Python before calling Sonnet
+    # Compute numeric scores and trend in Python before calling Sonnet
     sentiment_score = _compute_sentiment_score(chunk_summaries)
     hidden_gem_score = _compute_hidden_gem_score(len(reviews), sentiment_score)
+    sentiment_trend, sentiment_trend_note = _compute_sentiment_trend(reviews)
 
     # Pass 2 — synthesize
-    result = await loop.run_in_executor(
-        None, _synthesize, client, chunk_summaries, game_name, len(reviews),
-        sentiment_score, hidden_gem_score,
+    result: GameReport = await loop.run_in_executor(
+        None,
+        _synthesize,
+        client,
+        chunk_summaries,
+        game_name,
+        len(reviews),
+        sentiment_score,
+        hidden_gem_score,
+        sentiment_trend,
+        sentiment_trend_note,
     )
 
-    if appid is not None:
-        result["appid"] = appid
+    # Override with Python-computed values — more reliable than LLM-guessed values
+    result.sentiment_score = sentiment_score
+    result.hidden_gem_score = hidden_gem_score
+    result.sentiment_trend = sentiment_trend
+    result.sentiment_trend_note = sentiment_trend_note
 
-    return result
+    if appid is not None:
+        result.appid = appid
+
+    return result.model_dump()

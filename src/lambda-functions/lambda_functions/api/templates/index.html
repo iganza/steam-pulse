@@ -707,6 +707,7 @@
 ══════════════════════════════════════════════════════════════ -->
 <script>
   // ── State ──────────────────────────────────────────────────────
+  const DEV_MODE = true;  // TEMP: skip paywall, show full report — set false before launch
   let currentAppid = null;
   let currentResult = null;
   let checkoutSingle = '';
@@ -851,6 +852,9 @@
     document.getElementById('license-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') unlockReport();
     });
+    if (DEV_MODE) {
+      document.getElementById('license-input').value = 'dev-local-bypass';
+    }
   });
 
   // ── RENDER PREVIEW ─────────────────────────────────────────────

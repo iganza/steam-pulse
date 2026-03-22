@@ -91,14 +91,18 @@ CMD ["uvicorn", "steampulse.api:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 ANTHROPIC_API_KEY=
 DATABASE_URL=postgresql://user:pass@localhost:5432/steampulse
-LEMONSQUEEZY_API_KEY=
 RESEND_API_KEY=
-CF_DISTRIBUTION_ID=
-CF_KVS_ARN=
-STEP_FUNCTIONS_ARN=
 PRO_ENABLED=false
-HAIKU_MODEL=claude-3-5-haiku-20241022
-SONNET_MODEL=claude-3-5-sonnet-20241022
+
+# SSM parameter names (resolved at Lambda cold start via Powertools get_parameter())
+DB_SECRET_PARAM_NAME=/steampulse/staging/data/db-secret-arn
+SFN_PARAM_NAME=/steampulse/staging/compute/sfn-arn
+STEP_FUNCTIONS_PARAM_NAME=/steampulse/staging/compute/sfn-arn
+APP_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/review-crawl-queue-url
+
+LLM_MODEL__CHUNKING=claude-3-5-haiku-20241022
+LLM_MODEL__SUMMARIZER=claude-3-5-sonnet-20241022
 ```
 
 ### 0.4 — Create cdk.json at repo root
@@ -208,7 +212,7 @@ POST /api/chat  (PRO_ENABLED=true only)
 **Step Functions trigger pattern:**
 ```python
 async def _trigger_analysis(appid: int) -> str:
-    # If STEP_FUNCTIONS_ARN set: use boto3 sfn client
+    # If STEP_FUNCTIONS_PARAM_NAME set: resolve via get_parameter(), use boto3 sfn client
     # Else: run analyze_reviews() inline (local dev fallback)
     # Returns execution ARN as job_id
 ```

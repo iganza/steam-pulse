@@ -1,0 +1,100 @@
+"use client";
+
+import Link from "next/link";
+import type { Benchmarks } from "@/lib/types";
+
+interface CompetitiveBenchmarkProps {
+  benchmarks: Benchmarks;
+  genre?: string;
+  year?: number;
+  isPro?: boolean;
+}
+
+function percentileLabel(rank: number): string {
+  const pct = Math.round(rank * 100);
+  if (pct >= 50) return `Top ${100 - pct}%`;
+  return `Bottom ${pct}%`;
+}
+
+function BenchmarkBar({ label, rank, value }: { label: string; rank: number; value: string }) {
+  const fillPct = Math.round(rank * 100);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+          {label}
+        </span>
+        <span
+          className="text-sm font-mono font-medium"
+          style={{ color: "var(--teal)" }}
+        >
+          {value}
+        </span>
+      </div>
+      <div
+        className="h-1.5 rounded-full overflow-hidden relative"
+        style={{ background: "var(--border)" }}
+      >
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${fillPct}%`, background: "var(--teal)" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function CompetitiveBenchmark({
+  benchmarks,
+  genre,
+  year,
+  isPro = false,
+}: CompetitiveBenchmarkProps) {
+  if (benchmarks.cohort_size < 10) return null;
+
+  return (
+    <div className="relative" data-testid="competitive-benchmark">
+      <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Compared to {benchmarks.cohort_size.toLocaleString()} similar games
+            {genre ? ` in the ${genre} genre` : ""}
+            {year ? ` released in ${year}` : ""}.
+          </p>
+          {benchmarks.sentiment_rank !== null && (
+            <BenchmarkBar
+              label="Sentiment vs. similar games"
+              rank={benchmarks.sentiment_rank}
+              value={percentileLabel(benchmarks.sentiment_rank)}
+            />
+          )}
+          {benchmarks.popularity_rank !== null && (
+            <BenchmarkBar
+              label="Popularity vs. similar games"
+              rank={benchmarks.popularity_rank}
+              value={percentileLabel(benchmarks.popularity_rank)}
+            />
+          )}
+        </div>
+      </div>
+      {!isPro && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <p className="text-sm font-mono text-foreground font-medium">
+            Competitive Intelligence
+          </p>
+          <Link
+            href="/pro"
+            className="text-sm font-mono px-4 py-1.5 rounded-full transition-colors"
+            style={{
+              background: "rgba(45,185,212,0.15)",
+              color: "var(--teal)",
+              border: "1px solid rgba(45,185,212,0.3)",
+            }}
+          >
+            Upgrade to Pro →
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,10 @@
+{
+  "availability-zones:account=052475889199:region=us-west-2": [
+    "us-west-2a",
+    "us-west-2b",
+    "us-west-2c",
+    "us-west-2d"
+  ],
+  "ssm:account=052475889199:parameterName=/steampulse/staging/app/assets-bucket-name:region=us-west-2": "steampulse-staging-app-staticassetsbucketc3095769-diqg2sqd1mas",
+  "ami:account=052475889199:filters.image-type.0=machine:filters.name.0=fck-nat-al2023-*-arm64-ebs:filters.state.0=available:owners.0=568608671756:region=us-west-2": "ami-01098b43e0994f4bb"
+}

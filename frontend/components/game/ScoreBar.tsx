@@ -27,7 +27,7 @@ export function ScoreBar({ score, label, className = "" }: ScoreBarProps) {
   return (
     <div className={`space-y-2 ${className}`}>
       <div className="flex items-center justify-between">
-        <span className="text-xs uppercase tracking-widest text-muted-foreground font-mono">
+        <span className="text-sm uppercase tracking-widest text-muted-foreground font-mono">
           Sentiment Score
         </span>
         <span
@@ -49,7 +49,7 @@ export function ScoreBar({ score, label, className = "" }: ScoreBarProps) {
           }
         />
       </div>
-      <p className="text-xs text-muted-foreground font-mono">{displayLabel}</p>
+      <p className="text-sm text-muted-foreground font-mono">{displayLabel}</p>
     </div>
   );
 }

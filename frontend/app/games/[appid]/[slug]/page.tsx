@@ -131,7 +131,9 @@ export default async function GameReportPage({ params }: Props) {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "VideoGame",
-    "name": report?.game_name ?? gameData.gameName ?? "Unknown Game",
+    // Use report name when available; fall back to "Unknown Game" for JSON-LD
+    // (slug-derived name is only used in the React heading where it is auto-escaped)
+    "name": report?.game_name ?? "Unknown Game",
     "image": headerImage,
     "url": canonicalUrl,
     "gamePlatform": "PC",

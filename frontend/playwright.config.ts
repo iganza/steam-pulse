@@ -33,10 +33,25 @@ export default defineConfig({
       use: { ...devices['Pixel 5'] },
     },
   ],
-  webServer: {
-    command: 'npm run build && npm run start',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    // Lightweight mock API server for server-side Next.js SSR fetch calls.
+    // page.route() only intercepts browser requests; this server handles SSR.
+    {
+      command: 'node tests/mock-api-server.mjs',
+      url: 'http://localhost:8000/api/health',
+      timeout: 10_000,
+      reuseExistingServer: !process.env.CI,
+    },
+    // Next.js production server — uses API_URL to reach the mock API above.
+    {
+      command: process.env.CI ? 'npm run start' : 'npm run build && npm run start',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: {
+        API_URL: 'http://localhost:8000',
+        NEXT_PUBLIC_API_URL: '',
+      },
+    },
+  ],
 })

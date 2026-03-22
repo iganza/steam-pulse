@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
-import { MOCK_REVIEW_STATS_SPARSE, MOCK_REPORT, MOCK_GAME_ANALYZED } from './fixtures/mock-data'
+import { MOCK_REVIEW_STATS_SPARSE } from './fixtures/mock-data'
 
 test.describe('Game report page — analyzed game', () => {
   test.beforeEach(async ({ page }) => {
@@ -151,27 +151,10 @@ test.describe('Data-driven insights — analyzed game', () => {
 test.describe('Steam Deck badge — Verified override', () => {
   test('displays Deck Verified badge', async ({ page }) => {
     await mockAllApiRoutes(page)
-    // Override game report with deck_compatibility: 3 (Verified)
-    await page.route('**/api/games/440/report', route =>
-      route.fulfill({
-        json: {
-          status: 'available',
-          report: MOCK_REPORT,
-          game: {
-            short_desc: MOCK_GAME_ANALYZED.short_desc,
-            developer: MOCK_GAME_ANALYZED.developer,
-            release_date: MOCK_GAME_ANALYZED.release_date,
-            price_usd: null,
-            is_free: true,
-            deck_compatibility: 3,
-            deck_test_results: [
-              { display_type: 2, loc_token: '#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant' },
-            ],
-          },
-        },
-      })
-    )
-    await page.goto('/games/440/team-fortress-2')
+    // Appid 441 is served by the mock API server with deck_compatibility: 3 (Verified).
+    // page.route() only intercepts browser requests; server-side SSR fetches are
+    // handled by the mock-api-server.mjs at port 8000.
+    await page.goto('/games/441/deck-verified-game')
     const badge = page.getByTestId('deck-badge')
     await expect(badge).toBeVisible()
     await expect(badge).toContainText('Verified')

@@ -49,7 +49,7 @@ class DeliveryStack(cdk.Stack):
         # references that would create a Data ↔ Delivery cycle.
         # OAC bucket policy lives in DataStack (account-scoped).
         self.assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"steampulse-{env}-assets",
+            self, "AssetsBucket", f"{env}-steampulse-assets",
         )
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")

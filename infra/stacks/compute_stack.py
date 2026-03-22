@@ -21,6 +21,7 @@ import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
+import aws_cdk.aws_dynamodb as dynamodb
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
@@ -61,7 +62,7 @@ class ComputeStack(cdk.Stack):
         private_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)
 
         assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"steampulse-{env}-assets",
+            self, "AssetsBucket", f"{env}-steampulse-assets",
         )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
@@ -227,6 +228,23 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── Frontend SSR Lambda ───────────────────────────────────────────────
+        # OpenNext ISR revalidation table — tag-based on-demand revalidation.
+        # Schema: hash key `tag` (S), range key `path` (S).
+        # GSI `revalidate`: hash key `path` (S) — queried by OpenNext cache layer.
+        opennext_cache_table = dynamodb.Table(
+            self,
+            "OpenNextCacheTable",
+            table_name=f"{env}-steampulse-opennext-cache",
+            partition_key=dynamodb.Attribute(name="tag", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+        )
+        opennext_cache_table.add_global_secondary_index(
+            index_name="revalidate",
+            partition_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
+        )
+
         if os.path.isdir(_OPEN_NEXT_SERVER):
             frontend_code = lambda_.Code.from_asset(_OPEN_NEXT_SERVER)
             frontend_handler = "index.handler"
@@ -254,12 +272,14 @@ class ComputeStack(cdk.Stack):
                 "NODE_ENV": "production",
                 # OpenNext ISR cache — must point at a real bucket or every
                 # cache read/write will fail with NoSuchBucket.
-                "CACHE_BUCKET_NAME": f"steampulse-{env}-assets",
+                "CACHE_BUCKET_NAME": f"{env}-steampulse-assets",
                 "CACHE_BUCKET_REGION": self.region,
                 "CACHE_BUCKET_KEY_PREFIX": "cache/",
+                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
             },
         )
         assets_bucket.grant_read_write(frontend_fn)
+        opennext_cache_table.grant_read_write_data(frontend_fn)
 
         self.frontend_fn_url = frontend_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
@@ -357,7 +377,7 @@ class ComputeStack(cdk.Stack):
         if spoke_regions:
             spoke_fn_arns = [
                 f"arn:aws:lambda:{r}:{self.account}:function:"
-                f"steampulse-{env}-spoke-crawler-{r}"
+                f"{env}-steampulse-spoke-crawler-{r}"
                 for r in spoke_regions
             ]
             crawler_role.add_to_policy(iam.PolicyStatement(

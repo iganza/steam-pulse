@@ -16,6 +16,11 @@ psycopg2-binary = ">=2.9.9"
 resend = ">=2.0.0"
 python-dotenv = ">=1.0.0"
 aws-lambda-powertools = {extras = ["tracer"], version = "^3.25.0"}
+rich = "^14.3.3"
+library-layer = {path = "src/library-layer", develop = true}
+lambda-functions = {path = "src/lambda-functions", develop = true}
+pydantic-settings = "^2.13.1"
+instructor = ">=1.0.0"
 
 [tool.poetry.group.infra]
 optional = true
@@ -25,6 +30,7 @@ aws-cdk-lib = ">=2.180.0"
 constructs = ">=10.0.0"
 "aws-cdk.aws-lambda-python-alpha" = ">=2.180.0a0"
 cdk-monitoring-constructs = ">=8.0.0"
+cdk-fck-nat = ">=1.6.0"
 
 [tool.poetry.group.crawler]
 optional = true

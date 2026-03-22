@@ -21,9 +21,11 @@ export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"
 poetry run python - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/library-layer")
-from library_layer.storage import PostgresStorage
-storage = PostgresStorage(os.environ["DATABASE_URL"])
-storage._ensure_schema()
+import psycopg2
+from library_layer.schema import create_all
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
+create_all(conn)
+conn.close()
 print("✓ Schema ready")
 EOF
 

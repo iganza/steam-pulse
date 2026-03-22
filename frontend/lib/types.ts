@@ -20,7 +20,7 @@ export interface CompetitorRef {
   note: string;
 }
 
-/** Full report — returned by /api/validate-key and /api/status when complete */
+/** Full report — returned by /api/games/{appid}/report and /api/status when complete */
 export interface GameReport {
   game_name: string;
   appid: number;
@@ -33,9 +33,9 @@ export interface GameReport {
   audience_profile: AudienceProfile;
   design_strengths: string[];
   gameplay_friction: string[];
-  player_wishlist: string[]; // PREMIUM
-  churn_triggers: string[]; // PREMIUM
-  dev_priorities: DevPriority[]; // PREMIUM
+  player_wishlist: string[];
+  churn_triggers: string[];
+  dev_priorities: DevPriority[];
   competitive_context: CompetitorRef[];
   genre_context: string;
   hidden_gem_score: number; // 0–100
@@ -62,11 +62,17 @@ export interface JobStatus {
   error?: string;
 }
 
+export interface DeckTestResult {
+  display_type: number;
+  loc_token: string;
+}
+
 /** Game row from DB — used on listing pages */
 export interface Game {
   appid: number;
   name: string;
   slug: string;
+  short_desc?: string;
   developer?: string;
   header_image?: string;
   review_count?: number;
@@ -78,6 +84,36 @@ export interface Game {
   genres?: string[];
   tags?: string[];
   release_date?: string;
+  deck_compatibility?: number | null;
+  deck_test_results?: DeckTestResult[];
+}
+
+export interface TimelineEntry {
+  week: string;
+  total: number;
+  positive: number;
+  pct_positive: number;
+}
+
+export interface PlaytimeBucket {
+  bucket: string;
+  reviews: number;
+  pct_positive: number;
+}
+
+export interface ReviewStats {
+  timeline: TimelineEntry[];
+  playtime_buckets: PlaytimeBucket[];
+  review_velocity: {
+    reviews_per_day: number;
+    reviews_last_30_days: number;
+  };
+}
+
+export interface Benchmarks {
+  sentiment_rank: number | null;
+  popularity_rank: number | null;
+  cohort_size: number;
 }
 
 export interface Genre {
@@ -85,6 +121,7 @@ export interface Genre {
   name: string;
   slug: string;
   game_count?: number;
+  analyzed_count?: number;
 }
 
 export interface Tag {
@@ -92,4 +129,5 @@ export interface Tag {
   name: string;
   slug: string;
   game_count?: number;
+  analyzed_count?: number;
 }

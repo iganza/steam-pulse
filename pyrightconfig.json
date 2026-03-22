@@ -1,0 +1,25 @@
+{
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "venvPath": "/Users/iganza/Library/Caches/pypoetry/virtualenvs",
+  "venv": "steampulse-G1K8BM9t-py3.12",
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "infra"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/*.pyc",
+    "cdk.out"
+  ],
+  "extraPaths": [
+    "src/library-layer",
+    "src/lambda-functions"
+  ],
+  "typeCheckingMode": "standard",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

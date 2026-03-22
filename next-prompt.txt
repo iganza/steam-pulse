@@ -1,0 +1,42 @@
+Phases 0–4 are complete. Frontend builds cleanly with no type errors.
+
+   Read steam_analyzer_prompt.md and CLAUDE.md fully before starting.
+
+   Now implement Phase 5: Featured Spots (CloudFront KVS):
+
+
+    1. infra/cloudfront_functions/inject_sponsor.js — CloudFront Function that reads a featured spot from KVS for the current game path and injects an
+  x-sponsor-data response header
+    2. infra/stacks/app_stack.py — wire up the KVS to the CloudFront Function (CDK). The KVS ARN is already in cdk.json context as CF_KVS_ARN
+    3. POST /api/admin/featured — FastAPI endpoint to write a featured spot into KVS (appid → sponsor JSON). Admin-only, gated by a secret header
+  X-Admin-Key
+    4. frontend/app/games/[appid]/[slug]/GameReportClient.tsx — read x-sponsor-data header from the SSR response and render a featured sponsor card if
+  present
+
+   Verify with poetry run cdk synth (no errors) and show me the output.
+
+--------
+
+The seed script needs to reach your staging RDS (which is in a private VPC subnet) and the SQS queues. You have two options:
+
+  Option A — Run locally pointed at staging AWS (simplest):
+
+   DATABASE_URL="postgresql://..." \
+   AWS_DEFAULT_REGION=us-west-2 \
+   poetry run python scripts/seed.py --limit 50
+
+  But you'd need the RDS connection string, which requires either a bastion host or RDS Proxy to reach it from your laptop.
+
+  Option B — Run as a one-off Lambda invocation (correct way):
+
+   aws lambda invoke \
+     --function-name $(aws lambda list-functions --query "Functions[?contains(FunctionName,'Seed')].FunctionName" --output text) \
+     --payload '{"limit": 50}' \
+     --region us-west-2 \
+     response.json && cat response.json
+
+  But first — has staging actually deployed yet? The pipeline needs to complete before any of this works. Check:
+
+   aws codepipeline get-pipeline-state --name steampulse --query "stageStates[*].{Stage:stageName,Status:latestExecution.status}"
+  --output table
+

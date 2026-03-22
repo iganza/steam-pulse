@@ -1,15 +1,21 @@
-"""Data stack — RDS PostgreSQL (prod) or Aurora Serverless v2 (staging).
+"""DataStack — RDS + S3 assets bucket.
 
-Production: RDS t3.micro — $15/month flat, predictable cost for steady traffic.
-Staging: Aurora Serverless v2 with pause — scales to zero when idle, ~$0-2/month.
-Always termination_protection=True.
+Receives vpc and intra_sg from NetworkStack as CDK objects.
+termination_protection=True in production — never deleted by CDK.
+
+Assets bucket has a deterministic name so other stacks can look it up
+via from_bucket_name — no cross-stack CDK construct references needed.
 """
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
+import aws_cdk.aws_iam as iam
 import aws_cdk.aws_rds as rds
+import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
+import aws_cdk.aws_ssm as ssm
 from constructs import Construct
+from library_layer.config import SteamPulseConfig
 
 
 class DataStack(cdk.Stack):
@@ -18,56 +24,110 @@ class DataStack(cdk.Stack):
         scope: Construct,
         construct_id: str,
         *,
-        vpc: ec2.Vpc,
-        db_name: str = "steampulse",
-        is_production: bool = False,
+        config: SteamPulseConfig,
+        vpc: ec2.IVpc,
+        intra_sg: ec2.ISecurityGroup,
         **kwargs: object,
     ) -> None:
-        kwargs["termination_protection"] = True
         super().__init__(scope, construct_id, **kwargs)
 
-        db_sg = ec2.SecurityGroup(self, "DatabaseSecurityGroup", vpc=vpc, description="RDS access")
-        subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
-        engine = rds.DatabaseClusterEngine.aurora_postgres(
-            version=rds.AuroraPostgresEngineVersion.VER_16_4
+        db_name = f"{config.ENVIRONMENT}_steampulse"
+        isolated_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
+
+        db_sg = ec2.SecurityGroup(self, "DbSg", vpc=vpc, description="RDS access")
+        db_sg.add_ingress_rule(
+            ec2.Peer.security_group_id(intra_sg.security_group_id),
+            ec2.Port.tcp(5432),
+            "Lambda to Postgres",
         )
 
-        if is_production:
-            # Fixed cost ~$15/month — cheaper than Aurora for steady traffic
+        env = config.ENVIRONMENT
+        secret_name = f"steampulse/{env}/db-credentials"
+
+        if config.is_production:
+            # t3.micro: ~$15/mo, predictable cost, no cold-start latency.
             db_instance = rds.DatabaseInstance(
-                self,
-                "PostgresInstance",
+                self, "Db",
                 engine=rds.DatabaseInstanceEngine.postgres(
-                    version=rds.PostgresEngineVersion.VER_16_3
+                    version=rds.PostgresEngineVersion.VER_16_3,
                 ),
                 instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+                credentials=rds.Credentials.from_generated_secret(
+                    "postgres",
+                    secret_name=secret_name,
+                ),
                 vpc=vpc,
-                vpc_subnets=subnet_selection,
+                vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
                 database_name=db_name,
                 deletion_protection=True,
                 backup_retention=cdk.Duration.days(7),
                 storage_encrypted=True,
                 multi_az=False,
+                removal_policy=cdk.RemovalPolicy.RETAIN,
             )
-            self.db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
+            db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
         else:
-            # Aurora Serverless v2 — pauses when idle, near $0 for staging
+            # Aurora Serverless v2 (min=0 ACU): near-$0 when idle, scales on demand.
             db_cluster = rds.DatabaseCluster(
-                self,
-                "AuroraServerlessCluster",
-                engine=engine,
+                self, "Db",
+                engine=rds.DatabaseClusterEngine.aurora_postgres(
+                    version=rds.AuroraPostgresEngineVersion.VER_16_4,
+                ),
+                credentials=rds.Credentials.from_generated_secret(
+                    "postgres",
+                    secret_name=secret_name,
+                ),
                 default_database_name=db_name,
                 vpc=vpc,
-                vpc_subnets=subnet_selection,
+                vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
                 deletion_protection=True,
                 backup=rds.BackupProps(retention=cdk.Duration.days(1)),
                 storage_encrypted=True,
-                serverless_v2_min_capacity=0,   # scale to zero (pause)
-                serverless_v2_max_capacity=1,   # hard cap ~$44/month max
+                serverless_v2_min_capacity=0,
+                serverless_v2_max_capacity=1,
                 writer=rds.ClusterInstance.serverless_v2("Writer"),
+                removal_policy=cdk.RemovalPolicy.RETAIN,
             )
-            self.db_secret = db_cluster.secret  # type: ignore[assignment]
+            db_secret = db_cluster.secret  # type: ignore[assignment]
 
-        self.db_sg = db_sg
+        self.db_secret: secretsmanager.ISecret = db_secret
+
+        # ── S3 Assets Bucket ──────────────────────────────────────────────────
+        # RETAIN — never deleted by CDK. Used by crawlers (archive) and frontend (static assets).
+        # Deterministic name — spokes in other regions reference by name because
+        # CDK tokens can't resolve cross-region.
+        self.assets_bucket = s3.Bucket(
+            self, "AssetsBucket",
+            bucket_name=f"steampulse-assets-{env}",
+            versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        # Allow CloudFront OAC to read objects. Scoped to this account so
+        # only distributions we own can access the bucket.  The policy lives
+        # here (not DeliveryStack) because CDK can only manage policies on
+        # the real bucket construct, not an imported reference.
+        self.assets_bucket.add_to_resource_policy(
+            iam.PolicyStatement(
+                sid="AllowCloudFrontOac",
+                actions=["s3:GetObject"],
+                resources=[self.assets_bucket.arn_for_objects("*")],
+                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
+                conditions={
+                    "StringEquals": {
+                        "AWS:SourceAccount": cdk.Stack.of(self).account,
+                    },
+                },
+            )
+        )
+
+        ssm.StringParameter(
+            self, "AssetsBucketNameParam",
+            parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
+            string_value=self.assets_bucket.bucket_name,
+        )

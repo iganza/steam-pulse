@@ -7,7 +7,7 @@ This file is Claude Code's persistent memory for SteamPulse. Read it fully befor
 **SteamPulse** — AI-powered Steam game intelligence platform at **steampulse.io**.
 
 - **Public site**: AI-synthesized review reports for ALL Steam games with any reviews. SEO-driven, cross-linked, no ads.
-- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` sections via Lemon Squeezy license keys.
+- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` sections. Payment integration is deferred — `/api/validate-key` currently stubs full access (always grants all sections).
 - **Pro tier (V2)**: NL chat over full catalog. Feature-flagged behind `PRO_ENABLED=true`.
 
 Full architecture decisions in `steampulse-design.org` at the repo root. Read it for anything not covered here.
@@ -20,11 +20,11 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 |---|---|
 | Backend API | Python 3.12, FastAPI (JSON API only — no HTML rendering), uvicorn, httpx |
 | Frontend | Next.js (React SSR/ISR) in `frontend/`, deployed via OpenNext to Lambda |
-| LLM | `claude-3-5-haiku-20241022` (chunk pass), `claude-3-5-sonnet-20241022` (synthesis) |
-| DB | PostgreSQL on RDS. `BaseStorage` abstraction — `PostgresStorage` via `DATABASE_URL`. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
+| LLM | `claude-3-5-haiku-20241022` (chunk pass), `claude-3-5-sonnet-20241022` (synthesis). Via AWS Bedrock (`anthropic.AnthropicBedrock()`). Real-time path uses Converse API. Bulk path uses Bedrock Batch Inference. |
+| DB | PostgreSQL on RDS. All access via Repository classes. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
 | Hosting | AWS Lambda (container image) + CloudFront + Route 53. **No Railway. No Fargate.** |
 | Infra | AWS CDK v2 (Python) in `infra/`. CDK Pipelines (self-mutating). |
-| Payments | Lemon Squeezy (license key model, handles VAT) |
+| Payments | **None currently.** `/api/validate-key` stubs full access — payment integration deferred. |
 | Email | Resend |
 | Deps | Poetry — `pyproject.toml` is source of truth. No `requirements.txt`. |
 
@@ -84,7 +84,7 @@ cd frontend && npm install && npm run dev
 poetry run pytest -v
 
 # Seed script
-export APP_CRAWL_QUEUE_URL="https://sqs.us-west-2.amazonaws.com/..."
+export APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/staging/messaging/app-crawl-queue-url"
 poetry run python scripts/seed.py --limit 50   # staging
 poetry run python scripts/seed.py --dry-run --limit 5   # smoke test
 poetry run python scripts/seed.py              # production (full crawl)
@@ -94,15 +94,33 @@ poetry run python scripts/seed.py              # production (full crawl)
 
 ## Architecture: Key Patterns
 
-### Storage abstraction (storage.py)
+### Repository → Service → Handler (mandatory)
 
-All data access goes through `BaseStorage`. Nothing in `api.py`, `analyzer.py`, etc. knows which backend is active.
-- `InMemoryStorage`: local dev, no DATABASE_URL
-- `PostgresStorage`: production, auto-activates when `DATABASE_URL` is set
+Every data access follows a strict three-layer pattern. **Nothing outside a Repository ever touches SQL.**
+
+```
+Handler (Lambda / FastAPI route)
+  └── calls Service methods (business logic only)
+        └── calls Repository methods (SQL only)
+```
+
+- **Repository** (`library_layer/repositories/`): pure SQL I/O. One class per domain entity
+  (`GameRepository`, `ReviewRepository`, `ReportRepository`, etc.). No business logic,
+  no HTTP calls, no LLM calls. Methods return domain models or raise exceptions.
+- **Service** (`library_layer/services/`): business logic only. Coordinates repositories,
+  calls external APIs (Steam, Bedrock), makes decisions. No raw SQL — if you need data,
+  call a repository method.
+- **Handler** (`lambda_functions/*/handler.py`): thin dispatcher. Parse input → call service →
+  return output. No SQL, no business logic.
+
+**DRY across repos and services:** Any logic needed by more than one repository or service
+lives in `library_layer/utils/`. Examples: `slugify()`, `send_sqs_batch()`, `row_to_model()`,
+timestamp helpers. Import from utils — never duplicate.
 
 ### SteamDataSource abstraction (steam_source.py)
 
-All Steam data access goes through `SteamDataSource`. Currently only `DirectSteamSource` (calls Steam API directly). SteamSpy is NOT used — Steam's own API provides all required fields (genres, categories, review counts, metadata).
+All Steam data access goes through `SteamDataSource`. Currently only `DirectSteamSource`
+(calls Steam API directly). SteamSpy is NOT used — Steam's own API provides all required fields.
 
 ### LLM Two-Pass Analysis (analyzer.py)
 
@@ -112,11 +130,25 @@ All Steam data access goes through `SteamDataSource`. Currently only `DirectStea
 **Pass 2 (Sonnet — synthesis):** All chunk signals → structured report JSON.
 `sentiment_score` and `hidden_gem_score` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
 
+**Two execution paths:**
+- **Real-time** (on-demand, single game): `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`). Model-agnostic — swap model ID via env var, zero code changes.
+- **Batch** (bulk seed / scheduled re-analysis): **Bedrock Batch Inference** — JSONL to S3, Step Functions STANDARD workflow polls for completion, ~50% cost saving. See `scripts/prompts/bedrock-batch-analysis.md`.
+
 **Critical:** Each output section answers a DIFFERENT question. No duplication between sections:
 - `gameplay_friction` = what design is broken
 - `churn_triggers` = WHEN it causes a player to leave
 - `dev_priorities` = the ranked FIX (not a re-description)
 - `player_wishlist` = net-new features (not fixes to broken things)
+
+### Async — use it correctly
+
+FastAPI routes are `async def`. The httpx Steam API calls are genuinely async (`httpx.AsyncClient`).
+**psycopg2 is synchronous** — any repository method that runs SQL blocks the event loop. This is
+acceptable for Lambda (one request at a time on a warm container) but means async provides no
+concurrency benefit for DB-heavy operations. Never `await` a repository call — they are plain `def`.
+
+Use `asyncio.TaskGroup` when parallelizing genuinely async work (e.g., multiple concurrent Steam
+API fetches). Do not wrap sync repository calls in `asyncio.gather` expecting speedup.
 
 ### Lambda Web Adapter (FastAPI on Lambda)
 
@@ -136,7 +168,7 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | Endpoint | Notes |
 |---|---|
 | `POST /api/preview` | Free: returns `game_name`, `overall_sentiment`, `sentiment_score`, `one_liner`. 1 per IP limit. |
-| `POST /api/validate-key` | Validates Lemon Squeezy key → returns full premium JSON |
+| `POST /api/validate-key` | **Stubbed** — always returns full report with `activations_remaining: 99`. Payment integration deferred. |
 | `GET /api/status/{job_id}` | Step Functions job polling (lazy generation) |
 | `POST /api/analyze` | Triggers Step Functions for appid (internal/admin) |
 | `GET /health` | Storage backend + pro_enabled status |
@@ -188,7 +220,9 @@ infra/
 ```
 
 CDK rules (mandatory):
-- No physical resource names — let CDK generate (exception: `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console)
+- No physical resource names — let CDK generate. Exceptions:
+  - `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console.
+  - **Cross-region resources** (S3 buckets, SQS queues referenced by spoke stacks) use deterministic names following `steampulse-{env}-{resource}` — CDK tokens cannot resolve cross-region, so spokes must reference by predictable name.
 - No env var lookups inside constructs — pass as props or context
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`
@@ -201,19 +235,63 @@ CDK rules (mandatory):
 
 ## Environment Variables
 
+### SSM-backed config (`_PARAM_NAME` convention)
+
+Infrastructure resource identifiers (ARNs, URLs, bucket names) are **not** passed
+directly as env vars. Instead, CDK publishes them to SSM Parameter Store and the
+Lambda env var holds the **SSM parameter name**. Each Lambda resolves only the
+params it needs at cold start via Powertools `get_parameter()` (cached 5 min).
+
+**Three kinds of infrastructure env vars — clear naming conventions:**
+
+- **`_SECRET_NAME` fields** — hold a Secrets Manager **name**. Lambda calls `get_secret_value(SecretId=name)` directly (one hop). Set in `.env`. `db.py` already implements this correctly for `DB_SECRET_NAME`.
+- **`_PARAM_NAME` fields** — hold an SSM Parameter Store **path**. Lambda calls `get_parameter(path)` at cold start via Powertools (cached 5 min). Set in `.env`.
+- **Literals** (`ENVIRONMENT`, `LLM_MODEL__*`, `PRO_ENABLED`) — used directly, no resolution needed.
+
 ```
-DATABASE_URL            # PostgreSQL. Required for PostgresStorage (no InMemoryStorage fallback in Lambda)
+# Literals — in .env, used directly
+ENVIRONMENT             # staging | production
+DATABASE_URL            # PostgreSQL connection string (local dev only)
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-LEMONSQUEEZY_API_KEY    # Payment validation
-RESEND_API_KEY          # Email
 PRO_ENABLED             # 'true' enables /api/chat (V2)
-CF_DISTRIBUTION_ID      # CloudFront distribution ID
-CF_KVS_ARN              # CloudFront KeyValueStore ARN (featured spots)
-STEP_FUNCTIONS_ARN      # Analysis pipeline state machine ARN
-HAIKU_MODEL             # Override: default claude-3-5-haiku-20241022
-SONNET_MODEL            # Override: default claude-3-5-sonnet-20241022
+LLM_MODEL__CHUNKING     # Bedrock model ID for Haiku pass
+LLM_MODEL__SUMMARIZER   # Bedrock model ID for Sonnet pass
+
+# Secrets Manager names — in .env, Lambda calls get_secret_value(SecretId=name)
+DB_SECRET_NAME                # steampulse/{env}/db-credentials
+STEAM_API_KEY_SECRET_NAME     # steampulse/{env}/steam-api-key
+
+# SSM parameter names — in .env, resolved at cold start via get_parameter()
+SFN_PARAM_NAME                    # /steampulse/{env}/compute/sfn-arn
+STEP_FUNCTIONS_PARAM_NAME         # /steampulse/{env}/compute/sfn-arn (alias)
+APP_CRAWL_QUEUE_PARAM_NAME        # /steampulse/{env}/messaging/app-crawl-queue-url
+REVIEW_CRAWL_QUEUE_PARAM_NAME     # /steampulse/{env}/messaging/review-crawl-queue-url
+ASSETS_BUCKET_PARAM_NAME          # /steampulse/{env}/data/assets-bucket-name
+GAME_EVENTS_TOPIC_PARAM_NAME      # /steampulse/{env}/messaging/game-events-topic-arn
+CONTENT_EVENTS_TOPIC_PARAM_NAME   # /steampulse/{env}/messaging/content-events-topic-arn
+SYSTEM_EVENTS_TOPIC_PARAM_NAME    # /steampulse/{env}/messaging/system-events-topic-arn
+
+# Non-config overrides (per-Lambda in CDK only)
+POWERTOOLS_SERVICE_NAME            # e.g., "crawler", "api"
+POWERTOOLS_METRICS_NAMESPACE       # "SteamPulse"
+PORT                               # 8080 for FastAPI Lambda
+RESEND_API_KEY                     # Email
 ```
+
+**CDK pattern — `to_lambda_env()` needs only `POWERTOOLS_*` overrides:**
+```python
+environment=config.to_lambda_env(
+    POWERTOOLS_SERVICE_NAME="crawler",
+    POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+)
+```
+
+Everything else comes from `.env`. No CDK token overrides. No ARN passing. The RDS secret must use `credentials=rds.Credentials.from_generated_secret("postgres", secret_name=f"steampulse/{env}/db-credentials")` to get a deterministic name.
+
+**Spoke exception:** cross-region spoke Lambdas can't resolve SSM from the primary
+region, so `_PARAM_NAME` fields hold actual values in the spoke stack's inline env dict.
+The spoke handler uses them directly without `get_parameter()`.
 
 ---
 
@@ -243,6 +321,14 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 **Error handling:**
 - Raise specific exceptions — never bare `except:` or `except Exception:` without re-raise or logging.
+- **No silent failure on init.** Lambda module-level initialization (DB connections, boto3 clients,
+  `SteamPulseConfig()`) must run without `try/except`. If it fails, the cold start crashes — that's
+  correct. Never swallow init errors with `except Exception: pass` or fall back to `None`.
+- **No default values for infrastructure config.** All ARNs, URLs, and bucket names in `SteamPulseConfig`
+  are required fields with no defaults. Every Lambda gets every env var set by CDK. If a field is missing,
+  `ValidationError` at cold start is the correct behavior — never use `= ""` or `= None` as a silent fallback.
+- Service constructors: required dependencies (`sns_client`, `config`, repos) are **not optional**.
+  Type them as required params, not `| None`. If a caller can't provide them, that's a bug.
 - FastAPI endpoints: raise `HTTPException` with appropriate status codes. Never return error dicts with 200.
 - Log with `logging` (stdlib) — not `print()`. Use structured fields: `logger.error("msg", extra={"appid": appid})`.
 
@@ -294,13 +380,39 @@ Frontend shows "Analysis from X days ago" and a "Refresh available" badge after 
 
 ---
 
+## Frontend Testing
+
+Playwright E2E tests live in `frontend/tests/`. Run with:
+
+```bash
+cd frontend
+npm run test:e2e          # all tests (headless, starts prod build)
+npm run test:e2e:ui       # interactive Playwright UI
+PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npm run test:e2e  # against staging
+```
+
+**Rule: any frontend change that alters user-visible behaviour must include test updates in the same PR.**
+
+When making frontend changes, always:
+1. Check `frontend/tests/` for existing tests covering the area you're changing
+2. Update tests that would fail due to your change — don't delete, update
+3. Add new tests for new user-facing behaviour
+4. Mock data is in `frontend/tests/fixtures/mock-data.ts` — update if you add API response fields
+5. API mocking is in `frontend/tests/fixtures/api-mock.ts` — update if endpoints change
+
+Tests are excluded from the Next.js build (`tests/` in `tsconfig.json` exclude array). Never import from `tests/` inside `app/` or `components/`.
+
+---
+
 ## Do Not Build
 
 - No user accounts or login system
-- No database migrations framework (raw SQL in `storage.py`)
+- No database migrations framework (raw SQL in repositories)
 - No CSS frameworks (use Tailwind or plain CSS in Next.js)
 - No job queue inside FastAPI (analysis is in Step Functions)
-- No subscription management UI (Lemon Squeezy handles it)
+- No payment integration until explicitly planned (validate-key is intentionally stubbed)
 - No Terraform (CDK only)
 - No separate Railway deployment
 - No Jinja2 templates (frontend is Next.js)
+- No SQLAlchemy or any ORM — raw psycopg2 in repositories only
+- No business logic in repositories, no SQL in services — maintain the layer boundary

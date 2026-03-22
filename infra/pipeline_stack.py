@@ -49,7 +49,10 @@ class PipelineStack(cdk.Stack):
                 ],
                 role_policy_statements=[
                     iam.PolicyStatement(
-                        actions=["ec2:DescribeAvailabilityZones"],
+                        actions=[
+                            "ec2:DescribeAvailabilityZones",
+                            "ec2:DescribeImages",  # fck-nat AMI lookup at synth time
+                        ],
                         resources=["*"],
                     ),
                 ],
@@ -69,11 +72,32 @@ class PipelineStack(cdk.Stack):
             docker_enabled_for_synth=True,
         )
 
+        environment = deploy_stage.lower()
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                deploy_stage,
-                stage=deploy_stage.lower(),
+                f"SteamPulse-{deploy_stage}",
+                environment=environment,
                 env=cdk.Environment(account=self.account, region=self.region),
-            )
+            ),
+            post=[
+                pipelines.CodeBuildStep(
+                    "InvalidateCDN",
+                    commands=[
+                        # Read distribution ID from SSM then invalidate HTML paths
+                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/delivery/distribution-id --query Parameter.Value --output text)',
+                        'aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"',
+                    ],
+                    role_policy_statements=[
+                        iam.PolicyStatement(
+                            actions=["ssm:GetParameter"],
+                            resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{deploy_stage.lower()}/*"],
+                        ),
+                        iam.PolicyStatement(
+                            actions=["cloudfront:CreateInvalidation"],
+                            resources=["*"],
+                        ),
+                    ],
+                ),
+            ],
         )

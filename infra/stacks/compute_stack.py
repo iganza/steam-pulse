@@ -271,6 +271,9 @@ class ComputeStack(cdk.Stack):
             ),
             environment={
                 "NODE_ENV": "production",
+                # Absolute URL for SSR — Next.js server components need this to call
+                # the API from inside Lambda (relative URLs don't work in Lambda).
+                "API_URL": self.api_fn_url.url,
                 # OpenNext ISR cache — must point at a real bucket or every
                 # cache read/write will fail with NoSuchBucket.
                 "CACHE_BUCKET_NAME": f"steampulse-assets-{env}",

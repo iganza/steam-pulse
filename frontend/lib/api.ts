@@ -3,10 +3,11 @@ import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewSt
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
 // Browser calls use "" (same-origin — Next.js rewrites proxy /api/* to FastAPI in dev,
 // CloudFront handles it in staging/prod).
-const API_BASE =
+const API_BASE = (
   typeof window === "undefined"
-    ? (process.env.API_URL ?? "")
-    : (process.env.NEXT_PUBLIC_API_URL ?? "");
+    ? process.env.API_URL!
+    : (process.env.NEXT_PUBLIC_API_URL ?? "")
+).replace(/\/$/, "");
 
 class ApiError extends Error {
   constructor(

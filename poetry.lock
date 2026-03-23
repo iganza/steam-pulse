@@ -1473,9 +1473,12 @@ develop = true
 anthropic = ">=0.40.0"
 aws-lambda-powertools = {version = ">=3.0.0", extras = ["tracer"]}
 boto3 = ">=1.34.0"
+fastapi = ">=0.115.0"
 httpx = ">=0.27.0"
+mangum = ">=0.17.0"
 psycopg2-binary = ">=2.9.9"
 pydantic-settings = "^2.13.1"
+uvicorn = {version = ">=0.30.0", extras = ["standard"]}
 
 [package.source]
 type = "directory"
@@ -1581,6 +1584,21 @@ files = [
     {file = "librt-0.8.1-cp39-cp39-win_amd64.whl", hash = "sha256:64548cde61b692dc0dc379f4b5f59a2f582c2ebe7890d09c1ae3b9e66fa015b7"},
     {file = "librt-0.8.1.tar.gz", hash = "sha256:be46a14693955b3bd96014ccbdb8339ee8c9346fbe11c1b78901b55125f14c73"},
 ]
+
+[[package]]
+name = "mangum"
+version = "0.21.0"
+description = "AWS Lambda support for ASGI applications"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "mangum-0.21.0-py3-none-any.whl", hash = "sha256:309e48f5c629542516c5106ecf079f4ec08809ed50df882238d98fe1392820c7"},
+    {file = "mangum-0.21.0.tar.gz", hash = "sha256:e31ed72d67f9958fa4379f65df77729906dec6dfa00afa6ed4e06c77833000de"},
+]
+
+[package.dependencies]
+typing-extensions = "*"
 
 [[package]]
 name = "markdown-it-py"

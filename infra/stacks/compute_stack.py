@@ -243,6 +243,7 @@ class ComputeStack(cdk.Stack):
         opennext_cache_table.add_global_secondary_index(
             index_name="revalidate",
             partition_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="revalidatedAt", type=dynamodb.AttributeType.NUMBER),
         )
 
         if os.path.isdir(_OPEN_NEXT_SERVER):

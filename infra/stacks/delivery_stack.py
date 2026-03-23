@@ -95,19 +95,6 @@ class DeliveryStack(cdk.Stack):
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 ),
-                "/_next/image*": cloudfront.BehaviorOptions(
-                    origin=origins.FunctionUrlOrigin(frontend_fn_url),
-                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                    cache_policy=cloudfront.CachePolicy(
-                        self, "ImageCachePolicy",
-                        default_ttl=cdk.Duration.seconds(86_400),
-                        max_ttl=cdk.Duration.seconds(86_400 * 7),
-                        min_ttl=cdk.Duration.seconds(0),
-                        enable_accept_encoding_gzip=True,
-                        query_string_behavior=cloudfront.CacheQueryStringBehavior.allow_list("url", "w", "q"),
-                    ),
-                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-                ),
                 "/_next/static/*": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

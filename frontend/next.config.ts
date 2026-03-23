@@ -37,24 +37,7 @@ const nextConfig: NextConfig = {
     return [];
   },
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "shared.akamai.steamstatic.com",
-      },
-      {
-        protocol: "https",
-        hostname: "cdn.akamai.steamstatic.com",
-      },
-      {
-        protocol: "https",
-        hostname: "steamcdn-a.akamaihd.net",
-      },
-      {
-        protocol: "https",
-        hostname: "store.akamai.steamstatic.com",
-      },
-    ],
+    unoptimized: true,
   },
 };
 

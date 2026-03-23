@@ -4,15 +4,20 @@ Event: {"bucket": "...", "key": "..."}
 The key must point at a gzipped plain-format pg_dump file on S3.
 
 Strategy:
-  1. Download + stream-decompress from S3
-  2. Drop public schema and recreate it (clean slate)
-  3. Execute SQL statements; COPY...FROM stdin blocks via copy_expert()
+  1. Download gzipped dump from S3 to /tmp
+  2. Stream-decompress line by line — avoids loading the full SQL into memory
+  3. Drop public schema and recreate it (clean slate)
+  4. Execute SQL statements; COPY...FROM stdin blocks via copy_expert()
+
+Failures abort immediately and raise — the Lambda reports an error payload
+so the caller (push-to-staging.sh) can detect and surface the failure.
 """
 
 import gzip
 import io
 import logging
 import re
+from typing import IO
 
 import boto3
 import psycopg2
@@ -24,85 +29,73 @@ logger.setLevel(logging.INFO)
 
 _s3 = boto3.client("s3")
 _COPY_RE = re.compile(r"COPY\s+", re.IGNORECASE)
+# Matches the opening of a dollar-quote tag, e.g. $$ or $tag$
+_DOLLAR_QUOTE_RE = re.compile(r"\$([^$]*)\$")
 
 
-def _execute_dump(conn: psycopg2.extensions.connection, sql: str) -> None:
-    """Execute a plain pg_dump SQL string.
+def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
+    """Execute a plain pg_dump from a text file object, streaming line by line.
 
     Handles COPY...FROM stdin blocks via copy_expert().
-    All other statements are executed one at a time, flushing on each line
-    that ends with ';' (which is how pg_dump terminates statements).
+    Fails fast on the first statement error — a partial restore is worse than
+    a clean failure.
+
+    Dollar-quoted blocks (e.g. CREATE FUNCTION ... $$ ... $$;) are tracked so
+    that semicolons inside the body do not prematurely flush the statement.
     """
     cur = conn.cursor()
 
-    # Wipe existing schema so the dump loads into a clean state.
     cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
     cur.execute("CREATE SCHEMA public")
     conn.commit()
 
-    lines = sql.splitlines(keepends=True)
-    i = 0
     stmt_buf: list[str] = []
     total_stmts = 0
     total_copy_blocks = 0
+    dollar_quote_tag: str | None = None  # None = not inside a dollar-quoted block
 
-    while i < len(lines):
-        line = lines[i]
+    lines = iter(f)
+
+    for line in lines:
         stripped = line.strip()
 
         # COPY ... FROM stdin block — special handling required
-        if _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
-            # Flush any pending statement first
-            if stmt_buf:
-                stmt = "".join(stmt_buf).strip()
-                if stmt:
-                    cur.execute(stmt)
-                    conn.commit()
-                    total_stmts += 1
-                stmt_buf = []
-
-            copy_cmd = stripped  # e.g. "COPY public.games (id, name) FROM stdin;"
+        if not stmt_buf and _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
+            copy_cmd = stripped
             data_lines: list[str] = []
-            i += 1
-            while i < len(lines):
-                if lines[i].rstrip("\n") == "\\.":
+            for data_line in lines:
+                if data_line.rstrip("\n") == "\\.":
                     break
-                data_lines.append(lines[i])
-                i += 1
-
+                data_lines.append(data_line)
             cur.copy_expert(copy_cmd, io.StringIO("".join(data_lines)))
             conn.commit()
             total_copy_blocks += 1
-            i += 1
             continue
 
         # Skip blank lines and pure comment lines when the buffer is empty
         if not stmt_buf and (not stripped or stripped.startswith("--")):
-            i += 1
             continue
 
         stmt_buf.append(line)
 
-        # pg_dump always terminates statements with ';' at the end of a line
-        if stripped.endswith(";") and not stripped.startswith("--"):
+        # Track entry/exit of dollar-quoted blocks so we don't flush mid-body
+        for match in _DOLLAR_QUOTE_RE.finditer(stripped):
+            tag = match.group(0)  # e.g. "$$" or "$body$"
+            if dollar_quote_tag is None:
+                dollar_quote_tag = tag
+            elif tag == dollar_quote_tag:
+                dollar_quote_tag = None
+
+        # Flush when the line ends with ';' and we're not inside a dollar-quote
+        if stripped.endswith(";") and not stripped.startswith("--") and dollar_quote_tag is None:
             stmt = "".join(stmt_buf).strip()
             if stmt:
-                try:
-                    cur.execute(stmt)
-                    conn.commit()
-                    total_stmts += 1
-                except psycopg2.Error as exc:
-                    logger.warning(
-                        "Statement failed (skipping): %s — %.120s",
-                        exc,
-                        stmt,
-                    )
-                    conn.rollback()
+                cur.execute(stmt)
+                conn.commit()
+                total_stmts += 1
             stmt_buf = []
 
-        i += 1
-
-    # Flush any trailing content
+    # Flush any trailing content (statements not ending with ';')
     if stmt_buf:
         stmt = "".join(stmt_buf).strip()
         if stmt and not stmt.startswith("--"):
@@ -122,29 +115,17 @@ def handler(event: dict, context: object) -> dict:
     key = event.get("key", "")
 
     if not bucket or not key:
-        return {"status": "error", "message": "Missing required fields: bucket, key"}
+        raise ValueError("Missing required fields: bucket, key")
 
     logger.info("Loading dump from s3://%s/%s", bucket, key)
 
     local_path = "/tmp/dump.sql.gz"
     _s3.download_file(bucket, key, local_path)
 
-    with gzip.open(local_path, "rt", encoding="utf-8") as f:
-        sql = f.read()
-
-    logger.info("Dump decompressed: %d bytes", len(sql))
-
     conn = get_conn(cursor_factory=None)
     conn.autocommit = False
 
-    try:
-        _execute_dump(conn, sql)
-    except Exception as exc:
-        logger.error("Load failed: %s", exc)
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        return {"status": "error", "message": str(exc)}
+    with gzip.open(local_path, "rt", encoding="utf-8") as f:
+        _execute_dump(conn, f)
 
     return {"status": "ok", "message": f"Loaded s3://{bucket}/{key}"}

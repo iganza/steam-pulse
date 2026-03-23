@@ -57,7 +57,7 @@ LOADER_FN=$(aws cloudformation list-stack-resources \
   --output text)
 
 if [[ -z "$LOADER_FN" ]]; then
-  echo "ERROR: DbLoaderFn not found in SteamPulse-${STAGE_CAP}-Lambda stack"
+  echo "ERROR: DbLoaderFn not found in SteamPulse-${STAGE_CAP}-Compute stack"
   exit 1
 fi
 

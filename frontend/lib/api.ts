@@ -3,11 +3,13 @@ import type { GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewSt
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
 // Browser calls use "" (same-origin — Next.js rewrites proxy /api/* to FastAPI in dev,
 // CloudFront handles it in staging/prod).
-const API_BASE = (
-  typeof window === "undefined"
-    ? process.env.API_URL!
-    : (process.env.NEXT_PUBLIC_API_URL ?? "")
-).replace(/\/$/, "");
+function getApiBase(): string {
+  const base =
+    typeof window === "undefined"
+      ? process.env.API_URL!
+      : (process.env.NEXT_PUBLIC_API_URL ?? "");
+  return base.replace(/\/$/, "");
+}
 
 class ApiError extends Error {
   constructor(
@@ -22,7 +24,7 @@ async function apiFetch<T>(
   path: string,
   init?: RequestInit & { next?: { revalidate?: number; tags?: string[] } },
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${getApiBase()}${path}`, {
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(8000),
     ...init,

@@ -151,6 +151,10 @@ TABLES: tuple[str, ...] = (
         review_count      INTEGER,                          -- populated after meta crawl
         review_status     TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped | ineligible
         review_crawled_at TIMESTAMPTZ,
+        -- cursor-based chunked fetching
+        review_cursor             TEXT,       -- NULL=not started, ''=exhausted, else opaque Steam cursor
+        review_cursor_updated_at  TIMESTAMPTZ,
+        reviews_target            INT,        -- NULL=fetch all; N=stop after N total reviews
         -- housekeeping
         discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -191,6 +195,9 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS received_for_free BOOLEAN DEFAULT FALSE",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_compatibility INTEGER",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_test_results JSONB",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor TEXT",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor_updated_at TIMESTAMPTZ",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_target INT",
 )
 
 

@@ -520,7 +520,13 @@ def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
     return sent
 
 
-def cmd_queue(task: str, appids: list[int], dry_run: bool, env: str = "staging") -> None:
+def cmd_queue(
+    task: str,
+    appids: list[int],
+    dry_run: bool,
+    env: str = "staging",
+    max_reviews: int | None = None,
+) -> None:
     """Publish appids to deployed SQS queues for the spoke pipeline to process."""
     config = SteamPulseConfig.for_environment(env)
 
@@ -532,10 +538,18 @@ def cmd_queue(task: str, appids: list[int], dry_run: bool, env: str = "staging")
         label = "review-crawl-queue"
 
     _info(f"Publishing {len(appids)} appids → {label}")
+    if max_reviews is not None:
+        _info(f"  max_reviews={max_reviews}")
+
+    def _make_body(appid: int) -> dict:
+        body: dict = {"appid": appid}
+        if task == "reviews" and max_reviews is not None:
+            body["max_reviews"] = max_reviews
+        return body
 
     if dry_run:
         for appid in appids[:10]:
-            _info(f"  {{'appid': {appid}}}")
+            _info(f"  {_make_body(appid)}")
         if len(appids) > 10:
             _info(f"  ... and {len(appids) - 10} more")
         _warn(f"[dry-run] Would publish {len(appids)} messages to {label}")
@@ -545,7 +559,7 @@ def cmd_queue(task: str, appids: list[int], dry_run: bool, env: str = "staging")
     queue_url = _resolve_queue_url(param)
     _info(f"Queue: {queue_url}")
 
-    messages = [{"appid": appid} for appid in appids]
+    messages = [_make_body(appid) for appid in appids]
     sent = _send_sqs_batch(queue_url, messages)
     _ok(f"Published {sent} {task} messages to {label}")
 
@@ -767,6 +781,8 @@ def _build_parser() -> argparse.ArgumentParser:
     qr.add_argument("--eligible", action="store_true",
                     help="Queue all review-eligible games from app_catalog")
     qr.add_argument("--limit", type=int, metavar="N", help="Limit --eligible to N entries")
+    qr.add_argument("--max-reviews", type=int, metavar="N",
+                    help="Stop after fetching N reviews (default: fetch all)")
     qr.add_argument("--dry-run", action="store_true")
 
     return p
@@ -829,7 +845,8 @@ def main() -> None:
                 parser.error("queue reviews requires appids or --eligible")
             if args.eligible:
                 appids = _eligible_reviews(args.limit or 100_000)
-            cmd_queue("reviews", appids, args.dry_run, args.env)
+            max_reviews = getattr(args, "max_reviews", None)
+            cmd_queue("reviews", appids, args.dry_run, args.env, max_reviews=max_reviews)
 
 
 if __name__ == "__main__":

@@ -207,7 +207,7 @@ class CrawlService:
             Number of reviews upserted.
         """
         try:
-            raw_reviews = self._steam.get_reviews(appid, max_reviews=max_reviews)
+            raw_reviews, _ = self._steam.get_reviews(appid, max_reviews=max_reviews)
         except SteamAPIError as exc:
             logger.warning("Steam reviews API error for appid=%s: %s", appid, exc)
             return 0

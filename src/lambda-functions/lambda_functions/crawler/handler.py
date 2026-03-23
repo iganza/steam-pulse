@@ -32,7 +32,8 @@ from .events import (
     CrawlReviewsRequest,
     CrawlTask,
     DirectRequest,
-    SpokeRequest,
+    MetadataSpokeRequest,
+    ReviewSpokeRequest,
 )
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
@@ -64,7 +65,7 @@ _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _crawler_config = SteamPulseConfig()
 metrics.set_default_dimensions(environment=_crawler_config.ENVIRONMENT)
-_steam_metrics_callback = make_steam_metrics_callback(_crawler_config.ENVIRONMENT)
+_steam_metrics_callback = make_steam_metrics_callback(_crawler_config.ENVIRONMENT, metrics)
 
 # Resolve SSM parameter names → actual values at cold start
 _sfn_arn = get_parameter(_crawler_config.SFN_PARAM_NAME)
@@ -81,6 +82,8 @@ _sm = boto3.client("secretsmanager")
 _steam_api_key: str = _sm.get_secret_value(
     SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
 )["SecretString"]
+
+_catalog_repo = CatalogRepository(_conn)
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -142,14 +145,39 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     if not _spoke_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
-    
+
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
 
     source_arn = record.get("eventSourceARN", "")
     task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
 
-    req = SpokeRequest(appid=appid, task=task)
+    if task == "reviews":
+        max_reviews: int | None = body.get("max_reviews")
+        saved_cursor = _catalog_repo.get_review_cursor(appid)
+        # None = not started, '' = exhausted (restart from *), non-empty = resume
+        cursor = saved_cursor if saved_cursor else "*"
+        if max_reviews is not None:
+            # Capped run — persist target on fresh start so ingest chain knows when to stop.
+            # Only set on fresh cursor ("*") to avoid overwriting a mid-stream target.
+            if cursor == "*":
+                _catalog_repo.set_reviews_target(appid, max_reviews)
+                logger.info("appid=%s reviews fresh start, target=%d", appid, max_reviews)
+            else:
+                logger.info("appid=%s reviews resuming cursor=%s", appid, cursor)
+        else:
+            # Uncapped run — clear any previous target so ingest doesn't stop early
+            # because total_fetched already exceeds a target from a prior seeding run.
+            _catalog_repo.set_reviews_target(appid, None)
+            resume_or_fresh = f"resuming cursor={cursor}" if cursor != "*" else "fresh start (no cap)"
+            logger.info("appid=%s reviews uncapped — %s", appid, resume_or_fresh)
+        req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
+            appid=appid,
+            cursor=cursor,
+            max_reviews=max_reviews,
+        )
+    else:
+        req = MetadataSpokeRequest(appid=appid)
 
     # Deterministic: same appid always hits the same spoke, spreading load
     # evenly and ensuring retries go to the same region.
@@ -203,20 +231,24 @@ def handler(event: dict, context: LambdaContext) -> dict:
         match req:
             case CrawlAppsRequest():
                 ok = _crawl_service.crawl_app(req.appid)
+                logger.info("crawl_app appid=%s success=%s", req.appid, ok)
                 metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
+                logger.info("crawl_reviews appid=%s upserted=%d", req.appid, n)
                 metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
+                logger.info("catalog_refresh result=%s", result)
                 metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
                 metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
                 return result
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:
+        logger.info("SQS batch: %d records", len(event["Records"]))
         return process_partial_response(
             event=event,
             record_handler=_dispatch_to_spoke,

@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import boto3
-from lambda_functions.crawler.events import SpokeRequest
+from lambda_functions.crawler.events import MetadataSpokeRequest, ReviewSpokeRequest
 from moto import mock_aws
 
 # ── SSM seed — required before handler import (module-level get_parameter) ───
@@ -67,6 +67,10 @@ def _inject_services(mock_crawl: MagicMock, mock_catalog: MagicMock) -> None:
 
     hm._crawl_service = mock_crawl
     hm._catalog_service = mock_catalog
+    # Stub catalog_repo so dispatch doesn't hit real DB
+    hm._catalog_repo = MagicMock()
+    hm._catalog_repo.get_review_cursor = MagicMock(return_value=None)
+    hm._catalog_repo.set_reviews_target = MagicMock()
 
 
 def _eventbridge_event() -> dict:
@@ -136,7 +140,7 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     mock_lambda_client.invoke.assert_called_once()
     call_kwargs = mock_lambda_client.invoke.call_args[1]
     assert call_kwargs["InvocationType"] == "Event"
-    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 440
     assert payload.task == "metadata"
 
@@ -168,9 +172,10 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     mock_lambda_client.invoke.assert_called_once()
     call_kwargs = mock_lambda_client.invoke.call_args[1]
     assert call_kwargs["InvocationType"] == "Event"
-    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 730
     assert payload.task == "reviews"
+    assert payload.cursor == "*"
 
 
 @mock_aws
@@ -206,6 +211,6 @@ def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
 
     mock_lambda_client.invoke.assert_called_once()
     call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = SpokeRequest.model_validate_json(call_kwargs["Payload"])
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 570
     assert payload.task == "metadata"

@@ -274,38 +274,80 @@ constructs = ">=10.0.0"
 
 ** Data sources
 
-SteamPulse uses Steam's own APIs directly via a =SteamDataSource= abstraction
-(same pattern as =BaseStorage= — swap implementations without touching crawler logic).
-
-| Source           | URL                                        | Data                          |
-|------------------+--------------------------------------------+-------------------------------|
-| Steam App List   | api.steampowered.com/ISteamApps/GetAppList | All ~100k app IDs + names     |
-| Steam Store API  | store.steampowered.com/api/appdetails      | Game metadata, genres, categories, price, review counts |
-| Steam Reviews    | store.steampowered.com/appreviews/{appid}  | Review text, thumbs, playtime |
-
-Steam's own APIs provide all required fields (genres, categories, review counts, metadata).
+SteamPulse uses Steam's own APIs directly via a =SteamDataSource= abstraction.
 No third-party data sources are used.
 
+| Source          | URL                                               | Data                                                    |
+|-----------------+---------------------------------------------------+---------------------------------------------------------|
+| Steam App List  | api.steampowered.com/IStoreService/GetAppList/v1/ | All ~100k app IDs + names (cursor-paginated, needs key) |
+| Steam Store API | store.steampowered.com/api/appdetails             | Game metadata, genres, categories, price                |
+| Steam Reviews   | store.steampowered.com/appreviews/{appid}         | Review text, thumbs, playtime, cursor-paginated         |
+| Steam Deck API  | store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport | Deck compatibility category + test results |
+
 ** SteamDataSource abstraction
+
 #+BEGIN_SRC python
 class SteamDataSource(ABC):
-    async def get_app_list(self) -> list[dict]: ...
-    async def get_app_details(self, appid: int) -> dict: ...
-    async def get_reviews(self, appid: int, max_reviews: int) -> list[dict]: ...
+    def get_app_list(self, limit=None) -> list[dict]: ...
+    def get_app_details(self, appid: int) -> dict: ...
+    def get_reviews(self, appid, max_reviews=None, start_cursor="*") -> tuple[list[dict], str | None]: ...
+    def get_review_summary(self, appid: int) -> dict: ...        # english + all-language counts
+    def get_deck_compatibility(self, appid: int) -> dict: ...
 
 class DirectSteamSource(SteamDataSource):
-    """Default. Calls Steam Store API directly."""
+    """Calls Steam APIs directly. Jitter (0.3–1s) between requests.
+    Retries up to 6 times with exponential backoff on 429/503."""
 #+END_SRC
 
-** Two crawler Lambda functions
+=get_reviews= returns =(reviews, next_cursor)=: next_cursor is =None= when Steam is exhausted,
+or an opaque string to pass as =start_cursor= on the next call. =max_reviews= caps a single
+call — it is not a total-across-all-batches limit.
 
-1. *app-crawler*: Crawls game metadata from Steam Store API. ~100k games.
-   - SQS queue: =app-crawl-queue= (batch size 10)
-   - Rate: ~200 req/5min per IP — use jitter to avoid bans
+** Three-Lambda crawler pipeline
 
-2. *review-crawler*: Fetches reviews for all games with at least 1 review.
-   - SQS queue: =review-crawl-queue= (batch size 1 — each game is heavyweight)
-   - Rate: paced by SQS visibility timeout (~2 min max per game)
+The crawler is split across three Lambdas to separate concerns and allow independent scaling.
+
+#+BEGIN_SRC
+ ┌───────────────────────────────────────────────────────────────────┐
+ │                        PRIMARY REGION (us-west-2)                 │
+ │                                                                   │
+ │  EventBridge ──► Crawler Lambda ──► app-crawl-queue              │
+ │  (scheduled)     (control plane)     (SQS)                        │
+ │                       │                                           │
+ │               review-crawl-queue ◄── ingest_handler              │
+ │                  (SQS)               (re-queues if more)          │
+ │                       │                    ▲                      │
+ │                       ▼                    │                      │
+ │              spoke-results-queue ──────────┘                      │
+ │                  (SQS)                                            │
+ └────────────────────────┬──────────────────────────────────────────┘
+                          │ async Lambda invoke (cross-region)
+                          ▼
+ ┌────────────────────────────────────────────────────────────────────┐
+ │                   SPOKE REGION (e.g. us-west-2)                    │
+ │                                                                    │
+ │  Spoke Lambda ──► Steam API ──► gzip JSON ──► S3                  │
+ │                                               │                   │
+ │                                 SQS notify ───┘                   │
+ │                             (spoke-results-queue)                  │
+ └────────────────────────────────────────────────────────────────────┘
+#+END_SRC
+
+| Lambda           | File                    | Trigger              | Role                                   |
+|------------------+-------------------------+----------------------+----------------------------------------|
+| Crawler          | =crawler/handler.py=    | EventBridge, SQS     | Control plane: catalog refresh, spoke dispatch |
+| Spoke crawler    | =crawler/spoke_handler.py= | async invoke      | Fetch from Steam, write to S3, notify  |
+| Spoke ingest     | =crawler/ingest_handler.py= | SQS (spoke-results) | Read S3, upsert to RDS, cursor management |
+
+** Spoke dispatch logic (handler.py → spoke_handler.py)
+
+The Crawler Lambda dispatches one async Lambda invoke per SQS record. The target spoke is
+chosen deterministically: =appid % len(spoke_regions)= — same appid always hits the same
+region, so retries go to the same place and load spreads evenly.
+
+Spoke Lambda names follow the pattern: =steampulse-spoke-crawler-{region}-{env}=.
+Async invoke (=InvocationType="Event"=) returns HTTP 202 immediately. Lambda auto-retries
+twice on failure, then routes to the spoke DLQ.
 
 ** LLM execution paths
 
@@ -340,8 +382,6 @@ StartAnalysis
 
 Express Workflows for real-time (single game). STANDARD Workflows for batch (long-running, hours).
 
-
-
 *** Game description as silent synthesis context (POC)
 
 The game's Steam description (=short_description= + =about_the_game=, HTML-stripped) is passed
@@ -357,6 +397,160 @@ Rationale:
 
 Implementation: strip HTML with =re.sub(r'<[^>]+>', ' ', text)= before passing to LLM.
 Cap at ~1,000 tokens to avoid inflating Pass 2 cost meaningfully (~$0.001/game extra at most).
+
+** Review Crawl System (chunked cursor-based fetching)
+
+*** The problem
+
+Steam reviews are cursor-paginated with no random access. A game like BG3 has ~437k reviews.
+Fetching all of them in a single Lambda invocation times out (10-min limit). The solution is
+to fetch in batches of 1000, persist the cursor to the database after each batch, and
+re-queue the game for the next batch via SQS.
+
+*** Single unified flow
+
+There is no "seed mode" vs "full mode" code path — it is the same pipeline with an optional
+=max_reviews= stopping point set at queue time.
+
+| Scenario         | Queue command                                        | Behaviour                                  |
+|------------------+------------------------------------------------------+--------------------------------------------|
+| Initial seed     | =queue reviews 1086940 --max-reviews 5000=           | Stops after 5000 reviews, saves cursor     |
+| Full data mining | =queue reviews 1086940= (no cap)                     | Resumes from saved cursor, runs to exhaust |
+| Re-crawl         | =queue reviews 1086940= after cursor = '' (exhausted) | Restarts from * (fresh)                   |
+
+*** Cursor state in app_catalog
+
+Three columns track review fetch progress per game:
+
+| Column                   | Meaning                                              |
+|--------------------------+------------------------------------------------------|
+| =review_cursor = NULL=   | Not started — use ="*"= as start cursor              |
+| =review_cursor = 'abc...'= | Mid-stream — resume from this opaque Steam cursor  |
+| =review_cursor = ''=     | Fully exhausted — all reviews fetched                |
+| =review_cursor_updated_at= | Timestamp of last cursor save                      |
+| =reviews_target = NULL=  | Uncapped — fetch until Steam exhausted               |
+| =reviews_target = 5000=  | Stop when total DB reviews for this game >= 5000     |
+
+*** Full chain for one review batch
+
+#+BEGIN_SRC
+  sp.py queue reviews 1086940 --max-reviews 5000
+         │
+         │  SQS message: {"appid": 1086940, "max_reviews": 5000}
+         ▼
+  review-crawl-queue (SQS)
+         │
+         ▼
+  Crawler Lambda (_dispatch_to_spoke)
+    1. Load saved cursor from app_catalog
+       • NULL or '' → cursor = "*" (fresh/restart)
+       • "abc..."   → cursor = "abc..." (resume)
+    2. If max_reviews set AND cursor == "*":
+         persist reviews_target = 5000 to app_catalog
+       If no max_reviews:
+         clear reviews_target (set NULL) — prevents old target blocking full run
+    3. Build ReviewSpokeRequest(appid, cursor, max_reviews)
+    4. Async invoke spoke Lambda (appid % n_spokes for deterministic routing)
+         │
+         │  async invoke payload: {appid, task="reviews", cursor, max_reviews}
+         ▼
+  Spoke Lambda (_process_reviews)
+    1. limit = min(max_reviews, BATCH_SIZE=1000) if max_reviews else BATCH_SIZE
+    2. Call Steam: get_reviews(appid, max_reviews=limit, start_cursor=cursor)
+       → returns (reviews[], next_cursor)
+       → next_cursor = None means Steam has no more pages
+    3. gzip + write reviews to S3: spoke-results/reviews/{appid}-{uid}.json.gz
+    4. Send ReviewSpokeResult to spoke-results-queue (SQS):
+       {appid, success, s3_key, count, next_cursor}
+         │
+         │  SQS message to spoke-results-queue
+         ▼
+  Ingest Lambda (_handle_reviews)
+    1. Read + decompress reviews from S3
+    2. Upsert to reviews table (bulk, ON CONFLICT DO UPDATE)
+    3. Cursor + stopping logic:
+       total_fetched = SELECT COUNT(*) FROM reviews WHERE appid = ?
+       target        = app_catalog.reviews_target
+       exhausted     = (next_cursor is None)
+       target_hit    = (target IS NOT NULL AND total_fetched >= target)
+
+       if exhausted:
+           → clear_review_cursor(appid)   # cursor = ''
+           → STOP
+       elif target_hit:
+           → save_review_cursor(appid, next_cursor)
+           → STOP
+       else:
+           → save_review_cursor(appid, next_cursor)
+           → send {"appid": appid} to review-crawl-queue
+           → loops back to Crawler Lambda ↑
+    4. Delete S3 object (after all DB/SQS work — so a retry still has the payload)
+#+END_SRC
+
+*** Batch size rationale
+
+=BATCH_SIZE = 1000= = 10 Steam API pages of 100 reviews each.
+- Each page takes ~2–3s (jitter + network) → ~20–30s per spoke invocation
+- Well within the 10-min Lambda timeout
+- BG3 (437k reviews): ~437 chained hops; first 5 hops give 5000 reviews for analysis in ~3 min
+
+*** Re-queue loop timing
+
+Each hop: ~25s spoke + seconds of SQS/ingest overhead ≈ ~30s per 1000 reviews.
+BG3 full mining: 437 hops × 30s ≈ ~3.6 hours wall time (no Lambda concurrency needed —
+the chain naturally serialises itself via SQS).
+
+*** What happens when max_reviews is later removed
+
+If a game was seeded with =--max-reviews 5000= (cursor saved at position 5000, target=5000),
+and you later re-queue without a cap:
+
+- Crawler Lambda sees =max_reviews = None= → calls =set_reviews_target(appid, NULL)=
+- Loads saved cursor (e.g. ="abc..."=) → passes it to spoke
+- Spoke fetches batch 5001–6000 → ingest saves new cursor → re-queues
+- Chain continues until Steam is exhausted → cursor set to =''=
+
+This is how "seed a few thousand, mine the rest later" works without any special code path.
+
+*** Queuing via sp.py
+
+#+BEGIN_SRC bash
+# Seed: first 5000 reviews
+poetry run python scripts/tail.py spoke &
+poetry run python scripts/sp.py queue --env staging reviews 1086940 --max-reviews 5000
+
+# Full mining: resume from saved cursor, no cap
+poetry run python scripts/sp.py queue --env staging reviews 1086940
+
+# Check progress
+poetry run python scripts/sp.py db query \
+  "SELECT review_cursor, reviews_target, review_crawled_at FROM app_catalog WHERE appid=1086940" \
+  --env staging
+#+END_SRC
+
+*** Monitoring (tail.py)
+
+#+BEGIN_SRC bash
+# Tail all three streams simultaneously (colour-coded)
+poetry run python scripts/tail.py all --env staging
+
+# Individual streams
+poetry run python scripts/tail.py crawler   # cyan  — dispatcher decisions
+poetry run python scripts/tail.py spoke     # yellow — Steam fetch + S3 write
+poetry run python scripts/tail.py ingest    # green  — DB upsert + cursor save + re-queue
+#+END_SRC
+
+Key log lines to watch per hop:
+
+| Stream  | Log line                                                          | Meaning               |
+|---------+-------------------------------------------------------------------+-----------------------|
+| crawler | =appid=X reviews resuming cursor=abc...=                          | Mid-stream hop        |
+| crawler | =appid=X reviews fresh start, target=5000=                        | First hop with cap    |
+| spoke   | =Fetched 1000 reviews appid=X next_cursor=def...=                 | Batch fetched         |
+| spoke   | =Fetched 1000 reviews appid=X — stream exhausted=                 | Last batch            |
+| ingest  | =Re-queued appid=X for next batch, total so far=2000=             | Chain continues       |
+| ingest  | =Reviews target hit for appid=X total=5000 target=5000 — stopping= | Seed complete        |
+| ingest  | =Reviews exhausted for appid=X total=437000=                      | Full mining complete  |
 
 * Code Architecture
 

@@ -118,7 +118,7 @@ _catalog_service = CatalogService(
 _spoke_targets: list[tuple[str, object]] = []  # [(fn_name, lambda_client), ...]
 
 for _region in _crawler_config.spoke_region_list:
-    _fn_name = f"steampulse-{_crawler_config.ENVIRONMENT}-spoke-crawler-{_region}"
+    _fn_name = f"steampulse-spoke-crawler-{_region}-{_crawler_config.ENVIRONMENT}"
     _client = boto3.client("lambda", region_name=_region)
     _spoke_targets.append((_fn_name, _client))
 

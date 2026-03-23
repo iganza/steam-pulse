@@ -133,8 +133,8 @@ def _make_service(
     )
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_stores_game(
+
+def test_crawl_app_stores_game(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -163,17 +163,17 @@ async def test_crawl_app_stores_game(
             json=REVIEW_SUMMARY_ALL,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            result = await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        result = svc.crawl_app(440)
 
     assert result is True
     game = game_repo.find_by_appid(440)
@@ -185,8 +185,8 @@ async def test_crawl_app_stores_game(
     assert game.review_count_english == 155000  # English only
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_enqueues_review_crawl_when_eligible(
+
+def test_crawl_app_enqueues_review_crawl_when_eligible(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -214,17 +214,17 @@ async def test_crawl_app_enqueues_review_crawl_when_eligible(
             json=REVIEW_SUMMARY_ALL,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        svc.crawl_app(440)
 
         msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
     assert len(msgs.get("Messages", [])) >= 1
@@ -232,8 +232,8 @@ async def test_crawl_app_enqueues_review_crawl_when_eligible(
     assert body["appid"] == 440
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_does_not_enqueue_ineligible(
+
+def test_crawl_app_does_not_enqueue_ineligible(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -273,23 +273,23 @@ async def test_crawl_app_does_not_enqueue_ineligible(
             json=small_summary,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        svc.crawl_app(440)
 
     pass
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_handles_steam_error(
+
+def test_crawl_app_handles_steam_error(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -308,24 +308,24 @@ async def test_crawl_app_handles_steam_error(
             status_code=500,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            result = await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        result = svc.crawl_app(440)
 
     assert result is False
     assert game_repo.find_by_appid(440) is None
 
 
-@pytest.mark.asyncio
-async def test_crawl_reviews_stores_reviews(
+
+def test_crawl_reviews_stores_reviews(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -346,24 +346,24 @@ async def test_crawl_reviews_stores_reviews(
             json=REVIEWS_RESPONSE,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            count = await svc.crawl_reviews(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        count = svc.crawl_reviews(440)
 
     assert count == 4
     assert review_repo.count_by_appid(440) == 4
 
 
-@pytest.mark.asyncio
-async def test_crawl_reviews_deduplicates(
+
+def test_crawl_reviews_deduplicates(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -388,18 +388,18 @@ async def test_crawl_reviews_deduplicates(
             json=REVIEWS_RESPONSE,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            await svc.crawl_reviews(440)
-            await svc.crawl_reviews(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        svc.crawl_reviews(440)
+        svc.crawl_reviews(440)
 
     # No duplicates — still only 4
     assert review_repo.count_by_appid(440) == 4
@@ -440,8 +440,8 @@ def test_should_enqueue_reviews_thresholds(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_eligibility_uses_english_count(
+
+def test_crawl_app_eligibility_uses_english_count(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -495,17 +495,17 @@ async def test_crawl_app_eligibility_uses_english_count(
             json=all_summary,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-            )
-            await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        svc.crawl_app(440)
 
     game = game_repo.find_by_appid(440)
     assert game is not None
@@ -522,8 +522,8 @@ async def test_crawl_app_eligibility_uses_english_count(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_archives_to_s3(
+
+def test_crawl_app_archives_to_s3(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -556,19 +556,19 @@ async def test_crawl_app_archives_to_s3(
             json=REVIEW_SUMMARY_ALL,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-                s3_client=s3,
-                archive_bucket="test-archive-bucket",
-            )
-            await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+            s3_client=s3,
+            archive_bucket="test-archive-bucket",
+        )
+        svc.crawl_app(440)
 
     assert s3.put_object.call_count >= 1
     call_kwargs = s3.put_object.call_args.kwargs
@@ -582,8 +582,8 @@ async def test_crawl_app_archives_to_s3(
     assert isinstance(data, dict)
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_skips_s3_when_unconfigured(
+
+def test_crawl_app_skips_s3_when_unconfigured(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -612,25 +612,25 @@ async def test_crawl_app_skips_s3_when_unconfigured(
             json=REVIEW_SUMMARY_ALL,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-                # No s3_client or archive_bucket
-            )
-            result = await svc.crawl_app(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+            # No s3_client or archive_bucket
+        )
+        result = svc.crawl_app(440)
 
     # Should succeed without errors
     assert result is True
 
 
-@pytest.mark.asyncio
-async def test_crawl_reviews_archives_to_s3(
+
+def test_crawl_reviews_archives_to_s3(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -655,19 +655,19 @@ async def test_crawl_reviews_archives_to_s3(
             json=REVIEWS_RESPONSE,
         )
 
-        async with _httpx.AsyncClient() as client:
-            svc = _make_service(
-                game_repo,
-                review_repo,
-                catalog_repo,
-                tag_repo,
-                sqs,
-                queue_url,
-                client,
-                s3_client=s3,
-                archive_bucket="test-archive-bucket",
-            )
-            count = await svc.crawl_reviews(440)
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+            s3_client=s3,
+            archive_bucket="test-archive-bucket",
+        )
+        count = svc.crawl_reviews(440)
 
     assert count == 4
     assert s3.put_object.call_count >= 1

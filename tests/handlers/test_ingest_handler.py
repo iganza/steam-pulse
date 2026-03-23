@@ -3,7 +3,7 @@
 import gzip
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -55,7 +55,7 @@ def _gzipped(data: Any) -> bytes:
 def test_metadata_task_calls_ingest_spoke_metadata(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_metadata = AsyncMock(return_value=True)
+    ih._crawl_service.ingest_spoke_metadata = MagicMock(return_value=True)
     ih._s3 = MagicMock()
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {"name": "TF2"}}))),
@@ -71,7 +71,7 @@ def test_metadata_task_calls_ingest_spoke_metadata(lambda_context: Any) -> None:
 def test_reviews_task_calls_ingest_spoke_reviews(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_reviews = AsyncMock(return_value=3)
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=3)
     ih._s3 = MagicMock()
     reviews = [{"review_text": "a"}, {"review_text": "b"}, {"review_text": "c"}]
     ih._s3.get_object.return_value = {
@@ -138,7 +138,7 @@ def test_failure_without_error_skips_processing(lambda_context: Any) -> None:
 def test_s3_object_deleted_after_metadata_ingest(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_metadata = AsyncMock(return_value=True)
+    ih._crawl_service.ingest_spoke_metadata = MagicMock(return_value=True)
     ih._s3 = MagicMock()
     s3_key = "spoke-results/metadata/440-abc.json.gz"
     ih._s3.get_object.return_value = {
@@ -155,7 +155,7 @@ def test_s3_object_deleted_after_metadata_ingest(lambda_context: Any) -> None:
 def test_s3_object_deleted_after_reviews_ingest(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_reviews = AsyncMock(return_value=2)
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=2)
     ih._s3 = MagicMock()
     s3_key = "spoke-results/reviews/440-abc.json.gz"
     ih._s3.get_object.return_value = {
@@ -173,7 +173,7 @@ def test_s3_not_deleted_on_ingest_failure(lambda_context: Any) -> None:
     """If ingest raises, S3 object should NOT be deleted (batch failure → retry)."""
     ih = _get_module()
     ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_metadata = AsyncMock(side_effect=RuntimeError("db error"))
+    ih._crawl_service.ingest_spoke_metadata = MagicMock(side_effect=RuntimeError("db error"))
     ih._s3 = MagicMock()
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {}}))),

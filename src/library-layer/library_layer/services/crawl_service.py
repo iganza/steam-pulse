@@ -126,14 +126,14 @@ class CrawlService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def crawl_app(self, appid: int, dry_run: bool = False) -> bool:
+    def crawl_app(self, appid: int, dry_run: bool = False) -> bool:
         """Fetch app details + review summary from Steam. Upsert to DB. Enqueue review crawl if eligible.
 
         Returns:
             True on success, False on failure (Steam API error or not found).
         """
         try:
-            details = await self._steam.get_app_details(appid)
+            details = self._steam.get_app_details(appid)
         except SteamAPIError as exc:
             logger.error("Steam app_details error for appid=%s: %s", appid, exc)
             self._catalog_repo.set_meta_status(appid, "failed")
@@ -145,14 +145,14 @@ class CrawlService:
             return False
 
         try:
-            summary = await self._steam.get_review_summary(appid)
+            summary = self._steam.get_review_summary(appid)
         except SteamAPIError as exc:
             logger.error("Steam review_summary error for appid=%s: %s", appid, exc)
             self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
         try:
-            deck_compat = await self._steam.get_deck_compatibility(appid)
+            deck_compat = self._steam.get_deck_compatibility(appid)
         except SteamAPIError as exc:
             logger.warning("Steam deck_compat unavailable for appid=%s: %s", appid, exc)
             deck_compat = {}
@@ -195,7 +195,7 @@ class CrawlService:
 
         return True
 
-    async def crawl_reviews(
+    def crawl_reviews(
         self,
         appid: int,
         dry_run: bool = False,
@@ -207,7 +207,7 @@ class CrawlService:
             Number of reviews upserted.
         """
         try:
-            raw_reviews = await self._steam.get_reviews(appid, max_reviews=max_reviews)
+            raw_reviews = self._steam.get_reviews(appid, max_reviews=max_reviews)
         except SteamAPIError as exc:
             logger.warning("Steam reviews API error for appid=%s: %s", appid, exc)
             return 0
@@ -250,7 +250,7 @@ class CrawlService:
 
         return upserted
 
-    async def ingest_spoke_metadata(self, appid: int, raw: dict) -> bool:
+    def ingest_spoke_metadata(self, appid: int, raw: dict) -> bool:
         """Ingest metadata fetched by a spoke Lambda.
 
         Publishes the same domain events as crawl_app and enqueues review
@@ -292,7 +292,7 @@ class CrawlService:
 
         return True
 
-    async def ingest_spoke_reviews(self, appid: int, raw_reviews: list[dict]) -> int:
+    def ingest_spoke_reviews(self, appid: int, raw_reviews: list[dict]) -> int:
         """Ingest reviews fetched by a spoke Lambda.
 
         DB write only — no SNS events, no Step Functions trigger.

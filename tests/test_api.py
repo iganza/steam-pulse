@@ -1,6 +1,5 @@
 """Tests for the FastAPI application in lambda_functions/api/handler.py."""
 
-import asyncio
 import os
 
 import pytest
@@ -96,7 +95,7 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
         "design_strengths": ["Class variety", "Map design"],
         "churn_triggers": ["Bot problem in casual mode"],
     }
-    asyncio.run(api_module._upsert_report(440, report))
+    api_module._upsert_report(440, report)
 
     resp = client.post("/api/preview", json={"appid": 440})
     assert resp.status_code == 200
@@ -126,7 +125,7 @@ def test_preview_unconditional(client: TestClient) -> None:
         "audience_profile": {},
         "appid": 440,
     }
-    asyncio.run(api_module._upsert_report(440, report))
+    api_module._upsert_report(440, report)
 
     # Multiple requests from same client — all should succeed (no 402)
     for _ in range(3):

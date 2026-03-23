@@ -1,6 +1,5 @@
 """SteamDataSource abstraction — all Steam data access goes through here."""
 
-import asyncio
 import logging
 import os
 import random
@@ -48,23 +47,23 @@ class SteamDataSource(ABC):
     """
 
     @abstractmethod
-    async def get_app_list(self, limit: int | None = None) -> list[dict]:
+    def get_app_list(self, limit: int | None = None) -> list[dict]:
         """Returns [{appid, name}] for all Steam apps. Optional limit truncates result."""
 
     @abstractmethod
-    async def get_app_details(self, appid: int) -> dict:
+    def get_app_details(self, appid: int) -> dict:
         """Returns game metadata from Steam Store API, or {} if not found."""
 
     @abstractmethod
-    async def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
+    def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
         """Returns reviews with voted_up, review_text, playtime_at_review."""
 
     @abstractmethod
-    async def get_review_summary(self, appid: int) -> dict:
+    def get_review_summary(self, appid: int) -> dict:
         """Returns query_summary: total_positive, total_negative, total_reviews, review_score_desc."""
 
     @abstractmethod
-    async def get_deck_compatibility(self, appid: int) -> dict:
+    def get_deck_compatibility(self, appid: int) -> dict:
         """Returns {resolved_category, resolved_items} or {} if unavailable."""
 
 
@@ -85,7 +84,7 @@ class DirectSteamSource(SteamDataSource):
 
     def __init__(
         self,
-        client: httpx.AsyncClient,
+        client: httpx.Client,
         api_key: str | None = None,
         on_request: MetricsCallback | None = None,
     ) -> None:
@@ -96,8 +95,8 @@ class DirectSteamSource(SteamDataSource):
         self._jitter_min = float(os.environ.get("STEAM_JITTER_MIN", "0.3"))
         self._jitter_max = float(os.environ.get("STEAM_JITTER_MAX", "1.0"))
 
-    async def _jitter(self) -> None:
-        await asyncio.sleep(random.uniform(self._jitter_min, self._jitter_max))
+    def _jitter(self) -> None:
+        time.sleep(random.uniform(self._jitter_min, self._jitter_max))
 
     def _emit(self, endpoint: str, status_code: int, latency_ms: float) -> None:
         """Fire metrics callback if set — never raises."""
@@ -107,12 +106,12 @@ class DirectSteamSource(SteamDataSource):
             except Exception:
                 logger.debug("Metrics callback failed", exc_info=True)
 
-    async def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
+    def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
         endpoint = _endpoint_name(url)
         for attempt in range(6):
             t0 = time.monotonic()
             try:
-                resp = await self._client.get(url, params=params or None)  # type: ignore[arg-type]
+                resp = self._client.get(url, params=params or None)  # type: ignore[arg-type]
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
@@ -121,7 +120,7 @@ class DirectSteamSource(SteamDataSource):
                         "HTTP %s from %s — retrying in %.0fs (attempt %s/6)",
                         resp.status_code, url, wait, attempt + 1,
                     )
-                    await asyncio.sleep(wait)
+                    time.sleep(wait)
                     continue
                 resp.raise_for_status()
                 return resp
@@ -132,7 +131,7 @@ class DirectSteamSource(SteamDataSource):
                         f"HTTP {exc.response.status_code} from {url}"
                     ) from exc
                 wait = min(2**attempt + random.uniform(1, 5), 120)
-                await asyncio.sleep(wait)
+                time.sleep(wait)
             except httpx.RequestError as exc:
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._emit(endpoint, 0, latency_ms)
@@ -143,10 +142,10 @@ class DirectSteamSource(SteamDataSource):
                     "Network error from %s — retrying in %.0fs (attempt %s/6): %s",
                     url, wait, attempt + 1, exc,
                 )
-                await asyncio.sleep(wait)
+                time.sleep(wait)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
-    async def get_app_list(self, limit: int | None = None) -> list[dict]:
+    def get_app_list(self, limit: int | None = None) -> list[dict]:
         """Fetch full Steam app catalog via IStoreService (cursor-paginated, requires API key)."""
         if not self._api_key:
             raise SteamAPIError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
@@ -159,8 +158,8 @@ class DirectSteamSource(SteamDataSource):
             if last_appid is not None:
                 params["last_appid"] = last_appid
 
-            await self._jitter()
-            resp = await self._get_with_retry(APP_LIST_URL, **params)
+            self._jitter()
+            resp = self._get_with_retry(APP_LIST_URL, **params)
             data = resp.json().get("response", {})
 
             batch = data.get("apps", [])
@@ -177,9 +176,9 @@ class DirectSteamSource(SteamDataSource):
             apps = apps[:limit]
         return apps
 
-    async def get_app_details(self, appid: int) -> dict:
-        await self._jitter()
-        resp = await self._get_with_retry(
+    def get_app_details(self, appid: int) -> dict:
+        self._jitter()
+        resp = self._get_with_retry(
             APP_DETAILS_URL, appids=str(appid), l="english"
         )
         data = resp.json()
@@ -188,7 +187,7 @@ class DirectSteamSource(SteamDataSource):
             return {}
         return data[key]["data"]  # type: ignore[no-any-return]
 
-    async def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
+    def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
         reviews: list[dict] = []
         cursor = "*"
         url = REVIEWS_URL.format(appid=appid)
@@ -197,9 +196,9 @@ class DirectSteamSource(SteamDataSource):
             if max_reviews is not None and len(reviews) >= max_reviews:
                 break
             if cursor != "*":
-                await self._jitter()
+                self._jitter()
 
-            resp = await self._get_with_retry(
+            resp = self._get_with_retry(
                 url,
                 json="1",
                 filter="all",
@@ -239,7 +238,7 @@ class DirectSteamSource(SteamDataSource):
 
         return reviews if max_reviews is None else reviews[:max_reviews]
 
-    async def get_review_summary(self, appid: int) -> dict:
+    def get_review_summary(self, appid: int) -> dict:
         """Fetch review counts from Steam reviews API query_summary (num_per_page=1).
 
         Makes two calls: one with language="english" (for eligibility counts) and
@@ -252,8 +251,8 @@ class DirectSteamSource(SteamDataSource):
         url = REVIEWS_URL.format(appid=appid)
 
         # English counts — matches what get_reviews actually fetches
-        await self._jitter()
-        eng_resp = await self._get_with_retry(
+        self._jitter()
+        eng_resp = self._get_with_retry(
             url, json="1", num_per_page="1", language="english", purchase_type="all"
         )
         eng_data = eng_resp.json()
@@ -262,8 +261,8 @@ class DirectSteamSource(SteamDataSource):
         eng_summary: dict = eng_data.get("query_summary", {})
 
         # All-language count — for display ("X total reviews on Steam")
-        await self._jitter()
-        all_resp = await self._get_with_retry(
+        self._jitter()
+        all_resp = self._get_with_retry(
             url, json="1", num_per_page="1", language="all", purchase_type="all"
         )
         all_data = all_resp.json()
@@ -276,7 +275,7 @@ class DirectSteamSource(SteamDataSource):
         result["total_reviews_all"] = total_positive_all + total_negative_all
         return result
 
-    async def get_deck_compatibility(self, appid: int) -> dict:
+    def get_deck_compatibility(self, appid: int) -> dict:
         """Fetch Steam Deck compatibility report for an app.
 
         Returns dict with 'resolved_category' (int) and 'resolved_items' (list),
@@ -285,8 +284,8 @@ class DirectSteamSource(SteamDataSource):
         Raises:
             SteamAPIError: on HTTP failure from Steam.
         """
-        await self._jitter()
-        resp = await self._get_with_retry(DECK_COMPAT_URL, nAppID=str(appid))
+        self._jitter()
+        resp = self._get_with_retry(DECK_COMPAT_URL, nAppID=str(appid))
         data = resp.json()
         if not data.get("success"):
             return {}

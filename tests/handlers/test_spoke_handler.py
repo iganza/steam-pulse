@@ -3,7 +3,7 @@
 import gzip
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -33,9 +33,9 @@ def _get_handler_module() -> Any:
 def test_metadata_task_calls_get_app_details(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(return_value={"name": "TF2", "type": "game"})
-    sh._steam.get_review_summary = AsyncMock(return_value={"total_reviews": 100})
-    sh._steam.get_deck_compatibility = AsyncMock(return_value=None)
+    sh._steam.get_app_details = MagicMock(return_value={"name": "TF2", "type": "game"})
+    sh._steam.get_review_summary = MagicMock(return_value={"total_reviews": 100})
+    sh._steam.get_deck_compatibility = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -53,7 +53,7 @@ def test_metadata_task_calls_get_app_details(lambda_context: Any) -> None:
 def test_reviews_task_calls_get_reviews(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_reviews = AsyncMock(return_value=[{"review_text": "great"}])
+    sh._steam.get_reviews = MagicMock(return_value=[{"review_text": "great"}])
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -85,9 +85,9 @@ def test_metadata_writes_gzipped_json_to_s3(lambda_context: Any) -> None:
     sh = _get_handler_module()
     details = {"name": "TF2", "type": "game"}
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(return_value=details)
-    sh._steam.get_review_summary = AsyncMock(return_value={"total_reviews": 100})
-    sh._steam.get_deck_compatibility = AsyncMock(return_value=None)
+    sh._steam.get_app_details = MagicMock(return_value=details)
+    sh._steam.get_review_summary = MagicMock(return_value={"total_reviews": 100})
+    sh._steam.get_deck_compatibility = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -106,9 +106,9 @@ def test_metadata_writes_gzipped_json_to_s3(lambda_context: Any) -> None:
 def test_metadata_sends_sqs_notification_with_s3_key(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(return_value={"name": "TF2"})
-    sh._steam.get_review_summary = AsyncMock(return_value={})
-    sh._steam.get_deck_compatibility = AsyncMock(return_value=None)
+    sh._steam.get_app_details = MagicMock(return_value={"name": "TF2"})
+    sh._steam.get_review_summary = MagicMock(return_value={})
+    sh._steam.get_deck_compatibility = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -129,7 +129,7 @@ def test_reviews_writes_to_s3_and_notifies(lambda_context: Any) -> None:
     sh = _get_handler_module()
     reviews = [{"review_text": "good"}, {"review_text": "bad"}]
     sh._steam = MagicMock()
-    sh._steam.get_reviews = AsyncMock(return_value=reviews)
+    sh._steam.get_reviews = MagicMock(return_value=reviews)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -154,7 +154,7 @@ def test_reviews_writes_to_s3_and_notifies(lambda_context: Any) -> None:
 def test_metadata_steam_api_error_returns_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(side_effect=SteamAPIError("rate limited"))
+    sh._steam.get_app_details = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -175,7 +175,7 @@ def test_metadata_steam_api_error_returns_failure(lambda_context: Any) -> None:
 def test_metadata_empty_details_returns_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(return_value=None)
+    sh._steam.get_app_details = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -190,7 +190,7 @@ def test_metadata_empty_details_returns_failure(lambda_context: Any) -> None:
 def test_reviews_steam_api_error_returns_zero(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_reviews = AsyncMock(side_effect=SteamAPIError("rate limited"))
+    sh._steam.get_reviews = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -206,7 +206,7 @@ def test_reviews_steam_api_error_returns_zero(lambda_context: Any) -> None:
 def test_reviews_empty_list_returns_zero(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_reviews = AsyncMock(return_value=[])
+    sh._steam.get_reviews = MagicMock(return_value=[])
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
@@ -225,9 +225,9 @@ def test_reviews_empty_list_returns_zero(lambda_context: Any) -> None:
 def test_s3_keys_are_unique_across_invocations(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_app_details = AsyncMock(return_value={"name": "TF2"})
-    sh._steam.get_review_summary = AsyncMock(return_value={})
-    sh._steam.get_deck_compatibility = AsyncMock(return_value=None)
+    sh._steam.get_app_details = MagicMock(return_value={"name": "TF2"})
+    sh._steam.get_review_summary = MagicMock(return_value={})
+    sh._steam.get_deck_compatibility = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 

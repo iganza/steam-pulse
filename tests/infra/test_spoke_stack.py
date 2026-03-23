@@ -60,7 +60,7 @@ def test_reserved_concurrency_three(template: Template) -> None:
 def test_deterministic_function_name(template: Template) -> None:
     """Spoke Lambda has a deterministic name for cross-region invocation."""
     template.has_resource_properties("AWS::Lambda::Function", {
-        "FunctionName": "steampulse-staging-spoke-crawler-us-east-1",
+        "FunctionName": "steampulse-spoke-crawler-us-east-1-staging",
     })
 
 

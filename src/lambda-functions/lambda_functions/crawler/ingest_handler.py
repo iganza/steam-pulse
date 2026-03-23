@@ -11,7 +11,6 @@ Routes on message["task"]:
 
 from __future__ import annotations
 
-import asyncio
 import gzip
 import json
 
@@ -108,13 +107,13 @@ def _ingest_record(record: dict) -> None:
     data = json.loads(gzip.decompress(response["Body"].read()))
 
     if task == "metadata":
-        success = asyncio.run(_crawl_service.ingest_spoke_metadata(appid, data))
+        success = _crawl_service.ingest_spoke_metadata(appid, data)
         if not success:
             raise RuntimeError(f"Metadata ingest failed for appid={appid}")
         logger.info("Ingested metadata appid=%s", appid)
         metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
     elif task == "reviews":
-        upserted = asyncio.run(_crawl_service.ingest_spoke_reviews(appid, data))
+        upserted = _crawl_service.ingest_spoke_reviews(appid, data)
         logger.info("Ingested %d reviews for appid=%s", upserted, appid)
         metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
     else:

@@ -199,7 +199,10 @@ export function GameReportClient({
                   <BarChart3 className="w-4 h-4" />
                   <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
                 </div>
-                <p className="font-mono text-base font-medium truncate">{reviewCount?.toLocaleString() ?? "—"}</p>
+                <p className="font-mono text-base font-medium truncate">
+                  {reviewCount?.toLocaleString() ?? "—"}
+                  {reviewCount != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
+                </p>
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -433,7 +436,10 @@ export function GameReportClient({
                 <BarChart3 className="w-4 h-4" />
                 <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
               </div>
-              <p className="font-mono text-base font-medium truncate">{report.total_reviews_analyzed?.toLocaleString() ?? "—"}</p>
+              <p className="font-mono text-base font-medium truncate">
+                {report.total_reviews_analyzed?.toLocaleString() ?? "—"}
+                {report.total_reviews_analyzed != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
+              </p>
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">

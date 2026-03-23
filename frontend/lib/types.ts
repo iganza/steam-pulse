@@ -76,6 +76,7 @@ export interface Game {
   developer?: string;
   header_image?: string;
   review_count?: number;
+  review_count_english?: number;
   positive_pct?: number;
   hidden_gem_score?: number;
   sentiment_score?: number;

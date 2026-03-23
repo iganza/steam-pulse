@@ -263,7 +263,7 @@ class GameRepository(BaseRepository):
         # Data query
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
-                   g.review_count, g.positive_pct, g.price_usd, g.is_free,
+                   g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
                    r.report_json->>'hidden_gem_score' AS hidden_gem_score,
                    r.report_json->>'sentiment_score'  AS sentiment_score

@@ -62,9 +62,11 @@ export function GameCard({ game }: GameCardProps) {
               </span>
             </>
           ) : (
-            game.review_count != null && (
+            (game.review_count_english ?? game.review_count) != null && (
               <span className="text-xs font-mono text-muted-foreground">
-                {game.review_count.toLocaleString()} reviews
+                {(game.review_count_english ?? game.review_count)!.toLocaleString()}
+                {" reviews "}
+                <span style={{ opacity: 0.4, fontSize: "0.8em" }}>en</span>
               </span>
             )
           )}

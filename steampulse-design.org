@@ -50,14 +50,27 @@ OpenNext: https://opennext.js.org/ — canonical way to self-host Next.js on AWS
 
 ** Page rendering strategy
 
-| Page type      | Next.js strategy       | Notes                                          |
-|----------------+------------------------+------------------------------------------------|
-| Game report    | SSR (on-demand)        | CloudFront caches 24h + stale-while-revalidate |
-| Genre index    | ISR (revalidate daily) | Aggregated insights, updated nightly           |
-| Tag index      | ISR (revalidate daily) |                                                |
-| Developer page | ISR (revalidate daily) |                                                |
-| Home           | ISR                    | Trending/featured games                        |
-| Compare        | SSR (on-demand)        | Dynamic game pair                              |
+| Page type      | Next.js strategy         | Notes                                          |
+|----------------+--------------------------+------------------------------------------------|
+| Game report    | SSR (on-demand)          | CloudFront caches 24h + stale-while-revalidate |
+| Genre index    | ISR (revalidate daily)   | Aggregated insights, updated nightly           |
+| Tag index      | ISR (revalidate daily)   |                                                |
+| Developer page | ISR (revalidate daily)   |                                                |
+| Home           | =force-dynamic= (no ISR) | See note below — must not pre-render           |
+| Trending       | =force-dynamic= (no ISR) | See note below — must not pre-render           |
+| Compare        | SSR (on-demand)          | Dynamic game pair                              |
+
+*** Why homepage and trending use force-dynamic (not ISR)
+
+=API_URL= is a Lambda runtime env var set by CDK at deploy time. It is *not* available in the
+CodeBuild environment that runs =next build=. ISR pages are pre-rendered at build time — if
+=API_URL= is unset, =getGames()= fails silently (caught by =Promise.allSettled=), the page
+renders with no games, and that empty render gets baked into the Lambda bundle.
+
+=force-dynamic= skips build-time pre-rendering entirely. Every request renders in the Lambda
+where =API_URL= is set. Do not change these pages back to ISR without also injecting =API_URL=
+into the CodeBuild environment (circular dependency — the URL is only known after the API Lambda
+is deployed).
 
 ** Template & content updates
 
@@ -71,6 +84,21 @@ OpenNext: https://opennext.js.org/ — canonical way to self-host Next.js on AWS
 
 KVS holds sponsor data as JSON. CloudFront Function reads it at edge and injects a sponsor
 banner into the HTML response. No Lambda invocation, no cache invalidation needed.
+
+** Image handling (next/image)
+
+=next/image= with external URLs normally proxies through =/_next/image= for optimization.
+OpenNext deploys this as a *separate* Lambda (=image-optimization-function/=) — it is NOT
+part of the main SSR Lambda. As of current deployment, this function is not deployed.
+
+*Current approach*: =images: { unoptimized: true }= in =next.config.ts=. This renders a plain
+=<img>= tag pointing directly at the Steam CDN URL — no proxy, no optimization Lambda needed.
+Steam CDN images are already appropriately sized (header images are 460×215px).
+
+*If optimization is ever needed* (WebP conversion, responsive resizing): deploy
+=frontend/.open-next/image-optimization-function/= as a separate Lambda and add a
+=/_next/image*= CloudFront behaviour routing to it with query string forwarding for
+=url=, =w=, =q= params.
 
 ** Lambda Web Adapter (FastAPI)
 

@@ -1,23 +1,22 @@
 """Monitoring stack — dashboard + alarms via cdk-monitoring-constructs.
 
-Resources are referenced via SSM parameter ARNs (no Fn::ImportValue) so this
-stack can be updated or deleted independently of ComputeStack and MessagingStack.
+Intentionally dependency-free: no SSM lookups, no cross-stack resource imports.
+Custom metrics in the SteamPulse namespace are queried by name only — no ARNs needed.
+
+Deploy independently (never through the pipeline):
+  poetry run cdk deploy SteamPulse-Staging-Monitoring
 
 After deploying, subscribe your email to the alarm topic:
-  aws sns subscribe --topic-arn <AlarmTopicArn output> \
+  aws sns subscribe --topic-arn <AlarmTopicArn output> \\
       --protocol email --notification-endpoint you@example.com
 """
 
 import aws_cdk as cdk
-import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_sns as sns
-import aws_cdk.aws_sqs as sqs
-import aws_cdk.aws_ssm as ssm
-import aws_cdk.aws_stepfunctions as sfn
+from aws_cdk.aws_cloudwatch import Metric, Stats
 from cdk_monitoring_constructs import (
     AlarmFactoryDefaults,
-    ErrorCountThreshold,
-    MaxMessageCountThreshold,
+    CustomMetricGroup,
     MonitoringFacade,
     SnsAlarmActionStrategy,
 )
@@ -39,47 +38,10 @@ class MonitoringStack(cdk.Stack):
 
         env = config.ENVIRONMENT
 
-        def _ssm(name: str) -> str:
-            return ssm.StringParameter.value_for_string_parameter(self, name)
-
-        # ── Resource references via SSM (CloudFormation {{resolve:ssm:...}}) ──
-        api_fn = lambda_.Function.from_function_arn(
-            self, "ApiFunction",
-            _ssm(f"/steampulse/{env}/compute/api-fn-arn"),
-        )
-        crawler_fn = lambda_.Function.from_function_arn(
-            self, "CrawlerFunction",
-            _ssm(f"/steampulse/{env}/compute/crawler-fn-arn"),
-        )
-        analysis_fn = lambda_.Function.from_function_arn(
-            self, "AnalysisFunction",
-            _ssm(f"/steampulse/{env}/compute/analysis-fn-arn"),
-        )
-        state_machine = sfn.StateMachine.from_state_machine_arn(
-            self, "AnalysisMachine",
-            _ssm(f"/steampulse/{env}/compute/sfn-arn"),
-        )
-        app_queue = sqs.Queue.from_queue_arn(
-            self, "AppCrawlQueue",
-            _ssm(f"/steampulse/{env}/messaging/app-crawl-queue-arn"),
-        )
-        review_queue = sqs.Queue.from_queue_arn(
-            self, "ReviewCrawlQueue",
-            _ssm(f"/steampulse/{env}/messaging/review-crawl-queue-arn"),
-        )
-        app_dlq = sqs.Queue.from_queue_arn(
-            self, "AppCrawlDlq",
-            _ssm(f"/steampulse/{env}/messaging/app-crawl-dlq-arn"),
-        )
-        review_dlq = sqs.Queue.from_queue_arn(
-            self, "ReviewCrawlDlq",
-            _ssm(f"/steampulse/{env}/messaging/review-crawl-dlq-arn"),
-        )
-
         # ── SNS alarm topic ───────────────────────────────────────────────────
         self.alarm_topic = sns.Topic(
             self, "AlarmTopic",
-            display_name="SteamPulse Alarms",
+            display_name=f"SteamPulse {env.capitalize()} Alarms",
         )
 
         cdk.CfnOutput(
@@ -93,59 +55,31 @@ class MonitoringStack(cdk.Stack):
             self, "Facade",
             alarm_factory_defaults=AlarmFactoryDefaults(
                 actions_enabled=True,
-                alarm_name_prefix="SteamPulse",
+                alarm_name_prefix=f"SteamPulse-{env.capitalize()}",
                 action=SnsAlarmActionStrategy(on_alarm_topic=self.alarm_topic),
             ),
         )
 
-        monitoring.monitor_lambda_function(
-            lambda_function=api_fn,
-            human_readable_name="API (FastAPI)",
-            add_fault_count_alarm={"Critical": ErrorCountThreshold(max_error_count=5)},
-            add_throttles_count_alarm={"Warning": ErrorCountThreshold(max_error_count=10)},
-        )
+        # ── Steam API custom metrics ──────────────────────────────────────────
+        dims = {"environment": env}
 
-        monitoring.monitor_lambda_function(
-            lambda_function=crawler_fn,
-            human_readable_name="Crawler",
-            add_fault_count_alarm={"Warning": ErrorCountThreshold(max_error_count=10)},
-        )
-
-        monitoring.monitor_lambda_function(
-            lambda_function=analysis_fn,
-            human_readable_name="Analysis",
-            add_fault_count_alarm={"Warning": ErrorCountThreshold(max_error_count=5)},
-        )
-
-        monitoring.monitor_sqs_queue(
-            queue=app_dlq,
-            human_readable_name="App Crawl DLQ",
-            add_queue_max_size_alarm={"Critical": MaxMessageCountThreshold(max_message_count=1)},
-        )
-
-        monitoring.monitor_sqs_queue(
-            queue=review_dlq,
-            human_readable_name="Review Crawl DLQ",
-            add_queue_max_size_alarm={"Critical": MaxMessageCountThreshold(max_message_count=1)},
-        )
-
-        monitoring.monitor_sqs_queue(
-            queue=app_queue,
-            human_readable_name="App Crawl Queue",
-        )
-
-        monitoring.monitor_sqs_queue(
-            queue=review_queue,
-            human_readable_name="Review Crawl Queue",
-        )
-
-        monitoring.monitor_step_function(
-            state_machine=state_machine,
-            human_readable_name="Analysis Pipeline",
-            add_failed_execution_count_alarm={
-                "Critical": ErrorCountThreshold(max_error_count=3),
-            },
-            add_timed_out_execution_count_alarm={
-                "Warning": ErrorCountThreshold(max_error_count=1),
-            },
+        monitoring.monitor_custom(
+            human_readable_name="Steam API",
+            alarm_friendly_name="SteamAPI",
+            metric_groups=[
+                CustomMetricGroup(
+                    title="Requests & Throttles",
+                    metrics=[
+                        Metric(namespace="SteamPulse", metric_name="SteamApiRequests", dimensions_map=dims, statistic=Stats.SUM),
+                        Metric(namespace="SteamPulse", metric_name="SteamApiRetries",  dimensions_map=dims, statistic=Stats.SUM),
+                        Metric(namespace="SteamPulse", metric_name="SteamApiErrors",   dimensions_map=dims, statistic=Stats.SUM),
+                    ],
+                ),
+                CustomMetricGroup(
+                    title="Latency (p99)",
+                    metrics=[
+                        Metric(namespace="SteamPulse", metric_name="SteamApiLatency", dimensions_map=dims, statistic=Stats.percentile(99)),
+                    ],
+                ),
+            ],
         )

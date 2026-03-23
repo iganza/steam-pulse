@@ -399,7 +399,7 @@ class CrawlService:
             "review_score_desc": review_score_desc,
             "header_image": details.get("header_image") or "",
             "background_image": details.get("background") or "",
-            "required_age": int(details.get("required_age") or 0),
+            "required_age": int(str(details.get("required_age") or 0).rstrip("+")),
             "platforms": json.dumps(details.get("platforms") or {}),
             "supported_languages": details.get("supported_languages") or "",
             "achievements_total": achievements_total,

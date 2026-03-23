@@ -96,4 +96,4 @@ export default async function TrendingPage() {
   );
 }
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";

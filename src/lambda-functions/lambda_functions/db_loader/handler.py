@@ -14,10 +14,9 @@ so the caller (push-to-staging.sh) can detect and surface the failure.
 """
 
 import gzip
-import io
 import logging
 import re
-from typing import IO
+from typing import IO, Iterator  # IO used in _execute_dump signature
 
 import boto3
 import psycopg2
@@ -31,6 +30,43 @@ _s3 = boto3.client("s3")
 _COPY_RE = re.compile(r"COPY\s+", re.IGNORECASE)
 # Matches the opening of a dollar-quote tag, e.g. $$ or $tag$
 _DOLLAR_QUOTE_RE = re.compile(r"\$([^$]*)\$")
+
+
+class _CopyStream:
+    """File-like adapter that streams COPY data from the dump line iterator.
+
+    Passes lines to psycopg2 copy_expert() on demand — avoids buffering the
+    entire COPY block in memory, which matters for large tables (games, reports).
+    Reads until the pg_dump block terminator '\.' is encountered.
+    """
+
+    def __init__(self, lines: Iterator[str]) -> None:
+        self._lines = lines
+        self._overflow = ""
+        self._done = False
+
+    def read(self, size: int = -1) -> str:
+        if self._done and not self._overflow:
+            return ""
+
+        buf = self._overflow
+        self._overflow = ""
+
+        while not self._done and (size == -1 or len(buf) < size):
+            try:
+                line = next(self._lines)
+            except StopIteration:
+                self._done = True
+                break
+            if line.rstrip("\n") == "\\.":
+                self._done = True
+                break
+            buf += line
+
+        if size != -1 and len(buf) > size:
+            self._overflow = buf[size:]
+            return buf[:size]
+        return buf
 
 
 def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
@@ -59,15 +95,9 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
     for line in lines:
         stripped = line.strip()
 
-        # COPY ... FROM stdin block — special handling required
+        # COPY ... FROM stdin block — stream directly to copy_expert, no buffering
         if not stmt_buf and _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
-            copy_cmd = stripped
-            data_lines: list[str] = []
-            for data_line in lines:
-                if data_line.rstrip("\n") == "\\.":
-                    break
-                data_lines.append(data_line)
-            cur.copy_expert(copy_cmd, io.StringIO("".join(data_lines)))
+            cur.copy_expert(stripped, _CopyStream(lines))
             conn.commit()
             total_copy_blocks += 1
             continue

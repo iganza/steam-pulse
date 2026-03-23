@@ -3,7 +3,6 @@
 CDK / boto3 callers construct these and call .model_dump() as the payload.
 The dispatcher validates the raw event dict using TypeAdapter.
 """
-from __future__ import annotations
 
 from typing import Annotated, Literal
 
@@ -36,20 +35,44 @@ DirectRequest = Annotated[
 CrawlTask = Literal["metadata", "reviews"]
 
 
-class SpokeRequest(BaseModel):
-    """Primary → Spoke: async Lambda invoke payload."""
+# ── Spoke request models (Primary → Spoke) ──────────────────────────────────
+
+class MetadataSpokeRequest(BaseModel):
+    """Primary → Spoke: async Lambda invoke payload for metadata crawl."""
     appid: int
-    task: CrawlTask
+    task: CrawlTask = "metadata"
 
 
-class SpokeResult(BaseModel):
-    """Spoke → Primary: SQS message body in spoke-results queue."""
+class ReviewSpokeRequest(BaseModel):
+    """Primary → Spoke: async Lambda invoke payload for review crawl."""
     appid: int
-    task: CrawlTask
+    task: CrawlTask = "reviews"
+    cursor: str = "*"
+    max_reviews: int | None = None  # None = use BATCH_SIZE
+
+
+# ── Spoke result models (Spoke → Ingest via SQS) ────────────────────────────
+
+class MetadataSpokeResult(BaseModel):
+    """Spoke → Primary: SQS message body for completed metadata fetch."""
+    appid: int
+    task: CrawlTask = "metadata"
     success: bool
     s3_key: str | None = None
     count: int = 0
     spoke_region: str
+    error: str | None = None
+
+
+class ReviewSpokeResult(BaseModel):
+    """Spoke → Primary: SQS message body for completed review batch fetch."""
+    appid: int
+    task: CrawlTask = "reviews"
+    success: bool
+    s3_key: str | None = None
+    count: int = 0
+    spoke_region: str
+    next_cursor: str | None = None  # None = Steam exhausted; non-None = more pages remain
     error: str | None = None
 
 

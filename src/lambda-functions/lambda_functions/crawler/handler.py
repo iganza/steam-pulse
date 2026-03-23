@@ -32,7 +32,8 @@ from .events import (
     CrawlReviewsRequest,
     CrawlTask,
     DirectRequest,
-    SpokeRequest,
+    MetadataSpokeRequest,
+    ReviewSpokeRequest,
 )
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
@@ -81,6 +82,8 @@ _sm = boto3.client("secretsmanager")
 _steam_api_key: str = _sm.get_secret_value(
     SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
 )["SecretString"]
+
+_catalog_repo = CatalogRepository(_conn)
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -142,21 +145,35 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     if not _spoke_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
-    
+
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
 
     source_arn = record.get("eventSourceARN", "")
     task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
 
-    req = SpokeRequest(appid=appid, task=task)
+    if task == "reviews":
+        max_reviews: int | None = body.get("max_reviews")
+        saved_cursor = _catalog_repo.get_review_cursor(appid)
+        cursor = saved_cursor if saved_cursor else "*"
+        # On a fresh start with a cap, persist it so the ingest chain knows when to stop
+        if cursor == "*" and max_reviews is not None:
+            _catalog_repo.set_reviews_target(appid, max_reviews)
+        req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
+            appid=appid,
+            cursor=cursor,
+            max_reviews=max_reviews,
+        )
+    else:
+        req = MetadataSpokeRequest(appid=appid)
 
     # Deterministic: same appid always hits the same spoke, spreading load
     # evenly and ensuring retries go to the same region.
     idx = appid % len(_spoke_targets)
     fn_name, client = _spoke_targets[idx]
 
-    logger.info("Dispatching appid=%s task=%s → %s", appid, task, fn_name)
+    logger.info("Dispatching appid=%s task=%s cursor=%s → %s", appid, task,
+                getattr(req, "cursor", None), fn_name)
 
     # Async invoke — returns 202 immediately, spoke runs independently.
     # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.

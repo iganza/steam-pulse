@@ -55,8 +55,19 @@ class SteamDataSource(ABC):
         """Returns game metadata from Steam Store API, or {} if not found."""
 
     @abstractmethod
-    def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
-        """Returns reviews with voted_up, review_text, playtime_at_review."""
+    def get_reviews(
+        self,
+        appid: int,
+        max_reviews: int | None = None,
+        start_cursor: str = "*",
+    ) -> tuple[list[dict], str | None]:
+        """Returns (reviews, next_cursor).
+
+        reviews: list of dicts with voted_up, review_text, playtime_at_review.
+        next_cursor: opaque Steam cursor for the next page, or None if exhausted.
+        max_reviews caps this single call (not total across batches).
+        start_cursor resumes from a previously saved position.
+        """
 
     @abstractmethod
     def get_review_summary(self, appid: int) -> dict:
@@ -187,9 +198,14 @@ class DirectSteamSource(SteamDataSource):
             return {}
         return data[key]["data"]  # type: ignore[no-any-return]
 
-    def get_reviews(self, appid: int, max_reviews: int | None = None) -> list[dict]:
+    def get_reviews(
+        self,
+        appid: int,
+        max_reviews: int | None = None,
+        start_cursor: str = "*",
+    ) -> tuple[list[dict], str | None]:
         reviews: list[dict] = []
-        cursor = "*"
+        cursor = start_cursor
         url = REVIEWS_URL.format(appid=appid)
 
         while True:
@@ -210,11 +226,11 @@ class DirectSteamSource(SteamDataSource):
             data = resp.json()
 
             if not data.get("success"):
-                break
+                return reviews if max_reviews is None else reviews[:max_reviews], None
 
             batch = data.get("reviews", [])
             if not batch:
-                break
+                return reviews if max_reviews is None else reviews[:max_reviews], None
 
             for r in batch:
                 reviews.append({
@@ -233,10 +249,13 @@ class DirectSteamSource(SteamDataSource):
 
             next_cursor = data.get("cursor", "")
             if not next_cursor or next_cursor == cursor:
-                break
+                # Steam exhausted
+                capped = reviews if max_reviews is None else reviews[:max_reviews]
+                return capped, None
             cursor = next_cursor
 
-        return reviews if max_reviews is None else reviews[:max_reviews]
+        # Stopped at max_reviews cap — more pages remain
+        return reviews[:max_reviews], cursor  # type: ignore[index]
 
     def get_review_summary(self, appid: int) -> dict:
         """Fetch review counts from Steam reviews API query_summary (num_per_page=1).

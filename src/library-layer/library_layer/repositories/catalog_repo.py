@@ -107,6 +107,59 @@ class CatalogRepository(BaseRepository):
             )
         self.conn.commit()
 
+    def get_review_cursor(self, appid: int) -> str | None:
+        """Return saved Steam review cursor. None = not started; '' = exhausted."""
+        row = self._fetchone(
+            "SELECT review_cursor FROM app_catalog WHERE appid = %s", (appid,)
+        )
+        if row is None:
+            return None
+        return row["review_cursor"]
+
+    def save_review_cursor(self, appid: int, cursor: str) -> None:
+        """Persist a mid-stream cursor so the next batch can resume."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE app_catalog
+                SET review_cursor = %s, review_cursor_updated_at = NOW()
+                WHERE appid = %s
+                """,
+                (cursor, appid),
+            )
+        self.conn.commit()
+
+    def clear_review_cursor(self, appid: int) -> None:
+        """Mark reviews as fully exhausted (cursor = '')."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE app_catalog
+                SET review_cursor = '', review_cursor_updated_at = NOW()
+                WHERE appid = %s
+                """,
+                (appid,),
+            )
+        self.conn.commit()
+
+    def get_reviews_target(self, appid: int) -> int | None:
+        """Return the max-reviews target set at queue time. None = fetch all."""
+        row = self._fetchone(
+            "SELECT reviews_target FROM app_catalog WHERE appid = %s", (appid,)
+        )
+        if row is None:
+            return None
+        return row["reviews_target"]
+
+    def set_reviews_target(self, appid: int, target: int | None) -> None:
+        """Persist the stopping point for the review-fetch chain."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE app_catalog SET reviews_target = %s WHERE appid = %s",
+                (target, appid),
+            )
+        self.conn.commit()
+
     def status_summary(self) -> dict:
         """Return counts grouped by meta_status and review_status."""
         meta_rows = self._fetchall(

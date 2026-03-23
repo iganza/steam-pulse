@@ -51,7 +51,7 @@ if [[ "$LIST_ONLY" == true ]]; then
 fi
 
 LOADER_FN=$(aws cloudformation list-stack-resources \
-  --stack-name "SteamPulse-${STAGE_CAP}-Lambda" \
+  --stack-name "SteamPulse-${STAGE_CAP}-Compute" \
   --region "$REGION" --no-cli-pager \
   --query 'StackResourceSummaries[?LogicalResourceId==`DbLoaderFn`].PhysicalResourceId' \
   --output text)

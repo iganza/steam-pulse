@@ -464,6 +464,54 @@ class ComputeStack(cdk.Stack):
             environment=config.to_lambda_env(),
         )
 
+        # ── DB Loader Lambda (dev tool — load a local dump into staging) ────────
+        db_loader_role = iam.Role(
+            self,
+            "DbLoaderRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+            ],
+            inline_policies={
+                "db": iam.PolicyDocument(statements=[
+                    iam.PolicyStatement(
+                        actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                        resources=[db_secret.secret_arn],
+                    ),
+                    iam.PolicyStatement(
+                        actions=["s3:GetObject"],
+                        resources=[f"arn:aws:s3:::steampulse-assets-{env}/*"],
+                    ),
+                ]),
+            },
+        )
+
+        PythonFunction(
+            self,
+            "DbLoaderFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/db_loader/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=db_loader_role,
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(15),
+            memory_size=512,
+            ephemeral_storage_size=cdk.Size.mebibytes(2048),
+            log_group=logs.LogGroup(
+                self,
+                "DbLoaderLogs",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(),
+        )
+
         # Weekly catalog refresh — disabled until we're ready to run on a schedule.
         catalog_rule = events.Rule(
             self,

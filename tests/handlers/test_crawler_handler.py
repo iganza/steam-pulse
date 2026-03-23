@@ -6,7 +6,7 @@ handler's module-level cache, then fire events and assert on service calls.
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import boto3
 from lambda_functions.crawler.events import SpokeRequest
@@ -43,8 +43,8 @@ def _seed_ssm() -> None:
 
 def _make_crawl_service(crawl_app_result: bool = True, reviews_upserted: int = 4) -> MagicMock:
     svc = MagicMock()
-    svc.crawl_app = AsyncMock(return_value=crawl_app_result)
-    svc.crawl_reviews = AsyncMock(return_value=reviews_upserted)
+    svc.crawl_app = MagicMock(return_value=crawl_app_result)
+    svc.crawl_reviews = MagicMock(return_value=reviews_upserted)
     return svc
 
 

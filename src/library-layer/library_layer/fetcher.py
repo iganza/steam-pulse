@@ -1,7 +1,7 @@
-"""Async fetchers for Steam review and app metadata APIs."""
+"""Fetchers for Steam review and app metadata APIs."""
 
-import asyncio
 import random
+import time
 
 import httpx
 
@@ -21,20 +21,20 @@ def _jitter(min_s: float, max_s: float) -> float:
     return random.uniform(min_s, max_s)
 
 
-async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response:
+def _get_with_retry(client: httpx.Client, url: str, params: dict) -> httpx.Response:
     """GET with exponential backoff on 429/503. Raises on permanent failure."""
     for attempt in range(MAX_RETRIES):
         try:
-            resp = await client.get(url, params=params)
+            resp = client.get(url, params=params)
         except httpx.RequestError as e:
             if attempt == MAX_RETRIES - 1:
                 raise RuntimeError(f"Steam API unreachable after {MAX_RETRIES} attempts: {e}") from e
-            await asyncio.sleep(BACKOFF_BASE ** attempt + _jitter(0, 1))
+            time.sleep(BACKOFF_BASE ** attempt + _jitter(0, 1))
             continue
 
         if resp.status_code in (429, 503):
             wait = BACKOFF_BASE ** attempt + _jitter(1, 3)
-            await asyncio.sleep(wait)
+            time.sleep(wait)
             continue
 
         resp.raise_for_status()
@@ -43,7 +43,7 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
     raise RuntimeError(f"Steam API rate-limited after {MAX_RETRIES} retries: {url}")
 
 
-async def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]:
+def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]:
     """
     Fetch reviews from the Steam review API.
     Pass max_reviews=None to fetch all available reviews.
@@ -53,7 +53,7 @@ async def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]
     reviews: list[dict] = []
     cursor = "*"
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    with httpx.Client(timeout=30.0) as client:
         while True:
             params = {
                 "json": "1",
@@ -65,7 +65,7 @@ async def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]
             }
 
             try:
-                resp = await _get_with_retry(client, REVIEWS_URL.format(appid=appid), params)
+                resp = _get_with_retry(client, REVIEWS_URL.format(appid=appid), params)
                 data = resp.json()
             except httpx.HTTPStatusError as e:
                 raise RuntimeError(f"Steam reviews API returned {e.response.status_code}") from e
@@ -95,20 +95,20 @@ async def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]
                 break
 
             if batch:
-                await asyncio.sleep(_jitter(PAGE_DELAY_MIN, PAGE_DELAY_MAX))
+                time.sleep(_jitter(PAGE_DELAY_MIN, PAGE_DELAY_MAX))
 
     return reviews if max_reviews is None else reviews[:max_reviews]
 
 
-async def fetch_app_metadata(appid: int) -> dict | None:
+def fetch_app_metadata(appid: int) -> dict | None:
     """
     Fetch Steam app details for a given appid.
     Returns normalized metadata dict or None if not found.
     Includes randomised delay to avoid rate limiting during bulk crawls.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    with httpx.Client(timeout=30.0) as client:
         try:
-            resp = await _get_with_retry(
+            resp = _get_with_retry(
                 client,
                 APPDETAILS_URL,
                 {"appids": str(appid), "l": "english"},
@@ -118,7 +118,7 @@ async def fetch_app_metadata(appid: int) -> dict | None:
             raise RuntimeError(f"Steam appdetails API returned {e.response.status_code}") from e
 
     # Polite delay after every metadata fetch — callers may loop over thousands of appids
-    await asyncio.sleep(_jitter(METADATA_DELAY_MIN, METADATA_DELAY_MAX))
+    time.sleep(_jitter(METADATA_DELAY_MIN, METADATA_DELAY_MAX))
 
     key = str(appid)
     if key not in data or not data[key].get("success"):

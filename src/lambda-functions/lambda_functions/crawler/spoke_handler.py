@@ -9,9 +9,6 @@ Returns:       {"appid": int, "task": str, "success": bool, "count": int}
 All payloads written to S3 (consistent, handles large metadata HTML).
 """
 
-from __future__ import annotations
-
-import asyncio
 import gzip
 import json
 import os
@@ -25,7 +22,6 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from lambda_functions.crawler.events import CrawlTask, SpokeRequest, SpokeResponse, SpokeResult
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
-
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler-spoke")
@@ -45,7 +41,7 @@ _steam_api_key: str = _sm.get_secret_value(
 
 _steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT)
 _steam = DirectSteamSource(
-    httpx.AsyncClient(timeout=90.0),
+    httpx.Client(timeout=90.0),
     api_key=_steam_api_key,
     on_request=_steam_metrics_callback,
 )
@@ -63,18 +59,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     appid = req.appid
     task = req.task
 
-    # Refresh the HTTP client before each asyncio.run() call. asyncio.run() closes
-    # the event loop on exit, so connections from the previous invocation are bound
-    # to a dead loop. A fresh client avoids "Event loop is closed" on warm containers.
-    _steam._client = httpx.AsyncClient(timeout=90.0)
-
     if task == "metadata":
-        ok = asyncio.run(_process_metadata(appid))
+        ok = _process_metadata(appid)
         metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
         return SpokeResponse(appid=appid, task=task, success=ok, count=1 if ok else 0).model_dump()
 
     if task == "reviews":
-        count = asyncio.run(_process_reviews(appid))
+        count = _process_reviews(appid)
         metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
         return SpokeResponse(appid=appid, task=task, success=count > 0, count=count).model_dump()
 
@@ -84,9 +75,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
 # ── Steam fetch + S3 handoff ─────────────────────────────────────────────────
 
 
-async def _process_metadata(appid: int) -> bool:
+def _process_metadata(appid: int) -> bool:
     try:
-        details = await _steam.get_app_details(appid)
+        details = _steam.get_app_details(appid)
     except SteamAPIError as exc:
         logger.error("Steam app_details error appid=%s: %s", appid, exc)
         _notify(appid, task="metadata", success=False, error=str(exc))
@@ -97,14 +88,14 @@ async def _process_metadata(appid: int) -> bool:
         return False
 
     try:
-        summary = await _steam.get_review_summary(appid)
+        summary = _steam.get_review_summary(appid)
     except SteamAPIError as exc:
         logger.error("Steam review_summary error appid=%s: %s", appid, exc)
         _notify(appid, task="metadata", success=False, error=str(exc))
         return False
 
     try:
-        deck_compat = await _steam.get_deck_compatibility(appid)
+        deck_compat = _steam.get_deck_compatibility(appid)
     except SteamAPIError as exc:
         logger.warning("Steam deck_compat unavailable appid=%s: %s", appid, exc)
         deck_compat = {}
@@ -116,9 +107,9 @@ async def _process_metadata(appid: int) -> bool:
     return True
 
 
-async def _process_reviews(appid: int) -> int:
+def _process_reviews(appid: int) -> int:
     try:
-        reviews = await _steam.get_reviews(appid, max_reviews=None)
+        reviews = _steam.get_reviews(appid, max_reviews=None)
     except SteamAPIError as exc:
         logger.warning("Steam reviews error appid=%s: %s", appid, exc)
         _notify(appid, task="reviews", success=False, error=str(exc))

@@ -502,6 +502,21 @@ files = [
 ]
 
 [[package]]
+name = "mangum"
+version = "0.21.0"
+description = "AWS Lambda support for ASGI applications"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "mangum-0.21.0-py3-none-any.whl", hash = "sha256:309e48f5c629542516c5106ecf079f4ec08809ed50df882238d98fe1392820c7"},
+    {file = "mangum-0.21.0.tar.gz", hash = "sha256:e31ed72d67f9958fa4379f65df77729906dec6dfa00afa6ed4e06c77833000de"},
+]
+
+[package.dependencies]
+typing-extensions = "*"
+
+[[package]]
 name = "psycopg2-binary"
 version = "2.9.11"
 description = "psycopg2 - Python-PostgreSQL Database Adapter"
@@ -1367,4 +1382,4 @@ dev = ["pytest", "setuptools"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "950cf271dea16f7d6f46eaf44978deefd1309d05d60a3fbbd0125d879d3ec199"
+content-hash = "adc7cb0313f0bb8edf2cf943b23b5396ccdb1dc2af7309aa08c0e3e27fa76381"

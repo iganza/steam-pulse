@@ -197,8 +197,8 @@ def _find_sns_calls_by_attr(sns: MagicMock, event_type: str) -> list:
 # ── 27. crawl_app publishes metadata-ready ──────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_publishes_metadata_ready(
+
+def test_crawl_app_publishes_metadata_ready(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -224,17 +224,17 @@ async def test_crawl_app_publishes_metadata_ready(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     calls = _find_sns_calls_by_attr(sns, "game-metadata-ready")
     assert len(calls) >= 1
@@ -243,8 +243,8 @@ async def test_crawl_app_publishes_metadata_ready(
 # ── 28. eligible game sets is_eligible=true ─────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_eligible_sets_is_eligible_true(
+
+def test_crawl_app_eligible_sets_is_eligible_true(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -270,17 +270,17 @@ async def test_crawl_app_eligible_sets_is_eligible_true(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     for call in _find_sns_calls_by_attr(sns, "game-metadata-ready"):
         attrs = call.kwargs["MessageAttributes"]
@@ -292,8 +292,8 @@ async def test_crawl_app_eligible_sets_is_eligible_true(
 # ── 29. ineligible game sets is_eligible=false ──────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_ineligible_sets_is_eligible_false(
+
+def test_crawl_app_ineligible_sets_is_eligible_false(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -319,17 +319,17 @@ async def test_crawl_app_ineligible_sets_is_eligible_false(
         json=SMALL_REVIEW_SUMMARY,  # all languages (same for small game)
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     for call in _find_sns_calls_by_attr(sns, "game-metadata-ready"):
         attrs = call.kwargs["MessageAttributes"]
@@ -341,8 +341,8 @@ async def test_crawl_app_ineligible_sets_is_eligible_false(
 # ── 30. configurable threshold ──────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_uses_configurable_threshold(
+
+def test_crawl_app_uses_configurable_threshold(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -369,17 +369,17 @@ async def test_crawl_app_uses_configurable_threshold(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     for call in _find_sns_calls_by_attr(sns, "game-metadata-ready"):
         attrs = call.kwargs["MessageAttributes"]
@@ -442,8 +442,8 @@ def test_get_eligibility_threshold_caches() -> None:
 # ── 34. detects game-released ────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_detects_game_released(
+
+def test_crawl_app_detects_game_released(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -481,17 +481,17 @@ async def test_crawl_app_detects_game_released(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     released_calls = _find_sns_calls(sns, "game-released")
     assert len(released_calls) >= 1
@@ -500,8 +500,8 @@ async def test_crawl_app_detects_game_released(
 # ── 35. no release if already released ───────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_no_release_if_already_released(
+
+def test_crawl_app_no_release_if_already_released(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -529,17 +529,17 @@ async def test_crawl_app_no_release_if_already_released(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     released_calls = _find_sns_calls(sns, "game-released")
     assert len(released_calls) == 0
@@ -548,8 +548,8 @@ async def test_crawl_app_no_release_if_already_released(
 # ── 36. detects price change ────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_detects_price_change(
+
+def test_crawl_app_detects_price_change(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -577,17 +577,17 @@ async def test_crawl_app_detects_price_change(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     price_calls = _find_sns_calls(sns, "game-price-changed")
     assert len(price_calls) >= 1
@@ -596,8 +596,8 @@ async def test_crawl_app_detects_price_change(
 # ── 37. no price event if same ──────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_no_price_event_if_same(
+
+def test_crawl_app_no_price_event_if_same(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -626,17 +626,17 @@ async def test_crawl_app_no_price_event_if_same(
         json=REVIEW_SUMMARY_ALL,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     price_calls = _find_sns_calls(sns, "game-price-changed")
     assert len(price_calls) == 0
@@ -645,8 +645,8 @@ async def test_crawl_app_no_price_event_if_same(
 # ── 38. detects review milestone ────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_detects_review_milestone(
+
+def test_crawl_app_detects_review_milestone(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -674,17 +674,17 @@ async def test_crawl_app_detects_review_milestone(
         json=REVIEW_SUMMARY_ALL,  # 1150 all-lang reviews → crosses 500, 1000
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     milestone_calls = _find_sns_calls(sns, "review-milestone")
     assert len(milestone_calls) >= 1
@@ -695,8 +695,8 @@ async def test_crawl_app_detects_review_milestone(
 # ── 39. publishes ALL crossed milestones ────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_publishes_all_crossed_milestones(
+
+def test_crawl_app_publishes_all_crossed_milestones(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -724,17 +724,17 @@ async def test_crawl_app_publishes_all_crossed_milestones(
         json=REVIEW_SUMMARY_ALL,  # 1150 all-lang → crosses 500 and 1000
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     milestone_calls = _find_sns_calls(sns, "review-milestone")
     milestones_published = {json.loads(c.kwargs["Message"])["milestone"] for c in milestone_calls}
@@ -745,8 +745,8 @@ async def test_crawl_app_publishes_all_crossed_milestones(
 # ── 40. no milestone if already past ────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_app_no_milestone_if_already_past(
+
+def test_crawl_app_no_milestone_if_already_past(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -774,17 +774,17 @@ async def test_crawl_app_no_milestone_if_already_past(
         json=REVIEW_SUMMARY_ALL,  # 1150 all-lang reviews
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_app(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_app(440)
 
     milestone_calls = _find_sns_calls(sns, "review-milestone")
     milestones_published = {json.loads(c.kwargs["Message"])["milestone"] for c in milestone_calls}
@@ -795,8 +795,8 @@ async def test_crawl_app_no_milestone_if_already_past(
 # ── 41. crawl_reviews publishes reviews-ready ────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_crawl_reviews_publishes_reviews_ready(
+
+def test_crawl_reviews_publishes_reviews_ready(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
     catalog_repo: CatalogRepository,
@@ -815,17 +815,17 @@ async def test_crawl_reviews_publishes_reviews_ready(
         json=REVIEWS_RESPONSE,
     )
 
-    async with _httpx.AsyncClient() as client:
-        svc = _make_crawl_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            client,
-            sns_client=sns,
-            config=config,
-        )
-        await svc.crawl_reviews(440)
+    client = _httpx.Client()
+    svc = _make_crawl_service(
+        game_repo,
+        review_repo,
+        catalog_repo,
+        tag_repo,
+        client,
+        sns_client=sns,
+        config=config,
+    )
+    svc.crawl_reviews(440)
 
     reviews_ready_calls = _find_sns_calls(sns, "reviews-ready")
     assert len(reviews_ready_calls) == 1

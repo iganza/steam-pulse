@@ -59,7 +59,7 @@ async def _run(args: argparse.Namespace, console: Console) -> None:
 
     console.print(f"[cyan]Fetching metadata for App ID {appid}...[/cyan]")
     try:
-        meta = await fetch_app_metadata(appid)
+        meta = fetch_app_metadata(appid)
     except RuntimeError as e:
         console.print(f"[red]Error fetching metadata: {e}[/red]")
         sys.exit(1)
@@ -75,7 +75,7 @@ async def _run(args: argparse.Namespace, console: Console) -> None:
     fetch_label = "all" if max_reviews is None else str(max_reviews)
     console.print(f"[cyan]Fetching {fetch_label} reviews...[/cyan]")
     try:
-        reviews = await fetch_reviews(appid, max_reviews=max_reviews)
+        reviews = fetch_reviews(appid, max_reviews=max_reviews)
     except RuntimeError as e:
         console.print(f"[red]Error fetching reviews: {e}[/red]")
         sys.exit(1)

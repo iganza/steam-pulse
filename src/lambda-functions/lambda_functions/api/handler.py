@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SteamPulse", version="0.1.0")
 
 # Module-level singletons — initialized outside handlers for Lambda warm reuse.
-_http_client: httpx.AsyncClient = httpx.AsyncClient(timeout=30.0)
+_http_client: httpx.Client = httpx.Client(timeout=30.0)
 _steam = DirectSteamSource(_http_client)
 
 # Config + SSM resolution at cold start.
@@ -85,29 +85,27 @@ class ChatRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _get_report(appid: int) -> dict | None:
+def _get_report(appid: int) -> dict | None:
     result = _report_repo.find_by_appid(appid)
     return result.report_json if result else None
 
 
-async def _upsert_report(appid: int, report: dict) -> None:
+def _upsert_report(appid: int, report: dict) -> None:
     name = report.get("game_name", f"App {appid}")
     _game_repo.ensure_stub(appid, name)
     _report_repo.upsert({**report, "appid": appid})
 
 
-async def _get_job(job_id: str) -> dict | None:
+def _get_job(job_id: str) -> dict | None:
     return _job_repo.find(job_id)
 
 
-async def _set_job(job_id: str, status: str, appid: int) -> None:
+def _set_job(job_id: str, status: str, appid: int) -> None:
     _job_repo.upsert(job_id, status, appid)
 
 
-async def _trigger_analysis(appid: int, game_name: str) -> str:
-    """Start analysis via Step Functions if ARN is set, else run inline (local dev).
-    Returns a job_id.
-    """
+def _trigger_analysis(appid: int, game_name: str) -> str:
+    """Start analysis via Step Functions. Returns a job_id (executionArn)."""
     if _sfn_arn:
         try:
             import json as _json
@@ -127,7 +125,7 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
                 status_code=503,
                 detail={"error": "step_functions_unavailable", "code": "boto3_missing"},
             ) from exc
-        await _set_job(job_id, "running", appid)
+        _set_job(job_id, "running", appid)
         return job_id
 
     raise HTTPException(
@@ -136,7 +134,7 @@ async def _trigger_analysis(appid: int, game_name: str) -> str:
     )
 
 
-async def _send_confirmation_email(to_email: str, game_name: str) -> None:
+def _send_confirmation_email(to_email: str, game_name: str) -> None:
     """Fire-and-forget confirmation email via Resend."""
     try:
         import resend  # type: ignore[import-untyped]
@@ -192,13 +190,13 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
 
     # Cache hit — return preview fields only
-    cached = await _get_report(appid)
+    cached = _get_report(appid)
     if cached:
         return _preview_fields(cached)
 
     # Fetch game details to get name
     try:
-        details = await _steam.get_app_details(appid)
+        details = _steam.get_app_details(appid)
     except SteamAPIError as exc:
         raise HTTPException(status_code=503, detail={"error": str(exc), "code": "steam_api_error"}) from exc
 
@@ -211,10 +209,10 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     game_name: str = details.get("name", f"App {appid}")
 
     # Trigger analysis — Step Functions (async) or inline (local dev, sync)
-    job_id = await _trigger_analysis(appid, game_name)
+    job_id = _trigger_analysis(appid, game_name)
 
     # If inline run completed, report is already stored
-    report = await _get_report(appid)
+    report = _get_report(appid)
     if report:
         return report
 
@@ -228,7 +226,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
 @app.post("/api/validate-key", response_model=None)
 async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
     appid = body.appid
-    report = await _get_report(appid)
+    report = _get_report(appid)
     if report is None:
         raise HTTPException(
             status_code=404,
@@ -262,14 +260,14 @@ async def job_status(job_id: str) -> dict:
             case "RUNNING":
                 return {"status": "running"}
             case "SUCCEEDED":
-                job = await _get_job(job_id)
-                report = await _get_report(job["appid"]) if job else None
+                job = _get_job(job_id)
+                report = _get_report(job["appid"]) if job else None
                 return {"status": "complete", "report": report}
             case _:
                 return {"status": "failed"}
 
     # Local dev / inline path
-    job = await _get_job(job_id)
+    job = _get_job(job_id)
     if job is None:
         raise HTTPException(
             status_code=404,
@@ -278,7 +276,7 @@ async def job_status(job_id: str) -> dict:
 
     match job["status"]:
         case "complete":
-            report = await _get_report(job["appid"])
+            report = _get_report(job["appid"])
             return {"status": "complete", "report": report}
         case "failed":
             return {"status": "failed"}
@@ -344,7 +342,7 @@ async def get_game_report(appid: int) -> dict:
             "deck_test_results": game.deck_test_results,
         }
 
-    report = await _get_report(appid)
+    report = _get_report(appid)
     if report:
         return {"status": "available", "report": report, "game": game_meta}
 

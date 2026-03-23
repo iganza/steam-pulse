@@ -10,7 +10,6 @@ DB ingest from spoke results is handled by ingest_handler.py (primary region).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 
@@ -88,7 +87,7 @@ _crawl_service = CrawlService(
     review_repo=ReviewRepository(_conn),
     catalog_repo=CatalogRepository(_conn),
     tag_repo=TagRepository(_conn),
-    steam=DirectSteamSource(httpx.AsyncClient(timeout=60.0), on_request=_steam_metrics_callback),
+    steam=DirectSteamSource(httpx.Client(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
     sfn_arn=_sfn_arn,
@@ -203,13 +202,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("Direct invocation: action=%s", event["action"])
         match req:
             case CrawlAppsRequest():
-                ok = asyncio.run(_crawl_service.crawl_app(req.appid))
+                ok = _crawl_service.crawl_app(req.appid)
                 metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
-                n = asyncio.run(
-                    _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
-                )
+                n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
                 metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():

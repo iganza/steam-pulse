@@ -37,7 +37,7 @@ Requires:
 from __future__ import annotations
 
 import argparse
-import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
@@ -161,7 +161,7 @@ def _has_real_aws_credentials() -> bool:
 
 def _build_crawl_service(
     conn: psycopg2.extensions.connection,
-    http_async: httpx.AsyncClient,
+    http_client: httpx.Client,
 ) -> CrawlService:
     import boto3
     real_aws = _has_real_aws_credentials()
@@ -170,7 +170,7 @@ def _build_crawl_service(
         review_repo=ReviewRepository(conn),
         catalog_repo=CatalogRepository(conn),
         tag_repo=TagRepository(conn),
-        steam=DirectSteamSource(http_async),
+        steam=DirectSteamSource(http_client),
         sns_client=_NoOpSnsClient(),
         config=SteamPulseConfig(),
         game_events_topic_arn="noop",
@@ -304,53 +304,47 @@ def cmd_game_info(appid: int) -> None:
     _table(["Field", "Value"], rows)
 
 
-# ── shared async crawl machinery ─────────────────────────────────────────────
+# ── shared crawl machinery ────────────────────────────────────────────────────
 
-async def _crawl_one(
-    appid: int,
-    phase: str,
-    steam: DirectSteamSource,
-    sem: asyncio.Semaphore,
-) -> str:
-    async with sem:
+def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
+    c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        svc = _build_crawl_service(c, client)
+        if phase == "metadata":
+            result = svc.crawl_app(appid)
+            return "done" if result else "skipped"
+        else:
+            n = svc.crawl_reviews(appid)
+            return "done" if n >= 0 else "skipped"
+    except Exception as exc:
+        _warn(f"appid={appid} error: {exc}")
+        return "failed"
+    finally:
+        c.close()
+
+
+def _crawl_specific(appids: list[int], phase: str) -> None:
+    client = httpx.Client(timeout=30.0)
+    for appid in appids:
         c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            svc = _build_crawl_service(c, steam._client)  # type: ignore[attr-defined]
+            svc = _build_crawl_service(c, client)
             if phase == "metadata":
-                result = await svc.crawl_app(appid)
-                return "done" if result else "skipped"
+                result = svc.crawl_app(appid)
+                _ok(f"appid={appid} metadata={'done' if result else 'skipped'}")
             else:
-                n = await svc.crawl_reviews(appid)
-                return "done" if n >= 0 else "skipped"
+                n = svc.crawl_reviews(appid)
+                _ok(f"appid={appid} reviews={n}")
         except Exception as exc:
-            _warn(f"appid={appid} error: {exc}")
-            return "failed"
+            _err(f"appid={appid} failed: {exc}")
         finally:
             c.close()
+    client.close()
 
 
-async def _crawl_specific(appids: list[int], phase: str) -> None:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for appid in appids:
-            c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-            try:
-                svc = _build_crawl_service(c, client)
-                if phase == "metadata":
-                    result = await svc.crawl_app(appid)
-                    _ok(f"appid={appid} metadata={'done' if result else 'skipped'}")
-                else:
-                    n = await svc.crawl_reviews(appid)
-                    _ok(f"appid={appid} reviews={n}")
-            except Exception as exc:
-                _err(f"appid={appid} failed: {exc}")
-            finally:
-                c.close()
-
-
-async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
-    """Process all pending items for a phase with rate-limited concurrency."""
+def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
+    """Process all pending items for a phase with thread-pool concurrency."""
     batch_size = concurrency * 4
-    sem = asyncio.Semaphore(concurrency)
     n_done = n_skipped = n_failed = 0
     start = time.monotonic()
     last_log = start
@@ -359,22 +353,22 @@ async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
     total_pending = len(fetch_fn(999_999))
     _info(f"[{phase}] starting — {total_pending:,} items pending")
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        steam = DirectSteamSource(client)
+    client = httpx.Client(timeout=30.0)
+    try:
         while True:
             batch = fetch_fn(batch_size)
             if not batch:
                 break
-            results = await asyncio.gather(
-                *[_crawl_one(a, phase, steam, sem) for a in batch]
-            )
-            for r in results:
-                if r == "done":
-                    n_done += 1
-                elif r == "skipped":
-                    n_skipped += 1
-                else:
-                    n_failed += 1
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = {pool.submit(_crawl_one, a, phase, client): a for a in batch}
+                for future in as_completed(futures):
+                    r = future.result()
+                    if r == "done":
+                        n_done += 1
+                    elif r == "skipped":
+                        n_skipped += 1
+                    else:
+                        n_failed += 1
 
             now = time.monotonic()
             if now - last_log >= 30:
@@ -391,6 +385,8 @@ async def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
                     f"{rate:.0f}/min | ETA {eta_str}"
                 )
                 last_log = now
+    finally:
+        client.close()
 
     elapsed = time.monotonic() - start
     _ok(f"[{phase}] done={n_done:,} skipped={n_skipped:,} failed={n_failed:,} in {elapsed/60:.1f} min")
@@ -433,16 +429,16 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
 
 def cmd_game_crawl(appids: list[int], all_pending: bool, concurrency: int) -> None:
     if all_pending:
-        asyncio.run(_crawl_bulk("metadata", _pending_meta, concurrency))
+        _crawl_bulk("metadata", _pending_meta, concurrency)
     else:
-        asyncio.run(_crawl_specific(appids, "metadata"))
+        _crawl_specific(appids, "metadata")
 
 
 def cmd_reviews_crawl(appids: list[int], eligible: bool, concurrency: int) -> None:
     if eligible:
-        asyncio.run(_crawl_bulk("reviews", _eligible_reviews, concurrency))
+        _crawl_bulk("reviews", _eligible_reviews, concurrency)
     else:
-        asyncio.run(_crawl_specific(appids, "reviews"))
+        _crawl_specific(appids, "reviews")
 
 
 class _MockLambdaContext:
@@ -484,9 +480,9 @@ def cmd_analyze(appids: list[int], ready: bool) -> None:
 def cmd_seed(appids: list[int]) -> None:
     _info(f"Full pipeline for {len(appids)} games: {appids}")
     _info("Stage 1/3 — metadata crawl")
-    asyncio.run(_crawl_specific(appids, "metadata"))
+    _crawl_specific(appids, "metadata")
     _info("Stage 2/3 — review crawl")
-    asyncio.run(_crawl_specific(appids, "reviews"))
+    _crawl_specific(appids, "reviews")
     _info("Stage 3/3 — LLM analysis")
     cmd_analyze(appids, ready=False)
     _ok("Seed complete")

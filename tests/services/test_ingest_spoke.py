@@ -1,6 +1,5 @@
 """Tests for CrawlService spoke ingest methods."""
 
-import asyncio
 from unittest.mock import MagicMock
 
 from library_layer.config import SteamPulseConfig
@@ -47,7 +46,7 @@ def test_ingest_spoke_metadata_delegates() -> None:
     svc._game_repo.find_by_appid = MagicMock(return_value=None)
     svc._ingest_app_data = MagicMock(return_value={"appid": 440, "name": "TF2", "review_count": 100})
     raw = {"details": {"name": "TF2", "type": "game"}, "summary": {}, "deck_compat": None}
-    result = asyncio.run(svc.ingest_spoke_metadata(440, raw))
+    result = svc.ingest_spoke_metadata(440, raw)
     assert result is True
     svc._ingest_app_data.assert_called_once()
 
@@ -55,14 +54,14 @@ def test_ingest_spoke_metadata_delegates() -> None:
 def test_ingest_spoke_metadata_empty_details() -> None:
     """ingest_spoke_metadata returns False on empty details."""
     svc = _make_crawl_service()
-    result = asyncio.run(svc.ingest_spoke_metadata(440, {}))
+    result = svc.ingest_spoke_metadata(440, {})
     assert result is False
 
 
 def test_ingest_spoke_metadata_none_details() -> None:
     """ingest_spoke_metadata returns False when details is None."""
     svc = _make_crawl_service()
-    result = asyncio.run(svc.ingest_spoke_metadata(440, {"details": None}))
+    result = svc.ingest_spoke_metadata(440, {"details": None})
     assert result is False
 
 
@@ -84,7 +83,7 @@ def test_ingest_spoke_reviews_returns_count() -> None:
         "written_during_early_access": False,
         "received_for_free": False,
     }]
-    result = asyncio.run(svc.ingest_spoke_reviews(440, reviews))
+    result = svc.ingest_spoke_reviews(440, reviews)
     assert result == 1
     svc._game_repo.ensure_stub.assert_called_once_with(440)
     svc._review_repo.bulk_upsert.assert_called_once()
@@ -93,5 +92,5 @@ def test_ingest_spoke_reviews_returns_count() -> None:
 def test_ingest_spoke_reviews_empty() -> None:
     """ingest_spoke_reviews returns 0 on empty list."""
     svc = _make_crawl_service()
-    result = asyncio.run(svc.ingest_spoke_reviews(440, []))
+    result = svc.ingest_spoke_reviews(440, [])
     assert result == 0

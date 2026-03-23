@@ -234,7 +234,7 @@ class ComputeStack(cdk.Stack):
         opennext_cache_table = dynamodb.Table(
             self,
             "OpenNextCacheTable",
-            table_name=f"steampulse-opennext-cache-{env}",
+
             partition_key=dynamodb.Attribute(name="tag", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,

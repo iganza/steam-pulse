@@ -50,7 +50,6 @@ export async function getGameReport(appid: number): Promise<{
   status: string;
   report?: GameReport;
   review_count?: number;
-  threshold?: number;
   game?: {
     short_desc?: string;
     developer?: string;

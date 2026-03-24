@@ -23,7 +23,7 @@ class AnalyticsRepository(BaseRepository):
             SELECT COUNT(*) AS cnt FROM (
                 SELECT DISTINCT author_steamid
                 FROM reviews
-                WHERE appid = %s AND author_steamid IS NOT NULL AND author_steamid != ''
+                WHERE appid = %s AND author_steamid IS NOT NULL
                 LIMIT 10000
             ) capped
             """,
@@ -38,7 +38,7 @@ class AnalyticsRepository(BaseRepository):
             WITH game_reviewers AS (
                 SELECT DISTINCT author_steamid
                 FROM reviews
-                WHERE appid = %s AND author_steamid IS NOT NULL AND author_steamid != ''
+                WHERE appid = %s AND author_steamid IS NOT NULL
                 LIMIT 10000
             ),
             total AS (

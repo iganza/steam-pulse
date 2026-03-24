@@ -57,7 +57,7 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
         if rec_id:
             steam_id = str(rec_id)
         else:
-            author = r.get("author_steamid", "")
+            author = r.get("author_steamid") or ""
             steam_id = f"{author}_{ts}_{appid}"
         posted_at: datetime | None = None
         if ts:
@@ -70,12 +70,12 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
             {
                 "appid": appid,
                 "steam_review_id": steam_id,
-                "author_steamid": r.get("author_steamid", ""),
+                "author_steamid": r.get("author_steamid") or None,
                 "voted_up": bool(r.get("voted_up", False)),
                 "playtime_hours": playtime_minutes // 60,
                 "body": r.get("review_text", ""),
                 "posted_at": posted_at,
-                "language": r.get("language", ""),
+                "language": r.get("language") or None,
                 "votes_helpful": int(r.get("votes_helpful") or 0),
                 "votes_funny": int(r.get("votes_funny") or 0),
                 "written_during_early_access": bool(r.get("written_during_early_access", False)),

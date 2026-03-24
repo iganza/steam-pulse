@@ -98,6 +98,7 @@ class DataStack(cdk.Stack):
                 serverless_v2_min_capacity=0,
                 serverless_v2_max_capacity=1,
                 writer=rds.ClusterInstance.serverless_v2("Writer"),
+                enable_data_api=True,
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
             db_secret = db_cluster.secret  # type: ignore[assignment]

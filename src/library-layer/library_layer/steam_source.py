@@ -217,7 +217,7 @@ class DirectSteamSource(SteamDataSource):
             resp = self._get_with_retry(
                 url,
                 json="1",
-                filter="all",
+                filter="recent",
                 language="english",
                 num_per_page="100",
                 cursor=cursor,

@@ -68,9 +68,6 @@ CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime
   ON reviews(appid, playtime_hours, voted_up);
 CREATE INDEX IF NOT EXISTS idx_reviews_appid_ea
   ON reviews(appid, written_during_early_access, voted_up);
-CREATE INDEX IF NOT EXISTS idx_reviews_appid_free
-  ON reviews(appid, received_for_free, voted_up);
-
 -- Top reviews sort
 CREATE INDEX IF NOT EXISTS idx_reviews_appid_helpful
   ON reviews(appid, votes_helpful DESC);
@@ -102,11 +99,16 @@ class AnalyticsRepository(BaseRepository):
 
 The killer feature. Finds games with the most shared reviewers via author_steamid.
 
+**Performance note:** For games with very large reviewer sets (e.g. TF2, CS2), the
+self-join is expensive. Cap `game_reviewers` to 10,000 rows — sufficient for meaningful
+overlap detection and prevents runaway query times.
+
 ```sql
 WITH game_reviewers AS (
     SELECT DISTINCT author_steamid
     FROM reviews
     WHERE appid = %(appid)s AND author_steamid IS NOT NULL
+    LIMIT 10000
 ),
 total AS (
     SELECT COUNT(*) AS cnt FROM game_reviewers
@@ -330,7 +332,8 @@ ORDER BY 1
 ```
 
 In Python, compute `growth_rate` = (last_year_count - first_year_count) /
-first_year_count. Identify `peak_year`.
+first_year_count. Guard against division by zero: if `first_year_count == 0`,
+set `growth_rate` to `null`. Identify `peak_year`.
 
 **Response:**
 
@@ -460,7 +463,15 @@ Post-process in Python:
   both buckets to have ≥ 5 reviews to filter noise).
 - Compute **median_playtime**: separate query using `PERCENTILE_CONT(0.5)`.
 - Compute **value_score**: `median_playtime / price_usd` (hours per dollar).
-  Include only if game has a price (not free). Fetch price from games table.
+  Include only if game has a price (not free). Get `price_usd` and `is_free`
+  by JOINing `games` in the median query — no extra round-trip needed:
+  ```sql
+  SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.playtime_hours) AS median_playtime,
+         g.price_usd, g.is_free
+  FROM reviews r JOIN games g ON g.appid = r.appid
+  WHERE r.appid = %s
+  GROUP BY g.price_usd, g.is_free
+  ```
 
 **Response:**
 
@@ -519,49 +530,7 @@ GROUP BY written_during_early_access
 - `"stable"` otherwise
 - `"no_ea"` if no EA reviews exist (return nulls for early_access)
 
-### 3c. find_review_integrity(appid)
-
-Compare paid vs. free-key review sentiment.
-
-```sql
-SELECT
-    received_for_free AS is_free_key,
-    COUNT(*) AS total,
-    COUNT(CASE WHEN voted_up THEN 1 END) AS positive,
-    ROUND(COUNT(CASE WHEN voted_up THEN 1 END)::numeric
-          / NULLIF(COUNT(*), 0) * 100, 1) AS pct_positive,
-    ROUND(AVG(playtime_hours), 1) AS avg_playtime,
-    ROUND(AVG(votes_helpful), 1) AS avg_helpfulness
-FROM reviews
-WHERE appid = %s
-GROUP BY received_for_free
-```
-
-**Response:**
-
-```json
-{
-  "paid_reviews": {
-    "total": 1000, "positive": 780, "pct_positive": 78.0,
-    "avg_playtime": 22.5, "avg_helpfulness": 2.1
-  },
-  "free_key_reviews": {
-    "total": 50, "positive": 48, "pct_positive": 96.0,
-    "avg_playtime": 3.2, "avg_helpfulness": 0.5
-  },
-  "bias_delta": 18.0,
-  "free_key_pct": 4.8,
-  "integrity_flag": "suspicious"
-}
-```
-
-`integrity_flag` logic:
-- `"clean"` — bias_delta < 10 OR free_key_pct < 2%
-- `"notable"` — bias_delta 10-20 AND free_key_pct ≥ 2%
-- `"suspicious"` — bias_delta > 20 AND free_key_pct ≥ 5%
-- `"insufficient_data"` — total reviews < 20 OR no free key reviews
-
-### 3d. find_review_velocity(appid)
+### 3c. find_review_velocity(appid)
 
 Monthly review volume trend over last 24 months.
 
@@ -601,14 +570,15 @@ Post-process:
 }
 ```
 
-### 3e. find_top_reviews(appid, sort='helpful', limit=10)
+### 3d. find_top_reviews(appid, sort='helpful', limit=10)
 
 Top reviews by helpfulness or humor votes.
 
 ```python
 def find_top_reviews(self, appid: int, sort: str = "helpful", limit: int = 10) -> list:
+    # Whitelist prevents SQL injection — order_col is never user input directly.
+    # The endpoint must validate sort is in ("helpful", "funny") before calling this.
     order_col = "votes_helpful" if sort == "helpful" else "votes_funny"
-    # order_col is from whitelist — safe from injection
     return self._fetchall(f"""
         SELECT steam_review_id, voted_up, playtime_hours,
                LEFT(body, 500) AS body_preview,
@@ -649,36 +619,45 @@ def find_top_reviews(self, appid: int, sort: str = "helpful", limit: int = 10) -
 Add all endpoints to `handler.py`. Follow the existing pattern:
 get a db connection, create repository instance, call method, return result.
 
+**404 handling:** All per-game endpoints must verify the appid exists before querying.
+Use `GameRepository(db).find_by_appid(appid)` (already exists) and raise
+`HTTPException(status_code=404, detail="game_not_found")` if it returns `None`.
+
 ### Per-Game Review Analytics
 
 ```python
 @app.get("/api/games/{appid}/audience-overlap")
 def get_audience_overlap(appid: int, limit: int = 20):
+    if not GameRepository(db).find_by_appid(appid):
+        raise HTTPException(status_code=404, detail="game_not_found")
     repo = AnalyticsRepository(db)
     return repo.find_audience_overlap(appid, min(limit, 50))
 
 @app.get("/api/games/{appid}/playtime-sentiment")
 def get_playtime_sentiment(appid: int):
+    if not GameRepository(db).find_by_appid(appid):
+        raise HTTPException(status_code=404, detail="game_not_found")
     repo = ReviewRepository(db)
     return repo.find_playtime_sentiment(appid)
 
 @app.get("/api/games/{appid}/early-access-impact")
 def get_early_access_impact(appid: int):
+    if not GameRepository(db).find_by_appid(appid):
+        raise HTTPException(status_code=404, detail="game_not_found")
     repo = ReviewRepository(db)
     return repo.find_early_access_impact(appid)
 
-@app.get("/api/games/{appid}/review-integrity")
-def get_review_integrity(appid: int):
-    repo = ReviewRepository(db)
-    return repo.find_review_integrity(appid)
-
 @app.get("/api/games/{appid}/review-velocity")
 def get_review_velocity(appid: int):
+    if not GameRepository(db).find_by_appid(appid):
+        raise HTTPException(status_code=404, detail="game_not_found")
     repo = ReviewRepository(db)
     return repo.find_review_velocity(appid)
 
 @app.get("/api/games/{appid}/top-reviews")
 def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10):
+    if not GameRepository(db).find_by_appid(appid):
+        raise HTTPException(status_code=404, detail="game_not_found")
     if sort not in ("helpful", "funny"):
         sort = "helpful"
     repo = ReviewRepository(db)

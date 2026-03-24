@@ -1,7 +1,8 @@
 """Tests for ReviewRepository."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, date
 
+import pytest
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
 
@@ -232,3 +233,372 @@ def test_find_review_stats_velocity_nonzero(
     review_repo.bulk_upsert(reviews)
     stats = review_repo.find_review_stats(440)
     assert stats["review_velocity"]["reviews_per_day"] > 0
+
+
+# ---------------------------------------------------------------------------
+# find_playtime_sentiment tests
+# ---------------------------------------------------------------------------
+
+
+def _make_review_pt(appid: int, rid: str, playtime: int, voted_up: bool, **kw: object) -> dict:
+    return {
+        "appid": appid,
+        "steam_review_id": rid,
+        "voted_up": voted_up,
+        "playtime_hours": playtime,
+        "body": "x",
+        "posted_at": datetime(2024, 1, 1, tzinfo=UTC),
+        "votes_helpful": kw.get("votes_helpful", 0),
+        "votes_funny": kw.get("votes_funny", 0),
+        "written_during_early_access": False,
+        "received_for_free": False,
+    }
+
+
+def _seed_priced_game(game_repo: GameRepository, appid: int = 440, price_usd: float | None = 9.99, is_free: bool = False) -> None:
+    game_repo.upsert({
+        "appid": appid,
+        "name": f"App {appid}",
+        "slug": f"app-{appid}",
+        "type": "game",
+        "developer": None,
+        "developer_slug": None,
+        "publisher": None,
+        "developers": "[]",
+        "publishers": "[]",
+        "website": None,
+        "release_date": None,
+        "coming_soon": False,
+        "price_usd": price_usd,
+        "is_free": is_free,
+        "short_desc": None,
+        "detailed_description": None,
+        "about_the_game": None,
+        "review_count": 100,
+        "review_count_english": 100,
+        "total_positive": 80,
+        "total_negative": 20,
+        "positive_pct": 80,
+        "review_score_desc": "Positive",
+        "header_image": None,
+        "background_image": None,
+        "required_age": 0,
+        "platforms": "{}",
+        "supported_languages": None,
+        "achievements_total": 0,
+        "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
+        "data_source": "steam_direct",
+    })
+
+
+def test_playtime_sentiment_buckets(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Reviews land in the correct playtime bucket."""
+    _seed_priced_game(game_repo)
+    reviews = [
+        _make_review_pt(440, "pt-0h", 0, True),
+        _make_review_pt(440, "pt-0h-b", 0, True),  # same 0h bucket
+        _make_review_pt(440, "pt-7h", 7, False),    # 5-10h bucket (< 10)
+    ]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_playtime_sentiment(440)
+    bucket_names = {b["bucket"] for b in result["buckets"]}
+    assert "0h" in bucket_names
+    assert "5-10h" in bucket_names
+
+
+def test_playtime_sentiment_churn_wall_detected(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """A drop of >= 10 pts between adjacent buckets (both >= 5 reviews) is flagged."""
+    _seed_priced_game(game_repo)
+    # 5 reviews in 2-5h bucket: all positive (100%)
+    reviews = [_make_review_pt(440, f"low-{i}", 3, True) for i in range(5)]
+    # 5 reviews in 5-10h bucket: all negative (0%) → drop of 100 pts
+    reviews += [_make_review_pt(440, f"high-{i}", 7, False) for i in range(5)]
+    review_repo.bulk_upsert(reviews)
+
+    result = review_repo.find_playtime_sentiment(440)
+    assert result["churn_point"] is not None
+    assert result["churn_point"]["delta"] < -10
+
+
+def test_playtime_sentiment_no_churn_wall(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """No churn_point when sentiment is consistent across buckets."""
+    _seed_priced_game(game_repo)
+    # Spread reviews with consistent ~80% positive across a few buckets
+    reviews = [_make_review_pt(440, f"c-low-{i}", 3, i < 4) for i in range(5)]
+    reviews += [_make_review_pt(440, f"c-high-{i}", 7, i < 4) for i in range(5)]
+    review_repo.bulk_upsert(reviews)
+
+    result = review_repo.find_playtime_sentiment(440)
+    assert result["churn_point"] is None
+
+
+def test_playtime_sentiment_value_score(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """value_score = median_playtime / price_usd; None for free games."""
+    _seed_priced_game(game_repo, 440, price_usd=10.0)
+    # 5 reviews all at 20h playtime → median = 20h
+    reviews = [_make_review_pt(440, f"vs-{i}", 20, True) for i in range(5)]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_playtime_sentiment(440)
+    assert result["value_score"] == pytest.approx(2.0, abs=0.01)
+
+    # Now a free game — value_score should be None
+    _seed_priced_game(game_repo, 441, price_usd=None, is_free=True)
+    reviews2 = [_make_review_pt(441, f"free-{i}", 10, True) for i in range(3)]
+    review_repo.bulk_upsert(reviews2)
+    result2 = review_repo.find_playtime_sentiment(441)
+    assert result2["value_score"] is None
+
+
+# ---------------------------------------------------------------------------
+# find_early_access_impact tests
+# ---------------------------------------------------------------------------
+
+
+def test_early_access_impact_improved(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Post-launch pct > EA pct by >= 5 → verdict 'improved'."""
+    _seed_game(game_repo)
+    # EA: 5 reviews, 50% positive
+    ea = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"ea-{i}",
+         "voted_up": i < 5, "written_during_early_access": True}
+        for i in range(10)
+    ]
+    # Post: 10 reviews, 90% positive
+    post = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"post-{i}",
+         "voted_up": i < 9, "written_during_early_access": False}
+        for i in range(10)
+    ]
+    review_repo.bulk_upsert(ea + post)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "improved"
+    assert result["has_ea_reviews"] is True
+
+
+def test_early_access_impact_declined(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Post-launch pct < EA pct by >= 5 → verdict 'declined'."""
+    _seed_game(game_repo)
+    ea = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"ea2-{i}",
+         "voted_up": i < 9, "written_during_early_access": True}
+        for i in range(10)
+    ]
+    post = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"post2-{i}",
+         "voted_up": i < 5, "written_during_early_access": False}
+        for i in range(10)
+    ]
+    review_repo.bulk_upsert(ea + post)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "declined"
+
+
+def test_early_access_impact_stable(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Sentiment delta within 5 pts → verdict 'stable'."""
+    _seed_game(game_repo)
+    # EA: 7/10 = 70%, post: 7/10 = 70% → delta = 0, well within the 5pt threshold
+    ea = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"ea3-{i}",
+         "voted_up": i < 7, "written_during_early_access": True}
+        for i in range(10)
+    ]
+    post = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"post3-{i}",
+         "voted_up": i < 7, "written_during_early_access": False}
+        for i in range(10)
+    ]
+    review_repo.bulk_upsert(ea + post)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "stable"
+
+
+def test_early_access_impact_no_ea(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """No EA reviews → verdict 'no_ea' and early_access is None."""
+    _seed_game(game_repo)
+    reviews = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"noea-{i}",
+         "written_during_early_access": False}
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "no_ea"
+    assert result["early_access"] is None
+    assert result["has_ea_reviews"] is False
+
+
+def test_early_access_impact_no_post(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """EA reviews exist but no post-launch reviews → verdict 'no_post', impact_delta None."""
+    _seed_game(game_repo)
+    ea = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"ea-nopost-{i}",
+         "voted_up": True, "written_during_early_access": True}
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(ea)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "no_post"
+    assert result["has_ea_reviews"] is True
+    assert result["post_launch"] is None
+    assert result["impact_delta"] is None
+
+
+# ---------------------------------------------------------------------------
+# find_review_velocity tests
+# ---------------------------------------------------------------------------
+
+
+def _month_start(months_ago: int) -> datetime:
+    """Return the 1st of the month, N calendar months before the current month (UTC)."""
+    today = date.today()
+    total = today.year * 12 + today.month - 1 - months_ago
+    return datetime(total // 12, total % 12 + 1, 1, tzinfo=UTC)
+
+
+def test_review_velocity_trend_accelerating(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """last_3_months_avg > avg_monthly * 1.2 → trend 'accelerating'."""
+    _seed_game(game_repo)
+    reviews = []
+    # Months 23 down to 4 ago: 2 reviews each — anchored to 1st of each month
+    for m in range(23, 3, -1):
+        for j in range(2):
+            reviews.append({
+                "appid": 440,
+                "steam_review_id": f"vel-acc-{m}-{j}",
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
+            })
+    # Months 3, 2, 1 ago: 10 reviews each (well above avg)
+    for m in range(1, 4):
+        for j in range(10):
+            reviews.append({
+                "appid": 440,
+                "steam_review_id": f"vel-acc-recent-{m}-{j}",
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
+            })
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_review_velocity(440)
+    assert result["summary"]["trend"] == "accelerating"
+
+
+def test_review_velocity_trend_decelerating(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """last_3_months_avg < avg_monthly * 0.8 → trend 'decelerating'."""
+    _seed_game(game_repo)
+    reviews = []
+    # Months 23 down to 4 ago: 10 reviews each
+    for m in range(23, 3, -1):
+        for j in range(10):
+            reviews.append({
+                "appid": 440,
+                "steam_review_id": f"vel-dec-{m}-{j}",
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
+            })
+    # Months 3, 2, 1 ago: 1 review each (well below avg)
+    for m in range(1, 4):
+        reviews.append({
+            "appid": 440,
+            "steam_review_id": f"vel-dec-recent-{m}",
+            "voted_up": True, "playtime_hours": 5, "body": "",
+            "posted_at": _month_start(m),
+        })
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_review_velocity(440)
+    assert result["summary"]["trend"] == "decelerating"
+
+
+def test_review_velocity_peak_month(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """peak_month is the month with the highest review count."""
+    _seed_game(game_repo)
+    reviews = []
+    # 1 review in month 10 ago, 5 reviews in month 2 ago
+    reviews.append({
+        "appid": 440, "steam_review_id": "vm-old",
+        "voted_up": True, "playtime_hours": 5, "body": "",
+        "posted_at": _month_start(10),
+    })
+    for j in range(5):
+        reviews.append({
+            "appid": 440, "steam_review_id": f"vm-recent-{j}",
+            "voted_up": True, "playtime_hours": 5, "body": "",
+            "posted_at": _month_start(2).replace(day=1 + j),
+        })
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_review_velocity(440)
+    assert result["summary"]["peak_month"]["total"] == 5
+
+
+# ---------------------------------------------------------------------------
+# find_top_reviews tests
+# ---------------------------------------------------------------------------
+
+
+def test_top_reviews_sort_helpful(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Reviews are ordered by votes_helpful DESC."""
+    _seed_game(game_repo)
+    reviews = [
+        _make_review_pt(440, f"tr-{i}", 10, True, votes_helpful=i * 10)
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_top_reviews(440, sort="helpful", limit=5)
+    helpful_counts = [r["votes_helpful"] for r in result]
+    assert helpful_counts == sorted(helpful_counts, reverse=True)
+
+
+def test_top_reviews_sort_funny(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Reviews are ordered by votes_funny DESC."""
+    _seed_game(game_repo)
+    reviews = [
+        _make_review_pt(440, f"tf-{i}", 10, True, votes_funny=i * 5, votes_helpful=1)
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_top_reviews(440, sort="funny", limit=5)
+    funny_counts = [r["votes_funny"] for r in result]
+    assert funny_counts == sorted(funny_counts, reverse=True)
+
+
+def test_top_reviews_limit(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Result is capped at the requested limit."""
+    _seed_game(game_repo)
+    reviews = [
+        _make_review_pt(440, f"lim-{i}", 10, True, votes_helpful=i + 1)
+        for i in range(10)
+    ]
+    review_repo.bulk_upsert(reviews)
+    result = review_repo.find_top_reviews(440, sort="helpful", limit=3)
+    assert len(result) == 3

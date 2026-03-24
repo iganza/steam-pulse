@@ -1,0 +1,529 @@
+"""Tests for AnalyticsRepository."""
+
+import json
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from library_layer.repositories.analytics_repo import AnalyticsRepository
+from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.review_repo import ReviewRepository
+
+# ---------------------------------------------------------------------------
+# Seed helpers
+# ---------------------------------------------------------------------------
+
+
+def _seed_game(game_repo: GameRepository, appid: int = 440, **kw: Any) -> None:
+    game_repo.upsert({
+        "appid": appid,
+        "name": kw.get("name", f"Game {appid}"),
+        "slug": kw.get("slug", f"game-{appid}"),
+        "type": "game",
+        "developer": kw.get("developer", "Test Dev"),
+        "developer_slug": kw.get("developer_slug", "test-dev"),
+        "publisher": None,
+        "developers": "[]",
+        "publishers": "[]",
+        "website": None,
+        "release_date": kw.get("release_date", "2022-06-15"),
+        "coming_soon": False,
+        "price_usd": kw.get("price_usd", 9.99),
+        "is_free": kw.get("is_free", False),
+        "short_desc": None,
+        "detailed_description": None,
+        "about_the_game": None,
+        "review_count": kw.get("review_count", 100),
+        "review_count_english": kw.get("review_count", 100),
+        "total_positive": 75,
+        "total_negative": 25,
+        "positive_pct": kw.get("positive_pct", 75),
+        "review_score_desc": "Mostly Positive",
+        "header_image": None,
+        "background_image": None,
+        "required_age": 0,
+        "platforms": kw.get("platforms", json.dumps({"windows": True, "mac": False, "linux": False})),
+        "supported_languages": None,
+        "achievements_total": 0,
+        "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
+        "data_source": "steam_direct",
+    })
+
+
+def _seed_genre(db_conn: Any, name: str, slug: str) -> int:
+    # genres.id is INTEGER (not SERIAL) — derive a stable ID from the slug
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO genres (id, name, slug)
+            VALUES (ABS(HASHTEXT(%s)) %% 999999 + 1, %s, %s)
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            (slug, name, slug),
+        )
+        genre_id = cur.fetchone()["id"]
+    db_conn.commit()
+    return genre_id
+
+
+def _link_genre(db_conn: Any, appid: int, genre_id: int) -> None:
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO game_genres (appid, genre_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (appid, genre_id),
+        )
+    db_conn.commit()
+
+
+def _seed_tag(db_conn: Any, name: str, slug: str) -> int:
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tags (name, slug) VALUES (%s, %s) ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+            (name, slug),
+        )
+        tag_id = cur.fetchone()["id"]
+    db_conn.commit()
+    return tag_id
+
+
+def _link_tag(db_conn: Any, appid: int, tag_id: int) -> None:
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO game_tags (appid, tag_id, votes) VALUES (%s, %s, 1) ON CONFLICT DO NOTHING",
+            (appid, tag_id),
+        )
+    db_conn.commit()
+
+
+def _make_review(appid: int, author: str, voted_up: bool = True, idx: int = 0) -> dict:
+    return {
+        "appid": appid,
+        "steam_review_id": f"rev-{appid}-{author}-{idx}",
+        "author_steamid": author,
+        "voted_up": voted_up,
+        "playtime_hours": 10,
+        "body": "review",
+        "posted_at": datetime(2024, 1, 1, tzinfo=UTC),
+        "language": "english",
+        "votes_helpful": 0,
+        "votes_funny": 0,
+        "written_during_early_access": False,
+        "received_for_free": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# find_audience_overlap
+# ---------------------------------------------------------------------------
+
+
+def test_audience_overlap_basic(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+) -> None:
+    """Shared reviewers counted correctly with correct overlap_pct math."""
+    _seed_game(game_repo, 440)
+    _seed_game(game_repo, 570)
+
+    # 3 shared reviewers + 2 unique to game 440
+    shared_authors = ["user1", "user2", "user3"]
+    reviews = [_make_review(440, a) for a in shared_authors]
+    reviews += [_make_review(440, "unique1", idx=1), _make_review(440, "unique2", idx=2)]
+    reviews += [_make_review(570, a) for a in shared_authors]
+    review_repo.bulk_upsert(reviews)
+
+    result = analytics_repo.find_audience_overlap(440, limit=10)
+    assert result["total_reviewers"] == 5
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    assert overlap["appid"] == 570
+    assert overlap["overlap_count"] == 3
+    assert overlap["overlap_pct"] == pytest.approx(60.0, abs=0.2)
+
+
+def test_audience_overlap_no_reviews(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Returns empty structure when appid has no reviews."""
+    _seed_game(game_repo, 440)
+    result = analytics_repo.find_audience_overlap(440)
+    assert result == {"total_reviewers": 0, "overlaps": []}
+
+
+def test_audience_overlap_excludes_self(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+) -> None:
+    """Source game (appid=440) never appears in its own overlaps list."""
+    _seed_game(game_repo, 440)
+    review_repo.bulk_upsert([_make_review(440, "user1")])
+    result = analytics_repo.find_audience_overlap(440)
+    appids = [o["appid"] for o in result["overlaps"]]
+    assert 440 not in appids
+
+
+def test_audience_overlap_limit(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+) -> None:
+    """Result is capped at the requested limit."""
+    for i in range(5):
+        _seed_game(game_repo, 440 + i)
+    # User "shared" plays game 440 and all four others
+    reviews = [_make_review(440, "shared")]
+    for i in range(1, 5):
+        reviews.append(_make_review(440 + i, "shared"))
+    review_repo.bulk_upsert(reviews)
+
+    result = analytics_repo.find_audience_overlap(440, limit=2)
+    assert len(result["overlaps"]) <= 2
+
+
+# ---------------------------------------------------------------------------
+# find_price_positioning
+# ---------------------------------------------------------------------------
+
+
+def test_price_positioning_distribution(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Each price bucket is counted correctly."""
+    genre_id = _seed_genre(db_conn, "Action", "action")
+    # Seed 12 games at $7.99 so the bucket has enough for sweet_spot
+    for i in range(12):
+        _seed_game(game_repo, 1000 + i, price_usd=7.99, review_count=20, positive_pct=70)
+        _link_genre(db_conn, 1000 + i, genre_id)
+
+    result = analytics_repo.find_price_positioning("action")
+    bucket_names = [d["price_range"] for d in result["distribution"]]
+    assert "$5-10" in bucket_names
+    dollar5_10 = next(d for d in result["distribution"] if d["price_range"] == "$5-10")
+    assert dollar5_10["game_count"] == 12
+
+
+def test_price_positioning_sweet_spot(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """sweet_spot is the price_range with highest avg_sentiment (>= 10 games)."""
+    genre_id = _seed_genre(db_conn, "RPG", "rpg")
+    # 12 cheap games with low sentiment
+    for i in range(12):
+        _seed_game(game_repo, 2000 + i, price_usd=3.99, review_count=20, positive_pct=50)
+        _link_genre(db_conn, 2000 + i, genre_id)
+    # 12 mid-tier games with high sentiment
+    for i in range(12):
+        _seed_game(game_repo, 2100 + i, price_usd=12.99, review_count=20, positive_pct=90)
+        _link_genre(db_conn, 2100 + i, genre_id)
+
+    result = analytics_repo.find_price_positioning("rpg")
+    assert result["summary"]["sweet_spot"] == "$10-15"
+
+
+def test_price_positioning_free_games(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Free games appear in distribution and summary free_count is accurate."""
+    genre_id = _seed_genre(db_conn, "FPS", "fps")
+    for i in range(3):
+        _seed_game(game_repo, 3000 + i, is_free=True, price_usd=None, review_count=20)
+        _link_genre(db_conn, 3000 + i, genre_id)
+
+    result = analytics_repo.find_price_positioning("fps")
+    free_bucket = next((d for d in result["distribution"] if d["price_range"] == "Free"), None)
+    assert free_bucket is not None
+    assert free_bucket["game_count"] == 3
+    assert result["summary"]["free_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# find_release_timing
+# ---------------------------------------------------------------------------
+
+
+def test_release_timing_aggregation(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Monthly grouping is correct — games in the same month aggregate together."""
+    genre_id = _seed_genre(db_conn, "Strategy", "strategy")
+    for i in range(3):
+        _seed_game(game_repo, 4000 + i, release_date="2023-03-10", review_count=20, positive_pct=70)
+        _link_genre(db_conn, 4000 + i, genre_id)
+
+    result = analytics_repo.find_release_timing("strategy")
+    march = next((m for m in result["monthly"] if m["month"] == 3), None)
+    assert march is not None
+    assert march["releases"] == 3
+    assert march["month_name"] == "March"
+
+
+def test_release_timing_best_worst_month(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """best_month has highest avg_sentiment, worst_month has lowest."""
+    genre_id = _seed_genre(db_conn, "Puzzle", "puzzle")
+    # January: 2 games at 90% sentiment
+    for i in range(2):
+        _seed_game(game_repo, 5000 + i, release_date="2023-01-10", review_count=20, positive_pct=90)
+        _link_genre(db_conn, 5000 + i, genre_id)
+    # June: 2 games at 50% sentiment
+    for i in range(2):
+        _seed_game(game_repo, 5100 + i, release_date="2023-06-10", review_count=20, positive_pct=50)
+        _link_genre(db_conn, 5100 + i, genre_id)
+
+    result = analytics_repo.find_release_timing("puzzle")
+    assert result["best_month"]["month"] == 1
+    assert result["worst_month"]["month"] == 6
+
+
+def test_release_timing_quietest_busiest_month(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """quietest_month has fewest releases, busiest_month has most."""
+    genre_id = _seed_genre(db_conn, "Horror", "horror")
+    # Feb: 1 game, Oct: 4 games
+    _seed_game(game_repo, 6000, release_date="2023-02-01", review_count=20)
+    _link_genre(db_conn, 6000, genre_id)
+    for i in range(4):
+        _seed_game(game_repo, 6100 + i, release_date="2023-10-01", review_count=20)
+        _link_genre(db_conn, 6100 + i, genre_id)
+
+    result = analytics_repo.find_release_timing("horror")
+    assert result["quietest_month"]["month"] == 2
+    assert result["busiest_month"]["month"] == 10
+
+
+# ---------------------------------------------------------------------------
+# find_platform_distribution
+# ---------------------------------------------------------------------------
+
+
+def test_platform_distribution_counts(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Platform counts and percentages are correct."""
+    genre_id = _seed_genre(db_conn, "Platformer", "platformer")
+    # 4 games total: all on Windows, 2 also on Mac
+    for i in range(4):
+        plat = json.dumps({"windows": True, "mac": i < 2, "linux": False})
+        _seed_game(game_repo, 7000 + i, platforms=plat, review_count=20)
+        _link_genre(db_conn, 7000 + i, genre_id)
+
+    result = analytics_repo.find_platform_distribution("platformer")
+    assert result["total_games"] == 4
+    assert result["platforms"]["windows"]["count"] == 4
+    assert result["platforms"]["mac"]["count"] == 2
+    assert result["platforms"]["mac"]["pct"] == pytest.approx(50.0, abs=0.1)
+    assert result["platforms"]["linux"]["count"] == 0
+
+
+def test_platform_distribution_underserved(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Underserved is the supported platform with lowest percentage."""
+    genre_id = _seed_genre(db_conn, "Sports", "sports")
+    for i in range(4):
+        plat = json.dumps({"windows": True, "mac": True, "linux": i == 0})
+        _seed_game(game_repo, 8000 + i, platforms=plat, review_count=20)
+        _link_genre(db_conn, 8000 + i, genre_id)
+
+    result = analytics_repo.find_platform_distribution("sports")
+    # linux only has 1/4 = 25%, mac has 4/4 = 100%, so linux is underserved
+    assert result["underserved"] == "linux"
+
+
+# ---------------------------------------------------------------------------
+# find_tag_trend
+# ---------------------------------------------------------------------------
+
+
+def test_tag_trend_yearly(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Year grouping and game count are correct."""
+    tag_id = _seed_tag(db_conn, "Roguelike", "roguelike")
+    for i in range(3):
+        _seed_game(game_repo, 9000 + i, release_date="2022-05-01")
+        _link_tag(db_conn, 9000 + i, tag_id)
+    for i in range(2):
+        _seed_game(game_repo, 9100 + i, release_date="2023-05-01")
+        _link_tag(db_conn, 9100 + i, tag_id)
+
+    result = analytics_repo.find_tag_trend("roguelike")
+    year_map = {y["year"]: y["game_count"] for y in result["yearly"]}
+    assert year_map[2022] == 3
+    assert year_map[2023] == 2
+    assert result["total_games"] == 5
+
+
+def test_tag_trend_growth_rate(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """growth_rate is computed correctly and is None when first_year_count == 0."""
+    tag_id = _seed_tag(db_conn, "Deckbuilder", "deckbuilder")
+    # 2 games in 2021, 4 in 2022 → growth = (4-2)/2 = 1.0
+    for i in range(2):
+        _seed_game(game_repo, 10000 + i, release_date="2021-01-01")
+        _link_tag(db_conn, 10000 + i, tag_id)
+    for i in range(4):
+        _seed_game(game_repo, 10100 + i, release_date="2022-01-01")
+        _link_tag(db_conn, 10100 + i, tag_id)
+
+    result = analytics_repo.find_tag_trend("deckbuilder")
+    assert result["growth_rate"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_tag_trend_growth_rate_null_when_no_first_year(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    """growth_rate is None for a tag with no games (first_year_count == 0)."""
+    result = analytics_repo.find_tag_trend("nonexistent-tag-xyz")
+    assert result["growth_rate"] is None
+    assert result["total_games"] == 0
+
+
+def test_tag_trend_peak_year(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """peak_year is the year with the highest game count."""
+    tag_id = _seed_tag(db_conn, "CRPG", "crpg")
+    for i in range(1):
+        _seed_game(game_repo, 11000 + i, release_date="2021-01-01")
+        _link_tag(db_conn, 11000 + i, tag_id)
+    for i in range(5):
+        _seed_game(game_repo, 11100 + i, release_date="2022-01-01")
+        _link_tag(db_conn, 11100 + i, tag_id)
+    for i in range(2):
+        _seed_game(game_repo, 11200 + i, release_date="2023-01-01")
+        _link_tag(db_conn, 11200 + i, tag_id)
+
+    result = analytics_repo.find_tag_trend("crpg")
+    assert result["peak_year"] == 2022
+
+
+# ---------------------------------------------------------------------------
+# find_developer_portfolio
+# ---------------------------------------------------------------------------
+
+
+def test_developer_portfolio_games_list(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Games are returned ordered by release_date DESC."""
+    _seed_game(game_repo, 12000, developer="Acme", developer_slug="acme", release_date="2020-01-01")
+    _seed_game(game_repo, 12001, developer="Acme", developer_slug="acme", release_date="2023-01-01")
+    _seed_game(game_repo, 12002, developer="Acme", developer_slug="acme", release_date="2021-06-01")
+
+    result = analytics_repo.find_developer_portfolio("acme")
+    dates = [g["release_date"] for g in result["games"]]
+    assert dates == sorted(dates, reverse=True)
+    assert len(result["games"]) == 3
+
+
+def test_developer_portfolio_summary(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Aggregate summary stats are correct."""
+    for i in range(3):
+        _seed_game(
+            game_repo, 13000 + i,
+            developer="Pixel Studio", developer_slug="pixel-studio",
+            positive_pct=80, review_count=1000, price_usd=14.99,
+        )
+
+    result = analytics_repo.find_developer_portfolio("pixel-studio")
+    s = result["summary"]
+    assert s["total_games"] == 3
+    assert s["total_reviews"] == 3000
+    assert s["well_received"] == 3
+    assert s["poorly_received"] == 0
+    assert s["avg_sentiment"] == pytest.approx(80.0, abs=0.1)
+
+
+def test_developer_portfolio_trajectory_improving(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Last 3 games avg > overall avg by 5+ → trajectory is 'improving'."""
+    _seed_game(game_repo, 14000, developer_slug="indie-a", release_date="2018-01-01", positive_pct=50)
+    _seed_game(game_repo, 14001, developer_slug="indie-a", release_date="2019-01-01", positive_pct=50)
+    _seed_game(game_repo, 14002, developer_slug="indie-a", release_date="2020-01-01", positive_pct=90)
+    _seed_game(game_repo, 14003, developer_slug="indie-a", release_date="2021-01-01", positive_pct=90)
+    _seed_game(game_repo, 14004, developer_slug="indie-a", release_date="2022-01-01", positive_pct=90)
+
+    result = analytics_repo.find_developer_portfolio("indie-a")
+    assert result["summary"]["sentiment_trajectory"] == "improving"
+
+
+def test_developer_portfolio_trajectory_declining(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Last 3 games avg < overall avg by 5+ → trajectory is 'declining'."""
+    _seed_game(game_repo, 15000, developer_slug="indie-b", release_date="2018-01-01", positive_pct=90)
+    _seed_game(game_repo, 15001, developer_slug="indie-b", release_date="2019-01-01", positive_pct=90)
+    _seed_game(game_repo, 15002, developer_slug="indie-b", release_date="2020-01-01", positive_pct=50)
+    _seed_game(game_repo, 15003, developer_slug="indie-b", release_date="2021-01-01", positive_pct=50)
+    _seed_game(game_repo, 15004, developer_slug="indie-b", release_date="2022-01-01", positive_pct=50)
+
+    result = analytics_repo.find_developer_portfolio("indie-b")
+    assert result["summary"]["sentiment_trajectory"] == "declining"
+
+
+def test_developer_portfolio_trajectory_stable(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """All games at same sentiment → trajectory is 'stable'."""
+    for i in range(4):
+        _seed_game(game_repo, 16000 + i, developer_slug="indie-c",
+                   release_date=f"202{i}-01-01", positive_pct=75)
+
+    result = analytics_repo.find_developer_portfolio("indie-c")
+    assert result["summary"]["sentiment_trajectory"] == "stable"
+
+
+def test_developer_portfolio_single_title(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """A developer with only 1 game gets trajectory 'single_title'."""
+    _seed_game(game_repo, 17000, developer_slug="solo-dev")
+
+    result = analytics_repo.find_developer_portfolio("solo-dev")
+    assert result["summary"]["sentiment_trajectory"] == "single_title"
+
+

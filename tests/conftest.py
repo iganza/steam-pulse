@@ -15,13 +15,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "library-layer"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "lambda-functions"))
 
+from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
-from library_layer.schema import create_all
+from library_layer.schema import create_all, create_indexes
 
 _TEST_DB_DEFAULT = "postgresql://steampulse:dev@localhost:5432/steampulse_test"
 
@@ -82,6 +83,7 @@ def db_conn() -> Generator[Any, None, None]:
     except Exception:
         pytest.skip("PostgreSQL not available")
     create_all(conn)
+    create_indexes(conn)
     yield conn
     conn.close()
 
@@ -105,6 +107,11 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         """)
     conn.commit()
     yield
+
+
+@pytest.fixture
+def analytics_repo(db_conn: Any) -> AnalyticsRepository:
+    return AnalyticsRepository(db_conn)
 
 
 @pytest.fixture

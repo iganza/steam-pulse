@@ -46,6 +46,7 @@ VERSION = "0.1.0"
 # Raises RuntimeError at cold start if DATABASE_URL is not set.
 # ---------------------------------------------------------------------------
 
+from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
@@ -54,6 +55,7 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 
 _conn = get_conn()
+_analytics_repo = AnalyticsRepository(_conn)
 _game_repo = GameRepository(_conn)
 _report_repo = ReportRepository(_conn)
 _review_repo = ReviewRepository(_conn)
@@ -392,6 +394,68 @@ async def list_genres() -> list[dict]:
 async def list_top_tags(limit: int = 24) -> list[dict]:
     limit = min(limit, 100)
     return _game_repo.list_tags(limit=limit)
+
+
+@app.get("/api/games/{appid}/audience-overlap")
+async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
+    if not _game_repo.find_by_appid(appid):
+        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+    return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
+
+
+@app.get("/api/games/{appid}/playtime-sentiment")
+async def get_playtime_sentiment(appid: int) -> dict:
+    if not _game_repo.find_by_appid(appid):
+        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+    return _review_repo.find_playtime_sentiment(appid)
+
+
+@app.get("/api/games/{appid}/early-access-impact")
+async def get_early_access_impact(appid: int) -> dict:
+    if not _game_repo.find_by_appid(appid):
+        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+    return _review_repo.find_early_access_impact(appid)
+
+
+@app.get("/api/games/{appid}/review-velocity")
+async def get_review_velocity(appid: int) -> dict:
+    if not _game_repo.find_by_appid(appid):
+        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+    return _review_repo.find_review_velocity(appid)
+
+
+@app.get("/api/games/{appid}/top-reviews")
+async def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
+    if not _game_repo.find_by_appid(appid):
+        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+    if sort not in ("helpful", "funny"):
+        sort = "helpful"
+    return {"sort": sort, "reviews": _review_repo.find_top_reviews(appid, sort, max(1, min(limit, 50)))}
+
+
+@app.get("/api/analytics/price-positioning")
+async def get_price_positioning(genre: str) -> dict:
+    return _analytics_repo.find_price_positioning(genre)
+
+
+@app.get("/api/analytics/release-timing")
+async def get_release_timing(genre: str) -> dict:
+    return _analytics_repo.find_release_timing(genre)
+
+
+@app.get("/api/analytics/platform-gaps")
+async def get_platform_gaps(genre: str) -> dict:
+    return _analytics_repo.find_platform_distribution(genre)
+
+
+@app.get("/api/tags/{slug}/trend")
+async def get_tag_trend(slug: str) -> dict:
+    return _analytics_repo.find_tag_trend(slug)
+
+
+@app.get("/api/developers/{slug}/analytics")
+async def get_developer_analytics(slug: str) -> dict:
+    return _analytics_repo.find_developer_portfolio(slug)
 
 
 @app.post("/api/chat")

@@ -8,7 +8,7 @@
 #   bash scripts/dev/push-to-staging.sh --list                 # list available snapshots
 #   bash scripts/dev/push-to-staging.sh --stage prod --from seed-v1  # promote snapshot to prod
 #
-# Requires: pg_dump, aws cli
+# Requires: docker compose, aws cli
 
 set -euo pipefail
 
@@ -16,7 +16,6 @@ STAGE="staging"
 SNAPSHOT_NAME=""
 FROM_SNAPSHOT=""
 LIST_ONLY=false
-LOCAL_DB="postgresql://steampulse:dev@127.0.0.1:5432/steampulse"
 REGION="us-west-2"
 
 # Parse args
@@ -53,7 +52,7 @@ fi
 LOADER_FN=$(aws cloudformation list-stack-resources \
   --stack-name "SteamPulse-${STAGE_CAP}-Compute" \
   --region "$REGION" --no-cli-pager \
-  --query 'StackResourceSummaries[?LogicalResourceId==`DbLoaderFn`].PhysicalResourceId' \
+  --query 'StackResourceSummaries[?starts_with(LogicalResourceId, `DbLoaderFn`) && ResourceType == `AWS::Lambda::Function`].PhysicalResourceId | [0]' \
   --output text)
 
 if [[ -z "$LOADER_FN" ]]; then
@@ -76,9 +75,10 @@ if [[ -n "$FROM_SNAPSHOT" ]]; then
     exit 1
   fi
 else
-  # Dump local DB
+  # Dump local DB — run pg_dump inside the Docker container to avoid version mismatch
   echo "==> Dumping local DB..."
-  pg_dump "$LOCAL_DB" \
+  docker compose exec -T db pg_dump \
+    "postgresql://steampulse:dev@localhost/steampulse" \
     --no-owner --no-acl \
     --exclude-table=rate_limits \
     | gzip > "$TMP_FILE"

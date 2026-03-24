@@ -43,12 +43,13 @@ _RED   = "\033[31m"
 # Each key maps to a substring that uniquely identifies the log group.
 # The CDK stack name follows the pattern SteamPulse-{Env}-{Suffix}{hash}.
 
-_PREFIXES: dict[str, list[str]] = {
-    "crawler":  ["Compute-CrawlerLogs"],
-    "ingest":   ["Compute-SpokeIngestLogs"],
-    "spoke":    ["Spoke-"],               # matches all spoke regions
-    "api":      ["Compute-ApiLogs"],
-    "analysis": ["Compute-AnalysisLogs"],
+# Each key maps to the suffix after /steampulse/{env}/ in the log group name.
+_SUFFIXES: dict[str, str] = {
+    "crawler":  "crawler",
+    "ingest":   "ingest",
+    "spoke":    "spoke",
+    "api":      "api",
+    "analysis": "analysis",
 }
 
 _ALIASES = {
@@ -59,34 +60,32 @@ _ALIASES = {
 def _resolve_log_groups(name: str, env: str, region: str) -> list[tuple[str, str]]:
     """Return [(label, log_group_name)] for the given stream name."""
     logs = boto3.client("logs", region_name=region)
-    prefix = f"SteamPulse-{env.capitalize()}-"
 
-    all_groups: list[str] = []
+    prefix = f"/steampulse/{env}/{_SUFFIXES[name]}"
+    groups: list[str] = []
     paginator = logs.get_paginator("describe_log_groups")
     for page in paginator.paginate(logGroupNamePrefix=prefix):
-        all_groups.extend(g["logGroupName"] for g in page["logGroups"])
+        groups.extend(g["logGroupName"] for g in page["logGroups"])
 
-    substrings = _PREFIXES[name]
-    matches = [g for g in all_groups if any(s in g for s in substrings)]
-
-    if not matches:
+    if not groups:
         print(f"{_RED}No log groups found for '{name}' in {env}/{region}{_RESET}", file=sys.stderr)
         return []
 
-    # For spoke, there may be multiple regions — label each distinctly.
-    if name == "spoke" and len(matches) > 1:
-        return [(f"spoke({_spoke_region(g)})", g) for g in sorted(matches)]
+    if name == "spoke" and len(groups) > 1:
+        return [(f"spoke({_spoke_region(g)})", g) for g in sorted(groups)]
 
-    return [(name, matches[0])]
+    return [(name, groups[0])]
 
 
 def _spoke_region(group_name: str) -> str:
-    """Extract region from a spoke log group name, e.g. us-west-2."""
-    # SteamPulse-Staging-Spoke-us-west-2-SpokeLogs...
+    """Extract region from a spoke log group name."""
+    # New format: /steampulse/{env}/spoke/{region}
+    if group_name.startswith("/steampulse/"):
+        return group_name.rsplit("/", 1)[-1]
+    # Legacy format: SteamPulse-Staging-Spoke-us-west-2-SpokeLogs...
     parts = group_name.split("-")
     try:
         idx = parts.index("Spoke")
-        # region is the next 3 parts joined: e.g. us, west, 2
         return "-".join(parts[idx + 1 : idx + 4])
     except (ValueError, IndexError):
         return "?"

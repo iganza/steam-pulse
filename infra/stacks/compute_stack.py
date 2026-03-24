@@ -123,6 +123,7 @@ class ComputeStack(cdk.Stack):
             log_group=logs.LogGroup(
                 self,
                 "AnalysisLogs",
+                log_group_name=f"/steampulse/{env}/analysis",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -212,6 +213,7 @@ class ComputeStack(cdk.Stack):
             log_group=logs.LogGroup(
                 self,
                 "ApiLogs",
+                log_group_name=f"/steampulse/{env}/api",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -353,6 +355,7 @@ class ComputeStack(cdk.Stack):
             log_group=logs.LogGroup(
                 self,
                 "CrawlerLogs",
+                log_group_name=f"/steampulse/{env}/crawler",
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
@@ -408,6 +411,7 @@ class ComputeStack(cdk.Stack):
             log_group=logs.LogGroup(
                 self,
                 "SpokeIngestLogs",
+                log_group_name=f"/steampulse/{env}/ingest",
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),

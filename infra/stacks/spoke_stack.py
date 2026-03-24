@@ -109,6 +109,7 @@ class CrawlSpokeStack(cdk.Stack):
             reserved_concurrent_executions=3,
             tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(self, "SpokeLogs",
+                log_group_name=f"/steampulse/{environment}/spoke/{spoke_region}",
                 retention=logs.RetentionDays.ONE_MONTH,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),

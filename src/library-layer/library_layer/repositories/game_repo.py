@@ -148,7 +148,7 @@ class GameRepository(BaseRepository):
                 """
                 INSERT INTO games (appid, name, slug)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (appid) DO UPDATE SET name = EXCLUDED.name
+                ON CONFLICT (appid) DO NOTHING
                 """,
                 (appid, stub_name, stub_slug),
             )

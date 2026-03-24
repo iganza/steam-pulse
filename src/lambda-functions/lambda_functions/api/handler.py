@@ -348,11 +348,10 @@ async def get_game_report(appid: int) -> dict:
     if report:
         return {"status": "available", "report": report, "game": game_meta}
 
-    review_count = game.review_count if game else _game_repo.get_review_count(appid)
+    review_count = (game.review_count_english or game.review_count) if game else _game_repo.get_review_count(appid)
     return {
         "status": "not_available",
         "review_count": review_count,
-        "threshold": 500,
         "game": game_meta,
     }
 

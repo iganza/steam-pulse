@@ -30,6 +30,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Normalize stage aliases so CDK stack names resolve correctly.
+# CDK uses the capitalized full word: Staging, Production.
+case "$STAGE" in
+  prod)                STAGE="production" ;;
+  staging|production)  ;;
+  *) echo "ERROR: --stage must be staging or production (got: $STAGE)"; exit 1 ;;
+esac
+
 echo "==> Fetching ${STAGE} resources..."
 STAGE_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${STAGE:0:1}")${STAGE:1}"
 BUCKET=$(aws cloudformation list-stack-resources \

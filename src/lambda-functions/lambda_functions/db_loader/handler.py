@@ -1,16 +1,17 @@
 """DB Loader Lambda — restores a plain pg_dump SQL file from S3 into RDS.
 
 Event: {"bucket": "...", "key": "..."}
-The key must point at a gzipped plain-format pg_dump file on S3.
+The key must be under db-snapshots/ or db-dumps/ in the assets bucket.
 
 Strategy:
   1. Download gzipped dump from S3 to /tmp
   2. Stream-decompress line by line — avoids loading the full SQL into memory
-  3. Drop public schema and recreate it (clean slate)
-  4. Execute SQL statements; COPY...FROM stdin blocks via copy_expert()
+  3. Execute the entire restore in one transaction: DROP schema, recreate,
+     load all statements and COPY blocks, commit only on full success.
+     Any failure rolls back, leaving the DB unchanged.
 
-Failures abort immediately and raise — the Lambda reports an error payload
-so the caller (push-to-staging.sh) can detect and surface the failure.
+Failures raise — the Lambda emits errorMessage so push-to-staging.sh detects
+the failure via its existing "errorMessage" check.
 """
 
 import gzip
@@ -30,6 +31,7 @@ _s3 = boto3.client("s3")
 _COPY_RE = re.compile(r"COPY\s+", re.IGNORECASE)
 # Matches the opening of a dollar-quote tag, e.g. $$ or $tag$
 _DOLLAR_QUOTE_RE = re.compile(r"\$([^$]*)\$")
+_ALLOWED_KEY_PREFIXES = ("db-snapshots/", "db-dumps/")
 
 
 class _CopyStream:
@@ -72,10 +74,11 @@ class _CopyStream:
 def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
     """Execute a plain pg_dump from a text file object, streaming line by line.
 
-    Handles COPY...FROM stdin blocks via copy_expert().
-    Fails fast on the first statement error — a partial restore is worse than
-    a clean failure.
+    The entire restore — including the DROP/CREATE schema — runs inside a single
+    transaction. Either everything commits or nothing does. On any error the
+    transaction is rolled back, leaving the DB in its pre-restore state.
 
+    Handles COPY...FROM stdin blocks via copy_expert().
     Dollar-quoted blocks (e.g. CREATE FUNCTION ... $$ ... $$;) are tracked so
     that semicolons inside the body do not prematurely flush the statement.
     """
@@ -83,7 +86,7 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
 
     cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
     cur.execute("CREATE SCHEMA public")
-    conn.commit()
+    # No commit here — part of the same transaction.
 
     stmt_buf: list[str] = []
     total_stmts = 0
@@ -98,7 +101,6 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
         # COPY ... FROM stdin block — stream directly to copy_expert, no buffering
         if not stmt_buf and _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
             cur.copy_expert(stripped, _CopyStream(lines))
-            conn.commit()
             total_copy_blocks += 1
             continue
 
@@ -121,7 +123,6 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
             stmt = "".join(stmt_buf).strip()
             if stmt:
                 cur.execute(stmt)
-                conn.commit()
                 total_stmts += 1
             stmt_buf = []
 
@@ -130,9 +131,9 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
         stmt = "".join(stmt_buf).strip()
         if stmt and not stmt.startswith("--"):
             cur.execute(stmt)
-            conn.commit()
             total_stmts += 1
 
+    conn.commit()
     logger.info(
         "Load complete: %d statements, %d COPY blocks",
         total_stmts,
@@ -147,6 +148,11 @@ def handler(event: dict, context: object) -> dict:
     if not bucket or not key:
         raise ValueError("Missing required fields: bucket, key")
 
+    if not any(key.startswith(p) for p in _ALLOWED_KEY_PREFIXES):
+        raise ValueError(
+            f"key must be under one of {_ALLOWED_KEY_PREFIXES}, got: {key!r}"
+        )
+
     logger.info("Loading dump from s3://%s/%s", bucket, key)
 
     local_path = "/tmp/dump.sql.gz"
@@ -155,7 +161,11 @@ def handler(event: dict, context: object) -> dict:
     conn = get_conn(cursor_factory=None)
     conn.autocommit = False
 
-    with gzip.open(local_path, "rt", encoding="utf-8") as f:
-        _execute_dump(conn, f)
+    try:
+        with gzip.open(local_path, "rt", encoding="utf-8") as f:
+            _execute_dump(conn, f)
+    except Exception:
+        conn.rollback()
+        raise
 
     return {"status": "ok", "message": f"Loaded s3://{bucket}/{key}"}

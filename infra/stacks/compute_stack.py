@@ -485,7 +485,10 @@ class ComputeStack(cdk.Stack):
                         ),
                         iam.PolicyStatement(
                             actions=["s3:GetObject"],
-                            resources=[f"arn:aws:s3:::steampulse-assets-{env}/*"],
+                            resources=[
+                                f"arn:aws:s3:::steampulse-assets-{env}/db-snapshots/*",
+                                f"arn:aws:s3:::steampulse-assets-{env}/db-dumps/*",
+                            ],
                         ),
                     ]),
                 },
@@ -506,6 +509,7 @@ class ComputeStack(cdk.Stack):
                 timeout=cdk.Duration.minutes(15),
                 memory_size=512,
                 ephemeral_storage_size=cdk.Size.mebibytes(2048),
+                reserved_concurrent_executions=1,
                 log_group=logs.LogGroup(
                     self,
                     "DbLoaderLogs",

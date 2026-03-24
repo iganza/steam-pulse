@@ -384,8 +384,9 @@ class ReviewRepository(BaseRepository):
         """Top reviews by helpfulness or humor votes.
 
         Whitelist prevents SQL injection — order_col is never user input directly.
-        The endpoint must validate sort is in ("helpful", "funny") before calling this.
         """
+        if sort not in ("helpful", "funny"):
+            sort = "helpful"
         order_col = "votes_helpful" if sort == "helpful" else "votes_funny"
         rows = self._fetchall(
             f"""

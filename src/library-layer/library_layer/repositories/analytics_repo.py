@@ -39,6 +39,7 @@ class AnalyticsRepository(BaseRepository):
                 SELECT DISTINCT author_steamid
                 FROM reviews
                 WHERE appid = %s AND author_steamid IS NOT NULL
+                ORDER BY author_steamid
                 LIMIT 10000
             ),
             total AS (

@@ -79,3 +79,7 @@ class NetworkStack(cdk.Stack):
             description="Shared intra-VPC SG for Lambda functions",
             allow_all_outbound=True,
         )
+
+        # Expose the NAT SG so DataStack can allow it into Aurora for SSM port-forwarding.
+        # This lets devs tunnel to RDS via SSM without a separate bastion host.
+        self.nat_sg: ec2.ISecurityGroup = nat_provider.security_group  # type: ignore[union-attr]

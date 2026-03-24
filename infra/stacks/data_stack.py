@@ -27,6 +27,7 @@ class DataStack(cdk.Stack):
         config: SteamPulseConfig,
         vpc: ec2.IVpc,
         intra_sg: ec2.ISecurityGroup,
+        nat_sg: ec2.ISecurityGroup,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -40,6 +41,14 @@ class DataStack(cdk.Stack):
             ec2.Port.tcp(5432),
             "Lambda to Postgres",
         )
+        if not config.is_production:
+            # Allow the NAT instance to reach RDS/Postgres in non-production only — enables SSM
+            # port-forwarding for dev/ops access without opening this path in production.
+            db_sg.add_ingress_rule(
+                ec2.Peer.security_group_id(nat_sg.security_group_id),
+                ec2.Port.tcp(5432),
+                "NAT instance (SSM bastion) to Postgres",
+            )
 
         env = config.ENVIRONMENT
         secret_name = f"steampulse/{env}/db-credentials"
@@ -67,6 +76,7 @@ class DataStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
             db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
+            db_endpoint: str = db_instance.db_instance_endpoint_address
         else:
             # Aurora Serverless v2 (min=0 ACU): near-$0 when idle, scales on demand.
             db_cluster = rds.DatabaseCluster(
@@ -91,8 +101,12 @@ class DataStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
             db_secret = db_cluster.secret  # type: ignore[assignment]
+            db_endpoint = db_cluster.cluster_endpoint.hostname
 
         self.db_secret: secretsmanager.ISecret = db_secret
+
+        # Exported so db-tunnel.sh can resolve the endpoint without extra AWS API calls.
+        cdk.CfnOutput(self, "DbWriterEndpoint", value=db_endpoint)
 
         # ── S3 Assets Bucket ──────────────────────────────────────────────────
         # RETAIN — never deleted by CDK. Used by crawlers (archive) and frontend (static assets).

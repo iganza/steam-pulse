@@ -27,6 +27,7 @@ class DataStack(cdk.Stack):
         config: SteamPulseConfig,
         vpc: ec2.IVpc,
         intra_sg: ec2.ISecurityGroup,
+        nat_sg: ec2.ISecurityGroup,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -39,6 +40,12 @@ class DataStack(cdk.Stack):
             ec2.Peer.security_group_id(intra_sg.security_group_id),
             ec2.Port.tcp(5432),
             "Lambda to Postgres",
+        )
+        # Allow the NAT instance to reach Aurora — enables SSM port-forwarding for dev/ops access.
+        db_sg.add_ingress_rule(
+            ec2.Peer.security_group_id(nat_sg.security_group_id),
+            ec2.Port.tcp(5432),
+            "NAT instance (SSM bastion) to Postgres",
         )
 
         env = config.ENVIRONMENT

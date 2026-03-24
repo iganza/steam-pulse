@@ -67,6 +67,7 @@ class ApplicationStage(cdk.Stage):
             config=config,
             vpc=network.vpc,
             intra_sg=network.intra_sg,
+            nat_sg=network.nat_sg,
             termination_protection=config.is_production,
             env=cdk_env,
         )

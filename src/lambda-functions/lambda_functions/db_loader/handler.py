@@ -17,10 +17,11 @@ the failure via its existing "errorMessage" check.
 
 import gzip
 import logging
+import os
 import re
 from typing import IO, Iterator  # IO used in _execute_dump signature
 
-import boto3
+import boto3  # type: ignore[import-untyped]
 import psycopg2
 
 from library_layer.utils.db import get_conn
@@ -52,10 +53,13 @@ class _CopyStream:
         if self._done and not self._overflow:
             return ""
 
-        buf = self._overflow
+        # Accumulate into a list and join once to avoid quadratic string concat
+        # on large COPY blocks.
+        chunks: list[str] = [self._overflow]
         self._overflow = ""
+        total = len(chunks[0])
 
-        while not self._done and (size == -1 or len(buf) < size):
+        while not self._done and (size == -1 or total < size):
             try:
                 line = next(self._lines)
             except StopIteration:
@@ -64,8 +68,10 @@ class _CopyStream:
             if line.rstrip("\n") == "\\.":
                 self._done = True
                 break
-            buf += line
+            chunks.append(line)
+            total += len(line)
 
+        buf = "".join(chunks)
         if size != -1 and len(buf) > size:
             self._overflow = buf[size:]
             return buf[:size]
@@ -143,16 +149,19 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
 
 
 def handler(event: dict, context: object) -> dict:
-    bucket = event.get("bucket", "")
     key = event.get("key", "")
 
-    if not bucket or not key:
-        raise ValueError("Missing required fields: bucket, key")
+    if not key:
+        raise ValueError("Missing required field: key")
 
     if not any(key.startswith(p) for p in _ALLOWED_KEY_PREFIXES):
         raise ValueError(
             f"key must be under one of {_ALLOWED_KEY_PREFIXES}, got: {key!r}"
         )
+
+    # Derive bucket from the runtime environment rather than trusting event input.
+    # This prevents the function being mis-directed at an unexpected bucket.
+    bucket = f"steampulse-assets-{os.environ['ENVIRONMENT']}"
 
     logger.info("Loading dump from s3://%s/%s", bucket, key)
 

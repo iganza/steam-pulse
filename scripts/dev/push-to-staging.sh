@@ -78,7 +78,7 @@ if [[ -n "$FROM_SNAPSHOT" ]]; then
 else
   # Dump local DB — run pg_dump inside the Docker container to avoid version mismatch
   echo "==> Dumping local DB..."
-  docker exec steam-pulse-db-1 pg_dump \
+  docker compose exec -T db pg_dump \
     "postgresql://steampulse:dev@localhost/steampulse" \
     --no-owner --no-acl \
     --exclude-table=rate_limits \

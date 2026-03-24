@@ -400,7 +400,7 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 def get_audience_overlap(appid: int, limit: int = 20) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
-    return _analytics_repo.find_audience_overlap(appid, min(limit, 50))
+    return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
 
 
 @app.get("/api/games/{appid}/playtime-sentiment")
@@ -430,7 +430,7 @@ def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     if sort not in ("helpful", "funny"):
         sort = "helpful"
-    return {"sort": sort, "reviews": _review_repo.find_top_reviews(appid, sort, min(limit, 50))}
+    return {"sort": sort, "reviews": _review_repo.find_top_reviews(appid, sort, max(1, min(limit, 50)))}
 
 
 @app.get("/api/analytics/price-positioning")

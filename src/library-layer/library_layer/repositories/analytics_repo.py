@@ -17,11 +17,15 @@ class AnalyticsRepository(BaseRepository):
         Caps the reviewer pool at 10,000 to keep the self-join fast for large
         games (TF2, CS2, etc.) — sufficient for meaningful overlap detection.
         """
+        # Count using the same 10k cap so total_reviewers is consistent with overlap_pct.
         total_row = self._fetchone(
             """
-            SELECT COUNT(DISTINCT author_steamid) AS cnt
-            FROM reviews
-            WHERE appid = %s AND author_steamid IS NOT NULL
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT DISTINCT author_steamid
+                FROM reviews
+                WHERE appid = %s AND author_steamid IS NOT NULL
+                LIMIT 10000
+            ) capped
             """,
             (appid,),
         )
@@ -34,7 +38,7 @@ class AnalyticsRepository(BaseRepository):
             WITH game_reviewers AS (
                 SELECT DISTINCT author_steamid
                 FROM reviews
-                WHERE appid = %(appid)s AND author_steamid IS NOT NULL
+                WHERE appid = %s AND author_steamid IS NOT NULL
                 LIMIT 10000
             ),
             total AS (
@@ -47,10 +51,10 @@ class AnalyticsRepository(BaseRepository):
                              / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
                 FROM reviews r
                 JOIN game_reviewers gr ON r.author_steamid = gr.author_steamid
-                WHERE r.appid != %(appid)s
+                WHERE r.appid != %s
                 GROUP BY r.appid
                 ORDER BY overlap_count DESC
-                LIMIT %(limit)s
+                LIMIT %s
             )
             SELECT o.appid, g.name, g.slug, g.header_image,
                    g.positive_pct, g.review_count,
@@ -62,7 +66,7 @@ class AnalyticsRepository(BaseRepository):
             CROSS JOIN total t
             ORDER BY o.overlap_count DESC
             """,
-            {"appid": appid, "limit": limit},
+            (appid, appid, limit),
         )
         return {
             "total_reviewers": total,
@@ -398,7 +402,9 @@ class AnalyticsRepository(BaseRepository):
             [g for g in games_rows if g["release_date"] is not None and g["positive_pct"] is not None],
             key=lambda g: g["release_date"],
         )
-        if total_games == 1:
+        if total_games == 0:
+            trajectory = "no_games"
+        elif total_games == 1:
             trajectory = "single_title"
         elif len(ordered) >= 3:
             last_3_avg = sum(float(g["positive_pct"]) for g in ordered[-3:]) / 3

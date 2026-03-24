@@ -163,6 +163,7 @@ class ReviewRepository(BaseRepository):
             """
             SELECT
                 CASE
+                    WHEN playtime_hours IS NULL THEN 'unknown'
                     WHEN playtime_hours = 0 THEN '0h'
                     WHEN playtime_hours < 1 THEN '<1h'
                     WHEN playtime_hours < 2 THEN '1-2h'
@@ -194,7 +195,7 @@ class ReviewRepository(BaseRepository):
                    g.price_usd, g.is_free
             FROM reviews r
             JOIN games g ON g.appid = r.appid
-            WHERE r.appid = %s
+            WHERE r.appid = %s AND r.playtime_hours IS NOT NULL
             GROUP BY g.price_usd, g.is_free
             """,
             (appid,),
@@ -212,11 +213,12 @@ class ReviewRepository(BaseRepository):
         ]
 
         # Churn wall: first bucket where pct_positive drops >= 10 pts from previous
-        # (both buckets must have >= 5 reviews to filter noise)
+        # (both buckets must have >= 5 reviews to filter noise; skip 'unknown' playtime)
+        known_buckets = [b for b in buckets if b["bucket"] != "unknown"]
         churn_point: dict[str, Any] | None = None
-        for i in range(1, len(buckets)):
-            prev = buckets[i - 1]
-            curr = buckets[i]
+        for i in range(1, len(known_buckets)):
+            prev = known_buckets[i - 1]
+            curr = known_buckets[i]
             if prev["total"] >= 5 and curr["total"] >= 5:
                 delta = curr["pct_positive"] - prev["pct_positive"]
                 if delta <= -10:
@@ -341,10 +343,15 @@ class ReviewRepository(BaseRepository):
                 },
             }
 
+        last_30_row = self._fetchone(
+            "SELECT COUNT(*) AS total FROM reviews WHERE appid = %s AND posted_at >= NOW() - INTERVAL '30 days'",
+            (appid,),
+        )
+        last_30_days = int(last_30_row["total"]) if last_30_row else 0
+
         totals = [m["total"] for m in monthly]
         avg_monthly = round(sum(totals) / len(totals), 1)
         last_3_avg = round(sum(totals[-3:]) / min(3, len(totals)), 1)
-        last_30_days = totals[-1] if totals else 0
         peak = max(monthly, key=lambda m: m["total"])
 
         if last_3_avg > avg_monthly * 1.2:

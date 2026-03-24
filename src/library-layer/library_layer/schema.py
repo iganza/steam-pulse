@@ -198,6 +198,13 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor TEXT",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor_updated_at TIMESTAMPTZ",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_target INT",
+    # --- Analytics engine indexes ---
+    "CREATE INDEX IF NOT EXISTS idx_reviews_author_appid ON reviews(author_steamid, appid) WHERE author_steamid IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime ON reviews(appid, playtime_hours, voted_up)",
+    "CREATE INDEX IF NOT EXISTS idx_reviews_appid_ea ON reviews(appid, written_during_early_access, voted_up)",
+    "CREATE INDEX IF NOT EXISTS idx_reviews_appid_helpful ON reviews(appid, votes_helpful DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_reviews_appid_posted ON reviews(appid, posted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_games_developer_slug ON games(developer_slug) WHERE developer_slug IS NOT NULL",
 )
 
 

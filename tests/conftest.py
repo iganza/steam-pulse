@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "library-layer"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "lambda-functions"))
 
+from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
@@ -105,6 +106,11 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         """)
     conn.commit()
     yield
+
+
+@pytest.fixture
+def analytics_repo(db_conn: Any) -> AnalyticsRepository:
+    return AnalyticsRepository(db_conn)
 
 
 @pytest.fixture

@@ -53,7 +53,7 @@ fi
 LOADER_FN=$(aws cloudformation list-stack-resources \
   --stack-name "SteamPulse-${STAGE_CAP}-Compute" \
   --region "$REGION" --no-cli-pager \
-  --query 'StackResourceSummaries[?LogicalResourceId==`DbLoaderFn`].PhysicalResourceId' \
+  --query 'StackResourceSummaries[?starts_with(LogicalResourceId, `DbLoaderFn`)].PhysicalResourceId' \
   --output text)
 
 if [[ -z "$LOADER_FN" ]]; then
@@ -76,9 +76,10 @@ if [[ -n "$FROM_SNAPSHOT" ]]; then
     exit 1
   fi
 else
-  # Dump local DB
+  # Dump local DB — run pg_dump inside the Docker container to avoid version mismatch
   echo "==> Dumping local DB..."
-  pg_dump "$LOCAL_DB" \
+  docker exec steam-pulse-db-1 pg_dump \
+    "postgresql://steampulse:dev@localhost/steampulse" \
     --no-owner --no-acl \
     --exclude-table=rate_limits \
     | gzip > "$TMP_FILE"

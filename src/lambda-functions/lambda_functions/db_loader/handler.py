@@ -6,8 +6,9 @@ The key must be under db-snapshots/ or db-dumps/ in the assets bucket.
 Strategy:
   1. Download gzipped dump from S3 to /tmp
   2. Stream-decompress line by line — avoids loading the full SQL into memory
-  3. Execute the entire restore in one transaction: DROP schema, recreate,
-     load all statements and COPY blocks, commit only on full success.
+  3. Execute the entire restore in one transaction: DROP schema, then let
+     the dump recreate it — load all statements and COPY blocks, commit
+     only on full success.
      Any failure rolls back, leaving the DB unchanged.
 
 Failures raise — the Lambda emits errorMessage so push-to-staging.sh detects
@@ -74,64 +75,64 @@ class _CopyStream:
 def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
     """Execute a plain pg_dump from a text file object, streaming line by line.
 
-    The entire restore — including the DROP/CREATE schema — runs inside a single
-    transaction. Either everything commits or nothing does. On any error the
-    transaction is rolled back, leaving the DB in its pre-restore state.
+    The entire restore runs inside a single transaction. Either everything
+    commits or nothing does. On any error the transaction is rolled back,
+    leaving the DB in its pre-restore state.
 
     Handles COPY...FROM stdin blocks via copy_expert().
     Dollar-quoted blocks (e.g. CREATE FUNCTION ... $$ ... $$;) are tracked so
     that semicolons inside the body do not prematurely flush the statement.
     """
-    cur = conn.cursor()
+    with conn.cursor() as cur:
+        # Drop the schema so the dump loads into a clean state.
+        # Do NOT pre-create it — the dump contains its own CREATE SCHEMA PUBLIC
+        # and a second CREATE would error with "already exists".
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
 
-    cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
-    cur.execute("CREATE SCHEMA public")
-    # No commit here — part of the same transaction.
+        stmt_buf: list[str] = []
+        total_stmts = 0
+        total_copy_blocks = 0
+        dollar_quote_tag: str | None = None  # None = not inside a dollar-quoted block
 
-    stmt_buf: list[str] = []
-    total_stmts = 0
-    total_copy_blocks = 0
-    dollar_quote_tag: str | None = None  # None = not inside a dollar-quoted block
+        lines = iter(f)
 
-    lines = iter(f)
+        for line in lines:
+            stripped = line.strip()
 
-    for line in lines:
-        stripped = line.strip()
+            # COPY ... FROM stdin block — stream directly to copy_expert, no buffering
+            if not stmt_buf and _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
+                cur.copy_expert(stripped, _CopyStream(lines))
+                total_copy_blocks += 1
+                continue
 
-        # COPY ... FROM stdin block — stream directly to copy_expert, no buffering
-        if not stmt_buf and _COPY_RE.match(stripped) and "from stdin" in stripped.lower():
-            cur.copy_expert(stripped, _CopyStream(lines))
-            total_copy_blocks += 1
-            continue
+            # Skip blank lines and pure comment lines when the buffer is empty
+            if not stmt_buf and (not stripped or stripped.startswith("--")):
+                continue
 
-        # Skip blank lines and pure comment lines when the buffer is empty
-        if not stmt_buf and (not stripped or stripped.startswith("--")):
-            continue
+            stmt_buf.append(line)
 
-        stmt_buf.append(line)
+            # Track entry/exit of dollar-quoted blocks so we don't flush mid-body
+            for match in _DOLLAR_QUOTE_RE.finditer(stripped):
+                tag = match.group(0)  # e.g. "$$" or "$body$"
+                if dollar_quote_tag is None:
+                    dollar_quote_tag = tag
+                elif tag == dollar_quote_tag:
+                    dollar_quote_tag = None
 
-        # Track entry/exit of dollar-quoted blocks so we don't flush mid-body
-        for match in _DOLLAR_QUOTE_RE.finditer(stripped):
-            tag = match.group(0)  # e.g. "$$" or "$body$"
-            if dollar_quote_tag is None:
-                dollar_quote_tag = tag
-            elif tag == dollar_quote_tag:
-                dollar_quote_tag = None
+            # Flush when the line ends with ';' and we're not inside a dollar-quote
+            if stripped.endswith(";") and not stripped.startswith("--") and dollar_quote_tag is None:
+                stmt = "".join(stmt_buf).strip()
+                if stmt:
+                    cur.execute(stmt)
+                    total_stmts += 1
+                stmt_buf = []
 
-        # Flush when the line ends with ';' and we're not inside a dollar-quote
-        if stripped.endswith(";") and not stripped.startswith("--") and dollar_quote_tag is None:
+        # Flush any trailing content (statements not ending with ';')
+        if stmt_buf:
             stmt = "".join(stmt_buf).strip()
-            if stmt:
+            if stmt and not stmt.startswith("--"):
                 cur.execute(stmt)
                 total_stmts += 1
-            stmt_buf = []
-
-    # Flush any trailing content (statements not ending with ';')
-    if stmt_buf:
-        stmt = "".join(stmt_buf).strip()
-        if stmt and not stmt.startswith("--"):
-            cur.execute(stmt)
-            total_stmts += 1
 
     conn.commit()
     logger.info(

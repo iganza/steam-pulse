@@ -40,16 +40,8 @@ esac
 
 echo "==> Fetching ${STAGE} resources..."
 STAGE_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${STAGE:0:1}")${STAGE:1}"
-BUCKET=$(aws cloudformation list-stack-resources \
-  --stack-name "SteamPulse-${STAGE_CAP}-App" \
-  --region "$REGION" --no-cli-pager \
-  --query 'StackResourceSummaries[?starts_with(LogicalResourceId,`StaticAssetsBucket`) && ResourceType==`AWS::S3::Bucket`].PhysicalResourceId' \
-  --output text)
-
-if [[ -z "$BUCKET" ]]; then
-  echo "ERROR: Could not find S3 bucket for SteamPulse-${STAGE_CAP}-App"
-  exit 1
-fi
+# Bucket name is deterministic — no CloudFormation lookup needed.
+BUCKET="steampulse-assets-${STAGE}"
 
 # --list: show available snapshots and exit
 if [[ "$LIST_ONLY" == true ]]; then

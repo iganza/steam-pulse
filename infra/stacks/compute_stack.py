@@ -486,8 +486,8 @@ class ComputeStack(cdk.Stack):
                         iam.PolicyStatement(
                             actions=["s3:GetObject"],
                             resources=[
-                                f"arn:aws:s3:::steampulse-assets-{env}/db-snapshots/*",
-                                f"arn:aws:s3:::steampulse-assets-{env}/db-dumps/*",
+                                assets_bucket.arn_for_objects("db-snapshots/*"),
+                                assets_bucket.arn_for_objects("db-dumps/*"),
                             ],
                         ),
                     ]),

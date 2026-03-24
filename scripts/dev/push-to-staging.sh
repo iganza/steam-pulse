@@ -30,18 +30,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Normalize stage aliases so CDK stack names resolve correctly.
+# CDK uses the capitalized full word: Staging, Production.
+case "$STAGE" in
+  prod)                STAGE="production" ;;
+  staging|production)  ;;
+  *) echo "ERROR: --stage must be staging or production (got: $STAGE)"; exit 1 ;;
+esac
+
 echo "==> Fetching ${STAGE} resources..."
 STAGE_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${STAGE:0:1}")${STAGE:1}"
-BUCKET=$(aws cloudformation list-stack-resources \
-  --stack-name "SteamPulse-${STAGE_CAP}-App" \
-  --region "$REGION" --no-cli-pager \
-  --query 'StackResourceSummaries[?starts_with(LogicalResourceId,`StaticAssetsBucket`) && ResourceType==`AWS::S3::Bucket`].PhysicalResourceId' \
-  --output text)
-
-if [[ -z "$BUCKET" ]]; then
-  echo "ERROR: Could not find S3 bucket for SteamPulse-${STAGE_CAP}-App"
-  exit 1
-fi
+# Bucket name is deterministic — no CloudFormation lookup needed.
+BUCKET="steampulse-assets-${STAGE}"
 
 # --list: show available snapshots and exit
 if [[ "$LIST_ONLY" == true ]]; then
@@ -51,13 +51,13 @@ if [[ "$LIST_ONLY" == true ]]; then
 fi
 
 LOADER_FN=$(aws cloudformation list-stack-resources \
-  --stack-name "SteamPulse-${STAGE_CAP}-Lambda" \
+  --stack-name "SteamPulse-${STAGE_CAP}-Compute" \
   --region "$REGION" --no-cli-pager \
   --query 'StackResourceSummaries[?LogicalResourceId==`DbLoaderFn`].PhysicalResourceId' \
   --output text)
 
 if [[ -z "$LOADER_FN" ]]; then
-  echo "ERROR: DbLoaderFn not found in SteamPulse-${STAGE_CAP}-Lambda stack"
+  echo "ERROR: DbLoaderFn not found in SteamPulse-${STAGE_CAP}-Compute stack"
   exit 1
 fi
 

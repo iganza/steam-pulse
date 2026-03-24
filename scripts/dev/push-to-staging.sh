@@ -52,7 +52,7 @@ fi
 LOADER_FN=$(aws cloudformation list-stack-resources \
   --stack-name "SteamPulse-${STAGE_CAP}-Compute" \
   --region "$REGION" --no-cli-pager \
-  --query 'StackResourceSummaries[?starts_with(LogicalResourceId, `DbLoaderFn`)].PhysicalResourceId' \
+  --query 'StackResourceSummaries[?starts_with(LogicalResourceId, `DbLoaderFn`) && ResourceType == `AWS::Lambda::Function`].PhysicalResourceId | [0]' \
   --output text)
 
 if [[ -z "$LOADER_FN" ]]; then

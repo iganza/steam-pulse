@@ -198,7 +198,13 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor TEXT",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor_updated_at TIMESTAMPTZ",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_target INT",
-    # --- Analytics engine indexes ---
+)
+
+# Analytics engine indexes — kept separate from TABLES so they can be created
+# outside the main DDL transaction (each committed individually, no prolonged
+# table locks). Call create_indexes() from a one-time admin/init action, not
+# from every Lambda cold start.
+INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_author_appid ON reviews(appid, author_steamid) WHERE author_steamid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime ON reviews(appid, playtime_hours, voted_up)",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_ea ON reviews(appid, written_during_early_access, voted_up)",
@@ -213,8 +219,26 @@ def create_all(conn: object) -> None:
     """Execute all DDL statements idempotently.
 
     Safe to call on every cold start — all statements use IF NOT EXISTS.
+    Does NOT create analytics indexes (see create_indexes).
     """
     with conn.cursor() as cur:  # type: ignore[union-attr]
         for ddl in TABLES:
             cur.execute(ddl)
     conn.commit()  # type: ignore[union-attr]
+
+
+def create_indexes(conn: object) -> None:
+    """Create analytics indexes, each committed individually to avoid long table locks.
+
+    Call this from a one-time admin/init action rather than every cold start.
+    Each statement is committed separately so locks on reviews/games are released
+    promptly between index builds.
+    """
+    prev_autocommit = conn.autocommit  # type: ignore[union-attr]
+    conn.autocommit = True  # type: ignore[union-attr]
+    try:
+        with conn.cursor() as cur:  # type: ignore[union-attr]
+            for ddl in INDEXES:
+                cur.execute(ddl)
+    finally:
+        conn.autocommit = prev_autocommit  # type: ignore[union-attr]

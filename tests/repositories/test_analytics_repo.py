@@ -326,7 +326,7 @@ def test_platform_distribution_counts(
 ) -> None:
     """Platform counts and percentages are correct."""
     genre_id = _seed_genre(db_conn, "Platformer", "platformer")
-    # 4 Windows-only, 2 also on Mac
+    # 4 games total: all on Windows, 2 also on Mac
     for i in range(4):
         plat = json.dumps({"windows": True, "mac": i < 2, "linux": False})
         _seed_game(game_repo, 7000 + i, platforms=plat, review_count=20)

@@ -1,6 +1,6 @@
 """Tests for ReviewRepository."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, date
 
 import pytest
 from library_layer.repositories.game_repo import GameRepository
@@ -468,33 +468,36 @@ def test_early_access_impact_no_post(
 # ---------------------------------------------------------------------------
 
 
+def _month_start(months_ago: int) -> datetime:
+    """Return the 1st of the month, N calendar months before the current month (UTC)."""
+    today = date.today()
+    total = today.year * 12 + today.month - 1 - months_ago
+    return datetime(total // 12, total % 12 + 1, 1, tzinfo=UTC)
+
+
 def test_review_velocity_trend_accelerating(
     game_repo: GameRepository, review_repo: ReviewRepository
 ) -> None:
     """last_3_months_avg > avg_monthly * 1.2 → trend 'accelerating'."""
     _seed_game(game_repo)
-    now = datetime.now(UTC)
     reviews = []
-    # 20 months of 2 reviews each (avg = 2), then last 3 months: 10 each
-    for m in range(20, 3, -1):
+    # Months 23 down to 4 ago: 2 reviews each — anchored to 1st of each month
+    for m in range(23, 3, -1):
         for j in range(2):
             reviews.append({
                 "appid": 440,
                 "steam_review_id": f"vel-acc-{m}-{j}",
-                "voted_up": True,
-                "playtime_hours": 5,
-                "body": "",
-                "posted_at": now - timedelta(days=m * 30 + j),
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
             })
-    for m in range(3):
+    # Months 3, 2, 1 ago: 10 reviews each (well above avg)
+    for m in range(1, 4):
         for j in range(10):
             reviews.append({
                 "appid": 440,
                 "steam_review_id": f"vel-acc-recent-{m}-{j}",
-                "voted_up": True,
-                "playtime_hours": 5,
-                "body": "",
-                "posted_at": now - timedelta(days=m * 30 + j),
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
             })
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)
@@ -506,27 +509,23 @@ def test_review_velocity_trend_decelerating(
 ) -> None:
     """last_3_months_avg < avg_monthly * 0.8 → trend 'decelerating'."""
     _seed_game(game_repo)
-    now = datetime.now(UTC)
     reviews = []
-    # 20 months of 10 reviews each (avg = 10), then last 3 months: 1 each
-    for m in range(20, 3, -1):
+    # Months 23 down to 4 ago: 10 reviews each
+    for m in range(23, 3, -1):
         for j in range(10):
             reviews.append({
                 "appid": 440,
                 "steam_review_id": f"vel-dec-{m}-{j}",
-                "voted_up": True,
-                "playtime_hours": 5,
-                "body": "",
-                "posted_at": now - timedelta(days=m * 30 + j),
+                "voted_up": True, "playtime_hours": 5, "body": "",
+                "posted_at": _month_start(m).replace(day=1 + j),
             })
-    for m in range(3):
+    # Months 3, 2, 1 ago: 1 review each (well below avg)
+    for m in range(1, 4):
         reviews.append({
             "appid": 440,
             "steam_review_id": f"vel-dec-recent-{m}",
-            "voted_up": True,
-            "playtime_hours": 5,
-            "body": "",
-            "posted_at": now - timedelta(days=m * 30),
+            "voted_up": True, "playtime_hours": 5, "body": "",
+            "posted_at": _month_start(m),
         })
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)
@@ -538,19 +537,18 @@ def test_review_velocity_peak_month(
 ) -> None:
     """peak_month is the month with the highest review count."""
     _seed_game(game_repo)
-    now = datetime.now(UTC)
     reviews = []
-    # 1 review 10 months ago, 5 reviews 2 months ago
+    # 1 review in month 10 ago, 5 reviews in month 2 ago
     reviews.append({
         "appid": 440, "steam_review_id": "vm-old",
         "voted_up": True, "playtime_hours": 5, "body": "",
-        "posted_at": now - timedelta(days=300),
+        "posted_at": _month_start(10),
     })
     for j in range(5):
         reviews.append({
             "appid": 440, "steam_review_id": f"vm-recent-{j}",
             "voted_up": True, "playtime_hours": 5, "body": "",
-            "posted_at": now - timedelta(days=60 + j),
+            "posted_at": _month_start(2).replace(day=1 + j),
         })
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)

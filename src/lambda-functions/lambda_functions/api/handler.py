@@ -397,35 +397,35 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 
 
 @app.get("/api/games/{appid}/audience-overlap")
-def get_audience_overlap(appid: int, limit: int = 20) -> dict:
+async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
 
 
 @app.get("/api/games/{appid}/playtime-sentiment")
-def get_playtime_sentiment(appid: int) -> dict:
+async def get_playtime_sentiment(appid: int) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_playtime_sentiment(appid)
 
 
 @app.get("/api/games/{appid}/early-access-impact")
-def get_early_access_impact(appid: int) -> dict:
+async def get_early_access_impact(appid: int) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_early_access_impact(appid)
 
 
 @app.get("/api/games/{appid}/review-velocity")
-def get_review_velocity(appid: int) -> dict:
+async def get_review_velocity(appid: int) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_review_velocity(appid)
 
 
 @app.get("/api/games/{appid}/top-reviews")
-def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
+async def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     if sort not in ("helpful", "funny"):
@@ -434,27 +434,27 @@ def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
 
 
 @app.get("/api/analytics/price-positioning")
-def get_price_positioning(genre: str) -> dict:
+async def get_price_positioning(genre: str) -> dict:
     return _analytics_repo.find_price_positioning(genre)
 
 
 @app.get("/api/analytics/release-timing")
-def get_release_timing(genre: str) -> dict:
+async def get_release_timing(genre: str) -> dict:
     return _analytics_repo.find_release_timing(genre)
 
 
 @app.get("/api/analytics/platform-gaps")
-def get_platform_gaps(genre: str) -> dict:
+async def get_platform_gaps(genre: str) -> dict:
     return _analytics_repo.find_platform_distribution(genre)
 
 
 @app.get("/api/tags/{slug}/trend")
-def get_tag_trend(slug: str) -> dict:
+async def get_tag_trend(slug: str) -> dict:
     return _analytics_repo.find_tag_trend(slug)
 
 
 @app.get("/api/developers/{slug}/analytics")
-def get_developer_analytics(slug: str) -> dict:
+async def get_developer_analytics(slug: str) -> dict:
     return _analytics_repo.find_developer_portfolio(slug)
 
 

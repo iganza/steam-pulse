@@ -1,7 +1,7 @@
 """Admin Lambda — lightweight DB operations invoked by sp.py.
 
 Actions:
-  {"action": "init"}     — run create_all() to ensure tables and columns exist (idempotent schema setup)
+  {"action": "init"}     — run create_all() + create_indexes() to ensure tables and indexes exist
   {"action": "status"}   — return table names and row counts
   {"action": "query", "sql": "SELECT ..."}  — run a read-only SQL query
 
@@ -12,7 +12,7 @@ import logging
 
 import psycopg2.sql
 
-from library_layer.schema import create_all
+from library_layer.schema import create_all, create_indexes
 from library_layer.utils.db import get_conn
 
 logger = logging.getLogger("admin")
@@ -58,6 +58,8 @@ def handler(event: dict, context: object) -> dict:
             create_all(_conn)
         finally:
             _conn.autocommit = True
+        # create_indexes() manages autocommit internally (each index committed separately).
+        create_indexes(_conn)
         return {"status": "ok", "message": "Schema initialised"}
 
     if action == "status":

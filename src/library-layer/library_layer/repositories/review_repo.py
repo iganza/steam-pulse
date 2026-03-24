@@ -285,11 +285,19 @@ class ReviewRepository(BaseRepository):
                 "verdict": "no_ea",
             }
 
-        post_pct = post_data["pct_positive"] if post_data else 0.0
-        delta = post_pct - ea_data["pct_positive"]
-        if post_data and delta >= 5:
+        if post_data is None:
+            return {
+                "has_ea_reviews": True,
+                "early_access": ea_data,
+                "post_launch": None,
+                "impact_delta": None,
+                "verdict": "no_post",
+            }
+
+        delta = post_data["pct_positive"] - ea_data["pct_positive"]
+        if delta >= 5:
             verdict = "improved"
-        elif post_data and delta <= -5:
+        elif delta <= -5:
             verdict = "declined"
         else:
             verdict = "stable"

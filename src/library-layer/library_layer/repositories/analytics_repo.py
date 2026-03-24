@@ -46,7 +46,7 @@ class AnalyticsRepository(BaseRepository):
             ),
             shared_games AS (
                 SELECT r.appid,
-                       COUNT(*) AS overlap_count,
+                       COUNT(DISTINCT r.author_steamid) AS overlap_count,
                        ROUND(COUNT(CASE WHEN r.voted_up THEN 1 END)::numeric
                              / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
                 FROM reviews r

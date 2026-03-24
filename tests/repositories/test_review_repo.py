@@ -445,6 +445,24 @@ def test_early_access_impact_no_ea(
     assert result["has_ea_reviews"] is False
 
 
+def test_early_access_impact_no_post(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """EA reviews exist but no post-launch reviews → verdict 'no_post', impact_delta None."""
+    _seed_game(game_repo)
+    ea = [
+        {**_make_reviews(count=1)[0], "steam_review_id": f"ea-nopost-{i}",
+         "voted_up": True, "written_during_early_access": True}
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(ea)
+    result = review_repo.find_early_access_impact(440)
+    assert result["verdict"] == "no_post"
+    assert result["has_ea_reviews"] is True
+    assert result["post_launch"] is None
+    assert result["impact_delta"] is None
+
+
 # ---------------------------------------------------------------------------
 # find_review_velocity tests
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
 #   bash scripts/dev/push-to-staging.sh --list                 # list available snapshots
 #   bash scripts/dev/push-to-staging.sh --stage prod --from seed-v1  # promote snapshot to prod
 #
-# Requires: pg_dump, aws cli
+# Requires: docker compose, aws cli
 
 set -euo pipefail
 
@@ -16,7 +16,6 @@ STAGE="staging"
 SNAPSHOT_NAME=""
 FROM_SNAPSHOT=""
 LIST_ONLY=false
-LOCAL_DB="postgresql://steampulse:dev@127.0.0.1:5432/steampulse"
 REGION="us-west-2"
 
 # Parse args

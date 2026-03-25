@@ -418,10 +418,30 @@ Tests are excluded from the Next.js build (`tests/` in `tsconfig.json` exclude a
 
 ---
 
+## Database Migrations (yoyo)
+
+Schema DDL is managed by yoyo-migrations in `src/lambda-functions/migrations/`. The `MigrationFn` Lambda applies pending migrations post-deployment (after code is live).
+
+**Authoring rules — all migrations must be backwards-compatible:**
+- New columns must have a `DEFAULT` value or be nullable — never `NOT NULL` without a default
+- Never rename or drop columns/tables in a single deploy; use two phases: add new → deploy code → remove old
+- New code must work with the old schema for the brief window between code deploy and migration apply
+- Index additions are safe (read-only improvement, no query breakage)
+
+**Adding a new migration:**
+1. Create `src/lambda-functions/migrations/NNNN_describe_change.sql`
+2. Add `-- depends: <previous_id>` as the first line
+3. Use `IF NOT EXISTS` / `IF EXISTS` guards for idempotency
+4. Run locally: `bash scripts/dev/migrate.sh`
+
+**Never** call `create_all()` or `create_indexes()` from Lambda handlers — those are test-only utilities.
+
+---
+
 ## Do Not Build
 
 - No user accounts or login system
-- No database migrations framework (raw SQL in repositories)
+- No database migrations framework for data access (raw psycopg2 in repositories) — yoyo-migrations is used for schema DDL only (see `src/lambda-functions/migrations/`)
 - No CSS frameworks (use Tailwind or plain CSS in Next.js)
 - No job queue inside FastAPI (analysis is in Step Functions)
 - No payment integration until explicitly planned (validate-key is intentionally stubbed)

@@ -15,15 +15,17 @@ REGION="${AWS_DEFAULT_REGION:-us-west-2}"
 
 if [[ "${1:-}" == "--stage" ]]; then
   STAGE_NAME="${2:-staging}"
-  echo "▶ Fetching DB password from Secrets Manager (${STAGE_NAME})..."
-  PGPASSWORD=$(aws secretsmanager get-secret-value \
+  echo "▶ Fetching DB credentials from Secrets Manager (${STAGE_NAME})..."
+  SECRET_JSON=$(aws secretsmanager get-secret-value \
     --secret-id "steampulse/${STAGE_NAME}/db-credentials" \
     --region "$REGION" \
     --query 'SecretString' \
-    --output text \
-    | python3 -c "import sys, json; print(json.load(sys.stdin)['password'])")
-  export DATABASE_URL="postgresql://postgres:${PGPASSWORD}@localhost:5433/steampulse"
-  echo "✓ Using staging tunnel at localhost:5433"
+    --output text)
+  DB_USER=$(python3 -c "import sys, json; print(json.load(sys.stdin)['username'])" <<< "$SECRET_JSON")
+  DB_PASS=$(python3 -c "import sys, json; print(json.load(sys.stdin)['password'])" <<< "$SECRET_JSON")
+  DB_NAME=$(python3 -c "import sys, json; print(json.load(sys.stdin)['dbname'])" <<< "$SECRET_JSON")
+  export DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5433/${DB_NAME}"
+  echo "✓ Using staging tunnel at localhost:5433 (database: ${DB_NAME})"
 fi
 
 # Load DATABASE_URL from .env if not already set

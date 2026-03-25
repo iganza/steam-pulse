@@ -508,7 +508,10 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment=config.to_lambda_env(POWERTOOLS_SERVICE_NAME="migration"),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="migration",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
         )
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────

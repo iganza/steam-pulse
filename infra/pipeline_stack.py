@@ -85,8 +85,24 @@ class PipelineStack(cdk.Stack):
                     "ApplyMigrations",
                     commands=[
                         f"FN_ARN=$(aws ssm get-parameter --name /steampulse/{environment}/compute/migration-fn-arn --query Parameter.Value --output text)",
-                        "aws lambda invoke --function-name \"$FN_ARN\" --invocation-type RequestResponse --log-type Tail /tmp/migrate-out.json",
+                        # Capture both payload and response metadata (FunctionError, LogResult)
+                        "aws lambda invoke --function-name \"$FN_ARN\" --invocation-type RequestResponse --log-type Tail /tmp/migrate-out.json > /tmp/migrate-meta.json",
                         "cat /tmp/migrate-out.json",
+                        # Decode Lambda logs and fail the build if FunctionError is present
+                        "python3 - << 'PYEOF'\n"
+                        "import base64, json, sys\n"
+                        "from pathlib import Path\n"
+                        "meta = json.loads(Path('/tmp/migrate-meta.json').read_text())\n"
+                        "log_b64 = meta.get('LogResult', '')\n"
+                        "if log_b64:\n"
+                        "    print('--- Lambda logs ---')\n"
+                        "    print(base64.b64decode(log_b64).decode('utf-8', errors='replace'))\n"
+                        "    print('--- end logs ---')\n"
+                        "err = meta.get('FunctionError')\n"
+                        "if err:\n"
+                        "    print(f'Migration Lambda failed: {err}', file=sys.stderr)\n"
+                        "    sys.exit(1)\n"
+                        "PYEOF",
                     ],
                     role_policy_statements=[
                         iam.PolicyStatement(
@@ -95,7 +111,9 @@ class PipelineStack(cdk.Stack):
                         ),
                         iam.PolicyStatement(
                             actions=["lambda:InvokeFunction"],
-                            resources=["*"],
+                            # Scoped to functions in the Compute stack for this environment.
+                            # CDK generates names like SteamPulse-{Stage}-Compute-{LogicalId}{hash}.
+                            resources=[f"arn:aws:lambda:{self.region}:{self.account}:function:SteamPulse-{deploy_stage}-Compute-*"],
                         ),
                     ],
                 ),

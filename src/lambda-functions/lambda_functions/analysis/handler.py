@@ -20,7 +20,6 @@ from library_layer.events import ReportReadyEvent
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.schema import create_all
 from library_layer.utils.db import get_db_url
 from library_layer.utils.events import EventPublishError, publish_event
 
@@ -34,10 +33,10 @@ MAX_REVIEWS = 2000
 
 
 # ── Eager module-level initialization — fails loud on cold start if DB unavailable
+# Schema managed by yoyo migrations — see src/lambda-functions/migrations/
 _conn: psycopg2.extensions.connection = psycopg2.connect(
     get_db_url(), cursor_factory=psycopg2.extras.RealDictCursor
 )
-create_all(_conn)
 _game_repo: GameRepository = GameRepository(_conn)
 _review_repo: ReviewRepository = ReviewRepository(_conn)
 _report_repo: ReportRepository = ReportRepository(_conn)

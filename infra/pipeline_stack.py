@@ -82,6 +82,24 @@ class PipelineStack(cdk.Stack):
             ),
             post=[
                 pipelines.CodeBuildStep(
+                    "ApplyMigrations",
+                    commands=[
+                        f"FN_ARN=$(aws ssm get-parameter --name /steampulse/{environment}/compute/migration-fn-arn --query Parameter.Value --output text)",
+                        "aws lambda invoke --function-name \"$FN_ARN\" --invocation-type RequestResponse --log-type Tail /tmp/migrate-out.json",
+                        "cat /tmp/migrate-out.json",
+                    ],
+                    role_policy_statements=[
+                        iam.PolicyStatement(
+                            actions=["ssm:GetParameter"],
+                            resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{environment}/*"],
+                        ),
+                        iam.PolicyStatement(
+                            actions=["lambda:InvokeFunction"],
+                            resources=["*"],
+                        ),
+                    ],
+                ),
+                pipelines.CodeBuildStep(
                     "InvalidateCDN",
                     commands=[
                         # Read distribution ID from SSM then invalidate HTML paths

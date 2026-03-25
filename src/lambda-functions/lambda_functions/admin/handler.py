@@ -1,7 +1,7 @@
 """Admin Lambda — lightweight DB operations invoked by sp.py.
 
 Actions:
-  {"action": "init"}     — run create_all() + create_indexes() to ensure tables and indexes exist
+  {"action": "init"}     — no-op placeholder (schema and indexes managed by yoyo migrations)
   {"action": "status"}   — return table names and row counts
   {"action": "query", "sql": "SELECT ..."}  — run a read-only SQL query
 
@@ -12,7 +12,6 @@ import logging
 
 import psycopg2.sql
 
-from library_layer.schema import create_all, create_indexes
 from library_layer.utils.db import get_conn
 
 logger = logging.getLogger("admin")
@@ -52,15 +51,9 @@ def handler(event: dict, context: object) -> dict:
     action = event.get("action", "")
 
     if action == "init":
-        # Temporarily disable autocommit so create_all() can commit DDL.
-        _conn.autocommit = False
-        try:
-            create_all(_conn)
-        finally:
-            _conn.autocommit = True
-        # create_indexes() manages autocommit internally (each index committed separately).
-        create_indexes(_conn)
-        return {"status": "ok", "message": "Schema initialised"}
+        # Schema and indexes managed by yoyo migrations — see src/lambda-functions/migrations/
+        # Invoke the MigrationFn Lambda (or run migrate.sh locally) to apply pending migrations.
+        return {"status": "ok", "message": "Schema managed by yoyo migrations"}
 
     if action == "status":
         with _conn.cursor() as cur:

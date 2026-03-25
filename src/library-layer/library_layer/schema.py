@@ -1,7 +1,10 @@
-"""Database schema — all CREATE TABLE DDL in dependency order.
+"""Database schema — source-of-truth reference for all DDL.
 
-Extracted from storage.py. Call create_all(conn) once per cold start (or test
-session) to ensure all tables exist. Statements are idempotent (IF NOT EXISTS).
+Schema and indexes are managed by yoyo migrations in src/lambda-functions/migrations/.
+For local dev: bash scripts/dev/migrate.sh
+For staging: bash scripts/dev/migrate.sh --stage staging (tunnel must be open)
+
+create_all() is retained for the test suite only — do not call it in Lambda handlers.
 """
 
 TABLES: tuple[str, ...] = (

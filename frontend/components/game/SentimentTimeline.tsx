@@ -20,7 +20,7 @@ function formatWeek(weekStr: string): string {
 }
 
 export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
-  if (timeline.length < 3) return null;
+  if (timeline.length < 2) return null;
 
   return (
     <div data-testid="sentiment-timeline">

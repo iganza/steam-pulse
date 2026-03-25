@@ -301,7 +301,7 @@ export function GameReportClient({
             <SectionLabel>Sentiment History</SectionLabel>
             {statsLoading ? (
               <SentimentTimelineSkeleton />
-            ) : reviewStats && reviewStats.timeline.length >= 3 ? (
+            ) : reviewStats && reviewStats.timeline.length >= 2 ? (
               <SentimentTimeline timeline={reviewStats.timeline} />
             ) : null}
           </section>
@@ -696,7 +696,7 @@ export function GameReportClient({
           <SectionLabel>Sentiment History</SectionLabel>
           {statsLoading ? (
             <SentimentTimelineSkeleton />
-          ) : reviewStats && reviewStats.timeline.length >= 3 ? (
+          ) : reviewStats && reviewStats.timeline.length >= 2 ? (
             <SentimentTimeline timeline={reviewStats.timeline} />
           ) : null}
         </section>

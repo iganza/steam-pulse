@@ -11,7 +11,7 @@ from library_layer.analyzer import (
     _sentiment_label,
     analyze_reviews,
 )
-from library_layer.analyzer_models import (
+from library_layer.models.analyzer_models import (
     AudienceProfile,
     BatchStats,
     ChunkSummary,

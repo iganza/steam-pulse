@@ -13,8 +13,8 @@ from datetime import UTC, datetime, timedelta
 import anthropic
 import instructor
 from aws_lambda_powertools import Logger
-from library_layer.analyzer_models import ChunkSummary, GameReport
 from library_layer.config import SteamPulseConfig
+from library_layer.models.analyzer_models import ChunkSummary, GameReport
 
 logger = Logger()
 _config = SteamPulseConfig()

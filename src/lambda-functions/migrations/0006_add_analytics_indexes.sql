@@ -1,5 +1,5 @@
 -- depends: 0005_add_review_cursor
--- non-transactional
+-- transactional: false
 
 -- CONCURRENTLY avoids write-blocking locks on reviews/games during index builds.
 -- Postgres requires CONCURRENTLY to run outside a transaction; the non-transactional

@@ -1,6 +1,5 @@
 """SteamDataSource abstraction — all Steam data access goes through here."""
 
-import logging
 import os
 import random
 import time
@@ -8,8 +7,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 import httpx
+from aws_lambda_powertools import Logger
 
-logger = logging.getLogger(__name__)
+logger = Logger()
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -127,10 +127,12 @@ class DirectSteamSource(SteamDataSource):
                 self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
                     wait = min(2**attempt + random.uniform(1, 5), 120)
-                    logger.warning(
-                        "HTTP %s from %s — retrying in %.0fs (attempt %s/6)",
-                        resp.status_code, url, wait, attempt + 1,
-                    )
+                    logger.warning("HTTP retry", extra={
+                        "status": resp.status_code,
+                        "url": url,
+                        "wait_s": round(wait),
+                        "attempt": attempt + 1,
+                    })
                     time.sleep(wait)
                     continue
                 resp.raise_for_status()
@@ -149,10 +151,12 @@ class DirectSteamSource(SteamDataSource):
                 if attempt == 5:
                     raise SteamAPIError(f"Network error fetching {url}: {exc}") from exc
                 wait = min(2**attempt + random.uniform(1, 5), 120)
-                logger.warning(
-                    "Network error from %s — retrying in %.0fs (attempt %s/6): %s",
-                    url, wait, attempt + 1, exc,
-                )
+                logger.warning("Network error retry", extra={
+                    "url": url,
+                    "wait_s": round(wait),
+                    "attempt": attempt + 1,
+                    "error": str(exc),
+                })
                 time.sleep(wait)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 

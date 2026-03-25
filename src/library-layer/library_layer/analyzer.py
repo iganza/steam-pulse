@@ -7,13 +7,16 @@ Models are configured via the LLM_MODEL task map in .env.staging / .env.producti
 """
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import anthropic
 import instructor
+from aws_lambda_powertools import Logger
 from library_layer.analyzer_models import ChunkSummary, GameReport
 from library_layer.config import SteamPulseConfig
 
+logger = Logger()
 _config = SteamPulseConfig()
 
 
@@ -176,6 +179,13 @@ def _summarize_chunk(
     dates = [r["posted_at"][:10] for r in chunk if r.get("posted_at")]
     date_range = f"({min(dates)} to {max(dates)})" if dates else "(dates unknown)"
 
+    logger.info("chunk_start", extra={
+        "chunk": chunk_index + 1,
+        "total_chunks": total_chunks,
+        "reviews": len(chunk),
+        "model": _config.model_for("chunking"),
+    })
+    t0 = time.monotonic()
     summary, _ = client.messages.create_with_completion(
         model=_config.model_for("chunking"),
         max_tokens=1024,
@@ -241,6 +251,8 @@ def _summarize_chunk(
             }
         ],
     )
+    elapsed_ms = round((time.monotonic() - t0) * 1000)
+    logger.info("chunk_done", extra={"chunk": chunk_index + 1, "latency_ms": elapsed_ms})
     return summary
 
 
@@ -258,6 +270,13 @@ def _synthesize(
     summaries_text = json.dumps([s.model_dump() for s in chunk_summaries], indent=2)
     overall_sentiment = _sentiment_label(sentiment_score)
 
+    logger.info("synthesis_start", extra={
+        "chunks": len(chunk_summaries),
+        "total_reviews": total_reviews,
+        "model": _config.model_for("summarizer"),
+        "sentiment_score": sentiment_score,
+    })
+    t0 = time.monotonic()
     report, _ = client.messages.create_with_completion(
         model=_config.model_for("summarizer"),
         max_tokens=5000,
@@ -363,6 +382,8 @@ def _synthesize(
             }
         ],
     )
+    elapsed_ms = round((time.monotonic() - t0) * 1000)
+    logger.info("synthesis_done", extra={"sentiment": overall_sentiment, "latency_ms": elapsed_ms})
     return report
 
 
@@ -385,6 +406,8 @@ async def analyze_reviews(
     client = _get_instructor_client()
     chunks = _chunk_reviews(reviews)
     total_chunks = len(chunks)
+    t_start = time.monotonic()
+    logger.info("analysis_start", extra={"appid": appid, "reviews": len(reviews), "chunks": total_chunks})
 
     # Pass 1 — run chunk summarizations in a thread pool (SDK is sync)
     loop = asyncio.get_event_loop()
@@ -420,5 +443,13 @@ async def analyze_reviews(
 
     if appid is not None:
         result.appid = appid
+
+    elapsed_ms = round((time.monotonic() - t_start) * 1000)
+    logger.info("analysis_complete", extra={
+        "appid": appid,
+        "sentiment": result.overall_sentiment,
+        "score": result.sentiment_score,
+        "latency_ms": elapsed_ms,
+    })
 
     return result.model_dump()

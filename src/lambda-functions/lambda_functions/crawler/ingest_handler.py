@@ -94,7 +94,8 @@ def _ingest_record(record: dict) -> None:
     task = body.get("task", "metadata")
     appid = body.get("appid", "?")
     success = body.get("success", False)
-    logger.info("Received task=%s appid=%s success=%s", task, appid, success)
+    logger.append_keys(appid=appid, task=task)
+    logger.info("Received spoke result", extra={"success": success})
 
     if task == "metadata":
         msg = MetadataSpokeResult.model_validate(body)
@@ -108,10 +109,7 @@ def _ingest_record(record: dict) -> None:
 
 def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not msg.success:
-        logger.info(
-            "Spoke reported failure: task=metadata appid=%s error=%s",
-            msg.appid, msg.error,
-        )
+        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     appid = msg.appid
@@ -126,7 +124,7 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
     success = _crawl_service.ingest_spoke_metadata(appid, data)
     if not success:
         raise RuntimeError(f"Metadata ingest failed for appid={appid}")
-    logger.info("Ingested metadata appid=%s", appid)
+    logger.info("Ingested metadata", extra={"appid": appid})
     metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
 
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)
@@ -134,18 +132,12 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
 
 def _handle_reviews(msg: ReviewSpokeResult) -> None:
     if not msg.success:
-        logger.info(
-            "Spoke reported failure: task=reviews appid=%s error=%s",
-            msg.appid, msg.error,
-        )
+        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     appid = msg.appid
     s3_key = msg.s3_key
-    logger.info(
-        "Ingesting reviews appid=%s count=%d next_cursor=%s",
-        appid, msg.count, msg.next_cursor,
-    )
+    logger.info("Ingesting reviews", extra={"appid": appid, "count": msg.count, "next_cursor": msg.next_cursor})
 
     if not s3_key:
         raise ValueError(f"success=True but s3_key missing: task=reviews appid={appid}")
@@ -154,7 +146,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     data = json.loads(gzip.decompress(response["Body"].read()))
 
     upserted = _crawl_service.ingest_spoke_reviews(appid, data)
-    logger.info("Ingested %d reviews for appid=%s", upserted, appid)
+    logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
     metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
     # Cursor management + re-queue logic — must complete before S3 delete.
@@ -167,13 +159,10 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
 
     if exhausted:
         _catalog_repo.clear_review_cursor(appid)
-        logger.info("Reviews exhausted for appid=%s total=%d", appid, total_fetched)
+        logger.info("Reviews exhausted", extra={"appid": appid, "total": total_fetched})
     elif target_hit:
         _catalog_repo.save_review_cursor(appid, msg.next_cursor)
-        logger.info(
-            "Reviews target hit for appid=%s total=%d target=%d — stopping",
-            appid, total_fetched, target,
-        )
+        logger.info("Reviews target hit — stopping", extra={"appid": appid, "total": total_fetched, "target": target})
     else:
         # More to fetch — save cursor and re-queue
         _catalog_repo.save_review_cursor(appid, msg.next_cursor)
@@ -181,10 +170,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             QueueUrl=_review_crawl_queue_url,
             MessageBody=json.dumps({"appid": appid}),
         )
-        logger.info(
-            "Re-queued appid=%s for next batch, total so far=%d",
-            appid, total_fetched,
-        )
+        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched})
 
     # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

@@ -5,7 +5,6 @@ Reads reviews from DB, runs two-pass LLM analysis, writes report to DB.
 """
 
 import asyncio
-import logging
 
 import boto3
 import psycopg2
@@ -96,10 +95,7 @@ async def _run(appid: int, game_name: str) -> dict:
             ),
         )
     except EventPublishError:
-        logging.getLogger(__name__).warning(
-            "Failed to publish report-ready for appid=%s",
-            appid,
-        )
+        logger.warning("Failed to publish report-ready", extra={"appid": appid})
 
     return result
 

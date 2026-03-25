@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import gzip
 import json
-import logging
 import uuid
 from datetime import date, datetime
 from typing import Any
 
+from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.events import (
     GameMetadataReadyEvent,
@@ -26,7 +26,7 @@ from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.slugify import slugify
 from library_layer.utils.time import unix_to_datetime
 
-logger = logging.getLogger(__name__)
+logger = Logger()
 
 MAX_REVIEWS_DEFAULT = None  # fetch all reviews
 REVIEW_MILESTONES = [500, 1000, 5000, 10000]
@@ -121,30 +121,30 @@ class CrawlService:
         try:
             details = self._steam.get_app_details(appid)
         except SteamAPIError as exc:
-            logger.error("Steam app_details error for appid=%s: %s", appid, exc)
+            logger.error("Steam app_details error", extra={"appid": appid, "error": str(exc)})
             self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
         if not details:
-            logger.info("appid=%s not found on Steam — skipping", appid)
+            logger.info("App not found on Steam — skipping", extra={"appid": appid})
             self._catalog_repo.set_meta_status(appid, "skipped")
             return False
 
         try:
             summary = self._steam.get_review_summary(appid)
         except SteamAPIError as exc:
-            logger.error("Steam review_summary error for appid=%s: %s", appid, exc)
+            logger.error("Steam review_summary error", extra={"appid": appid, "error": str(exc)})
             self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
         try:
             deck_compat = self._steam.get_deck_compatibility(appid)
         except SteamAPIError as exc:
-            logger.warning("Steam deck_compat unavailable for appid=%s: %s", appid, exc)
+            logger.warning("Steam deck_compat unavailable", extra={"appid": appid, "error": str(exc)})
             deck_compat = {}
 
         name: str = details.get("name") or f"App {appid}"
-        logger.info("appid=%s name=%r", appid, name)
+        logger.info("App fetched", extra={"appid": appid, "game_name": name})
 
         if dry_run:
             return True
@@ -175,14 +175,14 @@ class CrawlService:
         try:
             raw_reviews, _ = self._steam.get_reviews(appid, max_reviews=max_reviews)
         except SteamAPIError as exc:
-            logger.warning("Steam reviews API error for appid=%s: %s", appid, exc)
+            logger.warning("Steam reviews API error", extra={"appid": appid, "error": str(exc)})
             return 0
 
         if not raw_reviews:
-            logger.info("No reviews found for appid=%s", appid)
+            logger.info("No reviews found", extra={"appid": appid})
             return 0
 
-        logger.info("Fetched %d reviews for appid=%s", len(raw_reviews), appid)
+        logger.info("Reviews fetched", extra={"appid": appid, "count": len(raw_reviews)})
 
         self._archive_to_s3(f"reviews/{appid}/{date.today().isoformat()}.json.gz", raw_reviews)
 
@@ -194,7 +194,7 @@ class CrawlService:
 
         reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
-        logger.info("Upserted %d reviews for appid=%s", upserted, appid)
+        logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
 
         self._trigger_analysis(appid, game_name)
 
@@ -210,7 +210,7 @@ class CrawlService:
                 ),
             )
         except EventPublishError:
-            logger.warning("Failed to publish reviews-ready for appid=%s", appid)
+            logger.warning("Failed to publish reviews-ready", extra={"appid": appid})
 
         return upserted
 
@@ -231,7 +231,7 @@ class CrawlService:
         deck_compat: dict | None = raw.get("deck_compat")
 
         if not details:
-            logger.warning("ingest_spoke_metadata: empty details for appid=%s", appid)
+            logger.warning("ingest_spoke_metadata: empty details", extra={"appid": appid})
             return False
 
         existing = self._game_repo.find_by_appid(appid)
@@ -257,7 +257,7 @@ class CrawlService:
 
         reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
-        logger.info("Ingested %d spoke reviews for appid=%s", upserted, appid)
+        logger.info("Spoke reviews ingested", extra={"appid": appid, "upserted": upserted})
         return upserted
 
     # ------------------------------------------------------------------
@@ -402,7 +402,7 @@ class CrawlService:
                 ContentType="application/json",
             )
         except Exception:
-            logger.warning("Failed to archive %s to S3", key)
+            logger.warning("Failed to archive to S3", extra={"key": key})
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -483,15 +483,12 @@ class CrawlService:
                         ),
                     )
         except EventPublishError:
-            logger.warning("Failed to publish crawl_app events for appid=%s", appid)
+            logger.warning("Failed to publish crawl_app events", extra={"appid": appid})
 
     def _trigger_analysis(self, appid: int, game_name: str) -> str | None:
         """Start Step Functions execution. Returns execution ARN or None if SFN not configured."""
         if not self._sfn_arn or not self._sfn:
-            logger.info(
-                "No SFN_ARN configured — skipping Step Functions trigger for appid=%s",
-                appid,
-            )
+            logger.info("No SFN_ARN configured — skipping trigger", extra={"appid": appid})
             return None
         resp = self._sfn.start_execution(
             stateMachineArn=self._sfn_arn,
@@ -499,7 +496,7 @@ class CrawlService:
             input=json.dumps({"appid": appid, "game_name": game_name}),
         )
         arn: str = resp["executionArn"]
-        logger.info("Started Step Functions execution %s for appid=%s", arn, appid)
+        logger.info("Step Functions execution started", extra={"appid": appid, "execution_arn": arn})
         return arn
 
 

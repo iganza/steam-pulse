@@ -74,17 +74,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     if task == "metadata":
         req = MetadataSpokeRequest.model_validate(event)
-        logger.info("START metadata appid=%s", req.appid)
+        logger.append_keys(appid=req.appid, task=task)
+        logger.info("START metadata")
         ok = _process_metadata(req.appid)
         metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
         return SpokeResponse(appid=req.appid, task=task, success=ok, count=1 if ok else 0).model_dump()
 
     if task == "reviews":
         req = ReviewSpokeRequest.model_validate(event)
-        logger.info(
-            "START reviews appid=%s cursor=%s max_reviews=%s",
-            req.appid, req.cursor, req.max_reviews,
-        )
+        logger.append_keys(appid=req.appid, task=task)
+        logger.info("START reviews", extra={"cursor": req.cursor, "max_reviews": req.max_reviews})
         count, _ = _process_reviews(req.appid, req.cursor, req.max_reviews)
         metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
         return SpokeResponse(appid=req.appid, task=task, success=count > 0, count=count).model_dump()
@@ -99,41 +98,41 @@ def _process_metadata(appid: int) -> bool:
     try:
         details = _steam.get_app_details(appid)
     except SteamAPIError as exc:
-        logger.error("Steam app_details error appid=%s: %s", appid, exc)
+        logger.error("Steam app_details error", extra={"appid": appid, "error": str(exc)})
         _notify_metadata(appid, success=False, error=str(exc))
         return False
 
     if not details:
-        logger.warning("Empty details from Steam appid=%s — skipping", appid)
+        logger.warning("Empty details from Steam — skipping", extra={"appid": appid})
         _notify_metadata(appid, success=False, error="empty details from Steam")
         return False
 
     game_name = details.get("name", "<unknown>")
-    logger.info("Fetched app_details appid=%s name=%r", appid, game_name)
+    logger.info("Fetched app_details", extra={"appid": appid, "game_name": game_name})
 
     try:
         summary = _steam.get_review_summary(appid)
     except SteamAPIError as exc:
-        logger.error("Steam review_summary error appid=%s: %s", appid, exc)
+        logger.error("Steam review_summary error", extra={"appid": appid, "error": str(exc)})
         _notify_metadata(appid, success=False, error=str(exc))
         return False
 
-    logger.info(
-        "Fetched review_summary appid=%s total_reviews=%s",
-        appid, summary.get("total_reviews_all", summary.get("total_reviews", "?")),
-    )
+    logger.info("Fetched review_summary", extra={
+        "appid": appid,
+        "total_reviews": summary.get("total_reviews_all", summary.get("total_reviews", "?")),
+    })
 
     try:
         deck_compat = _steam.get_deck_compatibility(appid)
     except SteamAPIError as exc:
-        logger.warning("Steam deck_compat unavailable appid=%s: %s", appid, exc)
+        logger.warning("Steam deck_compat unavailable", extra={"appid": appid, "error": str(exc)})
         deck_compat = {}
 
     payload = {"details": details, "summary": summary, "deck_compat": deck_compat}
     uid = uuid.uuid4().hex[:12]
     s3_key = _write_s3(f"spoke-results/metadata/{appid}-{uid}.json.gz", payload)
     _notify_metadata(appid, success=True, s3_key=s3_key, count=1)
-    logger.info("DONE metadata appid=%s name=%r → %s", appid, game_name, s3_key)
+    logger.info("DONE metadata", extra={"appid": appid, "game_name": game_name, "s3_key": s3_key})
     return True
 
 
@@ -143,31 +142,32 @@ def _process_reviews(
     max_reviews: int | None,
 ) -> tuple[int, str | None]:
     limit = min(max_reviews, BATCH_SIZE) if max_reviews is not None else BATCH_SIZE
-    logger.info("Fetching reviews appid=%s limit=%d cursor=%s", appid, limit, cursor)
+    logger.info("Fetching reviews", extra={"appid": appid, "limit": limit, "cursor": cursor})
 
     try:
         reviews, next_cursor = _steam.get_reviews(appid, max_reviews=limit, start_cursor=cursor)
     except SteamAPIError as exc:
-        logger.warning("Steam reviews error appid=%s: %s", appid, exc)
+        logger.warning("Steam reviews error", extra={"appid": appid, "error": str(exc)})
         _notify_reviews(appid, success=False, error=str(exc), next_cursor=None)
         return 0, None
 
     if not reviews:
-        logger.warning("No reviews returned from Steam appid=%s cursor=%s", appid, cursor)
+        logger.warning("No reviews returned from Steam", extra={"appid": appid, "cursor": cursor})
         _notify_reviews(appid, success=False, error="no reviews returned", next_cursor=None)
         return 0, None
 
     exhausted = next_cursor is None
-    logger.info(
-        "Fetched %d reviews appid=%s %s",
-        len(reviews), appid,
-        "— stream exhausted" if exhausted else f"next_cursor={next_cursor}",
-    )
+    logger.info("Fetched reviews", extra={
+        "appid": appid,
+        "count": len(reviews),
+        "exhausted": exhausted,
+        "next_cursor": next_cursor,
+    })
 
     uid = uuid.uuid4().hex[:12]
     s3_key = _write_s3(f"spoke-results/reviews/{appid}-{uid}.json.gz", reviews)
     _notify_reviews(appid, success=True, s3_key=s3_key, count=len(reviews), next_cursor=next_cursor)
-    logger.info("DONE reviews appid=%s count=%d → %s", appid, len(reviews), s3_key)
+    logger.info("DONE reviews", extra={"appid": appid, "count": len(reviews), "s3_key": s3_key})
     return len(reviews), next_cursor
 
 
@@ -181,12 +181,7 @@ def _write_s3(key: str, data: dict | list) -> str:
         ContentEncoding="gzip",
         ContentType="application/json",
     )
-    logger.info(
-        "Wrote %d bytes to s3://%s/%s",
-        len(payload),
-        bucket,
-        key,
-    )
+    logger.info("Wrote to S3", extra={"bytes": len(payload), "bucket": bucket, "key": key})
     return key
 
 

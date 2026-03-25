@@ -363,7 +363,7 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 - Service constructors: required dependencies (`sns_client`, `config`, repos) are **not optional**.
   Type them as required params, not `| None`. If a caller can't provide them, that's a bug.
 - FastAPI endpoints: raise `HTTPException` with appropriate status codes. Never return error dicts with 200.
-- Log with `logging` (stdlib) — not `print()`. Use structured fields: `logger.error("msg", extra={"appid": appid})`.
+- Use Powertools `Logger` — not stdlib `logging`, not `print()`. Use structured fields via `extra={}`: `logger.error("msg", extra={"appid": appid})`.
 
 **General:**
 - No mutable default arguments (`def f(x=[])` → use `None` sentinel).
@@ -455,11 +455,11 @@ DROP INDEX IF EXISTS old_idx;
 **4. For new indexes — use `CONCURRENTLY` and mark non-transactional:**
 ```sql
 -- depends: 0006_add_analytics_indexes
--- non-transactional
+-- transactional: false
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_name ON table(col);
 ```
-`CONCURRENTLY` avoids write-blocking locks on large tables. Postgres requires it to run outside a transaction; `-- non-transactional` tells yoyo not to wrap the file in `BEGIN/COMMIT`.
+`CONCURRENTLY` avoids write-blocking locks on large tables. Postgres requires it to run outside a transaction; `-- transactional: false` tells yoyo not to wrap the file in `BEGIN/COMMIT`.
 
 **5. Test locally:**
 ```bash
@@ -473,6 +473,99 @@ For staging (tunnel must be open): `bash scripts/dev/migrate.sh --stage staging`
 - Call `create_all()` or `create_indexes()` from Lambda handlers — test-suite only
 - Use plain `CREATE INDEX` on large tables in production migrations — always `CONCURRENTLY`
 - Add a `NOT NULL` column without a `DEFAULT` to an existing table
+
+---
+
+## Observability (Logging + X-Ray)
+
+### Logging
+
+Every Lambda handler and library layer service uses **AWS Lambda Powertools `Logger`** — never stdlib `logging`, never `print()`.
+
+**Handler pattern:**
+```python
+from aws_lambda_powertools import Logger
+logger = Logger(service="analysis")   # explicit service name
+```
+
+**Library layer pattern:**
+```python
+from aws_lambda_powertools import Logger
+logger = Logger()   # inherits service from POWERTOOLS_SERVICE_NAME env var
+```
+
+**Structured fields — always use `extra={}`:**
+```python
+logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
+logger.error("Steam API error", extra={"appid": appid, "error": str(exc)})
+```
+No `%` formatting, no f-strings embedding data in the message string. Powertools serializes `extra={}` keys as top-level JSON, making them queryable in CloudWatch Logs Insights: `filter appid = 440`.
+
+**Appid context — `append_keys()`:**
+Call `logger.append_keys(appid=appid)` at the top of any handler branch or FastAPI route that processes a specific appid. All subsequent log calls in that invocation will carry the appid automatically.
+
+`append_keys()` context is **per Logger instance** — it does NOT propagate to separate `Logger()` instances in library layer services. Library layer code must include appid explicitly in every `extra={}` call.
+
+**Lambda context injection:**
+Add `@logger.inject_lambda_context` to handlers that accept a `LambdaContext` object. Tests must pass a mock context (not `None`) when the handler has this decorator — `inject_lambda_context` reads `context.function_name` etc.
+
+**Reserved LogRecord fields — do not use in `extra={}`:**
+`name`, `message`, `levelname`, `pathname`, `lineno`, `funcName`, `created`, `thread`, `process` are Python `logging.LogRecord` attributes. Passing any of these in `extra={}` raises `KeyError` at runtime. Use `game_name` instead of `name`, etc.
+
+---
+
+### X-Ray Tracing
+
+Every **production** Lambda handler requires X-Ray to be enabled in **two places** — missing either half silently drops traces:
+
+1. **Code** — import `Tracer` and decorate the handler:
+```python
+from aws_lambda_powertools import Tracer
+tracer = Tracer(service="crawler")
+
+@tracer.capture_lambda_handler
+def handler(event: dict, context: LambdaContext) -> dict:
+    ...
+```
+
+2. **CDK** — set `tracing=lambda_.Tracing.ACTIVE` on the `PythonFunction` construct:
+```python
+crawler_fn = PythonFunction(
+    ...
+    tracing=lambda_.Tracing.ACTIVE,   # required — also grants AWSXRayDaemonWriteAccess automatically
+)
+```
+CDK automatically adds `AWSXRayDaemonWriteAccess` to the Lambda role when this is set — no manual IAM policy needed.
+
+**FastAPI / Mangum special case:**
+`handler = Mangum(app)` is an assignment, not a function, so `@tracer.capture_lambda_handler` cannot be applied directly. Wrap it explicitly:
+```python
+_mangum = Mangum(app, lifespan="off")
+
+@tracer.capture_lambda_handler
+def handler(event: dict, context: object) -> dict:
+    return _mangum(event, context)
+```
+
+**Do NOT add `@tracer.capture_method`** to service layer methods — structured logs already provide that observability; X-Ray overhead on DB calls adds noise without insight.
+
+**Intentionally excluded from X-Ray** (internal tools, not on any critical path):
+- `admin/handler.py`
+- `admin/migrate_handler.py`
+
+**Current tracing coverage:**
+
+| Lambda | Logger | Tracer (code) | Tracer (CDK) |
+|---|---|---|---|
+| analysis | ✅ | ✅ | ✅ |
+| api | ✅ | ✅ | ✅ |
+| crawler | ✅ | ✅ | ✅ |
+| spoke-ingest | ✅ | ✅ | ✅ |
+| crawler-spoke | ✅ | ✅ | ✅ (spoke_stack) |
+| admin | ✅ | — intentional | — intentional |
+| migration | ✅ | — intentional | — intentional |
+
+**X-Ray cost note:** Default sampling traces the first request per second plus 5% of additional requests — $5/million traces after the first 100k/month free. Cost is negligible at current scale.
 
 ---
 

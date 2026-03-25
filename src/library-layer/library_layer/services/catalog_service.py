@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import httpx
+from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.events import CatalogRefreshCompleteEvent, GameDiscoveredEvent
 from library_layer.repositories.catalog_repo import CatalogRepository
@@ -14,7 +14,7 @@ from library_layer.utils.sqs import send_sqs_batch
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 
-logger = logging.getLogger(__name__)
+logger = Logger()
 
 
 class CatalogService:
@@ -47,12 +47,7 @@ class CatalogService:
         apps = self._fetch_app_list()
         new_rows = self._catalog_repo.bulk_upsert(apps)
         enqueued = self.enqueue_pending()
-        logger.info(
-            "Catalog refresh: fetched=%d new=%d enqueued=%d",
-            len(apps),
-            new_rows,
-            enqueued,
-        )
+        logger.info("Catalog refresh complete", extra={"fetched": len(apps), "new": new_rows, "enqueued": enqueued})
 
         # Publish discovery + completion events
         self._publish_refresh_events(apps, new_rows, len(apps))
@@ -82,7 +77,7 @@ class CatalogService:
                     GameDiscoveredEvent(appid=appid),
                 )
             except EventPublishError:
-                logger.warning("Failed to publish game-discovered for appid=%s", appid)
+                logger.warning("Failed to publish game-discovered", extra={"appid": appid})
 
         # Completion event
         try:

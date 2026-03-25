@@ -120,6 +120,7 @@ class ComputeStack(cdk.Stack):
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,
+            tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(
                 self,
                 "AnalysisLogs",
@@ -210,6 +211,7 @@ class ComputeStack(cdk.Stack):
             security_groups=[intra_sg],
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
+            tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(
                 self,
                 "ApiLogs",

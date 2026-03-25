@@ -8,14 +8,13 @@ Actions:
 This Lambda is in the VPC with DB access. No public exposure.
 """
 
-import logging
-
 import psycopg2.sql
+from aws_lambda_powertools import Logger
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
 from library_layer.utils.db import get_conn
 
-logger = logging.getLogger("admin")
-logger.setLevel(logging.INFO)
+logger = Logger(service="admin")
 
 MAX_QUERY_ROWS = 500
 
@@ -47,15 +46,19 @@ def _check_sql_safe(sql: str) -> str | None:
     return None
 
 
-def handler(event: dict, context: object) -> dict:
+@logger.inject_lambda_context
+def handler(event: dict, context: LambdaContext) -> dict:
     action = event.get("action", "")
+    logger.append_keys(action=action)
 
     if action == "init":
+        logger.info("init action — schema managed by yoyo")
         # Schema and indexes managed by yoyo migrations — see src/lambda-functions/migrations/
         # Invoke the MigrationFn Lambda (or run migrate.sh locally) to apply pending migrations.
         return {"status": "ok", "message": "Schema managed by yoyo migrations"}
 
     if action == "status":
+        logger.info("status action")
         with _conn.cursor() as cur:
             cur.execute("""
                 SELECT tablename
@@ -78,6 +81,7 @@ def handler(event: dict, context: object) -> dict:
 
     if action == "query":
         sql = event.get("sql", "").strip()
+        logger.info("query action", extra={"sql_preview": sql[:80]})
         if not sql:
             return {"status": "error", "message": "No SQL provided"}
         error = _check_sql_safe(sql)

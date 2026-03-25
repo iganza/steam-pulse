@@ -151,6 +151,7 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     source_arn = record.get("eventSourceARN", "")
     task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
+    logger.append_keys(appid=appid, task=task)
 
     if task == "reviews":
         max_reviews: int | None = body.get("max_reviews")
@@ -162,15 +163,15 @@ def _dispatch_to_spoke(record: dict) -> None:
             # Only set on fresh cursor ("*") to avoid overwriting a mid-stream target.
             if cursor == "*":
                 _catalog_repo.set_reviews_target(appid, max_reviews)
-                logger.info("appid=%s reviews fresh start, target=%d", appid, max_reviews)
+                logger.info("reviews fresh start", extra={"appid": appid, "target": max_reviews})
             else:
-                logger.info("appid=%s reviews resuming cursor=%s", appid, cursor)
+                logger.info("reviews resuming cursor", extra={"appid": appid, "cursor": cursor})
         else:
             # Uncapped run — clear any previous target so ingest doesn't stop early
             # because total_fetched already exceeds a target from a prior seeding run.
             _catalog_repo.set_reviews_target(appid, None)
             resume_or_fresh = f"resuming cursor={cursor}" if cursor != "*" else "fresh start (no cap)"
-            logger.info("appid=%s reviews uncapped — %s", appid, resume_or_fresh)
+            logger.info(f"reviews uncapped — {resume_or_fresh}", extra={"appid": appid})
         req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
             appid=appid,
             cursor=cursor,
@@ -184,7 +185,7 @@ def _dispatch_to_spoke(record: dict) -> None:
     idx = appid % len(_spoke_targets)
     fn_name, client = _spoke_targets[idx]
 
-    logger.info("Dispatching appid=%s task=%s → %s", appid, task, fn_name)
+    logger.info(f"Dispatching to {fn_name}", extra={"appid": appid, "task": task})
 
     # Async invoke — returns 202 immediately, spoke runs independently.
     # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
@@ -225,30 +226,32 @@ def handler(event: dict, context: LambdaContext) -> dict:
         try:
             req = _direct_adapter.validate_python(event)
         except ValidationError as exc:
-            logger.error("Invalid direct invocation payload: %s", exc)
+            logger.error("Invalid direct invocation payload", extra={"error": str(exc)})
             raise
-        logger.info("Direct invocation: action=%s", event["action"])
+        logger.info("Direct invocation", extra={"action": event["action"]})
         match req:
             case CrawlAppsRequest():
+                logger.append_keys(appid=req.appid, task="metadata")
                 ok = _crawl_service.crawl_app(req.appid)
-                logger.info("crawl_app appid=%s success=%s", req.appid, ok)
+                logger.info("crawl_app complete", extra={"appid": req.appid, "success": ok})
                 metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
+                logger.append_keys(appid=req.appid, task="reviews")
                 n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
-                logger.info("crawl_reviews appid=%s upserted=%d", req.appid, n)
+                logger.info("crawl_reviews complete", extra={"appid": req.appid, "upserted": n})
                 metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
-                logger.info("catalog_refresh result=%s", result)
+                logger.info("catalog_refresh complete", extra={**result})
                 metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
                 metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
                 return result
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:
-        logger.info("SQS batch: %d records", len(event["Records"]))
+        logger.info("SQS batch received", extra={"record_count": len(event["Records"])})
         return process_partial_response(
             event=event,
             record_handler=_dispatch_to_spoke,

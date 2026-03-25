@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
+from aws_lambda_powertools import Logger
 from library_layer.models.report import Report
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 
-logger = logging.getLogger(__name__)
+logger = Logger()
 
 MAX_REVIEWS = 2000
 
@@ -67,18 +67,12 @@ class AnalysisService:
         if not reviews_for_llm:
             raise ValueError(f"No non-empty review bodies for appid={appid}")
 
-        logger.info(
-            "Analyzing appid=%s name=%r reviews=%d",
-            appid, game.name, len(reviews_for_llm),
-        )
+        logger.info("Analyzing reviews", extra={"appid": appid, "game_name": game.name, "reviews": len(reviews_for_llm)})
 
         result = await self._analyzer(reviews_for_llm, game.name, appid=appid)
         self._report_repo.upsert(result)
 
-        logger.info(
-            "Report stored for appid=%s sentiment=%s",
-            appid, result.get("overall_sentiment"),
-        )
+        logger.info("Report stored", extra={"appid": appid, "sentiment": result.get("overall_sentiment")})
 
         report = self._report_repo.find_by_appid(appid)
         if report is None:

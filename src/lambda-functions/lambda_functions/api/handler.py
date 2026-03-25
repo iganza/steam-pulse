@@ -1,17 +1,18 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
-import logging
 import os
 import uuid
 
 import httpx
+from aws_lambda_powertools import Logger, Tracer
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from pydantic import BaseModel
 
-logger = logging.getLogger(__name__)
+logger = Logger(service="api")
+tracer = Tracer(service="api")
 
 app = FastAPI(title="SteamPulse", version="0.1.0")
 
@@ -122,7 +123,7 @@ def _trigger_analysis(appid: int, game_name: str) -> str:
             )
             job_id: str = execution["executionArn"]
         except ImportError as exc:
-            logger.error("boto3 not installed — cannot trigger Step Functions")
+            logger.error("boto3 not installed — cannot trigger Step Functions", extra={"appid": appid})
             raise HTTPException(
                 status_code=503,
                 detail={"error": "step_functions_unavailable", "code": "boto3_missing"},
@@ -155,7 +156,7 @@ def _send_confirmation_email(to_email: str, game_name: str) -> None:
             ),
         })
     except Exception:
-        logger.warning("Confirmation email failed for %s", to_email)
+        logger.warning("Confirmation email failed", extra={"email": to_email})
 
 
 def _preview_fields(report: dict) -> dict:
@@ -190,6 +191,7 @@ async def health() -> dict:
 @app.post("/api/preview", response_model=None)
 async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
+    logger.append_keys(appid=appid)
 
     # Cache hit — return preview fields only
     cached = _get_report(appid)
@@ -228,6 +230,7 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
 @app.post("/api/validate-key", response_model=None)
 async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
     appid = body.appid
+    logger.append_keys(appid=appid)
     report = _get_report(appid)
     if report is None:
         raise HTTPException(
@@ -252,7 +255,7 @@ async def job_status(job_id: str) -> dict:
                 detail={"error": "boto3 not installed", "code": "boto3_missing"},
             ) from exc
         except Exception as exc:
-            logger.error("Step Functions describe_execution failed: %s", exc)
+            logger.error("Step Functions describe_execution failed", extra={"error": str(exc)})
             raise HTTPException(
                 status_code=503,
                 detail={"error": "Could not fetch job status", "code": "sfn_error"},
@@ -327,6 +330,7 @@ async def get_game_report(appid: int) -> dict:
     """Return the full report JSON if it exists, or a status object.
     Always includes game metadata (short_desc, developer, etc.) alongside the report.
     """
+    logger.append_keys(appid=appid)
     game = _game_repo.find_by_appid(appid)
     game_meta: dict = {}
     if game:
@@ -359,12 +363,14 @@ async def get_game_report(appid: int) -> dict:
 @app.get("/api/games/{appid}/review-stats")
 async def get_review_stats(appid: int) -> dict:
     """Weekly sentiment timeline + playtime buckets + velocity for a game."""
+    logger.append_keys(appid=appid)
     return _review_repo.find_review_stats(appid)
 
 
 @app.get("/api/games/{appid}/benchmarks")
 async def get_benchmarks(appid: int) -> dict:
     """Percentile ranking vs. genre+year+price cohort (Pro context)."""
+    logger.append_keys(appid=appid)
     game = _game_repo.find_by_appid(appid)
     if not game:
         raise HTTPException(status_code=404, detail={"error": "Game not found", "code": "not_found"})
@@ -397,6 +403,7 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 
 @app.get("/api/games/{appid}/audience-overlap")
 async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
+    logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
@@ -404,6 +411,7 @@ async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
 
 @app.get("/api/games/{appid}/playtime-sentiment")
 async def get_playtime_sentiment(appid: int) -> dict:
+    logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_playtime_sentiment(appid)
@@ -411,6 +419,7 @@ async def get_playtime_sentiment(appid: int) -> dict:
 
 @app.get("/api/games/{appid}/early-access-impact")
 async def get_early_access_impact(appid: int) -> dict:
+    logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_early_access_impact(appid)
@@ -418,6 +427,7 @@ async def get_early_access_impact(appid: int) -> dict:
 
 @app.get("/api/games/{appid}/review-velocity")
 async def get_review_velocity(appid: int) -> dict:
+    logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     return _review_repo.find_review_velocity(appid)
@@ -425,6 +435,7 @@ async def get_review_velocity(appid: int) -> dict:
 
 @app.get("/api/games/{appid}/top-reviews")
 async def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
+    logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
         raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
     if sort not in ("helpful", "funny"):
@@ -484,7 +495,11 @@ async def chat(body: ChatRequest) -> dict:
 # Lambda handler — wraps FastAPI app for Lambda Web Adapter / Mangum
 try:
     from mangum import Mangum  # type: ignore[import-untyped]
-    handler = Mangum(app, lifespan="off")
+    _mangum = Mangum(app, lifespan="off")
+
+    @tracer.capture_lambda_handler
+    def handler(event: dict, context: object) -> dict:  # type: ignore[misc]
+        return _mangum(event, context)
 except ImportError:
     # Mangum not available; Lambda Web Adapter extension handles routing instead
     def handler(event: dict, context: object) -> dict:  # type: ignore[misc]

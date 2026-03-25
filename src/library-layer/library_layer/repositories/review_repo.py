@@ -107,17 +107,20 @@ class ReviewRepository(BaseRepository):
             """
             SELECT
               CASE
-                WHEN playtime_hours = 0     THEN '0h'
-                WHEN playtime_hours < 2     THEN '<2h'
-                WHEN playtime_hours < 10    THEN '2-10h'
-                WHEN playtime_hours < 50    THEN '10-50h'
-                WHEN playtime_hours < 200   THEN '50-200h'
+                WHEN r.playtime_hours = 0     THEN '0h'
+                WHEN r.playtime_hours < 2     THEN '<2h'
+                WHEN r.playtime_hours < 10    THEN '2-10h'
+                WHEN r.playtime_hours < 50    THEN '10-50h'
+                WHEN r.playtime_hours < 200   THEN '50-200h'
                 ELSE '200h+'
               END AS bucket,
               COUNT(*) AS reviews,
-              ROUND(COUNT(CASE WHEN voted_up THEN 1 END)::numeric / COUNT(*) * 100) AS pct_positive
-            FROM reviews WHERE appid = %s
-            GROUP BY 1 ORDER BY MIN(playtime_hours)
+              ROUND(COUNT(CASE WHEN r.voted_up THEN 1 END)::numeric / COUNT(*) * 100) AS pct_positive
+            FROM reviews r
+            JOIN games g ON g.appid = r.appid
+            WHERE r.appid = %s
+              AND (g.release_date IS NULL OR r.posted_at >= g.release_date)
+            GROUP BY 1 ORDER BY MIN(r.playtime_hours)
             """,
             (appid,),
         )
@@ -167,28 +170,31 @@ class ReviewRepository(BaseRepository):
             """
             SELECT
                 CASE
-                    WHEN playtime_hours IS NULL THEN 'unknown'
-                    WHEN playtime_hours = 0 THEN '0h'
-                    WHEN playtime_hours < 1 THEN '<1h'
-                    WHEN playtime_hours < 2 THEN '1-2h'
-                    WHEN playtime_hours < 5 THEN '2-5h'
-                    WHEN playtime_hours < 10 THEN '5-10h'
-                    WHEN playtime_hours < 20 THEN '10-20h'
-                    WHEN playtime_hours < 50 THEN '20-50h'
-                    WHEN playtime_hours < 100 THEN '50-100h'
-                    WHEN playtime_hours < 200 THEN '100-200h'
-                    WHEN playtime_hours < 500 THEN '200-500h'
+                    WHEN r.playtime_hours IS NULL THEN 'unknown'
+                    WHEN r.playtime_hours = 0 THEN '0h'
+                    WHEN r.playtime_hours < 1 THEN '<1h'
+                    WHEN r.playtime_hours < 2 THEN '1-2h'
+                    WHEN r.playtime_hours < 5 THEN '2-5h'
+                    WHEN r.playtime_hours < 10 THEN '5-10h'
+                    WHEN r.playtime_hours < 20 THEN '10-20h'
+                    WHEN r.playtime_hours < 50 THEN '20-50h'
+                    WHEN r.playtime_hours < 100 THEN '50-100h'
+                    WHEN r.playtime_hours < 200 THEN '100-200h'
+                    WHEN r.playtime_hours < 500 THEN '200-500h'
                     ELSE '500h+'
                 END AS bucket,
-                MIN(playtime_hours) AS bucket_min,
+                MIN(r.playtime_hours) AS bucket_min,
                 COUNT(*) AS total,
-                COUNT(CASE WHEN voted_up THEN 1 END) AS positive,
-                COUNT(CASE WHEN NOT voted_up THEN 1 END) AS negative,
-                ROUND(COUNT(CASE WHEN voted_up THEN 1 END)::numeric
+                COUNT(CASE WHEN r.voted_up THEN 1 END) AS positive,
+                COUNT(CASE WHEN NOT r.voted_up THEN 1 END) AS negative,
+                ROUND(COUNT(CASE WHEN r.voted_up THEN 1 END)::numeric
                       / NULLIF(COUNT(*), 0) * 100, 1) AS pct_positive
-            FROM reviews WHERE appid = %s
+            FROM reviews r
+            JOIN games g ON g.appid = r.appid
+            WHERE r.appid = %s
+              AND (g.release_date IS NULL OR r.posted_at >= g.release_date)
             GROUP BY 1
-            ORDER BY MIN(playtime_hours)
+            ORDER BY MIN(r.playtime_hours)
             """,
             (appid,),
         )
@@ -199,7 +205,9 @@ class ReviewRepository(BaseRepository):
                    g.price_usd, g.is_free
             FROM reviews r
             JOIN games g ON g.appid = r.appid
-            WHERE r.appid = %s AND r.playtime_hours IS NOT NULL
+            WHERE r.appid = %s
+              AND r.playtime_hours IS NOT NULL
+              AND (g.release_date IS NULL OR r.posted_at >= g.release_date)
             GROUP BY g.price_usd, g.is_free
             """,
             (appid,),

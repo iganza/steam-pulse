@@ -4,7 +4,6 @@ import json
 import re
 from unittest.mock import MagicMock
 
-import pytest
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -186,109 +185,6 @@ def test_crawl_app_stores_game(
 
 
 
-def test_crawl_app_enqueues_review_crawl_when_eligible(
-    game_repo: GameRepository,
-    review_repo: ReviewRepository,
-    catalog_repo: CatalogRepository,
-    tag_repo: TagRepository,
-    steam_appdetails_440: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    import boto3
-    import httpx as _httpx
-
-    with mock_aws():
-        sqs = boto3.client("sqs", region_name="us-east-1")
-        queue_url = sqs.create_queue(QueueName="review-q-eligible")["QueueUrl"]
-
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-            json=steam_appdetails_440,
-        )
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-            json=REVIEW_SUMMARY_ENGLISH,
-        )
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-            json=REVIEW_SUMMARY_ALL,
-        )
-
-        client = _httpx.Client()
-        svc = _make_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            sqs,
-            queue_url,
-            client,
-        )
-        svc.crawl_app(440)
-
-        msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
-    assert len(msgs.get("Messages", [])) >= 1
-    body = json.loads(msgs["Messages"][0]["Body"])
-    assert body["appid"] == 440
-
-
-
-def test_crawl_app_does_not_enqueue_ineligible(
-    game_repo: GameRepository,
-    review_repo: ReviewRepository,
-    catalog_repo: CatalogRepository,
-    tag_repo: TagRepository,
-    steam_appdetails_440: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """A game with only 50 reviews should not be queued for review crawl."""
-    import boto3
-    import httpx as _httpx
-
-    small_summary = {
-        "success": 1,
-        "query_summary": {
-            "total_positive": 40,
-            "total_negative": 10,
-            "review_score_desc": "Positive",
-        },
-        "reviews": [],
-    }
-
-    with mock_aws():
-        sqs = boto3.client("sqs", region_name="us-east-1")
-        queue_url = sqs.create_queue(QueueName="review-q-ineligible")["QueueUrl"]
-
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
-            json=steam_appdetails_440,
-        )
-        # Two calls: english then all (both small)
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-            json=small_summary,
-        )
-        httpx_mock.add_response(
-            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
-            json=small_summary,
-        )
-
-        client = _httpx.Client()
-        svc = _make_service(
-            game_repo,
-            review_repo,
-            catalog_repo,
-            tag_repo,
-            sqs,
-            queue_url,
-            client,
-        )
-        svc.crawl_app(440)
-
-    pass
-
-
-
 def test_crawl_app_handles_steam_error(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -403,36 +299,6 @@ def test_crawl_reviews_deduplicates(
 
     # No duplicates — still only 4
     assert review_repo.count_by_appid(440) == 4
-
-
-@pytest.mark.parametrize(
-    "total,stored,expected",
-    [
-        # Tier 1: < 200 reviews, threshold 25
-        (100, 0, True),  # delta=100 >= 25
-        (100, 90, False),  # delta=10 < 25
-        # Tier 2: 200-1999, threshold 150
-        (500, 0, True),  # delta=500 >= 150
-        (500, 400, False),  # delta=100 < 150
-        # Tier 3: 2000-19999, threshold 500
-        (5000, 0, True),  # delta=5000 >= 500
-        (5000, 4600, False),  # delta=400 < 500
-        # Tier 4: 20000-199999, threshold 2000
-        (50000, 0, True),  # delta=50000 >= 2000
-        (50000, 48500, False),  # delta=1500 < 2000
-        # Tier 5: 200000+, threshold 10000
-        (500000, 0, True),  # delta=500000 >= 10000
-        (500000, 495000, False),  # delta=5000 < 10000
-    ],
-)
-def test_should_enqueue_reviews_thresholds(
-    total: int,
-    stored: int,
-    expected: bool,
-) -> None:
-    # Use a minimal dummy service instance without real dependencies
-    svc = CrawlService.__new__(CrawlService)
-    assert svc._should_enqueue_reviews(total, stored) is expected
 
 
 # ---------------------------------------------------------------------------

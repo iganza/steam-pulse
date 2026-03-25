@@ -32,20 +32,6 @@ MAX_REVIEWS_DEFAULT = None  # fetch all reviews
 REVIEW_MILESTONES = [500, 1000, 5000, 10000]
 
 
-def _reanalysis_threshold(total_reviews: int) -> int:
-    """New reviews needed since last analysis to trigger re-analysis."""
-    if total_reviews < 200:
-        return 25
-    elif total_reviews < 2_000:
-        return 150
-    elif total_reviews < 20_000:
-        return 500
-    elif total_reviews < 200_000:
-        return 2_000
-    else:
-        return 10_000
-
-
 def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
     """Transform raw Steam review dicts into the shape expected by ReviewRepository.bulk_upsert()."""
     result = []
@@ -165,7 +151,6 @@ class CrawlService:
 
         # Load existing row BEFORE upsert for state comparison (events)
         existing = self._game_repo.find_by_appid(appid)
-        old_review_count = existing.review_count if existing else 0
 
         game_data = self._ingest_app_data(appid, details, summary, deck_compat)
         if not game_data:
@@ -173,25 +158,6 @@ class CrawlService:
 
         # ── Publish domain events (only in direct crawl path) ─────────────
         self._publish_crawl_app_events(appid, game_data, existing)
-
-        total_reviews_all = game_data["review_count"]
-        delta = total_reviews_all - old_review_count
-        threshold = _reanalysis_threshold(total_reviews_all)
-        if delta >= threshold:
-            logger.info(
-                "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
-                appid,
-                delta,
-                threshold,
-            )
-            self._enqueue_review_crawl(appid)
-        else:
-            logger.info(
-                "appid=%s delta=%d < threshold=%d — skipping review crawl",
-                appid,
-                delta,
-                threshold,
-            )
 
         return True
 
@@ -223,8 +189,6 @@ class CrawlService:
         if dry_run:
             return len(raw_reviews)
 
-        self._game_repo.ensure_stub(appid)
-
         game = self._game_repo.find_by_appid(appid)
         game_name: str = game.name if game else f"App {appid}"
 
@@ -253,8 +217,7 @@ class CrawlService:
     def ingest_spoke_metadata(self, appid: int, raw: dict) -> bool:
         """Ingest metadata fetched by a spoke Lambda.
 
-        Publishes the same domain events as crawl_app and enqueues review
-        crawl when the review delta exceeds the reanalysis threshold.
+        Writes app data to DB and publishes the same domain events as crawl_app.
 
         Args:
             appid: Steam app ID
@@ -272,23 +235,12 @@ class CrawlService:
             return False
 
         existing = self._game_repo.find_by_appid(appid)
-        old_review_count = existing.review_count if existing else 0
 
         game_data = self._ingest_app_data(appid, details, summary, deck_compat)
         if not game_data:
             return False
 
         self._publish_crawl_app_events(appid, game_data, existing)
-
-        total_reviews = game_data["review_count"]
-        delta = total_reviews - old_review_count
-        threshold = _reanalysis_threshold(total_reviews)
-        if delta >= threshold:
-            logger.info(
-                "appid=%s delta=%d >= threshold=%d — queuing for review crawl",
-                appid, delta, threshold,
-            )
-            self._enqueue_review_crawl(appid)
 
         return True
 
@@ -302,8 +254,6 @@ class CrawlService:
         """
         if not raw_reviews:
             return 0
-
-        self._game_repo.ensure_stub(appid)
 
         reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
@@ -434,11 +384,6 @@ class CrawlService:
 
         return game_data
 
-    def _should_enqueue_reviews(self, review_count: int, stored_count: int) -> bool:
-        """Return True if delta exceeds the tiered threshold for re-analysis."""
-        delta = review_count - stored_count
-        return delta >= _reanalysis_threshold(review_count)
-
     # ------------------------------------------------------------------
     # S3 archival
     # ------------------------------------------------------------------
@@ -539,16 +484,6 @@ class CrawlService:
                     )
         except EventPublishError:
             logger.warning("Failed to publish crawl_app events for appid=%s", appid)
-
-    def _enqueue_review_crawl(self, appid: int) -> None:
-        if not self._review_queue_url:
-            logger.info("No review_queue_url set — skipping enqueue for appid=%s", appid)
-            return
-        self._sqs.send_message(
-            QueueUrl=self._review_queue_url,
-            MessageBody=json.dumps({"appid": appid}),
-        )
-        logger.info("Queued appid=%s to review-crawl-queue", appid)
 
     def _trigger_analysis(self, appid: int, game_name: str) -> str | None:
         """Start Step Functions execution. Returns execution ARN or None if SFN not configured."""

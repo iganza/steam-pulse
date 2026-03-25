@@ -90,11 +90,15 @@ class ReviewRepository(BaseRepository):
         """Return timeline (weekly) and playtime-bucket sentiment stats."""
         timeline_rows = self._fetchall(
             """
-            SELECT DATE_TRUNC('week', posted_at) AS week,
+            SELECT DATE_TRUNC('week', r.posted_at) AS week,
                    COUNT(*) AS total,
-                   COUNT(CASE WHEN voted_up THEN 1 END) AS positive,
-                   ROUND(COUNT(CASE WHEN voted_up THEN 1 END)::numeric / COUNT(*) * 100) AS pct_positive
-            FROM reviews WHERE appid = %s AND posted_at IS NOT NULL
+                   COUNT(CASE WHEN r.voted_up THEN 1 END) AS positive,
+                   ROUND(COUNT(CASE WHEN r.voted_up THEN 1 END)::numeric / COUNT(*) * 100) AS pct_positive
+            FROM reviews r
+            JOIN games g ON g.appid = r.appid
+            WHERE r.appid = %s
+              AND r.posted_at IS NOT NULL
+              AND (g.release_date IS NULL OR r.posted_at >= g.release_date)
             GROUP BY 1 ORDER BY 1
             """,
             (appid,),

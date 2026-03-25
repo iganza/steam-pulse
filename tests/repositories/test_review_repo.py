@@ -213,6 +213,93 @@ def test_find_review_stats_playtime_buckets(
     assert labels == {"0h", "<2h", "2-10h", "10-50h", "50-200h", "200h+"}
 
 
+def test_find_review_stats_excludes_pre_release_reviews(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Timeline must not include weeks that precede the game's release_date."""
+    release = date(2026, 3, 2)  # a Monday — clean week boundary
+    game_repo.upsert({
+        "appid": 440,
+        "name": "App 440",
+        "slug": "app-440",
+        "type": "game",
+        "developer": None,
+        "developer_slug": None,
+        "publisher": None,
+        "developers": "[]",
+        "publishers": "[]",
+        "website": None,
+        "release_date": release,
+        "coming_soon": False,
+        "price_usd": None,
+        "is_free": False,
+        "short_desc": None,
+        "detailed_description": None,
+        "about_the_game": None,
+        "review_count": 10,
+        "review_count_english": 10,
+        "total_positive": 8,
+        "total_negative": 2,
+        "positive_pct": 80,
+        "review_score_desc": "Positive",
+        "header_image": None,
+        "background_image": None,
+        "required_age": 0,
+        "platforms": "{}",
+        "supported_languages": None,
+        "achievements_total": 0,
+        "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
+        "data_source": "steam_direct",
+    })
+    reviews = [
+        # Two reviews before the release date — must be excluded
+        {
+            "appid": 440,
+            "steam_review_id": "pre-1",
+            "voted_up": True,
+            "playtime_hours": 5,
+            "body": "",
+            "posted_at": datetime(2026, 1, 5, tzinfo=UTC),
+        },
+        {
+            "appid": 440,
+            "steam_review_id": "pre-2",
+            "voted_up": False,
+            "playtime_hours": 2,
+            "body": "",
+            "posted_at": datetime(2026, 2, 16, tzinfo=UTC),
+        },
+        # Two reviews on/after the release date — must be included
+        {
+            "appid": 440,
+            "steam_review_id": "post-1",
+            "voted_up": True,
+            "playtime_hours": 10,
+            "body": "",
+            "posted_at": datetime(2026, 3, 2, tzinfo=UTC),
+        },
+        {
+            "appid": 440,
+            "steam_review_id": "post-2",
+            "voted_up": True,
+            "playtime_hours": 8,
+            "body": "",
+            "posted_at": datetime(2026, 3, 9, tzinfo=UTC),
+        },
+    ]
+    review_repo.bulk_upsert(reviews)
+    stats = review_repo.find_review_stats(440)
+    timeline = stats["timeline"]
+    # Only post-release weeks should appear
+    assert all(entry["week"] >= str(release) for entry in timeline), (
+        f"Pre-release week found in timeline: {timeline}"
+    )
+    # Both post-release reviews should be counted
+    assert sum(entry["total"] for entry in timeline) == 2
+
+
 def test_find_review_stats_velocity_nonzero(
     game_repo: GameRepository, review_repo: ReviewRepository
 ) -> None:

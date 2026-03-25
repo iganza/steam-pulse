@@ -27,6 +27,9 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
         <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
           Sentiment by time invested
         </p>
+        <span className="text-xs font-mono text-muted-foreground">
+          · {total.toLocaleString()} post-launch reviews
+        </span>
         <div className="relative group cursor-help">
           <span className="text-xs font-mono text-muted-foreground border border-border rounded-full w-4 h-4 inline-flex items-center justify-center flex-shrink-0">
             ?

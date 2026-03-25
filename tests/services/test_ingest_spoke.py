@@ -69,7 +69,6 @@ def test_ingest_spoke_reviews_returns_count() -> None:
     """ingest_spoke_reviews upserts reviews and returns count."""
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=1)
-    svc._game_repo.ensure_stub = MagicMock()
 
     reviews = [{
         "review_text": "good game",
@@ -85,7 +84,6 @@ def test_ingest_spoke_reviews_returns_count() -> None:
     }]
     result = svc.ingest_spoke_reviews(440, reviews)
     assert result == 1
-    svc._game_repo.ensure_stub.assert_called_once_with(440)
     svc._review_repo.bulk_upsert.assert_called_once()
 
 

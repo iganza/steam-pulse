@@ -19,9 +19,10 @@ One Python codebase. AWS for everything. Feature flags separate tiers.
 |----------+----------------------------------------------------------------------------------------|
 | Backend  | Python 3.12, FastAPI (API only — no HTML), uvicorn, httpx                              |
 | Frontend | Next.js (React SSR/ISR) deployed via OpenNext to Lambda + CloudFront                   |
-| LLM      | =claude-3-5-haiku-20241022= (chunks), =claude-3-5-sonnet-20241022= (synthesis + chat). |
-|          | AWS Bedrock via Converse API (real-time) and Batch Inference (bulk seed).              |
-|          | Model IDs overridable via =HAIKU_MODEL= / =SONNET_MODEL= env vars.                    |
+| LLM      | Haiku 4.5 (chunks), Sonnet 4.6 (synthesis + chat). AWS Bedrock, Converse API.         |
+|          | Model IDs via =LLM_MODEL__CHUNKING= / =LLM_MODEL__SUMMARIZER= env vars.               |
+|          | Batch Inference planned (see =scripts/prompts/bedrock-batch-analysis.md=) — not yet   |
+|          | implemented. Currently real-time path only.                                            |
 | DB       | PostgreSQL on RDS (t3.micro → scale later). All access via Repository classes.         |
 | Hosting  | AWS Lambda (container image) + CloudFront + Route 53. No Railway, no Fargate.          |
 | Infra    | AWS CDK v2 (Python), CDK Pipelines (self-mutating, 2 envs: staging + production)       |
@@ -218,15 +219,15 @@ repo-root/
     pipeline_stack.py   # CDK Pipelines (self-mutating, CodePipeline engine)
     application_stage.py
     stacks/
-      common_stack.py   # Lambda layers (LibraryLayer from src/library-layer)
-      data_stack.py     # RDS + S3, termination_protection=True
-      network_stack.py  # VPC
-      sqs_stack.py      # SQS queues + DLQs
-      lambda_stack.py   # Lambda crawlers (app_crawler, review_crawler) + EventBridge schedules
-      analysis_stack.py # Step Functions state machine
-      app_stack.py      # FastAPI Lambda + Function URL + CloudFront + Route53 + ACM
-      frontend_stack.py # Next.js Lambda (OpenNext) + CloudFront behaviour
-      monitoring_stack.py
+      network_stack.py    # VPC
+      data_stack.py       # RDS + S3, termination_protection=True
+      messaging_stack.py  # SQS queues + DLQs + SNS topics
+      compute_stack.py    # All Lambdas + Step Functions + EventBridge schedules
+      delivery_stack.py   # CloudFront distributions + Route 53 + ACM (production)
+      certificate_stack.py # ACM cert (us-east-1) for production CloudFront alias
+      frontend_stack.py   # Next.js Lambda (OpenNext) + CloudFront behaviour
+      spoke_stack.py      # Cross-region spoke crawler Lambdas
+      monitoring_stack.py # CloudWatch via cdk-monitoring-constructs
 #+END_SRC
 
 ** cdk.json (repo root)
@@ -353,18 +354,19 @@ twice on failure, then routes to the spoke DLQ.
 
 Two paths exist for the two-pass pipeline, sharing the same prompt logic:
 
-| Path       | When used                    | Mechanism                          | Cost saving |
-|------------+------------------------------+------------------------------------+-------------|
-| Real-time  | On-demand single game        | Bedrock Converse API (boto3)       | None        |
-| Batch      | Bulk seed, scheduled refresh | Bedrock Batch Inference + S3 JSONL | ~50%        |
+| Path       | When used                    | Mechanism                          | Cost saving | Status          |
+|------------+------------------------------+------------------------------------+-------------+-----------------|
+| Real-time  | On-demand single game        | Bedrock Converse API (boto3)       | None        | ✅ Implemented  |
+| Batch      | Bulk seed, scheduled refresh | Bedrock Batch Inference + S3 JSONL | ~50%        | ⏳ Not yet built |
 
 *Real-time* uses =bedrock_runtime.converse()= — model-agnostic, swap model ID via env var, zero
 code changes. Prompt caching (ephemeral cache points) works on this path.
 
-*Batch* submits a JSONL file to S3, creates a Bedrock Batch job, and a Step Functions STANDARD
-workflow polls every 5 minutes until completion. Two sequential jobs: Pass 1 (Haiku, all chunks
-across all games in one job) → Pass 2 (Sonnet, one record per game). Prompt caching is NOT
-supported in Batch Inference — remove =cache_control= from batch JSONL records.
+*Batch* (design target — not yet implemented): submits a JSONL file to S3, creates a Bedrock
+Batch job, and a Step Functions STANDARD workflow polls every 5 minutes until completion.
+Two sequential jobs: Pass 1 (Haiku, all chunks across all games) → Pass 2 (Sonnet, one record
+per game). Prompt caching is NOT supported in Batch Inference — remove =cache_control= from
+batch JSONL records.
 
 Full design spec: =scripts/prompts/bedrock-batch-analysis.md=
 
@@ -380,7 +382,8 @@ StartAnalysis
                  └── InvalidateCache  (Lambda: targeted CloudFront invalidation)
 #+END_SRC
 
-Express Workflows for real-time (single game). STANDARD Workflows for batch (long-running, hours).
+*Current*: Express Workflow, single-task (=AnalyzeGame= Lambda invoke with retries).
+*Planned*: full map/reduce pipeline above once Batch Inference is implemented.
 
 *** Game description as silent synthesis context (POC)
 
@@ -869,6 +872,37 @@ prevent duplication across sections.
   "genre_context": "For a hero-shooter, TF2's character variety is above genre average; active developer support is significantly below genre average.",
   // 1–2 sentences benchmarking against genre norms. No named competitors here.
 
+  "technical_issues": [
+    "Frequent crashes on AMD GPUs reported since patch 2.3"
+  ],
+  // Bugs, crashes, performance issues. Distinct from gameplay_friction (design problems).
+  // 0–6 items. Empty array if no significant technical issues.
+
+  "refund_risk": {
+    "refund_language_frequency": "moderate",  // "none" | "rare" | "moderate" | "frequent"
+    "primary_refund_drivers": ["too short", "performance issues"],
+    "risk_level": "medium"  // "low" | "medium" | "high"
+  },
+
+  "community_health": {
+    "overall": "active",  // "thriving" | "active" | "declining" | "dead" | "not_applicable"
+    "signals": ["active modding scene", "regular community events"],
+    "multiplayer_population": "healthy"  // "healthy" | "shrinking" | "critical" | "not_applicable"
+  },
+
+  "monetization_sentiment": {
+    "overall": "fair",  // "fair" | "mixed" | "predatory" | "not_applicable"
+    "signals": ["cosmetic-only DLC well-received"],
+    "dlc_sentiment": "positive"  // "positive" | "mixed" | "negative" | "not_applicable"
+  },
+
+  "content_depth": {
+    "perceived_length": "long",  // "short" | "medium" | "long" | "endless"
+    "replayability": "high",  // "low" | "medium" | "high"
+    "value_perception": "excellent",  // "poor" | "fair" | "good" | "excellent"
+    "signals": ["hundreds of hours of content", "New Game+ adds challenge"]
+  },
+
   "hidden_gem_score": 0.12
   // Calculated in Python: high score = low review count + high positive % + enthusiastic language.
   // Score = 0.0 if review count > 50k or already widely known.
@@ -935,6 +969,19 @@ no friction. The public site is a sales funnel, not a profit center.
 | Launch Reception         | Med      | First 30 days of reviews vs ongoing trend delta — did launch go well?    |
 | Price Positioning        | Med      | Right price for genre, review volume, sentiment score?                   |
 | Custom Prompt            | Low      | Ask anything about this game's reviews (power user, subscription only)   |
+| Interactive Charts       | Med      | Pro-tier chart interactivity for Sentiment History and Playtime sections. |
+|                          |          | Free tier: static chart + hover tooltip (current).                        |
+|                          |          | Pro tier:                                                                 |
+|                          |          | - Brush/zoom on Sentiment Timeline (recharts ReferenceArea + Brush)      |
+|                          |          | - Toggle weekly → monthly → quarterly granularity (new query param)      |
+|                          |          | - Release date reference line on timeline                                 |
+|                          |          | - Click a week bucket → drill down to individual reviews for that period  |
+|                          |          |   (needs new GET /api/games/{appid}/reviews?week=YYYY-MM-DD endpoint)    |
+|                          |          | - Game comparison overlay — two games on same timeline                    |
+|                          |          | - Filter panel: language, playtime bracket, EA vs post-launch toggle      |
+|                          |          | - Export underlying data as CSV                                           |
+|                          |          | PlaytimeChart.tsx is currently plain HTML bars — migrate to recharts      |
+|                          |          | first (no new deps, recharts already in package.json).                    |
 
 * Site Architecture
 
@@ -946,7 +993,7 @@ no friction. The public site is a sales funnel, not a profit center.
 /genre/{slug}                       # e.g., /genre/survival-horror
 /tag/{slug}                         # e.g., /tag/roguelite
 /developer/{slug}                   # e.g., /developer/klei-entertainment
-/compare/{appid1}/{appid2}          # Head-to-head comparison
+/compare/{appid1}/{appid2}          # Head-to-head comparison (planned — not yet built)
 /sitemap.xml                        # Auto-generated
 #+END_SRC
 
@@ -1064,9 +1111,9 @@ LLM_MODEL__SUMMARIZER              # Bedrock model ID override
 
 - [ ] Payment integration — replace =/api/validate-key= stub with real provider (Lemon Squeezy or Stripe)
 - [ ] CloudFront Function code for KVS-based sponsor banner injection
-- [ ] =hidden_gem_score= algorithm extraction to =utils/scores.py= (shared by real-time and batch paths)
 - [ ] HTML stripping in =analyzer.py= — strip =detailed_desc= / =about_the_game= before LLM prompt-build (=re.sub(r'<[^>]+>', ' ', text)=)
-- [ ] Sitemap.xml auto-generation (trigger on new analysis completion)
-- [ ] Next.js component library (shadcn/ui is current best practice for React)
+- [ ] Sitemap.xml auto-generation — trigger targeted invalidation on new analysis completion
 - [ ] Bedrock Batch Inference implementation — see =scripts/prompts/bedrock-batch-analysis.md=
-- [ ] Migrate real-time Bedrock calls from =AnthropicBedrock= SDK to native =boto3= Converse API
+- [ ] Implement tiered EventBridge freshness rules (nightly-top500, weekly-mid-tier, monthly-long-tail, weekly-discovery) — currently only 1 weekly catalog rule exists
+- [ ] =/compare/{appid1}/{appid2}= route — planned (ISR, dynamic game pair) but not yet built
+- [ ] Interactive chart controls (Pro tier) — see steampulse-design.org Future Pro sections

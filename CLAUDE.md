@@ -7,7 +7,7 @@ This file is Claude Code's persistent memory for SteamPulse. Read it fully befor
 **SteamPulse** — AI-powered Steam game intelligence platform at **steampulse.io**.
 
 - **Public site**: AI-synthesized review reports for ALL Steam games with any reviews. SEO-driven, cross-linked, no ads.
-- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` sections. Payment integration is deferred — `/api/validate-key` currently stubs full access (always grants all sections).
+- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` and pro-tier analytics sections. Payment integration is deferred — `/api/validate-key` currently stubs full access (always grants all sections).
 - **Pro tier (V2)**: NL chat over full catalog. Feature-flagged behind `PRO_ENABLED=true`.
 
 Full architecture decisions in `steampulse-design.org` at the repo root. Read it for anything not covered here.
@@ -20,7 +20,7 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 |---|---|
 | Backend API | Python 3.12, FastAPI (JSON API only — no HTML rendering), uvicorn, httpx |
 | Frontend | Next.js (React SSR/ISR) in `frontend/`, deployed via OpenNext to Lambda |
-| LLM | `claude-3-5-haiku-20241022` (chunk pass), `claude-3-5-sonnet-20241022` (synthesis). Via AWS Bedrock (`anthropic.AnthropicBedrock()`). Real-time path uses Converse API. Bulk path uses Bedrock Batch Inference. |
+| LLM | Haiku 4.5 (chunk pass), Sonnet 4.6 (synthesis). Model IDs via `LLM_MODEL__CHUNKING` / `LLM_MODEL__SUMMARIZER` env vars. AWS Bedrock (`anthropic.AnthropicBedrock()`), Converse API. Batch Inference planned — not yet implemented. |
 | DB | PostgreSQL on RDS. All access via Repository classes. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
 | Hosting | AWS Lambda (container image) + CloudFront + Route 53. **No Railway. No Fargate.** |
 | Infra | AWS CDK v2 (Python) in `infra/`. CDK Pipelines (self-mutating). |
@@ -39,15 +39,17 @@ repo-root/
       library_layer/    # analyzer, storage, steam_source, fetcher, reporter
     lambda-functions/   # All Lambda handlers
       lambda_functions/
-        app_crawler/    # Crawls Steam metadata → writes to DB → queues review crawl
+        app_crawler/    # Crawls Steam metadata → writes to DB → triggers events
         review_crawler/ # Fetches reviews → writes to DB → triggers Step Functions
-        api/            # FastAPI app: /preview, /validate-key, /health, /chat
+        api/            # FastAPI app: all /api/* endpoints
   frontend/             # Next.js app (React)
   infra/                # AWS CDK v2 (Python)
   scripts/
-    dev/                # Local dev helpers (start-local.sh, invoke-*.sh, run-api.sh)
+    dev/                # Local dev helpers (start-local.sh, run-api.sh, db-tunnel.sh, push-to-staging.sh)
     seed.py             # Bootstrap top-N games into SQS
+    sp.py               # CLI for queueing review crawls, checking status
     aws-costs.sh        # AWS cost report
+    prompts/            # Active feature design specs
   main.py               # CLI tool for local LLM testing
   pyproject.toml        # Python deps (main + infra groups)
   cdk.json              # "app": "poetry run python infra/app.py"
@@ -61,11 +63,10 @@ repo-root/
 ## Common Commands
 
 ```bash
-# Local dev — start DB, run API, invoke crawlers
+# Local dev — start DB, run API
 ./scripts/dev/start-local.sh          # start Postgres + init schema
 ./scripts/dev/run-api.sh              # API at http://localhost:8000
-./scripts/dev/invoke-app-crawler.sh 440
-./scripts/dev/invoke-review-crawler.sh 440
+./scripts/dev/db-tunnel.sh            # SSH tunnel to RDS (staging/prod)
 
 # CLI analysis (local LLM testing)
 poetry run python main.py --appid 440
@@ -82,12 +83,15 @@ cd frontend && npm install && npm run dev
 
 # Tests
 poetry run pytest -v
+poetry run ruff check .
+poetry run ruff format .
 
-# Seed script
+# Seed / queue scripts
 export APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/staging/messaging/app-crawl-queue-url"
 poetry run python scripts/seed.py --limit 50   # staging
 poetry run python scripts/seed.py --dry-run --limit 5   # smoke test
 poetry run python scripts/seed.py              # production (full crawl)
+poetry run python scripts/sp.py queue reviews --appid 440  # queue single game
 ```
 
 ---
@@ -124,15 +128,17 @@ All Steam data access goes through `SteamDataSource`. Currently only `DirectStea
 
 ### LLM Two-Pass Analysis (analyzer.py)
 
-**Pass 1 (Haiku — cheap, parallel):** 50-review chunks → extract 7 signal types:
-`design_praise`, `gameplay_friction`, `wishlist_items`, `dropout_moments`, `competitor_refs`, `notable_quotes`, `batch_stats`
+**Pass 1 (Haiku — cheap, parallel):** 50-review chunks → extract 11 signal types:
+`design_praise`, `gameplay_friction`, `wishlist_items`, `dropout_moments`, `competitor_refs`,
+`notable_quotes`, `technical_issues`, `refund_signals`, `community_health`,
+`monetization_sentiment`, `content_depth`
 
-**Pass 2 (Sonnet — synthesis):** All chunk signals → structured report JSON.
+**Pass 2 (Sonnet — synthesis):** All chunk signals → structured `GameReport` JSON.
 `sentiment_score` and `hidden_gem_score` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
 
-**Two execution paths:**
-- **Real-time** (on-demand, single game): `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`). Model-agnostic — swap model ID via env var, zero code changes.
-- **Batch** (bulk seed / scheduled re-analysis): **Bedrock Batch Inference** — JSONL to S3, Step Functions STANDARD workflow polls for completion, ~50% cost saving. See `scripts/prompts/bedrock-batch-analysis.md`.
+**Execution path:** Real-time only — `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`).
+Model-agnostic — swap model ID via env var, zero code changes. Batch Inference path is designed
+but not yet implemented (see `scripts/prompts/bedrock-batch-analysis.md`).
 
 **Critical:** Each output section answers a DIFFERENT question. No duplication between sections:
 - `gameplay_friction` = what design is broken
@@ -163,39 +169,66 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 
 ---
 
-## API Endpoints (FastAPI — all under /api)
+## API Endpoints (FastAPI)
 
 | Endpoint | Notes |
 |---|---|
-| `POST /api/preview` | Free: returns `game_name`, `overall_sentiment`, `sentiment_score`, `one_liner`. 1 per IP limit. |
-| `POST /api/validate-key` | **Stubbed** — always returns full report with `activations_remaining: 99`. Payment integration deferred. |
-| `GET /api/status/{job_id}` | Step Functions job polling (lazy generation) |
-| `POST /api/analyze` | Triggers Step Functions for appid (internal/admin) |
 | `GET /health` | Storage backend + pro_enabled status |
+| `POST /api/preview` | Free: triggers analysis, returns `game_name`, `overall_sentiment`, `sentiment_score`, `one_liner`. 1 per IP. |
+| `POST /api/validate-key` | **Stubbed** — always returns full report with `activations_remaining: 99`. Payment deferred. |
+| `GET /api/status/{job_id}` | Step Functions job polling |
+| `GET /api/games` | List games with filters (genre, tag, sentiment, etc.) |
+| `GET /api/games/{appid}/report` | Full report + game metadata |
+| `GET /api/games/{appid}/review-stats` | Weekly sentiment timeline + playtime buckets + velocity |
+| `GET /api/games/{appid}/benchmarks` | Genre/tag benchmarks for this game |
+| `GET /api/games/{appid}/audience-overlap` | Competitor overlap analysis |
+| `GET /api/games/{appid}/playtime-sentiment` | Fine-grained playtime × sentiment + churn wall |
+| `GET /api/games/{appid}/early-access-impact` | EA-era vs post-launch sentiment comparison |
+| `GET /api/games/{appid}/review-velocity` | Monthly review volume trend (24 months) |
+| `GET /api/games/{appid}/top-reviews` | Top reviews by helpfulness or humor votes |
+| `GET /api/genres` | Genre list with game counts |
+| `GET /api/tags/top` | Top tags by game count |
+| `GET /api/tags/{slug}/trend` | Tag sentiment trend over time |
+| `GET /api/analytics/price-positioning` | Price vs sentiment vs review count scatter |
+| `GET /api/analytics/release-timing` | Release timing patterns |
+| `GET /api/analytics/platform-gaps` | Platform coverage gaps |
+| `GET /api/developers/{slug}/analytics` | Developer-level analytics |
 | `POST /api/chat` | V2 only (`PRO_ENABLED=true`): NL → SQL → answer |
 
 Rate limit on `/api/preview`: 1 free analysis per IP. Returns `402 {"error": "free_limit_reached"}` on breach.
 
 ---
 
-## Report JSON Schema (from analyzer.py)
-
-The output of `analyze_reviews()`:
+## Report JSON Schema (`GameReport` in `analyzer_models.py`)
 
 ```
+# Core
 game_name, appid, total_reviews_analyzed
-overall_sentiment, sentiment_score      # score computed in Python
-sentiment_trend, sentiment_trend_note
-one_liner                               # gamer-facing, max 25 words
-audience_profile                        # ideal_player, casual_friendliness, archetypes, not_for
-design_strengths[]                      # what design decisions are working
-gameplay_friction[]                     # in-game UX/design problems (no biz complaints here)
-player_wishlist[]                       # net-new features only (not fixes)
-churn_triggers[]                        # journey moments that cause dropout (with timing)
-dev_priorities[]                        # {action, why_it_matters, frequency, effort} — ranked
-competitive_context[]                   # {game, comparison_sentiment, note} — named only
-genre_context                           # genre benchmark, no named competitors
-hidden_gem_score                        # computed in Python before Sonnet call
+overall_sentiment           # "Overwhelmingly Positive" … "Overwhelmingly Negative"
+sentiment_score             # float 0.0–1.0, computed in Python
+sentiment_trend             # "improving" | "stable" | "declining"
+sentiment_trend_note        # narrative explanation
+one_liner                   # gamer-facing, max 25 words
+hidden_gem_score            # float 0.0–1.0, computed in Python
+
+# Structured objects
+audience_profile            # {ideal_player, casual_friendliness, archetypes[], not_for[]}
+refund_risk                 # {refund_language_frequency, primary_refund_drivers[], risk_level}
+community_health            # {overall, signals[], multiplayer_population}
+monetization_sentiment      # {overall, signals[], dlc_sentiment}
+content_depth               # {perceived_length, replayability, value_perception, signals[]}
+
+# Free sections
+design_strengths[]          # what design decisions are working
+gameplay_friction[]         # in-game UX/design problems (no biz complaints here)
+technical_issues[]          # bugs, crashes, performance problems
+genre_context               # genre benchmark, no named competitors
+
+# Pro sections
+player_wishlist[]           # net-new features only (not fixes)
+churn_triggers[]            # journey moments that cause dropout (with timing)
+dev_priorities[]            # [{action, why_it_matters, frequency, effort}] — ranked
+competitive_context[]       # [{game, comparison_sentiment, note}] — named games only
 ```
 
 ---
@@ -204,19 +237,19 @@ hidden_gem_score                        # computed in Python before Sonnet call
 
 ```
 infra/
-  app.py                  # CDK entry point
-  pipeline_stack.py       # Self-mutating CDK Pipeline (CodeStar Connection to GitHub)
+  app.py                    # CDK entry point
+  pipeline_stack.py         # Self-mutating CDK Pipeline (CodeStar Connection to GitHub)
   application_stage.py
   stacks/
-    common_stack.py       # Lambda layers (LibraryLayer)
-    network_stack.py      # VPC
-    sqs_stack.py          # SQS queues + DLQs
-    lambda_stack.py       # Lambda functions (crawlers) + EventBridge schedules
-    data_stack.py         # RDS + S3, termination_protection=True
-    analysis_stack.py     # Step Functions state machine
-    app_stack.py          # FastAPI Lambda + Function URL + CloudFront + Route53 + ACM
-    frontend_stack.py     # Next.js Lambda (OpenNext) + CloudFront behaviour
-    monitoring_stack.py   # CloudWatch via cdk-monitoring-constructs
+    network_stack.py        # VPC
+    data_stack.py           # RDS + S3, termination_protection=True
+    messaging_stack.py      # SQS queues + DLQs + SNS topics
+    compute_stack.py        # All Lambdas (crawlers, API, analyzer) + Step Functions + EventBridge
+    delivery_stack.py       # CloudFront distributions + Route 53 + ACM (production)
+    certificate_stack.py    # ACM cert (us-east-1) for production CloudFront alias
+    frontend_stack.py       # Next.js Lambda (OpenNext) + CloudFront behaviour
+    spoke_stack.py          # Cross-region spoke crawler Lambdas
+    monitoring_stack.py     # CloudWatch via cdk-monitoring-constructs
 ```
 
 CDK rules (mandatory):
@@ -342,8 +375,12 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 ## Data Freshness Strategy
 
-Four EventBridge rules in `lambda_stack.py` keep data current. **All rules are deployed
-with `enabled=False` — enable manually after the initial seed is complete and site is live.**
+See `steampulse-design.org` for the full tiered strategy. Summary:
+
+**Current implementation:** One weekly EventBridge rule (`CatalogRefreshRule`, disabled until
+post-launch) in `compute_stack.py` triggers a full catalog refresh.
+
+**Planned tiered rules** (not yet implemented — design target):
 
 | Rule | Schedule | Scope |
 |---|---|---|
@@ -351,29 +388,6 @@ with `enabled=False` — enable manually after the initial seed is complete and 
 | `weekly-mid-tier` | Sundays 8am UTC | review_count 500–5000 |
 | `monthly-long-tail` | 1st of month | review_count < 500, metadata only |
 | `weekly-discovery` | Mondays 7am UTC | Full Steam app list — finds new games not in DB |
-
-**Delta-triggered re-analysis:** `app_crawler.py` only queues `review-crawl-queue`
-(which triggers Step Functions) if new reviews since last crawl exceed a tiered absolute
-threshold. Never use a flat percentage — large games have stable sentiment and need
-far fewer re-analyses than small games.
-
-```python
-def _reanalysis_threshold(total_reviews: int) -> int:
-    """New reviews needed since last analysis to trigger re-analysis."""
-    if total_reviews < 200:
-        return 25
-    elif total_reviews < 2_000:
-        return 150
-    elif total_reviews < 20_000:
-        return 500
-    elif total_reviews < 200_000:
-        return 2_000
-    else:
-        return 10_000
-```
-
-TF2 (800k reviews) needs 10k new reviews to re-trigger — maybe twice a year.
-A small indie (200 reviews) needs just 25 — maybe monthly. Target: ~$50/month steady state.
 
 **Staleness signal:** `last_analyzed` is returned in all API responses.
 Frontend shows "Analysis from X days ago" and a "Refresh available" badge after 30 days.

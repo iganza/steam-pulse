@@ -467,7 +467,7 @@ async def chat(body: ChatRequest) -> dict:
     # Thin storage adapter — uses the module-level DB connection
     class _ChatStorage:
         def query_catalog(self, sql: str, params: tuple = ()) -> list:
-            with _db_conn.cursor() as cur:  # type: ignore[union-attr]
+            with _conn.cursor() as cur:
                 cur.execute(sql, params)
                 rows = [dict(r) for r in cur.fetchall()]
             return rows

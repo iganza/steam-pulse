@@ -418,10 +418,68 @@ Tests are excluded from the Next.js build (`tests/` in `tsconfig.json` exclude a
 
 ---
 
+## Database Migrations (yoyo)
+
+Schema DDL is managed by yoyo-migrations in `src/lambda-functions/migrations/`. The `MigrationFn` Lambda applies pending migrations post-deployment (after code is live). Migrations are **idempotent** — safe to run multiple times.
+
+### Backwards-compatibility rules (mandatory)
+
+Migrations run after the new Lambda code is already live. New code must work with the old schema for the brief window between deploy and migration apply.
+
+- New columns must have a `DEFAULT` value or be nullable — never `NOT NULL` without a default on an existing table
+- Never rename or drop a column/table in a single deploy; use two phases:
+  1. Deploy: add the new column/table (migration + code that writes both old and new)
+  2. Deploy: remove the old path once no code references it
+- Index additions are always safe (read-only improvement, no query breakage)
+
+### How to add a new migration
+
+**1. Name the file** — use the next number in sequence, with a short snake_case description:
+```
+src/lambda-functions/migrations/0007_add_some_column.sql
+```
+
+**2. Add the yoyo header** — the first line must declare the dependency:
+```sql
+-- depends: 0006_add_analytics_indexes
+```
+Chain to the immediately preceding migration (check the directory for the current highest number).
+
+**3. Write idempotent SQL** — always use guards:
+```sql
+ALTER TABLE games ADD COLUMN IF NOT EXISTS new_col TEXT;
+CREATE TABLE IF NOT EXISTS new_table (...);
+DROP INDEX IF EXISTS old_idx;
+```
+
+**4. For new indexes — use `CONCURRENTLY` and mark non-transactional:**
+```sql
+-- depends: 0006_add_analytics_indexes
+-- non-transactional
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_name ON table(col);
+```
+`CONCURRENTLY` avoids write-blocking locks on large tables. Postgres requires it to run outside a transaction; `-- non-transactional` tells yoyo not to wrap the file in `BEGIN/COMMIT`.
+
+**5. Test locally:**
+```bash
+bash scripts/dev/migrate.sh
+```
+For staging (tunnel must be open): `bash scripts/dev/migrate.sh --stage staging`
+
+**6. Also update `schema.py`** — keep it in sync as a human-readable reference. Add new columns to the relevant `CREATE TABLE` block and note them in a comment. Do not add ALTER TABLE entries — those are legacy stubs kept for test-suite idempotency only.
+
+### Never
+- Call `create_all()` or `create_indexes()` from Lambda handlers — test-suite only
+- Use plain `CREATE INDEX` on large tables in production migrations — always `CONCURRENTLY`
+- Add a `NOT NULL` column without a `DEFAULT` to an existing table
+
+---
+
 ## Do Not Build
 
 - No user accounts or login system
-- No database migrations framework (raw SQL in repositories)
+- No database migrations framework for data access (raw psycopg2 in repositories) — yoyo-migrations is used for schema DDL only (see `src/lambda-functions/migrations/`)
 - No CSS frameworks (use Tailwind or plain CSS in Next.js)
 - No job queue inside FastAPI (analysis is in Step Functions)
 - No payment integration until explicitly planned (validate-key is intentionally stubbed)

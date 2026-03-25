@@ -25,13 +25,11 @@ def patch_get_conn(mock_conn):
         yield h
 
 
-def test_init_calls_create_all(patch_get_conn, mock_conn):
+def test_init_returns_yoyo_message(patch_get_conn):
     h = patch_get_conn
-    conn, _ = mock_conn
-    with patch("lambda_functions.admin.handler.create_all") as mock_create:
-        result = h.handler({"action": "init"}, None)
+    result = h.handler({"action": "init"}, None)
     assert result["status"] == "ok"
-    mock_create.assert_called_once_with(conn)
+    assert "yoyo" in result["message"].lower()
 
 
 def test_status_returns_tables(patch_get_conn, mock_conn):

@@ -1,7 +1,10 @@
-"""Database schema — all CREATE TABLE DDL in dependency order.
+"""Database schema — source-of-truth reference for all DDL.
 
-Extracted from storage.py. Call create_all(conn) once per cold start (or test
-session) to ensure all tables exist. Statements are idempotent (IF NOT EXISTS).
+Schema and indexes are managed by yoyo migrations in src/lambda-functions/migrations/.
+For local dev: bash scripts/dev/migrate.sh
+For staging: bash scripts/dev/migrate.sh --stage staging (tunnel must be open)
+
+create_all() is retained for the test suite only — do not call it in Lambda handlers.
 """
 
 TABLES: tuple[str, ...] = (
@@ -183,10 +186,10 @@ TABLES: tuple[str, ...] = (
         last_analyzed TIMESTAMP
     )
     """,
-    # --- Migrations ---
-    # When adding a new column to an existing deployed database, append entries here.
-    # These run on every startup and are idempotent (IF NOT EXISTS).
-    # No migration framework needed — just append and deploy.
+    # --- Legacy ALTER TABLE stubs (historical reference only) ---
+    # These columns are now defined inline in the CREATE TABLE statements above
+    # and managed by yoyo migrations (0002–0005). Listed here so create_all()
+    # remains idempotent when called from the test suite against a fresh DB.
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_count_english INTEGER",
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS language VARCHAR(20)",
     "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS votes_helpful INTEGER DEFAULT 0",
@@ -200,10 +203,9 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_target INT",
 )
 
-# Analytics engine indexes — kept separate from TABLES so they can be created
-# outside the main DDL transaction (each committed individually, no prolonged
-# table locks). Call create_indexes() from a one-time admin/init action, not
-# from every Lambda cold start.
+# Analytics engine indexes — kept for test suite use only.
+# Production indexes are managed by yoyo migration 0006_add_analytics_indexes.sql
+# which uses CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
 INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_author_appid ON reviews(appid, author_steamid) WHERE author_steamid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime ON reviews(appid, playtime_hours, voted_up)",
@@ -216,10 +218,10 @@ INDEXES: tuple[str, ...] = (
 
 
 def create_all(conn: object) -> None:
-    """Execute all DDL statements idempotently.
+    """Execute all DDL statements idempotently. For the test suite only.
 
-    Safe to call on every cold start — all statements use IF NOT EXISTS.
-    Does NOT create analytics indexes (see create_indexes).
+    Production schema is managed by yoyo migrations in src/lambda-functions/migrations/.
+    Do NOT call this from Lambda handlers — schema is applied by MigrationFn post-deploy.
     """
     with conn.cursor() as cur:  # type: ignore[union-attr]
         for ddl in TABLES:
@@ -228,11 +230,10 @@ def create_all(conn: object) -> None:
 
 
 def create_indexes(conn: object) -> None:
-    """Create analytics indexes, each committed individually to avoid long table locks.
+    """Create analytics indexes. For the test suite only.
 
-    Call this from a one-time admin/init action rather than every cold start.
-    Each statement is committed separately so locks on reviews/games are released
-    promptly between index builds.
+    Production indexes are managed by yoyo migration 0006_add_analytics_indexes.sql
+    which uses CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
     """
     prev_autocommit = conn.autocommit  # type: ignore[union-attr]
     conn.autocommit = True  # type: ignore[union-attr]

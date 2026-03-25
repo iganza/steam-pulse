@@ -468,6 +468,52 @@ class ComputeStack(cdk.Stack):
             environment=config.to_lambda_env(),
         )
 
+        # ── Migration Lambda (applies pending yoyo migrations post-deployment) ───
+        migration_fn = PythonFunction(
+            self,
+            "MigrationFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/admin/migrate_handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=iam.Role(
+                self,
+                "MigrationRole",
+                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                managed_policies=[
+                    iam.ManagedPolicy.from_aws_managed_policy_name(
+                        "service-role/AWSLambdaVPCAccessExecutionRole",
+                    ),
+                ],
+                inline_policies={
+                    "db": iam.PolicyDocument(statements=[
+                        iam.PolicyStatement(
+                            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                            resources=[db_secret.secret_arn],
+                        ),
+                    ]),
+                },
+            ),
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(5),
+            memory_size=256,
+            reserved_concurrent_executions=1,
+            log_group=logs.LogGroup(
+                self,
+                "MigrationLogs",
+                log_group_name=f"/steampulse/{env}/migration",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="migration",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
+        )
+
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
         # This Lambda drops and recreates the public schema. It must never exist
         # in production — an accidental invoke would wipe prod data irreversibly.
@@ -575,4 +621,10 @@ class ComputeStack(cdk.Stack):
             "AdminFnNameParam",
             parameter_name=f"/steampulse/{env}/compute/admin-fn-name",
             string_value=admin_fn.function_name,
+        )
+        ssm.StringParameter(
+            self,
+            "MigrationFnArnParam",
+            parameter_name=f"/steampulse/{env}/compute/migration-fn-arn",
+            string_value=migration_fn.function_arn,
         )

@@ -15,19 +15,10 @@ until docker compose exec -T db pg_isready -U steampulse -q; do
 done
 echo "✓ Postgres is up"
 
-echo "▶ Initialising schema..."
+echo "▶ Applying migrations..."
 export DATABASE_URL="postgresql://steampulse:dev@localhost:5432/steampulse"
 export PYTHONPATH="$REPO_ROOT/src/library-layer:$REPO_ROOT/src/lambda-functions"
-poetry run python - <<'EOF'
-import sys, os
-sys.path.insert(0, "src/library-layer")
-import psycopg2
-from library_layer.schema import create_all
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
-create_all(conn)
-conn.close()
-print("✓ Schema ready")
-EOF
+bash scripts/dev/migrate.sh
 
 echo ""
 echo "Local DB is ready. Copy this into your shell or .env:"

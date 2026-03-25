@@ -1,0 +1,61 @@
+GAME DISCOVERY FLOW
+ ══════════════════════════════════════════════════════════════════════
+ 
+   EventBridge          CrawlerFn              Steam API          RDS
+   (scheduled)          (primary)              IStoreService    app_catalog
+       │                    │                      │                │
+       │  source=aws.events │                      │                │
+       │───────────────────>│                      │                │
+       │                    │  GET /GetAppList/v1  │                │
+       │                    │  ?last_appid=0       │                │
+       │                    │─────────────────────>│                │
+       │                    │  [{appid,name}×50k]  │                │
+       │                    │<─────────────────────│                │
+       │                    │  (paginate until     │                │
+       │                    │   has_more=false)    │                │
+       │                    │─────────────────────>│                │
+       │                    │<─────────────────────│                │
+       │                    │                      │                │
+       │                    │  INSERT … ON CONFLICT(appid)          │
+       │                    │  DO NOTHING → rowcount=new_rows       │
+       │                    │──────────────────────────────────────>│
+       │                    │<──────────────────────────────────────│
+       │                    │  new_rows = N                         │
+       │                    │                      │                │
+       │                    │                      │                │
+       │           ┌────────┴─────────┐            │                │
+       │           │ FOR each new     │            │                │
+       │           │ appid discovered │            │                │
+       │           └────────┬─────────┘            │                │
+       │                    │                      │                │
+       │                    │   SNS GameEventsTopic                 │
+       │                    │   {"event_type":"game-discovered",    │
+       │                    │    "appid": 1234567}                  │
+       │                    │──────────────────────────────►[SNS]   │
+       │                    │                      │           │    │
+       │                    │                      │  filter:  │    │
+       │                    │                      │  event_type=   │
+       │                    │                      │  "game-        │
+       │                    │                      │  discovered"   │
+       │                    │                      │           │    │
+       │                    │                      │   [app-crawl-queue]
+       │                    │                      │           │    │
+       │                    │  SQS record          │           │    │
+       │<───────────────────────────────────────────────────────    │
+       │   (CrawlerFn consumes                                      │
+       │    its own queue,                                          │
+       │    dispatches to spoke)                                    │
+
+ ══════════════════════════════════════════════════════════════════════
+ 
+   SNS Topics:
+     GameEventsTopic  ─── game-discovered, metadata-ready, delisted …
+     ContentEventsTopic ─ reviews-ready, report-ready
+     SystemEventsTopic ── catalog-refresh-complete, batch-complete
+ 
+   ✔  GameDiscoveredEvent published to: GameEventsTopic
+   ✔  SNS subscription filter routes game-discovered → app-crawl-queue
+
+The topic is GameEventsTopic — exactly right for this. SystemEventsTopic gets a catalog-refresh-complete at the end (summary
+stats), but the per-game events go to GameEventsTopic so downstream consumers (future webhooks, analytics, etc.) can subscribe by
+game lifecycle.

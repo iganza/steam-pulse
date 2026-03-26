@@ -37,11 +37,11 @@ Requires:
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 import psycopg2
@@ -82,12 +82,12 @@ if _cmd not in _DEPLOYED_COMMANDS and _cmd not in {"analyze", "seed"}:
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
+from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
 from library_layer.repositories.game_repo import GameRepository  # noqa: E402
 from library_layer.repositories.report_repo import ReportRepository  # noqa: E402
 from library_layer.repositories.review_repo import ReviewRepository  # noqa: E402
 from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
-from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.services.crawl_service import CrawlService  # noqa: E402
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
 
@@ -120,6 +120,7 @@ except ImportError:
 
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://steampulse:dev@127.0.0.1:5432/steampulse")
+_REVIEW_ELIGIBILITY_THRESHOLD = int(os.getenv("REVIEW_ELIGIBILITY_THRESHOLD", "50"))
 
 DEFAULT_SEED_APPIDS = [440, 730, 570, 1091500, 413150]  # TF2, CS2, Dota2, Cyberpunk, Stardew
 
@@ -315,7 +316,10 @@ def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
             return "done" if result else "skipped"
         else:
             n = svc.crawl_reviews(appid)
-            return "done" if n >= 0 else "skipped"
+            if n >= 0:
+                CatalogRepository(c).mark_reviews_complete(appid)
+                return "done"
+            return "skipped"
     except Exception as exc:
         _warn(f"appid={appid} error: {exc}")
         return "failed"
@@ -413,10 +417,10 @@ def _eligible_reviews(n: int) -> list[int]:
                  AND ac.review_cursor IS NULL
                  AND ac.reviews_completed_at IS NULL
                  AND g.coming_soon = false
-                 AND g.review_count_english >= 50
+                 AND g.review_count_english >= %s
                  AND g.release_date IS NOT NULL
                ORDER BY g.release_date DESC NULLS LAST LIMIT %s""",
-            (n,),
+            (_REVIEW_ELIGIBILITY_THRESHOLD, n),
         )
         return [row[0] for row in cur.fetchall()]
 

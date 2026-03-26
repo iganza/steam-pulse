@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class CatalogEntry(BaseModel):
@@ -15,6 +15,11 @@ class CatalogEntry(BaseModel):
     review_count: int | None = None
     review_cursor: str | None = None
     review_cursor_updated_at: datetime | None = None
+
+    @field_validator("review_cursor", mode="before")
+    @classmethod
+    def _normalise_cursor(cls, v: object) -> object:
+        return None if v == "" else v
     reviews_target: int | None = None
     reviews_completed_at: datetime | None = None
     discovered_at: datetime | None = None

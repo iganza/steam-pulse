@@ -67,10 +67,6 @@ def _inject_services(mock_crawl: MagicMock, mock_catalog: MagicMock) -> None:
 
     hm._crawl_service = mock_crawl
     hm._catalog_service = mock_catalog
-    # Stub catalog_repo so dispatch doesn't hit real DB
-    hm._catalog_repo = MagicMock()
-    hm._catalog_repo.get_review_cursor = MagicMock(return_value=None)
-    hm._catalog_repo.set_reviews_target = MagicMock()
 
 
 def _eventbridge_event() -> dict:
@@ -176,6 +172,7 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     assert payload.appid == 730
     assert payload.task == "reviews"
     assert payload.cursor == "*"
+    assert payload.started_at is not None  # set on fresh start
 
 
 @mock_aws
@@ -214,3 +211,91 @@ def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
     payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 570
     assert payload.task == "metadata"
+
+
+@mock_aws
+def test_review_dispatch_normalizes_null_cursor_to_fresh_start(lambda_context: Any) -> None:
+    """cursor: null in message body → treated as fresh start (cursor becomes '*')."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    event = {
+        "Records": [{
+            "messageId": "m4",
+            "body": json.dumps({"appid": 730, "cursor": None, "target": 5000}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.cursor == "*"
+    assert payload.target == 5000
+
+
+@mock_aws
+def test_review_dispatch_defaults_target_when_missing(lambda_context: Any) -> None:
+    """Continuing message without target → falls back to REVIEW_LIMIT (never unbounded)."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    # Continuing message (has cursor) but no target field
+    event = {
+        "Records": [{
+            "messageId": "m5",
+            "body": json.dumps({"appid": 730, "cursor": "AoJ4sometoken"}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.cursor == "AoJ4sometoken"
+    assert payload.target == hm._crawler_config.REVIEW_LIMIT
+
+
+@mock_aws
+def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
+    """Message with target=0 → budget exhausted, no spoke invoked."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    event = {
+        "Records": [{
+            "messageId": "m6",
+            "body": json.dumps({"appid": 730, "cursor": "AoJ4sometoken", "target": 0}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_not_called()

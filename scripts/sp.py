@@ -408,13 +408,12 @@ def _pending_meta(n: int) -> list[int]:
 
 
 def _eligible_reviews(n: int) -> list[int]:
-    """Return appids eligible for review crawl that have never been crawled, newest first."""
+    """Return appids eligible for review crawl that have not yet completed, newest first."""
     with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
         cur.execute(
             """SELECT ac.appid FROM app_catalog ac
                JOIN games g ON g.appid = ac.appid
                WHERE ac.meta_status = 'done'
-                 AND ac.review_cursor IS NULL
                  AND ac.reviews_completed_at IS NULL
                  AND g.coming_soon = false
                  AND g.review_count_english >= %s

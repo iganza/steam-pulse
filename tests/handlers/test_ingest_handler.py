@@ -50,9 +50,8 @@ def _gzipped(data: Any) -> bytes:
 
 
 def _mock_catalog_and_review_repos(ih: Any, reviews_completed_at: datetime | None = None) -> None:
-    """Stub out catalog_repo and review_repo so cursor logic doesn't hit DB."""
+    """Stub out catalog_repo and review_repo so termination logic doesn't hit DB."""
     ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=reviews_completed_at)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=0)
@@ -209,7 +208,57 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
 
 @mock_aws
 def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
-    """target_hit (hitting REVIEW_LIMIT) is normal completion — mark_reviews_complete is called."""
+    """target <= batch count → budget exhausted → mark_reviews_complete, no re-queue."""
+    ih = _get_module()
+    ih._crawl_service = MagicMock()
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
+    ih._s3 = MagicMock()
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
+    }
+    ih._sqs = MagicMock()
+    _mock_catalog_and_review_repos(ih)
+
+    # target=1000 equals batch count=1000 → this batch exhausts the budget
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=1000))
+    ih.handler(event, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
+    ih._sqs.send_message.assert_not_called()
+
+
+@mock_aws
+def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any) -> None:
+    ih = _get_module()
+    ih._crawl_service = MagicMock()
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
+    ih._s3 = MagicMock()
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
+    }
+    ih._catalog_repo = MagicMock()
+    ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
+    ih._review_repo = MagicMock()
+    ih._review_repo.count_by_appid = MagicMock(return_value=1000)
+
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=10000, started_at="2026-03-26T12:00:00+00:00"))
+    ih.handler(event, lambda_context)
+
+    ih._sqs.send_message.assert_called_once()
+    sent_body = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
+    # target becomes remaining = 10000 - 1000 = 9000 to prevent overshoot on the final batch
+    assert sent_body == {
+        "appid": 440,
+        "cursor": "cursor_abc",
+        "target": 9000,
+        "started_at": "2026-03-26T12:00:00+00:00",
+    }
+    ih._catalog_repo.save_review_cursor.assert_not_called()
+
+
+@mock_aws
+def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
+    """Two sequential batches: hop 1 re-queues with decremented budget; hop 2 marks complete."""
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
@@ -219,40 +268,37 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     }
     ih._sqs = MagicMock()
     ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=5000)
-    ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
-    ih._review_repo = MagicMock()
-    ih._review_repo.count_by_appid = MagicMock(return_value=5000)
-
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
-    ih.handler(event, lambda_context)
-
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
-    ih._sqs.send_message.assert_not_called()
-
-
-@mock_aws
-def test_reviews_more_pages_saves_cursor_and_requeues(lambda_context: Any) -> None:
-    ih = _get_module()
-    ih._crawl_service = MagicMock()
-    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
-    ih._s3 = MagicMock()
-    ih._s3.get_object.return_value = {
-        "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
-    }
-    ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=1000)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
-    ih.handler(event, lambda_context)
+    started_at = "2026-03-26T12:00:00+00:00"
 
-    ih._catalog_repo.save_review_cursor.assert_called_once_with(440, "cursor_abc")
+    # Hop 1: target=2000, count=1000 → budget not yet exhausted, re-queue with remaining=1000
+    hop1 = _sqs_event(ReviewSpokeResult(
+        appid=440, success=True, s3_key="k1", count=1000,
+        spoke_region="us-east-1", next_cursor="cursor_hop2",
+        target=2000, started_at=started_at,
+    ))
+    ih.handler(hop1, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_not_called()
     ih._sqs.send_message.assert_called_once()
-    sent_body = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
-    assert sent_body == {"appid": 440}
+    sent = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
+    assert sent["target"] == 1000  # 2000 - 1000
+    assert sent["cursor"] == "cursor_hop2"
+    ih._sqs.reset_mock()
+
+    # Hop 2: target=1000, count=1000 → budget exactly exhausted → mark complete
+    hop2 = _sqs_event(ReviewSpokeResult(
+        appid=440, success=True, s3_key="k2", count=1000,
+        spoke_region="us-east-1", next_cursor="cursor_hop3",
+        target=1000, started_at=started_at,
+    ))
+    ih.handler(hop2, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
+    ih._sqs.send_message.assert_not_called()
 
 
 # ── count==0 / no s3_key — skip processing ─────────────────────────────────

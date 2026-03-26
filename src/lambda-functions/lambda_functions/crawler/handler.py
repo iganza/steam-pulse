@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -83,8 +84,6 @@ _steam_api_key: str = _sm.get_secret_value(
     SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
 )["SecretString"]
 
-_catalog_repo = CatalogRepository(_conn)
-
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
     review_repo=ReviewRepository(_conn),
@@ -154,33 +153,34 @@ def _dispatch_to_spoke(record: dict) -> None:
     logger.append_keys(appid=appid, task=task)
 
     if task == "reviews":
-        max_reviews: int | None = body.get("max_reviews")
-        saved_cursor = _catalog_repo.get_review_cursor(appid)
-        # None or "" = not in flight (not started, complete, or legacy sentinel) → restart from *
-        # non-empty string = resume mid-stream cursor
-        cursor = saved_cursor if saved_cursor not in (None, "") else "*"
-        if max_reviews is not None:
-            # Capped run — persist target on fresh start so ingest chain knows when to stop.
-            # Only set on fresh cursor ("*") to avoid overwriting a mid-stream target.
-            if cursor == "*":
-                _catalog_repo.set_reviews_target(appid, max_reviews)
-                logger.info("reviews fresh start", extra={"appid": appid, "target": max_reviews})
-            else:
-                logger.info("reviews resuming cursor", extra={"appid": appid, "cursor": cursor})
-        elif cursor == "*":
-            # Fresh SQS start with no explicit cap — apply the configured default limit.
-            # Prevents automated crawls from fetching hundreds of thousands of reviews.
-            # Do NOT clear/set on resume: re-queue messages carry no max_reviews so the
-            # target persists across pages from when it was first set.
-            _catalog_repo.set_reviews_target(appid, _crawler_config.REVIEW_LIMIT)
-            logger.info(
-                "reviews fresh start",
-                extra={"appid": appid, "default_limit": _crawler_config.REVIEW_LIMIT},
-            )
+        # Cursor and target travel in the SQS message body — no DB reads needed.
+        # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
+        # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
+        # Normalize cursor: treat missing, null, and empty string all as fresh start.
+        cursor: str = body.get("cursor") or "*"
+        started_at: str | datetime = body.get("started_at") or datetime.now(tz=timezone.utc)
+
+        target_raw: int | None = body.get("target")
+        if target_raw is None:
+            # Fresh-start or missing target — apply configured default limit.
+            target: int = _crawler_config.REVIEW_LIMIT
+        elif target_raw <= 0:
+            # Remaining budget is zero — nothing left to fetch; skip dispatch.
+            logger.info("review crawl budget exhausted — skipping dispatch", extra={"appid": appid})
+            return
+        else:
+            target = target_raw
+
+        if cursor == "*":
+            logger.info("reviews fresh start", extra={"appid": appid, "target": target})
+        else:
+            logger.info("reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target})
+
         req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
             appid=appid,
             cursor=cursor,
-            max_reviews=max_reviews,
+            target=target,
+            started_at=started_at,
         )
     else:
         req = MetadataSpokeRequest(appid=appid)

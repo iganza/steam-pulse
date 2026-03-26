@@ -1,4 +1,4 @@
-"""Tests for CatalogEntry computed properties — all 4 state machine permutations."""
+"""Tests for CatalogEntry computed properties."""
 
 from datetime import datetime, timezone
 
@@ -11,59 +11,33 @@ def _entry(**kwargs: object) -> CatalogEntry:
     return CatalogEntry(appid=1, name="G", **kwargs)
 
 
-# ── Permutation 1: cursor=None, completed_at=None → not_started ─────────────
+# ── not_started: completed_at=None ──────────────────────────────────────────
 
 
-def test_not_started_properties() -> None:
-    e = _entry(review_cursor=None, reviews_completed_at=None)
+def test_not_started_when_never_crawled() -> None:
+    e = _entry(reviews_completed_at=None)
     assert e.review_not_started is True
-    assert e.review_in_progress is False
     assert e.review_complete is False
 
 
-# ── Permutation 2: cursor=non-None, completed_at=None → in_progress (first crawl)
+# ── complete: completed_at=non-None ─────────────────────────────────────────
 
 
-def test_in_progress_first_crawl_properties() -> None:
-    e = _entry(review_cursor="abc123", reviews_completed_at=None)
+def test_complete_when_timestamp_set() -> None:
+    e = _entry(reviews_completed_at=NOW)
     assert e.review_not_started is False
-    assert e.review_in_progress is True
-    assert e.review_complete is False
-
-
-# ── Permutation 3: cursor=non-None, completed_at=non-None → in_progress (re-crawl)
-
-
-def test_in_progress_recrawl_properties() -> None:
-    e = _entry(review_cursor="xyz789", reviews_completed_at=NOW)
-    assert e.review_not_started is False
-    assert e.review_in_progress is True
-    assert e.review_complete is False
-
-
-# ── Permutation 4: cursor=None, completed_at=non-None → complete ────────────
-
-
-def test_complete_properties() -> None:
-    e = _entry(review_cursor=None, reviews_completed_at=NOW)
-    assert e.review_not_started is False
-    assert e.review_in_progress is False
     assert e.review_complete is True
 
 
-# ── Exhaustiveness: exactly one property True per state ─────────────────────
+# ── Exhaustiveness: exactly one of the two states True ──────────────────────
 
 
-def test_exactly_one_property_true_per_permutation() -> None:
+def test_exactly_one_state_true_per_entry() -> None:
     cases = [
-        _entry(review_cursor=None, reviews_completed_at=None),       # not_started
-        _entry(review_cursor="abc", reviews_completed_at=None),      # in_progress (first)
-        _entry(review_cursor="abc", reviews_completed_at=NOW),       # in_progress (re-crawl)
-        _entry(review_cursor=None, reviews_completed_at=NOW),        # complete
+        _entry(reviews_completed_at=None),   # not_started
+        _entry(reviews_completed_at=NOW),    # complete
     ]
     for entry in cases:
-        true_count = sum([entry.review_not_started, entry.review_in_progress, entry.review_complete])
-        assert true_count == 1, (
-            f"Expected exactly one True for cursor={entry.review_cursor!r} "
-            f"completed_at={entry.reviews_completed_at!r}, got {true_count}"
+        assert entry.review_not_started != entry.review_complete, (
+            f"Expected exactly one True for completed_at={entry.reviews_completed_at!r}"
         )

@@ -150,7 +150,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
     metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
-    # Cursor management + re-queue logic — must complete before S3 delete.
+    # Termination + re-queue logic — must complete before S3 delete.
     # If any of these raise (DB hiccup, SQS failure), the SQS record retries
     # and the S3 object is still available. Delete only on full success.
 
@@ -166,8 +166,10 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     )
 
     total_fetched = _review_repo.count_by_appid(appid)
-    target = _catalog_repo.get_reviews_target(appid)
-    target_hit = target is not None and total_fetched >= target
+    # `target` means "remaining reviews to fetch in this chain" — decremented by batch count
+    # each hop so the spoke can limit its final batch to exactly what's left.
+    # target_hit fires when this batch consumed the last of the budget.
+    target_hit = msg.target is not None and msg.target <= msg.count
     exhausted = msg.next_cursor is None
 
     if exhausted or early_stop:
@@ -188,21 +190,25 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             },
         )
     elif target_hit:
-        # Hitting the default REVIEW_LIMIT is normal completion for high-review games.
-        # Mark complete so early-stop on re-crawls picks up only new reviews.
+        # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
         _catalog_repo.mark_reviews_complete(appid, completed_at=None)
         logger.info(
             "Reviews complete",
-            extra={"appid": appid, "reason": "target_hit", "total": total_fetched, "target": target},
+            extra={"appid": appid, "reason": "target_hit", "batch_count": msg.count, "target": msg.target},
         )
     else:
-        # More to fetch — save cursor and re-queue
-        _catalog_repo.save_review_cursor(appid, msg.next_cursor)
+        # More to fetch — re-queue with cursor and decremented remaining budget.
+        new_remaining = msg.target - msg.count if msg.target is not None else None
         _sqs.send_message(
             QueueUrl=_review_crawl_queue_url,
-            MessageBody=json.dumps({"appid": appid}),
+            MessageBody=json.dumps({
+                "appid": appid,
+                "cursor": msg.next_cursor,
+                "target": new_remaining,
+                "started_at": msg.started_at.isoformat() if msg.started_at else None,
+            }),
         )
-        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched})
+        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched, "remaining": new_remaining})
 
     # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

@@ -59,13 +59,11 @@ def test_status_summary(catalog_repo: CatalogRepository) -> None:
     assert summary["meta"].get("pending", 0) >= 3
 
 
-def test_mark_reviews_complete_sets_cursor_null_and_timestamp(catalog_repo: CatalogRepository) -> None:
+def test_mark_reviews_complete_sets_timestamp(catalog_repo: CatalogRepository) -> None:
     catalog_repo.bulk_upsert([{"appid": 100, "name": "G"}])
-    catalog_repo.save_review_cursor(100, "abc123")
     catalog_repo.mark_reviews_complete(100)
     entry = catalog_repo.find_by_appid(100)
     assert entry is not None
-    assert entry.review_cursor is None
     assert entry.reviews_completed_at is not None
 
 
@@ -73,7 +71,6 @@ def test_mark_reviews_complete_overwrites_previous_timestamp(catalog_repo: Catal
     catalog_repo.bulk_upsert([{"appid": 101, "name": "G"}])
     catalog_repo.mark_reviews_complete(101)
     t1 = catalog_repo.find_by_appid(101).reviews_completed_at
-    catalog_repo.save_review_cursor(101, "new_cursor")
     catalog_repo.mark_reviews_complete(101)
     t2 = catalog_repo.find_by_appid(101).reviews_completed_at
     assert t2 >= t1

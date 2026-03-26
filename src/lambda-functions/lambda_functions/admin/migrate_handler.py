@@ -28,7 +28,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     backend = get_backend(_db_url)
     migrations = read_migrations(_MIGRATIONS_DIR)
     with backend.lock():
-        pending = list(backend.to_apply(migrations))
+        pending = backend.to_apply(migrations)
         logger.info("Pending migrations", extra={"count": len(pending)})
         backend.apply_migrations(pending)
     applied = [m.id for m in pending]

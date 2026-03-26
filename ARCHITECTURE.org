@@ -236,96 +236,145 @@ Invariant: Every appid Steam returns that is not yet in app_catalog
 ** Flow-03: Review Crawl
 
 #+BEGIN_SRC
-Invariant: All English reviews for an eligible game are fetched and stored.
-           If Steam returns a next_cursor, the game is re-queued until
-           next_cursor is None (true exhaustion) or all batch reviews predate
-           reviews_completed_at (early-stop on re-crawl).
-           Re-crawls always restart from cursor="*" (newest-first) and use
-           reviews_completed_at as an early-stop boundary to avoid re-fetching
-           the entire review history.
+Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
+           fetched and stored. Workflow state (cursor, remaining budget,
+           start timestamp) is carried entirely in SQS message bodies —
+           no DB reads during dispatch. The chain terminates when:
+             (a) Steam returns next_cursor=None (exhaustion), OR
+             (b) min(batch.timestamp_created) < reviews_completed_at (early-stop
+                 on re-crawl — avoids re-fetching the entire review history), OR
+             (c) remaining budget (target) ≤ batch count (target_hit).
+           All three paths call mark_reviews_complete(), which sets
+           reviews_completed_at and enables early-stop on the next re-crawl.
            Duplicate review_ids are upserted (not duplicated) in DB.
+           Overshoot prevention: spoke uses limit=min(target, BATCH_SIZE)
+           so the final batch never fetches more than the remaining budget.
 #+END_SRC
 
-#+BEGIN_SRC
-  GameEventsTopic       ReviewCrawlQ          CrawlerFn           SpokeCrawlerFn
-      │                     │               handler.py           spoke_handler.py
-      │  game-metadata-ready │                   │                     │
-      │  is_eligible=true    │                   │                     │
-      │─────────────────────>│                   │                     │
-      │  (SNS filter routes) │                   │                     │
-      │                      │  SQS receive       │                     │
-      │                      │───────────────────>│                     │
-      │                      │                   │                     │
-      │                      │  read cursor from app_catalog            │
-      │                      │  (NULL → use "*")                        │
-      │                      │                   │                     │
-      │                      │                   │  async invoke           │
-      │                      │                   │  ReviewSpokeReq         │
-      │                      │                   │  {appid, cursor,        │
-      │                      │                   │   task:reviews,         │
-      │                      │                   │   max_reviews}          │
-      │                      │                   │────────────────────>    │
-      │                      │                   │                      │
-      │                      │                   │  GET appreviews      │
-      │                      │                   │  filter=recent       │
-      │                      │                   │  cursor={cursor}     │
-      │                      │                   │  ───────────────>    │
-      │                      │                   │  [{review}×100]      │
-      │                      │                   │  next_cursor or ""   │
-      │                      │                   │  <───────────────    │
-      │                      │                   │                      │
-      │                      │                   │  gzip → S3                               │
-      │                      │                   │  spoke-results/reviews/{appid}-{uid}.json.gz
-      │                      │                   │  ───────────────>    │
-      │                      │                   │                      │
-      │                      │                   │  ReviewSpokeResult   │
-      │                      │                   │  {appid, s3_key,     │
-      │                      │                   │   next_cursor}       │
-      │                      │                   │  → SpokeResultsQ     │
-      │                      │                   │    <─────────────────│
+*Steps:*
 
-  SpokeResultsQ         SpokeIngestFn            RDS               ReviewCrawlQ
-      │                 ingest_handler.py         reviews               │
-      │  SQS receive         │                     │                    │
-      │─────────────────────>│                     │                    │
-      │                      │  S3 get + decompress│                    │
-      │                      │  ReviewRepository   │                    │
-      │                      │  .bulk_upsert()     │                    │
-      │                      │  ON CONFLICT(steam_review_id) DO UPDATE  │
-      │                      │────────────────────>│                    │
-      │                      │<────────────────────│                    │
-      │                      │                     │                    │
-      │                      │  ┌─ if next_cursor not None AND          │
-      │                      │  │    reviews_target not reached AND     │
-      │                      │  │    NOT early_stop ──────────────────┐ │
-      │                      │  │  save cursor to app_catalog         │ │
-      │                      │  │  send {appid} → ReviewCrawlQ        │ │
-      │                      │  │  (loop continues)                   │ │
-      │                      │  └─────────────────────────────────────┘ │
-      │                      │                     │                    │
-      │                      │  ┌─ if exhausted OR early_stop ───────┐  │
-      │                      │  │  mark_reviews_complete(appid)                  │  │
-      │                      │  │  cursor=NULL                                   │  │
-      │                      │  │  completed_at = batch boundary (early_stop)    │  │
-      │                      │  │              or NOW()           (exhausted)    │  │
-      │                      │  │  early_stop = min(batch.timestamp_created)     │  │
-      │                      │  │    < reviews_completed_at                      │  │
-      │                      │  └─────────────────────────────────────┘  │
-      │                      │                     │                    │
-      │                      │  S3 delete object   │                    │
+1. =GameEventsTopic= emits =game-metadata-ready= (=is_eligible=true=) → SNS filter
+   routes to =ReviewCrawlQ=. Fresh-start message body: ={appid}= only.
+2. =CrawlerFn= receives SQS record. Unwraps SNS envelope if present.
+   Reads =cursor=, =target=, =started_at= from message body (no DB reads):
+   - =cursor=: missing/null/"" → normalize to ="*"= (fresh start)
+   - =target=: missing → =REVIEW_LIMIT=; =0= → skip dispatch (budget exhausted); positive → use as-is
+   - =started_at=: missing → =datetime.now(UTC)=
+3. =CrawlerFn= async-invokes =SpokeCrawlerFn= (fire-and-forget, =InvocationType="Event"=).
+   Routing: =appid % len(spoke_targets)= — deterministic, same appid always hits same spoke.
+   Payload: =ReviewSpokeRequest{appid, task:"reviews", cursor, target, started_at}=.
+4. =SpokeCrawlerFn= calls Steam =GET /appreviews/{appid}?filter=recent&cursor={cursor}&num_per_page=min(target,BATCH_SIZE)=.
+   Overshoot prevention: =limit = min(target, BATCH_SIZE)= caps the final partial batch.
+5. =SpokeCrawlerFn= gzips the review batch, writes to S3:
+   =spoke-results/reviews/{appid}/{uuid}.json.gz=
+6. =SpokeCrawlerFn= sends =ReviewSpokeResult{appid, task, success, s3_key, count, next_cursor, target, started_at, spoke_region}=
+   to =SpokeResultsQ=. =target= and =started_at= are passed through unchanged for the ingest hop.
+7. =SpokeIngestFn= receives result from =SpokeResultsQ=. Fetches S3 object, decompresses.
+   Calls =ReviewRepository.bulk_upsert()= — =ON CONFLICT(steam_review_id) DO UPDATE=.
+8. =SpokeIngestFn= evaluates termination (precedence: exhausted → early_stop → target_hit → re-queue):
+   - =exhausted=: =msg.next_cursor is None=
+   - =early_stop=: =reviews_completed_at IS NOT NULL= AND =min(batch.timestamp_created) < reviews_completed_at=
+   - =target_hit=: =msg.target is not None= AND =msg.target ≤ msg.count=
+   - else: re-queue with =new_remaining = msg.target - msg.count=
+9. On exhausted/early_stop/target_hit: =CatalogRepository.mark_reviews_complete(appid, completed_at)=
+   sets =reviews_completed_at= — the only DB write in the whole chain.
+   =completed_at=: batch boundary timestamp on early_stop; =NOW()= on exhausted/target_hit.
+10. On re-queue: =SQS.send_message= to =ReviewCrawlQ= with
+    ={appid, cursor:next_cursor, target:new_remaining, started_at}=. Loop returns to step 2.
+11. S3 object deleted after all DB/SQS work succeeds (safe to retry on failure — object still present).
+
+#+BEGIN_SRC
+  GameEventsTopic      ReviewCrawlQ         CrawlerFn           SpokeCrawlerFn      Steam API       AssetsBucket
+      │                    │              handler.py           spoke_handler.py          │                │
+      │ game-metadata-ready │                  │                      │                  │                │
+      │ {appid}             │                  │                      │                  │                │
+      │ is_eligible=true    │                  │                      │                  │                │
+      │────────────────────>│                  │                      │                  │                │
+      │ (SNS filter)        │  SQS receive     │                      │                  │                │
+      │                     │ (b=10)           │                      │                  │                │
+      │                     │─────────────────>│                      │                  │                │
+      │                     │                  │ normalize from body: │                  │                │
+      │                     │                  │ cursor  = * (fresh)  │                  │                │
+      │                     │                  │ target  = REVIEW_LIMIT                 │                │
+      │                     │                  │ started_at = now()   │                  │                │
+      │                     │                  │                      │                  │                │
+      │                     │                  │ async invoke (Event)  │                  │                │
+      │                     │                  │ appid % len(spokes)   │                  │                │
+      │                     │                  │ ReviewSpokeRequest    │                  │                │
+      │                     │                  │ {appid, task:reviews, │                  │                │
+      │                     │                  │  cursor, target,      │                  │                │
+      │                     │                  │  started_at}          │                  │                │
+      │                     │                  │──────────────────────>│                  │                │
+      │                     │                  │                       │ GET /appreviews  │                │
+      │                     │                  │                       │ filter=recent    │                │
+      │                     │                  │                       │ cursor=*         │                │
+      │                     │                  │                       │ num_per_page=    │                │
+      │                     │                  │                       │ min(target,BATCH)│                │
+      │                     │                  │                       │─────────────────>│                │
+      │                     │                  │                       │ [{review}×N]     │                │
+      │                     │                  │                       │ next_cursor      │                │
+      │                     │                  │                       │<─────────────────│                │
+      │                     │                  │                       │                  │                │
+      │                     │                  │                       │ gzip reviews     │                │
+      │                     │                  │                       │ spoke-results/reviews/{appid}/{uuid}.json.gz
+      │                     │                  │                       │─────────────────────────────────>│
+      │                     │                  │                       │                  │                │
+      │                     │                  │    ReviewSpokeResult → SpokeResultsQ    │                │
+      │                     │                  │    {appid, task, success, s3_key, count,│                │
+      │                     │                  │     next_cursor, target, started_at,    │                │
+      │                     │                  │     spoke_region}                       │                │
+
+  SpokeResultsQ        SpokeIngestFn            RDS (reviews       AssetsBucket      ReviewCrawlQ
+      │                ingest_handler.py         + app_catalog)         │                  │
+      │  SQS receive        │                         │                 │                  │
+      │  (b=5)              │                         │                 │                  │
+      │────────────────────>│                         │                 │                  │
+      │                     │  S3 get + decompress    │                 │                  │
+      │                     │<────────────────────────────────────────>│                  │
+      │                     │  ReviewRepository.bulk_upsert()          │                  │
+      │                     │  ON CONFLICT(steam_review_id) DO UPDATE  │                  │
+      │                     │────────────────────────>│                 │                  │
+      │                     │<────────────────────────│                 │                  │
+      │                     │                         │                 │                  │
+      │                     │  early_stop check:      │                 │                  │
+      │                     │  get reviews_completed_at                │                  │
+      │                     │────────────────────────>│                 │                  │
+      │                     │<────────────────────────│                 │                  │
+      │                     │                         │                 │                  │
+      │                     │  ┌─ exhausted (next_cursor=None)                             │
+      │                     │  │  OR early_stop (min_batch_ts < reviews_completed_at)      │
+      │                     │  │  OR target_hit (msg.target ≤ msg.count) ───────────────┐ │
+      │                     │  │  mark_reviews_complete(appid,                          │ │
+      │                     │  │    completed_at=batch_boundary|NOW())                  │ │
+      │                     │  │────────────────────>│                                  │ │
+      │                     │  └───────────────────────────────────────────────────────── │
+      │                     │                         │                 │                  │
+      │                     │  ┌─ else: more pages ──────────────────────────────────────┐│
+      │                     │  │  new_remaining = msg.target - msg.count                 ││
+      │                     │  │  SQS send {appid, cursor:next_cursor,                   ││
+      │                     │  │            target:new_remaining, started_at}            ││
+      │                     │  │────────────────────────────────────────────────────────>││
+      │                     │  └──────────────────────────────────────────────────────── ┘│
+      │                     │                         │                 │                  │
+      │                     │  S3 delete object (after all DB/SQS work)│                  │
+      │                     │────────────────────────────────────────>│                   │
 #+END_SRC
 
 *Drift checklist:*
 - =filter="recent"= in =steam_source.get_reviews()= (NOT =filter="all"=)
 - =ReviewRepository.bulk_upsert()= uses =ON CONFLICT (steam_review_id) DO UPDATE= (update, not skip)
-- Cursor is read from =app_catalog.review_cursor= before dispatch, not from SQS message
-- Re-queue sends only ={appid}= to ReviewCrawlQ — cursor is stored in DB, not in message
-- Ingest is data-only: no SNS events, no Step Functions trigger
-- =mark_reviews_complete()= sets =review_cursor=NULL= and =reviews_completed_at=NOW()= atomically
-- Early-stop: if =min(batch.timestamp_created) < reviews_completed_at=, treat as exhausted
-- =review_status= does not exist on =app_catalog= — eligibility enforced at SNS filter level
-- S3 object deleted AFTER cursor management and re-queue (safe for retry)
-- =ensure_stub()= in game_repo uses =ON CONFLICT DO NOTHING= (must not overwrite real game names)
+- Cursor, target, and started_at are read from the SQS message body — no DB reads during dispatch
+- Fresh-start message body contains only ={appid}=; cursor/target/started_at are normalized by CrawlerFn
+- =cursor= normalization: missing/null/"" → ="*"= (fresh start)
+- =target= normalization: missing → =REVIEW_LIMIT=; =0= → skip dispatch; positive → use as-is
+- Re-queue sends ={appid, cursor, target:remaining, started_at}= — =target= decremented by =msg.count= each hop
+- =target_hit= check: =msg.target ≤ msg.count= (remaining budget ≤ this batch — NOT total DB count vs original total)
+- Overshoot prevention: spoke computes =limit = min(target, BATCH_SIZE)= before calling Steam
+- Ingest is data-only: no SNS events, no Step Functions trigger from this flow
+- =mark_reviews_complete()= sets only =reviews_completed_at= — no cursor column (dropped in migration 0008)
+- Early-stop boundary: =completed_at = min(batch.timestamp_created)= on early_stop; =NOW()= on exhausted/target_hit
+- S3 object deleted AFTER all DB writes and SQS re-queue succeed (safe for retry on failure)
+- =reviews_completed_at= is the sole termination signal — no =review_cursor= or =reviews_target= columns
 
 ** Flow-04: LLM Analysis
 

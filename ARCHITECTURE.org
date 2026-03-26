@@ -171,64 +171,65 @@ Invariant: Every appid Steam returns that is not yet in app_catalog
 
 ** Flow-02: Metadata Crawl
 
-#+BEGIN_SRC
-Invariant: After game-discovered, the game's full Steam metadata is stored
-           in games table. If the game has >= 500 English reviews, a
-           game-metadata-ready event is published with is_eligible=true.
-#+END_SRC
+1. After game-discovered, a game-discovered event should be published.
+2. The MetadataEnrichmentQ should received this event
+3. The CrawlerFn should received the event and process it, causing the games metadata to be fetched and saved
+4. On successful fetch and save of metadata, the "game-metadata-ready" event should be published to GameEventsTopic
 
 #+BEGIN_SRC
-  GameEventsTopic       MetadataEnrichmentQ    CrawlerFn           SpokeCrawlerFn
-      │                       │               handler.py           spoke_handler.py
-      │  game-discovered       │                   │                     │
-      │  {appid:N}            │                   │                     │
-      │───────────────────────>│                   │                     │
-      │  (SNS filter routes)  │                   │                     │
-      │                       │  SQS receive       │                     │
-      │                       │───────────────────>│                     │
-      │                       │                   │  async invoke        │
-      │                       │                   │  MetadataSpokeReq    │
-      │                       │                   │  {appid, task:meta}  │
-      │                       │                   │────────────────────> │
-      │                       │                   │                     │
-      │                       │                   │    Steam API         │
-      │                       │                   │    appdetails +      │
-      │                       │                   │    deck compat       │
-      │                       │                   │    ───────────────>  │
-      │                       │                   │    <───────────────  │
-      │                       │                   │                     │
-      │                       │                   │    gzip → S3         │
-      │                       │                   │    spoke-results/    │
-      │                       │                   │    metadata/{id}.gz  │
-      │                       │                   │    ───────────────>  │
-      │                       │                   │                      │
-      │                       │                   │  MetadataSpokeResult │
-      │                       │                   │  → SpokeResultsQ     │
-      │                       │                   │    <─────────────────│
+  GameEventsTopic          MetadataEnrichmentQ         CrawlerFn                  SpokeCrawlerFn              Steam API        AssetsBucket
+      │                           │                    handler.py                 spoke_handler.py                │                  │
+      │  game-discovered          │                        │                           │                          │                  │
+      │  {event_type, appid}      │                        │                           │                          │                  │
+      │──────────────────────────>│                        │                           │                          │                  │
+      │  (SNS filter: event_type=game-discovered)          │                           │                          │                  │
+      │                           │  SQS receive (b=10)    │                           │                          │                  │
+      │                           │───────────────────────>│                           │                          │                  │
+      │                           │                        │  async invoke (Event)     │                          │                  │
+      │                           │                        │  MetadataSpokeReq         │                          │                  │
+      │                           │                        │  {appid, task:"metadata"} │                          │                  │
+      │                           │                        │  appid % len(spokes)      │                          │                  │
+      │                           │                        │──────────────────────────>│                          │                  │
+      │                           │                        │                           │  GET appdetails          │                  │
+      │                           │                        │                           │  GET review_summary      │                  │
+      │                           │                        │                           │  GET deck compatibility  │                  │
+      │                           │                        │                           │─────────────────────────>│                  │
+      │                           │                        │                           │<─────────────────────────│                  │
+      │                           │                        │                           │                          │                  │
+      │                           │                        │                           │  gzip JSON               │                  │
+      │                           │                        │                           │  spoke-results/metadata/{appid}-{uid}.json.gz
+      │                           │                        │                           │──────────────────────────────────────────────>│
+      │                           │                        │                           │                          │                  │
+      │                           │                        │                           │  MetadataSpokeResult → SpokeResultsQ          │
+      │                           │                        │                           │  {appid, task, success, s3_key, spoke_region}  │
 
-  SpokeResultsQ         SpokeIngestFn            RDS               GameEventsTopic
-      │                 ingest_handler.py         games                  │
-      │  SQS receive         │                     │                     │
-      │─────────────────────>│                     │                     │
-      │                      │  S3 get + decompress│                     │
-      │                      │  CrawlService       │                     │
-      │                      │  .ingest_spoke_metadata()                 │
-      │                      │  GameRepository     │                     │
-      │                      │  .upsert(game_data) │                     │
-      │                      │────────────────────>│                     │
-      │                      │<────────────────────│                     │
-      │                      │  S3 delete object   │                     │
-      │                      │                     │                     │
-      │                      │  publish GameMetadataReadyEvent            │
-      │                      │  {event_type:"game-metadata-ready",        │
-      │                      │   appid, is_eligible:"true"|"false"}       │
-      │                      │──────────────────────────────────────────>│
+  SpokeResultsQ          SpokeIngestFn                   RDS (games)           AssetsBucket          GameEventsTopic
+      │                  ingest_handler.py                     │                     │                      │
+      │  SQS receive (b=5)    │                                │                     │                      │
+      │──────────────────────>│                                │                     │                      │
+      │                       │  S3 get + gzip decompress      │                     │                      │
+      │                       │<────────────────────────────────────────────────────>│                      │
+      │                       │  CrawlService.ingest_spoke_metadata()                │                      │
+      │                       │  GameRepository.upsert()  ON CONFLICT DO UPDATE      │                      │
+      │                       │───────────────────────────────>│                     │                      │
+      │                       │<───────────────────────────────│                     │                      │
+      │                       │  upsert tags / genres / categories                   │                      │
+      │                       │  CatalogRepository.set_meta_status("done")           │                      │
+      │                       │───────────────────────────────>│                     │                      │
+      │                       │<───────────────────────────────│                     │                      │
+      │                       │  S3 delete object              │                     │                      │
+      │                       │────────────────────────────────────────────────────> │                       │
+      │                       │                                │                     │                      │
+      │                       │  publish GameMetadataReadyEvent                                             │
+      │                       │  {event_type:"game-metadata-ready", appid, review_count, version:1}         │
+      │                       │  MessageAttribute: is_eligible="true"|"false"                               │
+      │                       │──────────────────────────────────────────────────────────────────────────>  │
 #+END_SRC
 
 *Drift checklist:*
 - Spoke invocation is =InvocationType="Event"= (async — fire and forget)
 - =appid % len(spoke_targets)= determines which spoke — deterministic routing
-- =is_eligible= is a SNS MessageAttribute string ="true"= or ="false"= (not bool)
+- =is_eligible= is a SNS MessageAttribute string ="true"= or ="false"= (not bool); event body also carries =review_count= and =version=1=
 - =GameRepository.upsert()= uses =ON CONFLICT DO UPDATE= (full metadata overwrite is correct here)
 - S3 object is deleted after successful ingest (no orphaned objects)
 
@@ -237,7 +238,11 @@ Invariant: After game-discovered, the game's full Steam metadata is stored
 #+BEGIN_SRC
 Invariant: All English reviews for an eligible game are fetched and stored.
            If Steam returns a next_cursor, the game is re-queued until
-           next_cursor is None (exhausted) or reviews_target is reached.
+           next_cursor is None (true exhaustion) or all batch reviews predate
+           reviews_completed_at (early-stop on re-crawl).
+           Re-crawls always restart from cursor="*" (newest-first) and use
+           reviews_completed_at as an early-stop boundary to avoid re-fetching
+           the entire review history.
            Duplicate review_ids are upserted (not duplicated) in DB.
 #+END_SRC
 
@@ -254,11 +259,12 @@ Invariant: All English reviews for an eligible game are fetched and stored.
       │                      │  read cursor from app_catalog            │
       │                      │  (NULL → use "*")                        │
       │                      │                   │                     │
-      │                      │                   │  async invoke        │
-      │                      │                   │  ReviewSpokeReq      │
-      │                      │                   │  {appid, cursor,     │
-      │                      │                   │   task:reviews}      │
-      │                      │                   │────────────────────> │
+      │                      │                   │  async invoke           │
+      │                      │                   │  ReviewSpokeReq         │
+      │                      │                   │  {appid, cursor,        │
+      │                      │                   │   task:reviews,         │
+      │                      │                   │   max_reviews}          │
+      │                      │                   │────────────────────>    │
       │                      │                   │                      │
       │                      │                   │  GET appreviews      │
       │                      │                   │  filter=recent       │
@@ -268,9 +274,8 @@ Invariant: All English reviews for an eligible game are fetched and stored.
       │                      │                   │  next_cursor or ""   │
       │                      │                   │  <───────────────    │
       │                      │                   │                      │
-      │                      │                   │  gzip → S3           │
-      │                      │                   │  spoke-results/      │
-      │                      │                   │  reviews/{id}.gz     │
+      │                      │                   │  gzip → S3                               │
+      │                      │                   │  spoke-results/reviews/{appid}-{uid}.json.gz
       │                      │                   │  ───────────────>    │
       │                      │                   │                      │
       │                      │                   │  ReviewSpokeResult   │
@@ -285,32 +290,39 @@ Invariant: All English reviews for an eligible game are fetched and stored.
       │─────────────────────>│                     │                    │
       │                      │  S3 get + decompress│                    │
       │                      │  ReviewRepository   │                    │
-      │                      │  .upsert_batch()    │                    │
+      │                      │  .bulk_upsert()     │                    │
       │                      │  ON CONFLICT(steam_review_id) DO UPDATE  │
       │                      │────────────────────>│                    │
       │                      │<────────────────────│                    │
-      │                      │  S3 delete object   │                    │
       │                      │                     │                    │
       │                      │  ┌─ if next_cursor not None AND          │
-      │                      │  │    reviews_target not reached ──────┐ │
+      │                      │  │    reviews_target not reached AND     │
+      │                      │  │    NOT early_stop ──────────────────┐ │
       │                      │  │  save cursor to app_catalog         │ │
       │                      │  │  send {appid} → ReviewCrawlQ        │ │
       │                      │  │  (loop continues)                   │ │
       │                      │  └─────────────────────────────────────┘ │
       │                      │                     │                    │
-      │                      │  ┌─ if exhausted ─────────────────────┐  │
-      │                      │  │  clear cursor in app_catalog        │  │
-      │                      │  │  update review_status = 'done'      │  │
-      │                      │  │  publish reviews-ready              │  │
-      │                      │  │  → ContentEventsTopic               │  │
+      │                      │  ┌─ if exhausted OR early_stop ───────┐  │
+      │                      │  │  mark_reviews_complete(appid)       │  │
+      │                      │  │  cursor=NULL, completed_at=NOW()    │  │
+      │                      │  │  early_stop = min(batch.posted_at)  │  │
+      │                      │  │    < reviews_completed_at           │  │
       │                      │  └─────────────────────────────────────┘  │
+      │                      │                     │                    │
+      │                      │  S3 delete object   │                    │
 #+END_SRC
 
 *Drift checklist:*
 - =filter="recent"= in =steam_source.get_reviews()= (NOT =filter="all"=)
-- =ReviewRepository.upsert_batch()= uses =ON CONFLICT (steam_review_id) DO UPDATE= (update, not skip)
+- =ReviewRepository.bulk_upsert()= uses =ON CONFLICT (steam_review_id) DO UPDATE= (update, not skip)
 - Cursor is read from =app_catalog.review_cursor= before dispatch, not from SQS message
-- Re-queue sends only ={appid}= to ReviewCrawlQ — cursor is stored in DB, not passed in message
+- Re-queue sends only ={appid}= to ReviewCrawlQ — cursor is stored in DB, not in message
+- Ingest is data-only: no SNS events, no Step Functions trigger
+- =mark_reviews_complete()= sets =review_cursor=NULL= and =reviews_completed_at=NOW()= atomically
+- Early-stop: if =min(batch.timestamp_created) < reviews_completed_at=, treat as exhausted
+- =review_status= does not exist on =app_catalog= — eligibility enforced at SNS filter level
+- S3 object deleted AFTER cursor management and re-queue (safe for retry)
 - =ensure_stub()= in game_repo uses =ON CONFLICT DO NOTHING= (must not overwrite real game names)
 
 ** Flow-04: LLM Analysis

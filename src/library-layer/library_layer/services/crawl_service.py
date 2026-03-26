@@ -372,12 +372,10 @@ class CrawlService:
         self._tag_repo.upsert_genres(appid, genres)
         self._tag_repo.upsert_categories(appid, categories)
 
-        review_status = "pending" if total_reviews >= self._config.REVIEW_ELIGIBILITY_THRESHOLD else "ineligible"
         self._catalog_repo.set_meta_status(
             appid,
             "done",
             review_count=total_reviews_all,
-            review_status=review_status,
         )
 
         self._archive_to_s3(f"app-details/{appid}/{date.today().isoformat()}.json.gz", details)

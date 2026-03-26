@@ -2,6 +2,7 @@
 
 import gzip
 import json
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -48,10 +49,11 @@ def _gzipped(data: Any) -> bytes:
     return gzip.compress(json.dumps(data).encode())
 
 
-def _mock_catalog_and_review_repos(ih: Any) -> None:
+def _mock_catalog_and_review_repos(ih: Any, reviews_completed_at: datetime | None = None) -> None:
     """Stub out catalog_repo and review_repo so cursor logic doesn't hit DB."""
     ih._catalog_repo = MagicMock()
     ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
+    ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=reviews_completed_at)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=0)
 
@@ -114,7 +116,7 @@ def test_unknown_task_raises(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_reviews_exhausted_clears_cursor(lambda_context: Any) -> None:
+def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=500)
@@ -128,8 +130,79 @@ def test_reviews_exhausted_clears_cursor(lambda_context: Any) -> None:
     event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=500, spoke_region="us-east-1", next_cursor=None))
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.clear_review_cursor.assert_called_once_with(440)
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440)
     ih._sqs.send_message.assert_not_called()
+
+
+@mock_aws
+def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_context: Any) -> None:
+    ih = _get_module()
+    ih._crawl_service = MagicMock()
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=10)
+    ih._s3 = MagicMock()
+    old_ts = int(datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp())
+    reviews = [{"timestamp_created": old_ts}]
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
+    }
+    ih._sqs = MagicMock()
+    _mock_catalog_and_review_repos(
+        ih,
+        reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
+
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=10, spoke_region="us-east-1", next_cursor="has_more"))
+    ih.handler(event, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440)
+    ih._sqs.send_message.assert_not_called()
+
+
+@mock_aws
+def test_no_early_stop_on_first_crawl(lambda_context: Any) -> None:
+    """First crawl (reviews_completed_at=None) — old timestamps must NOT trigger early-stop."""
+    ih = _get_module()
+    ih._crawl_service = MagicMock()
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
+    ih._s3 = MagicMock()
+    old_ts = int(datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp())
+    reviews = [{"timestamp_created": old_ts}]
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
+    }
+    ih._sqs = MagicMock()
+    _mock_catalog_and_review_repos(ih, reviews_completed_at=None)
+
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    ih.handler(event, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_not_called()
+    ih._sqs.send_message.assert_called_once()
+
+
+@mock_aws
+def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
+    """Batch with reviews newer than reviews_completed_at must not early-stop."""
+    ih = _get_module()
+    ih._crawl_service = MagicMock()
+    ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
+    ih._s3 = MagicMock()
+    new_ts = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
+    reviews = [{"timestamp_created": new_ts}]
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
+    }
+    ih._sqs = MagicMock()
+    _mock_catalog_and_review_repos(
+        ih,
+        reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
+
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    ih.handler(event, lambda_context)
+
+    ih._catalog_repo.mark_reviews_complete.assert_not_called()
+    ih._sqs.send_message.assert_called_once()
 
 
 @mock_aws
@@ -144,6 +217,7 @@ def test_reviews_target_hit_saves_cursor_and_stops(lambda_context: Any) -> None:
     ih._sqs = MagicMock()
     ih._catalog_repo = MagicMock()
     ih._catalog_repo.get_reviews_target = MagicMock(return_value=5000)
+    ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=5000)
 
@@ -165,6 +239,7 @@ def test_reviews_more_pages_saves_cursor_and_requeues(lambda_context: Any) -> No
     }
     ih._catalog_repo = MagicMock()
     ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
+    ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=1000)
 

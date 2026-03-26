@@ -150,14 +150,13 @@ TABLES: tuple[str, ...] = (
         -- phase 1: metadata crawl
         meta_status       TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped
         meta_crawled_at   TIMESTAMPTZ,
-        -- phase 2: review crawl (only for games with 500+ reviews)
+        -- phase 2: review crawl
         review_count      INTEGER,                          -- populated after meta crawl
-        review_status     TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed | skipped | ineligible
-        review_crawled_at TIMESTAMPTZ,
         -- cursor-based chunked fetching
-        review_cursor             TEXT,       -- NULL=not started, ''=exhausted, else opaque Steam cursor
+        review_cursor             TEXT,       -- NULL=not in flight; else opaque Steam cursor
         review_cursor_updated_at  TIMESTAMPTZ,
-        reviews_target            INT,        -- NULL=fetch all; N=stop after N total reviews
+        reviews_target            INT,        -- NULL=fetch all; N=stop after N total reviews (dev/seed)
+        reviews_completed_at      TIMESTAMPTZ, -- NULL=never fully fetched; non-NULL=when last exhausted
         -- housekeeping
         discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )

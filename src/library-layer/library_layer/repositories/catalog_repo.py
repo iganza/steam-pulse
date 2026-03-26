@@ -144,23 +144,39 @@ class CatalogRepository(BaseRepository):
         self.conn.commit()
 
     def find_uncrawled_eligible(self, threshold: int, limit: int) -> list[int]:
-        """Appids ready for first review crawl, ordered newest-released first."""
-        rows = self._fetchall(
-            """
-            SELECT ac.appid
-            FROM app_catalog ac
-            JOIN games g ON g.appid = ac.appid
-            WHERE ac.meta_status = 'done'
-              AND ac.review_cursor IS NULL
-              AND ac.reviews_completed_at IS NULL
-              AND g.coming_soon = false
-              AND g.review_count_english >= %s
-              AND g.release_date IS NOT NULL
-            ORDER BY g.release_date DESC
-            LIMIT %s
-            """,
-            (threshold, limit),
-        )
+        """Atomically claim eligible appids for first review crawl (newest-released first).
+
+        Sets review_cursor='*' on claimed rows so subsequent backfill runs skip them.
+        Concurrent callers skip locked rows (SKIP LOCKED) rather than blocking.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH eligible AS (
+                    SELECT ac.appid
+                    FROM app_catalog ac
+                    JOIN games g ON g.appid = ac.appid
+                    WHERE ac.meta_status = 'done'
+                      AND ac.review_cursor IS NULL
+                      AND ac.reviews_completed_at IS NULL
+                      AND g.coming_soon = false
+                      AND g.review_count_english >= %s
+                      AND g.release_date IS NOT NULL
+                    ORDER BY g.release_date DESC
+                    FOR UPDATE OF ac SKIP LOCKED
+                    LIMIT %s
+                )
+                UPDATE app_catalog ac
+                SET review_cursor = '*',
+                    review_cursor_updated_at = NOW()
+                FROM eligible
+                WHERE ac.appid = eligible.appid
+                RETURNING ac.appid
+                """,
+                (threshold, limit),
+            )
+            rows = cur.fetchall()
+        self.conn.commit()
         return [row["appid"] for row in rows]
 
     def status_summary(self) -> dict:

@@ -26,7 +26,7 @@ class CatalogRefreshRequest(BaseModel):
 
 class ReviewBackfillRequest(BaseModel):
     action: Literal["review_backfill"]
-    limit: int = 1000
+    limit: Annotated[int, Field(ge=1, le=10_000)] = 10_000
 
 
 DirectRequest = Annotated[

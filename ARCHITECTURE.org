@@ -335,8 +335,10 @@ Invariant: All eligible uncrawled games are periodically discovered and
            Eligibility: meta_status='done', coming_soon=false,
            review_count_english >= REVIEW_ELIGIBILITY_THRESHOLD (default 50),
            release_date IS NOT NULL.
-           Only games with review_cursor IS NULL AND reviews_completed_at IS NULL
-           are selected — in-progress and completed games are skipped.
+           Selection is atomic: eligible rows are claimed by setting
+           review_cursor='*' in the same transaction (FOR UPDATE SKIP LOCKED),
+           so concurrent or repeated backfill runs skip already-claimed games.
+           Completed games (reviews_completed_at IS NOT NULL) are never selected.
            From ReviewCrawlQ onward the normal Flow-03 review crawl applies.
 #+END_SRC
 
@@ -384,12 +386,12 @@ Invariant: All eligible uncrawled games are periodically discovered and
 
 *Drift checklist:*
 - =ReviewBackfillRule= EventBridge rule is =enabled=False= in CDK — must be explicitly enabled when ready
-- Backfill selects only games with =review_cursor IS NULL AND reviews_completed_at IS NULL= (never started)
+- =find_uncrawled_eligible()= atomically sets =review_cursor='*'= on claimed rows (=FOR UPDATE SKIP LOCKED=) — subsequent backfill runs skip already-claimed games
 - =find_uncrawled_eligible()= JOINs =games= table — game must exist in both =app_catalog= AND =games=
 - Eligibility threshold from =config.REVIEW_ELIGIBILITY_THRESHOLD= (default 50), not hardcoded
 - Messages use =ReviewCrawlMessage(appid=N).model_dump()= → ={appid: N}= — same shape as Flow-03 re-queue
-- Backfill does not set =review_cursor= or =reviews_target= — that happens in Flow-03 dispatch
-- Partial index =idx_app_catalog_backfill= (migration 0008) covers this query
+- Flow-03 dispatch reads =review_cursor='*'= as the Steam initial cursor — no special handling needed
+- Partial index =idx_app_catalog_backfill= ON =app_catalog (appid)= (migration 0008) supports this query
 - Manual trigger: direct invoke ={"action": "review_backfill", "limit": N}= — no schedule needed
 
 ** Flow-04: LLM Analysis

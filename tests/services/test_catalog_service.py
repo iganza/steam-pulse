@@ -51,13 +51,14 @@ def _make_service(
     api_key: str = "test-key",
     sns_client: object | None = None,
     config: SteamPulseConfig | None = None,
+    review_queue_url: str = "https://sqs.fake/review-crawl",
 ) -> CatalogService:
     return CatalogService(
         catalog_repo=catalog_repo,
         http_client=http_client,
         sqs_client=sqs_client,
         app_crawl_queue_url=queue_url,
-        review_queue_url="https://sqs.fake/review-crawl",
+        review_queue_url=review_queue_url,
         sns_client=sns_client or _mock_sns(),
         config=config or _test_config(),
         steam_api_key=api_key,
@@ -221,9 +222,10 @@ def test_enqueue_review_backfill_sends_eligible_appids(
     catalog_repo.set_meta_status(9001, "done")
 
     with httpx.Client() as http_client:
-        svc = _make_service(catalog_repo, sqs, "https://sqs.fake/app-crawl", http_client)
-        # Override review_queue_url to point at our test queue
-        svc._review_queue_url = review_queue_url
+        svc = _make_service(
+            catalog_repo, sqs, "https://sqs.fake/app-crawl", http_client,
+            review_queue_url=review_queue_url,
+        )
         count = svc.enqueue_review_backfill(limit=10)
 
     assert count == 1

@@ -197,3 +197,18 @@ def test_find_uncrawled_eligible_orders_newest_first(
 
     result = catalog_repo.find_uncrawled_eligible(threshold=50, limit=10)
     assert result.index(3011) < result.index(3010)
+
+
+def test_find_uncrawled_eligible_is_idempotent(
+    catalog_repo: CatalogRepository, db_conn: Any
+) -> None:
+    _seed_game(db_conn, 3020, review_count_english=200, release_date="2023-06-01")
+    catalog_repo.bulk_upsert([{"appid": 3020, "name": "G"}])
+    catalog_repo.set_meta_status(3020, "done")
+
+    first = catalog_repo.find_uncrawled_eligible(threshold=50, limit=10)
+    assert 3020 in first
+
+    # Second call must not return the same appid — it was claimed (review_cursor='*')
+    second = catalog_repo.find_uncrawled_eligible(threshold=50, limit=10)
+    assert 3020 not in second

@@ -2,7 +2,7 @@
 -- transactional: false
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_app_catalog_backfill
-    ON app_catalog (meta_status, review_cursor, reviews_completed_at)
+    ON app_catalog (appid)
     WHERE meta_status = 'done'
       AND review_cursor IS NULL
       AND reviews_completed_at IS NULL;

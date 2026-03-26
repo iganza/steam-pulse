@@ -404,12 +404,21 @@ def _pending_meta(n: int) -> list[int]:
 
 
 def _eligible_reviews(n: int) -> list[int]:
-    conn, _, catalog_repo, _, _ = _get_repos()
-    try:
-        entries = catalog_repo.find_pending_reviews(limit=n)
-    finally:
-        conn.close()
-    return [e.appid for e in entries]
+    """Return appids eligible for review crawl that have never been crawled, newest first."""
+    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
+        cur.execute(
+            """SELECT ac.appid FROM app_catalog ac
+               JOIN games g ON g.appid = ac.appid
+               WHERE ac.meta_status = 'done'
+                 AND ac.review_cursor IS NULL
+                 AND ac.reviews_completed_at IS NULL
+                 AND g.coming_soon = false
+                 AND g.review_count_english >= 50
+                 AND g.release_date IS NOT NULL
+               ORDER BY g.release_date DESC NULLS LAST LIMIT %s""",
+            (n,),
+        )
+        return [row[0] for row in cur.fetchall()]
 
 
 def _ready_for_analysis(n: int = 1000) -> list[int]:
@@ -417,7 +426,7 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         cur.execute(
             """SELECT g.appid FROM games g
                JOIN app_catalog ac ON ac.appid = g.appid
-               WHERE ac.review_status = 'done'
+               WHERE ac.reviews_completed_at IS NOT NULL
                  AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.appid = g.appid)
                ORDER BY g.review_count DESC NULLS LAST LIMIT %s""",
             (n,),

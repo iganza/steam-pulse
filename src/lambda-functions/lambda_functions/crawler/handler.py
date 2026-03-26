@@ -167,13 +167,15 @@ def _dispatch_to_spoke(record: dict) -> None:
                 logger.info("reviews fresh start", extra={"appid": appid, "target": max_reviews})
             else:
                 logger.info("reviews resuming cursor", extra={"appid": appid, "cursor": cursor})
-        else:
-            # Uncapped run — clear any previous target so ingest doesn't stop early
-            # because total_fetched already exceeds a target from a prior seeding run.
-            _catalog_repo.set_reviews_target(appid, None)
+        elif cursor == "*":
+            # Fresh SQS start with no explicit cap — apply the configured default limit.
+            # Prevents automated crawls from fetching hundreds of thousands of reviews.
+            # Do NOT clear/set on resume: re-queue messages carry no max_reviews so the
+            # target persists across pages from when it was first set.
+            _catalog_repo.set_reviews_target(appid, _crawler_config.REVIEW_LIMIT)
             logger.info(
-                "reviews uncapped",
-                extra={"appid": appid, "mode": "resuming" if cursor != "*" else "fresh", "cursor": cursor},
+                "reviews fresh start",
+                extra={"appid": appid, "default_limit": _crawler_config.REVIEW_LIMIT},
             )
         req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
             appid=appid,

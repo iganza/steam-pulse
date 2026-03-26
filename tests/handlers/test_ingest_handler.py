@@ -208,7 +208,8 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_reviews_target_hit_saves_cursor_and_stops(lambda_context: Any) -> None:
+def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
+    """target_hit (hitting REVIEW_LIMIT) is normal completion — mark_reviews_complete is called."""
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
@@ -226,7 +227,7 @@ def test_reviews_target_hit_saves_cursor_and_stops(lambda_context: Any) -> None:
     event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.save_review_cursor.assert_called_once_with(440, "cursor_abc")
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
     ih._sqs.send_message.assert_not_called()
 
 

@@ -86,8 +86,10 @@ class SteamPulseConfig(BaseSettings):
         """Return list of spoke regions, filtering out empty strings."""
         return [r.strip() for r in self.SPOKE_REGIONS.split(",") if r.strip()]
 
-    # ── Eligibility threshold — overridable via env var or SSM at runtime ──────
+    # ── Review crawl limits — overridable via env var ───────────────────────────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 50
+    REVIEW_LIMIT: int = 10_000  # Default cap for automated (SQS-driven) crawls.
+                                 # Operators can override per-invocation via direct invoke.
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

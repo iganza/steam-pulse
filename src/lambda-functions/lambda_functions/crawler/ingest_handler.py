@@ -188,8 +188,13 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             },
         )
     elif target_hit:
-        _catalog_repo.save_review_cursor(appid, msg.next_cursor)
-        logger.info("Reviews target hit — stopping", extra={"appid": appid, "total": total_fetched, "target": target})
+        # Hitting the default REVIEW_LIMIT is normal completion for high-review games.
+        # Mark complete so early-stop on re-crawls picks up only new reviews.
+        _catalog_repo.mark_reviews_complete(appid, completed_at=None)
+        logger.info(
+            "Reviews complete",
+            extra={"appid": appid, "reason": "target_hit", "total": total_fetched, "target": target},
+        )
     else:
         # More to fetch — save cursor and re-queue
         _catalog_repo.save_review_cursor(appid, msg.next_cursor)

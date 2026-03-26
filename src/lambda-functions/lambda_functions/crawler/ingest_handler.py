@@ -171,7 +171,14 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     exhausted = msg.next_cursor is None
 
     if exhausted or early_stop:
-        _catalog_repo.mark_reviews_complete(appid)
+        # On early-stop, use the batch boundary as the watermark so that reviews
+        # posted *during* this crawl are not skipped on the next re-crawl.
+        # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
+        # we have every review up to this moment).
+        boundary = (
+            datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
+        )
+        _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
         logger.info(
             "Reviews complete",
             extra={

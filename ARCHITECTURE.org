@@ -172,8 +172,8 @@ Invariant: Every appid Steam returns that is not yet in app_catalog
 ** Flow-02: Metadata Crawl
 
 1. After game-discovered, a game-discovered event should be published.
-2. The MetadataEnrichmentQ should received this event
-3. The CrawlerFn should received the event and process it, causing the games metadata to be fetched and saved
+2. The MetadataEnrichmentQ should receive this event
+3. The CrawlerFn should receive the event and process it, causing the game's metadata to be fetched and saved
 4. On successful fetch and save of metadata, the "game-metadata-ready" event should be published to GameEventsTopic
 
 #+BEGIN_SRC
@@ -304,10 +304,12 @@ Invariant: All English reviews for an eligible game are fetched and stored.
       │                      │  └─────────────────────────────────────┘ │
       │                      │                     │                    │
       │                      │  ┌─ if exhausted OR early_stop ───────┐  │
-      │                      │  │  mark_reviews_complete(appid)       │  │
-      │                      │  │  cursor=NULL, completed_at=NOW()    │  │
-      │                      │  │  early_stop = min(batch.posted_at)  │  │
-      │                      │  │    < reviews_completed_at           │  │
+      │                      │  │  mark_reviews_complete(appid)                  │  │
+      │                      │  │  cursor=NULL                                   │  │
+      │                      │  │  completed_at = batch boundary (early_stop)    │  │
+      │                      │  │              or NOW()           (exhausted)    │  │
+      │                      │  │  early_stop = min(batch.timestamp_created)     │  │
+      │                      │  │    < reviews_completed_at                      │  │
       │                      │  └─────────────────────────────────────┘  │
       │                      │                     │                    │
       │                      │  S3 delete object   │                    │

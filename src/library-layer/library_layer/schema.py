@@ -200,6 +200,7 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor TEXT",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_cursor_updated_at TIMESTAMPTZ",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_target INT",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_completed_at TIMESTAMPTZ",
 )
 
 # Analytics engine indexes — kept for test suite use only.

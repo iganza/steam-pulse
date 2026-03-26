@@ -130,7 +130,7 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=500, spoke_region="us-east-1", next_cursor=None))
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440)
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
     ih._sqs.send_message.assert_not_called()
 
 
@@ -154,7 +154,9 @@ def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_con
     event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=10, spoke_region="us-east-1", next_cursor="has_more"))
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440)
+    # On early-stop, completed_at is set to the batch boundary (oldest timestamp in batch)
+    expected_boundary = datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=expected_boundary)
     ih._sqs.send_message.assert_not_called()
 
 

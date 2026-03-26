@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import psycopg2.extras
 from library_layer.models.catalog import CatalogEntry
@@ -97,18 +97,24 @@ class CatalogRepository(BaseRepository):
             )
         self.conn.commit()
 
-    def mark_reviews_complete(self, appid: int) -> None:
-        """Clear in-flight cursor and record that all reviews have been fetched."""
+    def mark_reviews_complete(self, appid: int, completed_at: datetime | None = None) -> None:
+        """Clear in-flight cursor and record that all reviews have been fetched.
+
+        Pass completed_at to use a specific watermark (e.g. the minimum timestamp_created
+        from the early-stop batch) instead of NOW(). This avoids a gap where reviews posted
+        *during* a long-running crawl would be skipped on the next re-crawl.
+        """
+        ts = completed_at or datetime.now(tz=timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE app_catalog
                 SET review_cursor            = NULL,
                     review_cursor_updated_at = NOW(),
-                    reviews_completed_at     = NOW()
+                    reviews_completed_at     = %s
                 WHERE appid = %s
                 """,
-                (appid,),
+                (ts, appid),
             )
         self.conn.commit()
 

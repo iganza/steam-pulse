@@ -156,9 +156,9 @@ def _dispatch_to_spoke(record: dict) -> None:
     if task == "reviews":
         max_reviews: int | None = body.get("max_reviews")
         saved_cursor = _catalog_repo.get_review_cursor(appid)
-        # None = not in flight (not started or complete) → restart from *
-        # non-None = resume mid-stream cursor
-        cursor = saved_cursor if saved_cursor is not None else "*"
+        # None or "" = not in flight (not started, complete, or legacy sentinel) → restart from *
+        # non-empty string = resume mid-stream cursor
+        cursor = saved_cursor if saved_cursor not in (None, "") else "*"
         if max_reviews is not None:
             # Capped run — persist target on fresh start so ingest chain knows when to stop.
             # Only set on fresh cursor ("*") to avoid overwriting a mid-stream target.

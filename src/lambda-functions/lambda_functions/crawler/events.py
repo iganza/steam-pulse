@@ -4,6 +4,7 @@ CDK / boto3 callers construct these and call .model_dump() as the payload.
 The dispatcher validates the raw event dict using TypeAdapter.
 """
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -48,8 +49,8 @@ class ReviewSpokeRequest(BaseModel):
     appid: int
     task: CrawlTask = "reviews"
     cursor: str = "*"
-    target: int | None = None       # None = fetch all; N = stop after N total reviews
-    started_at: str | None = None   # ISO timestamp when this crawl began (observability)
+    target: int | None = None           # None = fetch all; N = stop after N total reviews
+    started_at: datetime | None = None  # when this crawl began (observability)
 
 
 # ── Spoke result models (Spoke → Ingest via SQS) ────────────────────────────
@@ -74,8 +75,8 @@ class ReviewSpokeResult(BaseModel):
     count: int = 0
     spoke_region: str
     next_cursor: str | None = None  # None = Steam exhausted; non-None = more pages remain
-    target: int | None = None       # Pass-through from ReviewSpokeRequest
-    started_at: str | None = None   # Pass-through from ReviewSpokeRequest
+    target: int | None = None           # Pass-through from ReviewSpokeRequest
+    started_at: datetime | None = None  # Pass-through from ReviewSpokeRequest
     error: str | None = None
 
 

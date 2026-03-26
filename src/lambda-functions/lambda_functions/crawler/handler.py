@@ -156,14 +156,13 @@ def _dispatch_to_spoke(record: dict) -> None:
         # Cursor and target travel in the SQS message body — no DB reads needed.
         # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
         # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
-        cursor: str = body.get("cursor", "*")
-        target: int | None = body.get("target")
-        started_at: str | None = body.get("started_at")
+        # Normalize cursor: treat missing, null, and empty string all as fresh start.
+        cursor: str = body.get("cursor") or "*"
+        # Always enforce a bounded target — never allow unbounded crawls.
+        target: int = body.get("target") or _crawler_config.REVIEW_LIMIT
+        started_at: str | datetime = body.get("started_at") or datetime.now(tz=timezone.utc)
 
         if cursor == "*":
-            # Fresh start — apply configured default limit and record start time.
-            target = target if target is not None else _crawler_config.REVIEW_LIMIT
-            started_at = datetime.now(tz=timezone.utc).isoformat()
             logger.info("reviews fresh start", extra={"appid": appid, "target": target})
         else:
             logger.info("reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target})

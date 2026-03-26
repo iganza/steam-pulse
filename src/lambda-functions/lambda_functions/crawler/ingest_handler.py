@@ -197,17 +197,20 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             extra={"appid": appid, "reason": "target_hit", "total": total_fetched, "target": target},
         )
     else:
-        # More to fetch — re-queue with cursor embedded in message body
+        # More to fetch — re-queue with cursor embedded in message body.
+        # Pass remaining budget (target - total_fetched) so the spoke fetches only
+        # what's left, preventing overshoot on the final batch.
+        remaining = target - total_fetched if target is not None else None
         _sqs.send_message(
             QueueUrl=_review_crawl_queue_url,
             MessageBody=json.dumps({
                 "appid": appid,
                 "cursor": msg.next_cursor,
-                "target": target,
-                "started_at": msg.started_at,
+                "target": remaining,
+                "started_at": msg.started_at.isoformat() if msg.started_at else None,
             }),
         )
-        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched})
+        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched, "remaining": remaining})
 
     # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

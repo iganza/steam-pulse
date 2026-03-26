@@ -315,7 +315,7 @@ def test_crawl_app_eligibility_uses_english_count(
     steam_appdetails_440: dict,
     httpx_mock: HTTPXMock,
 ) -> None:
-    """review_status should be 'ineligible' when English count < threshold, even if all-lang exceeds it."""
+    """Eligibility is enforced at SNS filter level; crawl_app stores English count regardless."""
     import boto3
     import httpx as _httpx
 
@@ -377,10 +377,11 @@ def test_crawl_app_eligibility_uses_english_count(
     assert game is not None
     assert game.review_count == 800  # all-lang stored for display
     assert game.review_count_english == 30  # English stored separately
-    # Catalog status should be ineligible since English count < REVIEW_ELIGIBILITY_THRESHOLD
+    # Eligibility is enforced at SNS filter level — catalog entry is still recorded
     entry = catalog_repo.find_by_appid(440)
     assert entry is not None
-    assert entry.review_status == "ineligible"
+    assert entry.meta_status == "done"
+    assert entry.review_count == 800
 
 
 # ---------------------------------------------------------------------------

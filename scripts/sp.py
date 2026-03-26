@@ -37,11 +37,11 @@ Requires:
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 import psycopg2
@@ -82,12 +82,12 @@ if _cmd not in _DEPLOYED_COMMANDS and _cmd not in {"analyze", "seed"}:
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
+from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
 from library_layer.repositories.game_repo import GameRepository  # noqa: E402
 from library_layer.repositories.report_repo import ReportRepository  # noqa: E402
 from library_layer.repositories.review_repo import ReviewRepository  # noqa: E402
 from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
-from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.services.crawl_service import CrawlService  # noqa: E402
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
 
@@ -120,6 +120,7 @@ except ImportError:
 
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://steampulse:dev@127.0.0.1:5432/steampulse")
+_REVIEW_ELIGIBILITY_THRESHOLD = int(os.getenv("REVIEW_ELIGIBILITY_THRESHOLD", "50"))
 
 DEFAULT_SEED_APPIDS = [440, 730, 570, 1091500, 413150]  # TF2, CS2, Dota2, Cyberpunk, Stardew
 
@@ -315,7 +316,10 @@ def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
             return "done" if result else "skipped"
         else:
             n = svc.crawl_reviews(appid)
-            return "done" if n >= 0 else "skipped"
+            if n >= 0:
+                CatalogRepository(c).mark_reviews_complete(appid)
+                return "done"
+            return "skipped"
     except Exception as exc:
         _warn(f"appid={appid} error: {exc}")
         return "failed"
@@ -404,12 +408,21 @@ def _pending_meta(n: int) -> list[int]:
 
 
 def _eligible_reviews(n: int) -> list[int]:
-    conn, _, catalog_repo, _, _ = _get_repos()
-    try:
-        entries = catalog_repo.find_pending_reviews(limit=n)
-    finally:
-        conn.close()
-    return [e.appid for e in entries]
+    """Return appids eligible for review crawl that have never been crawled, newest first."""
+    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
+        cur.execute(
+            """SELECT ac.appid FROM app_catalog ac
+               JOIN games g ON g.appid = ac.appid
+               WHERE ac.meta_status = 'done'
+                 AND ac.review_cursor IS NULL
+                 AND ac.reviews_completed_at IS NULL
+                 AND g.coming_soon = false
+                 AND g.review_count_english >= %s
+                 AND g.release_date IS NOT NULL
+               ORDER BY g.release_date DESC NULLS LAST LIMIT %s""",
+            (_REVIEW_ELIGIBILITY_THRESHOLD, n),
+        )
+        return [row[0] for row in cur.fetchall()]
 
 
 def _ready_for_analysis(n: int = 1000) -> list[int]:
@@ -417,7 +430,7 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         cur.execute(
             """SELECT g.appid FROM games g
                JOIN app_catalog ac ON ac.appid = g.appid
-               WHERE ac.review_status = 'done'
+               WHERE ac.reviews_completed_at IS NOT NULL
                  AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.appid = g.appid)
                ORDER BY g.review_count DESC NULLS LAST LIMIT %s""",
             (n,),

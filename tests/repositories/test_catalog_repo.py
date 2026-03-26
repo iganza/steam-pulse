@@ -42,27 +42,53 @@ def test_find_pending_meta(catalog_repo: CatalogRepository) -> None:
 
 def test_set_meta_status_with_review_count(catalog_repo: CatalogRepository) -> None:
     catalog_repo.bulk_upsert([{"appid": 500, "name": "Big Game"}])
-    catalog_repo.set_meta_status(500, "done", review_count=1500, review_status="pending")
+    catalog_repo.set_meta_status(500, "done", review_count=1500)
     entry = catalog_repo.find_by_appid(500)
     assert entry is not None
     assert entry.meta_status == "done"
     assert entry.review_count == 1500
-    assert entry.review_status == "pending"
-
-
-def test_set_review_status(catalog_repo: CatalogRepository) -> None:
-    catalog_repo.bulk_upsert([{"appid": 700, "name": "Review Game"}])
-    catalog_repo.set_review_status(700, "done")
-    entry = catalog_repo.find_by_appid(700)
-    assert entry is not None
-    assert entry.review_status == "done"
 
 
 def test_status_summary(catalog_repo: CatalogRepository) -> None:
     catalog_repo.bulk_upsert(_entries(5))
-    catalog_repo.set_meta_status(1000, "done", review_status="done")
+    catalog_repo.set_meta_status(1000, "done")
     catalog_repo.set_meta_status(1001, "failed")
     summary = catalog_repo.status_summary()
     assert summary["meta"].get("done", 0) >= 1
     assert summary["meta"].get("failed", 0) >= 1
     assert summary["meta"].get("pending", 0) >= 3
+
+
+def test_mark_reviews_complete_sets_cursor_null_and_timestamp(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 100, "name": "G"}])
+    catalog_repo.save_review_cursor(100, "abc123")
+    catalog_repo.mark_reviews_complete(100)
+    entry = catalog_repo.find_by_appid(100)
+    assert entry is not None
+    assert entry.review_cursor is None
+    assert entry.reviews_completed_at is not None
+
+
+def test_mark_reviews_complete_overwrites_previous_timestamp(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 101, "name": "G"}])
+    catalog_repo.mark_reviews_complete(101)
+    t1 = catalog_repo.find_by_appid(101).reviews_completed_at
+    catalog_repo.save_review_cursor(101, "new_cursor")
+    catalog_repo.mark_reviews_complete(101)
+    t2 = catalog_repo.find_by_appid(101).reviews_completed_at
+    assert t2 >= t1
+
+
+def test_get_reviews_completed_at_none_before_any_crawl(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 200, "name": "G"}])
+    assert catalog_repo.get_reviews_completed_at(200) is None
+
+
+def test_get_reviews_completed_at_returns_timestamp_after_complete(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 201, "name": "G"}])
+    catalog_repo.mark_reviews_complete(201)
+    assert catalog_repo.get_reviews_completed_at(201) is not None
+
+
+def test_get_reviews_completed_at_none_for_missing_appid(catalog_repo: CatalogRepository) -> None:
+    assert catalog_repo.get_reviews_completed_at(99999) is None

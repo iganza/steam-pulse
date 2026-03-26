@@ -23,17 +23,17 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 
 ## Tech Stack
 
-| Layer | Choice |
-|---|---|
-| Backend API | Python 3.12, FastAPI (JSON API only — no HTML rendering), uvicorn, httpx |
-| Frontend | Next.js (React SSR/ISR) in `frontend/`, deployed via OpenNext to Lambda |
-| LLM | Haiku 4.5 (chunk pass), Sonnet 4.6 (synthesis). Model IDs via `LLM_MODEL__CHUNKING` / `LLM_MODEL__SUMMARIZER` env vars. AWS Bedrock (`anthropic.AnthropicBedrock()`), Converse API. Batch Inference planned — not yet implemented. |
-| DB | PostgreSQL on RDS. All access via Repository classes. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
-| Hosting | AWS Lambda (container image) + CloudFront + Route 53. **No Railway. No Fargate.** |
-| Infra | AWS CDK v2 (Python) in `infra/`. CDK Pipelines (self-mutating). |
-| Payments | **None currently.** `/api/validate-key` stubs full access — payment integration deferred. |
-| Email | Resend |
-| Deps | Poetry — `pyproject.toml` is source of truth. No `requirements.txt`. |
+| Layer       | Choice                                                                                                               |
+|-------------|----------------------------------------------------------------------------------------------------------------------|
+| Backend API | Python 3.12, FastAPI (JSON API only — no HTML rendering), uvicorn, httpx                                             |
+| Frontend    | Next.js (React SSR/ISR) in `frontend/`, deployed via OpenNext to Lambda                                              |
+| LLM         | Amazon Bedrock with 2 pass / map-reduce                                                                              |
+| DB          | PostgreSQL on RDS. All access via Repository classes. Locally use Docker Postgres via `./scripts/dev/start-local.sh` |
+| Hosting     | AWS Lambda (container image) + CloudFront + Route 53. **No Railway. No Fargate.**                                    |
+| Infra       | AWS CDK v2 (Python) in `infra/`. CDK Pipelines (self-mutating).                                                      |
+| Payments    | **None currently.**                                                                                                  |
+| Email       | Resend                                                                                                               |
+| Deps        | Poetry — `pyproject.toml` is source of truth. No `requirements.txt`.                                                 |
 
 ---
 
@@ -43,26 +43,65 @@ Full architecture decisions in `steampulse-design.org` at the repo root. Read it
 repo-root/
   src/
     library-layer/      # Shared Lambda layer: httpx, psycopg2, boto3, anthropic + framework code
-      library_layer/    # analyzer, storage, steam_source, fetcher, reporter
+      library_layer/
+        analyzer.py     # LLM two-pass analysis orchestration (Haiku + Sonnet)
+        config.py       # SteamPulseConfig (env var parsing)
+        fetcher.py      # HTTP client wrapper
+        reporter.py     # Report generation / storage
+        schema.py       # PostgreSQL schema reference
+        steam_source.py # Steam API abstraction (SteamDataSource)
+        models/         # Domain + LLM output models
+          analyzer_models.py  # GameReport, ChunkSummary + all LLM output types
+          catalog.py    # CatalogEntry
+          game.py       # Game, GameSummary
+          report.py     # Report (DB wrapper for stored report_json)
+          review.py     # Review
+          tag.py        # Tag, Genre, Category
+        repositories/   # SQL I/O: game_repo, review_repo, report_repo, analytics_repo, etc.
+        services/       # Business logic: analysis_service, crawl_service, catalog_service
+        utils/          # Shared helpers: db, sqs, ssm, slugify, events, time, steam_metrics
     lambda-functions/   # All Lambda handlers
       lambda_functions/
-        app_crawler/    # Crawls Steam metadata → writes to DB → triggers events
-        review_crawler/ # Fetches reviews → writes to DB → triggers Step Functions
+        analysis/       # LLM two-pass analysis handler
         api/            # FastAPI app: all /api/* endpoints
-  frontend/             # Next.js app (React)
+        crawler/        # App + review crawler, spoke, ingest handlers
+        admin/          # Admin ops + migrate handler (no X-Ray — intentional)
+        db_loader/      # DB initialization handler
+      migrations/       # yoyo-migrations DDL: 0001–0005_*.sql
+  frontend/             # Next.js 13+ App Router (React SSR/ISR)
+    app/                # Pages: home, games/[appid]/[slug], genre, search, tag, trending, pro
+    components/         # game/, layout/, ui/ component groups
+    lib/                # api.ts, types.ts, utils.ts
+    tests/              # Playwright E2E tests + fixtures/
   infra/                # AWS CDK v2 (Python)
+    app.py              # CDK entry point
+    pipeline_stack.py
+    application_stage.py
+    stacks/             # network, data, messaging, compute, delivery, certificate, frontend, spoke, monitoring
+  tests/                # Python unit tests (pytest)
+    handlers/           # Handler tests
+    repositories/       # Repository tests (steampulse_test DB)
+    services/           # Service tests (incl. test_analyzer.py)
+    infra/              # CDK stack tests
+    utils/              # Utility tests
   scripts/
-    dev/                # Local dev helpers (start-local.sh, run-api.sh, db-tunnel.sh, push-to-staging.sh)
+    dev/                # start-local.sh, run-api.sh, db-tunnel.sh, push-to-staging.sh, migrate.sh
+    prompts/            # Active feature design specs (completed/ subdir for done specs)
     seed.py             # Bootstrap top-N games into SQS
-    sp.py               # CLI for queueing review crawls, checking status
+    sp.py               # CLI: queue reviews, check status
+    tail.py             # CloudWatch Logs tail
+    trigger_crawl.py    # Trigger crawl manually
+    migrate_slugs.py    # One-off slug migration
     aws-costs.sh        # AWS cost report
-    prompts/            # Active feature design specs
+  doc/                  # Architecture diagrams, sequence diagrams, prompt strategy
+  Dockerfile            # Lambda container image
+  docker-compose.yml    # Local Postgres for dev
   main.py               # CLI tool for local LLM testing
   pyproject.toml        # Python deps (main + infra groups)
   cdk.json              # "app": "poetry run python infra/app.py"
-  docker-compose.yml    # Local Postgres for dev
   CLAUDE.md
-  steampulse-design.org
+  ARCHITECTURE.org      # Full component & interaction flow reference
+  steampulse-design.org # Architecture decisions
 ```
 
 ---
@@ -85,6 +124,11 @@ poetry install --with infra
 poetry run cdk synth
 poetry run cdk deploy  # only needed once to bootstrap pipeline
 
+# Lambda layer deps — IMPORTANT: after adding/removing deps in src/library-layer/pyproject.toml,
+# regenerate its lock file or the new package won't be installed in the Lambda layer:
+cd src/library-layer && poetry lock && cd ../..
+# Then commit poetry.lock alongside your pyproject.toml change.
+
 # Frontend local dev
 cd frontend && npm install && npm run dev
 
@@ -93,12 +137,22 @@ poetry run pytest -v
 poetry run ruff check .
 poetry run ruff format .
 
+# Migrations
+bash scripts/dev/migrate.sh                       # apply pending migrations (local)
+bash scripts/dev/migrate.sh --stage staging       # staging (tunnel must be open)
+
 # Seed / queue scripts
-export APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/staging/messaging/app-crawl-queue-url"
-poetry run python scripts/seed.py --limit 50   # staging
+export APP_CRAWL_QUEUE_URL="<SQS queue URL from AWS Console or SSM>"
+poetry run python scripts/seed.py --limit 50     # staging
 poetry run python scripts/seed.py --dry-run --limit 5   # smoke test
-poetry run python scripts/seed.py              # production (full crawl)
-poetry run python scripts/sp.py queue reviews --appid 440  # queue single game
+poetry run python scripts/seed.py               # production (full crawl)
+poetry run python scripts/sp.py queue reviews 440  # queue single game
+
+# Log tailing (Lambda CloudWatch logs)
+poetry run python scripts/tail.py crawler        # tail crawler logs
+poetry run python scripts/tail.py all --env staging   # all Lambdas on staging
+# services: crawler | spoke | ingest | api | analysis | all
+# options:  --env staging|production  --since 5m|1h|2h|1d
 ```
 
 ---
@@ -382,22 +436,7 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 ## Data Freshness Strategy
 
-See `steampulse-design.org` for the full tiered strategy. Summary:
-
-**Current implementation:** One weekly EventBridge rule (`CatalogRefreshRule`, disabled until
-post-launch) in `compute_stack.py` triggers a full catalog refresh.
-
-**Planned tiered rules** (not yet implemented — design target):
-
-| Rule | Schedule | Scope |
-|---|---|---|
-| `nightly-top500` | Daily 6am UTC | Top 500 games — metadata + reviews + re-analysis |
-| `weekly-mid-tier` | Sundays 8am UTC | review_count 500–5000 |
-| `monthly-long-tail` | 1st of month | review_count < 500, metadata only |
-| `weekly-discovery` | Mondays 7am UTC | Full Steam app list — finds new games not in DB |
-
-**Staleness signal:** `last_analyzed` is returned in all API responses.
-Frontend shows "Analysis from X days ago" and a "Refresh available" badge after 30 days.
+TBD
 
 ---
 
@@ -562,15 +601,15 @@ def handler(event: dict, context: object) -> dict:
 
 **Current tracing coverage:**
 
-| Lambda | Logger | Tracer (code) | Tracer (CDK) |
-|---|---|---|---|
-| analysis | ✅ | ✅ | ✅ |
-| api | ✅ | ✅ | ✅ |
-| crawler | ✅ | ✅ | ✅ |
-| spoke-ingest | ✅ | ✅ | ✅ |
-| crawler-spoke | ✅ | ✅ | ✅ (spoke_stack) |
-| admin | ✅ | — intentional | — intentional |
-| migration | ✅ | — intentional | — intentional |
+| Lambda        | Logger | Tracer (code) | Tracer (CDK)     |
+|---------------|--------|---------------|------------------|
+| analysis      | ✅     | ✅            | ✅               |
+| api           | ✅     | ✅            | ✅               |
+| crawler       | ✅     | ✅            | ✅               |
+| spoke-ingest  | ✅     | ✅            | ✅               |
+| crawler-spoke | ✅     | ✅            | ✅ (spoke_stack) |
+| admin         | ✅     | — intentional | — intentional    |
+| migration     | ✅     | — intentional | — intentional    |
 
 **X-Ray cost note:** Default sampling traces the first request per second plus 5% of additional requests — $5/million traces after the first 100k/month free. Cost is negligible at current scale.
 

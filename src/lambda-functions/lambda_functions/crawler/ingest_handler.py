@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from datetime import datetime, timezone
 
 import boto3
 import httpx
@@ -152,17 +153,48 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     # Cursor management + re-queue logic — must complete before S3 delete.
     # If any of these raise (DB hiccup, SQS failure), the SQS record retries
     # and the S3 object is still available. Delete only on full success.
+
+    # Early-stop: on re-crawls (reviews_completed_at IS NOT NULL), Steam returns
+    # newest reviews first. Once min(batch.timestamp_created) predates our last
+    # completed crawl we've covered the entire gap of new reviews — stop early.
+    reviews_completed_at = _catalog_repo.get_reviews_completed_at(appid)
+    min_batch_ts = min((r.get("timestamp_created", 0) for r in data), default=0)
+    early_stop = (
+        reviews_completed_at is not None
+        and min_batch_ts > 0
+        and datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) < reviews_completed_at
+    )
+
     total_fetched = _review_repo.count_by_appid(appid)
     target = _catalog_repo.get_reviews_target(appid)
     target_hit = target is not None and total_fetched >= target
     exhausted = msg.next_cursor is None
 
-    if exhausted:
-        _catalog_repo.clear_review_cursor(appid)
-        logger.info("Reviews exhausted", extra={"appid": appid, "total": total_fetched})
+    if exhausted or early_stop:
+        # On early-stop, use the batch boundary as the watermark so that reviews
+        # posted *during* this crawl are not skipped on the next re-crawl.
+        # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
+        # we have every review up to this moment).
+        boundary = (
+            datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
+        )
+        _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
+        logger.info(
+            "Reviews complete",
+            extra={
+                "appid": appid,
+                "reason": "exhausted" if exhausted else "early_stop",
+                "total": total_fetched,
+            },
+        )
     elif target_hit:
-        _catalog_repo.save_review_cursor(appid, msg.next_cursor)
-        logger.info("Reviews target hit — stopping", extra={"appid": appid, "total": total_fetched, "target": target})
+        # Hitting the default REVIEW_LIMIT is normal completion for high-review games.
+        # Mark complete so early-stop on re-crawls picks up only new reviews.
+        _catalog_repo.mark_reviews_complete(appid, completed_at=None)
+        logger.info(
+            "Reviews complete",
+            extra={"appid": appid, "reason": "target_hit", "total": total_fetched, "target": target},
+        )
     else:
         # More to fetch — save cursor and re-queue
         _catalog_repo.save_review_cursor(appid, msg.next_cursor)

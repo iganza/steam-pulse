@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import psycopg2.extras
 from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.base import BaseRepository
@@ -53,62 +55,28 @@ class CatalogRepository(BaseRepository):
         rows = self._fetchall(sql, params)
         return [CatalogEntry.model_validate(dict(r)) for r in rows]
 
-    def find_pending_reviews(self, limit: int | None = None) -> list[CatalogEntry]:
-        sql = "SELECT * FROM app_catalog WHERE review_status = 'pending' ORDER BY discovered_at"
-        params: tuple = ()
-        if limit is not None:
-            sql += " LIMIT %s"
-            params = (limit,)
-        rows = self._fetchall(sql, params)
-        return [CatalogEntry.model_validate(dict(r)) for r in rows]
-
     def set_meta_status(
         self,
         appid: int,
         status: str,
         review_count: int | None = None,
-        review_status: str | None = None,
     ) -> None:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO app_catalog (appid, name, meta_status, meta_crawled_at,
-                                         review_count, review_status)
-                VALUES (%s, %s, %s, NOW(), %s, COALESCE(%s, 'ineligible'))
+                INSERT INTO app_catalog (appid, name, meta_status, meta_crawled_at, review_count)
+                VALUES (%s, %s, %s, NOW(), %s)
                 ON CONFLICT (appid) DO UPDATE SET
                     meta_status     = EXCLUDED.meta_status,
                     meta_crawled_at = NOW(),
-                    review_count    = COALESCE(EXCLUDED.review_count, app_catalog.review_count),
-                    review_status   = CASE
-                        WHEN EXCLUDED.review_status IS NOT NULL
-                            AND app_catalog.review_status NOT IN ('done', 'failed')
-                        THEN EXCLUDED.review_status
-                        ELSE app_catalog.review_status
-                    END
+                    review_count    = COALESCE(EXCLUDED.review_count, app_catalog.review_count)
                 """,
-                (
-                    appid,
-                    f"App {appid}",
-                    status,
-                    review_count,
-                    review_status,
-                ),
-            )
-        self.conn.commit()
-
-    def set_review_status(self, appid: int, status: str) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE app_catalog SET review_status = %s, review_crawled_at = NOW()
-                WHERE appid = %s
-                """,
-                (status, appid),
+                (appid, f"App {appid}", status, review_count),
             )
         self.conn.commit()
 
     def get_review_cursor(self, appid: int) -> str | None:
-        """Return saved Steam review cursor. None = not started; '' = exhausted."""
+        """Return saved Steam review cursor. None = not started or complete."""
         row = self._fetchone(
             "SELECT review_cursor FROM app_catalog WHERE appid = %s", (appid,)
         )
@@ -129,18 +97,33 @@ class CatalogRepository(BaseRepository):
             )
         self.conn.commit()
 
-    def clear_review_cursor(self, appid: int) -> None:
-        """Mark reviews as fully exhausted (cursor = '')."""
+    def mark_reviews_complete(self, appid: int, completed_at: datetime | None = None) -> None:
+        """Clear in-flight cursor and record that all reviews have been fetched.
+
+        Pass completed_at to use a specific watermark (e.g. the minimum timestamp_created
+        from the early-stop batch) instead of NOW(). This avoids a gap where reviews posted
+        *during* a long-running crawl would be skipped on the next re-crawl.
+        """
+        ts = completed_at or datetime.now(tz=timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE app_catalog
-                SET review_cursor = '', review_cursor_updated_at = NOW()
+                SET review_cursor            = NULL,
+                    review_cursor_updated_at = NOW(),
+                    reviews_completed_at     = %s
                 WHERE appid = %s
                 """,
-                (appid,),
+                (ts, appid),
             )
         self.conn.commit()
+
+    def get_reviews_completed_at(self, appid: int) -> datetime | None:
+        """Return when reviews were last fully exhausted. None = never completed."""
+        row = self._fetchone(
+            "SELECT reviews_completed_at FROM app_catalog WHERE appid = %s", (appid,)
+        )
+        return row["reviews_completed_at"] if row else None
 
     def get_reviews_target(self, appid: int) -> int | None:
         """Return the max-reviews target set at queue time. None = fetch all."""
@@ -161,14 +144,10 @@ class CatalogRepository(BaseRepository):
         self.conn.commit()
 
     def status_summary(self) -> dict:
-        """Return counts grouped by meta_status and review_status."""
+        """Return counts grouped by meta_status."""
         meta_rows = self._fetchall(
             "SELECT meta_status, COUNT(*) AS cnt FROM app_catalog GROUP BY meta_status"
         )
-        review_rows = self._fetchall(
-            "SELECT review_status, COUNT(*) AS cnt FROM app_catalog GROUP BY review_status"
-        )
         return {
             "meta": {r["meta_status"]: int(r["cnt"]) for r in meta_rows},
-            "review": {r["review_status"]: int(r["cnt"]) for r in review_rows},
         }

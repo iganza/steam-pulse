@@ -1117,3 +1117,12 @@ LLM_MODEL__SUMMARIZER              # Bedrock model ID override
 - [ ] Implement tiered EventBridge freshness rules (nightly-top500, weekly-mid-tier, monthly-long-tail, weekly-discovery) — currently only 1 weekly catalog rule exists
 - [ ] =/compare/{appid1}/{appid2}= route — planned (ISR, dynamic game pair) but not yet built
 - [ ] Interactive chart controls (Pro tier) — see steampulse-design.org Future Pro sections
+
+* Backlog
+- Introduce an SQS helper class that takes pydantic model and calls model_dump_XXXX correctly in all cases
+- There are several event.py files, we should probably consolidate into a single file
+- Code like the following:
+  class ReviewBackfillRequest(BaseModel):
+     action: Literal["review_backfill"]
+  Should define a higher level class, like SqsEventAction or something, that has a literal for all its possible actions
+     

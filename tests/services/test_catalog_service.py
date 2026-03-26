@@ -155,7 +155,7 @@ def test_status_returns_counts(
     queue_url = sqs.create_queue(QueueName="app-crawl-status")["QueueUrl"]
 
     catalog_repo.bulk_upsert([{"appid": 400 + i, "name": f"G{i}"} for i in range(4)])
-    catalog_repo.set_meta_status(400, "done", review_status="done")
+    catalog_repo.set_meta_status(400, "done")
     catalog_repo.set_meta_status(401, "failed")
 
     with httpx.Client() as http_client:

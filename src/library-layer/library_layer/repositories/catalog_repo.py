@@ -144,10 +144,11 @@ class CatalogRepository(BaseRepository):
         self.conn.commit()
 
     def find_uncrawled_eligible(self, threshold: int, limit: int) -> list[int]:
-        """Atomically claim eligible appids for first review crawl (newest-released first).
+        """Claim eligible appids for first review crawl (newest-released first).
 
-        Sets review_cursor='*' on claimed rows so subsequent backfill runs skip them.
-        Concurrent callers skip locked rows (SKIP LOCKED) rather than blocking.
+        Sets review_cursor='*' on claimed rows but does NOT commit — the caller must
+        commit after SQS enqueue succeeds, or rollback on failure so rows remain
+        claimable on the next run.
         """
         with self.conn.cursor() as cur:
             cur.execute(
@@ -176,7 +177,6 @@ class CatalogRepository(BaseRepository):
                 (threshold, limit),
             )
             rows = cur.fetchall()
-        self.conn.commit()
         return [row["appid"] for row in rows]
 
     def status_summary(self) -> dict:

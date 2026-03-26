@@ -335,9 +335,11 @@ Invariant: All eligible uncrawled games are periodically discovered and
            Eligibility: meta_status='done', coming_soon=false,
            review_count_english >= REVIEW_ELIGIBILITY_THRESHOLD (default 50),
            release_date IS NOT NULL.
-           Selection is atomic: eligible rows are claimed by setting
-           review_cursor='*' in the same transaction (FOR UPDATE SKIP LOCKED),
-           so concurrent or repeated backfill runs skip already-claimed games.
+           Processing is chunked (500 rows/chunk): each chunk is claimed with
+           FOR UPDATE SKIP LOCKED, SQS-sent, then committed. If SQS fails the
+           transaction is rolled back — rows stay unclaimed and are retried on
+           the next scheduled run. No chunk is ever committed without a confirmed
+           SQS send, preventing permanent stuck-claimed rows on partial failure.
            Completed games (reviews_completed_at IS NOT NULL) are never selected.
            From ReviewCrawlQ onward the normal Flow-03 review crawl applies.
 #+END_SRC
@@ -353,31 +355,30 @@ Invariant: All eligible uncrawled games are periodically discovered and
       │                       │  enqueue_review_       │                        │
       │                       │  backfill(limit=10000) │                        │
       │                       │───────────────────────>│                        │
-      │                       │                        │  find_uncrawled_       │
-      │                       │                        │  eligible(             │
-      │                       │                        │   threshold=50,        │
-      │                       │                        │   limit=10000)         │
-      │                       │                        │───────────────────────>│
-      │                       │                        │  JOIN games ON appid   │
-      │                       │                        │  WHERE meta_status='done'
-      │                       │                        │    AND review_cursor IS NULL
-      │                       │                        │    AND reviews_completed_at IS NULL
-      │                       │                        │    AND coming_soon=false
-      │                       │                        │    AND review_count_english >= 50
-      │                       │                        │  ORDER BY release_date DESC
-      │                       │                        │  LIMIT 10000           │
-      │                       │                        │<───────────────────────│
-      │                       │                        │  [appid, ...]          │
+      │                       │                        │  ┌─ loop chunks of 500 until limit ─┐
+      │                       │                        │  │                      │            │
+      │                       │                        │  │ find_uncrawled_      │            │
+      │                       │                        │  │ eligible(            │            │
+      │                       │                        │  │  threshold=50,       │            │
+      │                       │                        │  │  limit=500)          │            │
+      │                       │                        │  │─────────────────────>│            │
+      │                       │                        │  │ CTE: SELECT … FOR UPDATE SKIP LOCKED
+      │                       │                        │  │      UPDATE review_cursor='*'     │
+      │                       │                        │  │<─────────────────────│            │
+      │                       │                        │  │ [appid, ...]         │            │
+      │                       │                        │  │ (no commit yet)      │            │
 
   ReviewCrawlQ           CrawlerFn
       │                       │
       │  send_sqs_batch        │
       │  [{appid: N}, ...]     │
-      │<──────────────────────│
+      │<──────────────────────│  ← success: conn.commit()
+      │                       │  ← failure: conn.rollback() → rows unclaimed, retried next run
       │                       │
       │  {enqueued: N}        │
       │  → caller / logs      │
-      │                       │
+      │  └─ repeat next chunk ─┘
+      │
       │  ┌─ each {appid} message flows into Flow-03 (Review Crawl) ─┐
       │  │  CrawlerFn reads cursor from app_catalog (NULL → "*")    │
       │  │  dispatches to SpokeCrawlerFn, ingest runs normally      │
@@ -386,7 +387,9 @@ Invariant: All eligible uncrawled games are periodically discovered and
 
 *Drift checklist:*
 - =ReviewBackfillRule= EventBridge rule is =enabled=False= in CDK — must be explicitly enabled when ready
-- =find_uncrawled_eligible()= atomically sets =review_cursor='*'= on claimed rows (=FOR UPDATE SKIP LOCKED=) — subsequent backfill runs skip already-claimed games
+- =find_uncrawled_eligible()= does NOT commit — commit is owned by =enqueue_review_backfill()= after each chunk's SQS send succeeds
+- =find_uncrawled_eligible()= sets =review_cursor='*'= via CTE (=FOR UPDATE SKIP LOCKED=) — subsequent runs within the same backfill skip already-locked rows; committed claims persist across runs
+- On SQS failure =enqueue_review_backfill()= rolls back — claimed rows revert to =review_cursor=NULL= and are retried on the next scheduled run
 - =find_uncrawled_eligible()= JOINs =games= table — game must exist in both =app_catalog= AND =games=
 - Eligibility threshold from =config.REVIEW_ELIGIBILITY_THRESHOLD= (default 50), not hardcoded
 - Messages use =ReviewCrawlMessage(appid=N).model_dump()= → ={appid: N}= — same shape as Flow-03 re-queue

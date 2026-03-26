@@ -13,6 +13,7 @@ from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.sqs import ReviewCrawlMessage, send_sqs_batch
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
+_BACKFILL_CHUNK = 500
 
 logger = Logger()
 
@@ -106,19 +107,35 @@ class CatalogService:
         return len(messages)
 
     def enqueue_review_backfill(self, limit: int) -> int:
-        """Find uncrawled eligible games (newest first) and enqueue for review crawl."""
+        """Find uncrawled eligible games and enqueue for review crawl, in chunks.
+
+        Each chunk is claimed, SQS-sent, then committed. On SQS failure the
+        transaction is rolled back so rows stay unclaimed and are retried next run.
+        """
         threshold = self._config.REVIEW_ELIGIBILITY_THRESHOLD
-        appids = self._catalog_repo.find_uncrawled_eligible(threshold, limit)
-        if not appids:
+        total = 0
+        while total < limit:
+            chunk_size = min(_BACKFILL_CHUNK, limit - total)
+            appids = self._catalog_repo.find_uncrawled_eligible(threshold, chunk_size)
+            if not appids:
+                break
+            try:
+                send_sqs_batch(
+                    self._sqs,
+                    self._review_queue_url,
+                    [ReviewCrawlMessage(appid=a).model_dump() for a in appids],
+                )
+                self._catalog_repo.conn.commit()
+            except Exception:
+                self._catalog_repo.conn.rollback()
+                raise
+            total += len(appids)
+
+        if total:
+            logger.info("Review backfill enqueued", extra={"count": total, "limit": limit})
+        else:
             logger.info("No uncrawled eligible games for review backfill")
-            return 0
-        send_sqs_batch(
-            self._sqs,
-            self._review_queue_url,
-            [ReviewCrawlMessage(appid=a).model_dump() for a in appids],
-        )
-        logger.info("Review backfill enqueued", extra={"count": len(appids), "limit": limit})
-        return len(appids)
+        return total
 
     def status(self) -> dict:
         """Return counts per status from catalog_repo.status_summary()."""

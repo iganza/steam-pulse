@@ -232,3 +232,75 @@ def test_enqueue_review_backfill_sends_eligible_appids(
     msgs = sqs.receive_message(QueueUrl=review_queue_url, MaxNumberOfMessages=10)
     bodies = [json.loads(m["Body"]) for m in msgs.get("Messages", [])]
     assert any(b["appid"] == 9001 for b in bodies)
+
+
+@mock_aws
+def test_enqueue_review_backfill_rollback_on_sqs_failure(
+    catalog_repo: CatalogRepository,
+    db_conn: object,
+) -> None:
+    """On SQS failure the DB claim must be rolled back so the appid is retried."""
+    import unittest.mock as mock
+
+    import boto3
+    from library_layer.repositories.game_repo import GameRepository
+
+    sqs = boto3.client("sqs", region_name="us-east-1")
+    review_queue_url = sqs.create_queue(QueueName="review-backfill-rollback")["QueueUrl"]
+
+    GameRepository(db_conn).upsert({
+        "appid": 9002,
+        "name": "Rollback Game",
+        "slug": "rollback-game",
+        "type": "game",
+        "developer": None,
+        "developer_slug": None,
+        "publisher": None,
+        "developers": "[]",
+        "publishers": "[]",
+        "website": None,
+        "release_date": "2023-05-01",
+        "coming_soon": False,
+        "price_usd": None,
+        "is_free": False,
+        "short_desc": None,
+        "detailed_description": None,
+        "about_the_game": None,
+        "review_count": 200,
+        "review_count_english": 200,
+        "total_positive": 200,
+        "total_negative": 0,
+        "positive_pct": 100,
+        "review_score_desc": "Positive",
+        "header_image": None,
+        "background_image": None,
+        "required_age": 0,
+        "platforms": "{}",
+        "supported_languages": None,
+        "achievements_total": 0,
+        "metacritic_score": None,
+        "deck_compatibility": None,
+        "deck_test_results": None,
+        "data_source": "steam_direct",
+    })
+    catalog_repo.bulk_upsert([{"appid": 9002, "name": "Rollback Game"}])
+    catalog_repo.set_meta_status(9002, "done")
+
+    with httpx.Client() as http_client:
+        svc = _make_service(
+            catalog_repo, sqs, "https://sqs.fake/app-crawl", http_client,
+            review_queue_url=review_queue_url,
+        )
+        with mock.patch(
+            "library_layer.services.catalog_service.send_sqs_batch",
+            side_effect=RuntimeError("SQS failure"),
+        ):
+            try:
+                svc.enqueue_review_backfill(limit=10)
+            except RuntimeError:
+                pass
+
+    # After rollback, the appid must be claimable again (review_cursor still NULL)
+    entry = catalog_repo.find_by_appid(9002)
+    assert entry is not None
+    assert entry.review_cursor is None

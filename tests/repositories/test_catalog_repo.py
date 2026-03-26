@@ -208,7 +208,10 @@ def test_find_uncrawled_eligible_is_idempotent(
 
     first = catalog_repo.find_uncrawled_eligible(threshold=50, limit=10)
     assert 3020 in first
+    # Commit to persist the claim (simulating a successful SQS send)
+    catalog_repo.conn.commit()
 
     # Second call must not return the same appid — it was claimed (review_cursor='*')
     second = catalog_repo.find_uncrawled_eligible(threshold=50, limit=10)
+    catalog_repo.conn.rollback()
     assert 3020 not in second

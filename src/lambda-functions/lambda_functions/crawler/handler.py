@@ -158,9 +158,18 @@ def _dispatch_to_spoke(record: dict) -> None:
         # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
         # Normalize cursor: treat missing, null, and empty string all as fresh start.
         cursor: str = body.get("cursor") or "*"
-        # Always enforce a bounded target — never allow unbounded crawls.
-        target: int = body.get("target") or _crawler_config.REVIEW_LIMIT
         started_at: str | datetime = body.get("started_at") or datetime.now(tz=timezone.utc)
+
+        target_raw: int | None = body.get("target")
+        if target_raw is None:
+            # Fresh-start or missing target — apply configured default limit.
+            target: int = _crawler_config.REVIEW_LIMIT
+        elif target_raw <= 0:
+            # Remaining budget is zero — nothing left to fetch; skip dispatch.
+            logger.info("review crawl budget exhausted — skipping dispatch", extra={"appid": appid})
+            return
+        else:
+            target = target_raw
 
         if cursor == "*":
             logger.info("reviews fresh start", extra={"appid": appid, "target": target})

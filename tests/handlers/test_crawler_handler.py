@@ -272,3 +272,30 @@ def test_review_dispatch_defaults_target_when_missing(lambda_context: Any) -> No
     payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.cursor == "AoJ4sometoken"
     assert payload.target == hm._crawler_config.REVIEW_LIMIT
+
+
+@mock_aws
+def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
+    """Message with target=0 → budget exhausted, no spoke invoked."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    event = {
+        "Records": [{
+            "messageId": "m6",
+            "body": json.dumps({"appid": 730, "cursor": "AoJ4sometoken", "target": 0}),
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+        }],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_not_called()

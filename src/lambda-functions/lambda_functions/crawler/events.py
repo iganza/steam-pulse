@@ -49,7 +49,7 @@ class ReviewSpokeRequest(BaseModel):
     appid: int
     task: CrawlTask = "reviews"
     cursor: str = "*"
-    target: int | None = None           # None = fetch all; N = stop after N total reviews
+    target: int | None = None           # remaining reviews to fetch in this chain
     started_at: datetime | None = None  # when this crawl began (observability)
 
 
@@ -75,7 +75,7 @@ class ReviewSpokeResult(BaseModel):
     count: int = 0
     spoke_region: str
     next_cursor: str | None = None  # None = Steam exhausted; non-None = more pages remain
-    target: int | None = None           # Pass-through from ReviewSpokeRequest
+    target: int | None = None           # remaining reviews to fetch (pass-through, decremented per hop)
     started_at: datetime | None = None  # Pass-through from ReviewSpokeRequest
     error: str | None = None
 

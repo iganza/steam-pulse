@@ -24,8 +24,13 @@ class CatalogRefreshRequest(BaseModel):
     action: Literal["catalog_refresh"]
 
 
+class ReviewBackfillRequest(BaseModel):
+    action: Literal["review_backfill"]
+    limit: int = 1000
+
+
 DirectRequest = Annotated[
-    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest,
+    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest | ReviewBackfillRequest,
     Field(discriminator="action"),
 ]
 

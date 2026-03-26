@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import gzip
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import httpx
@@ -35,9 +35,8 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 from library_layer.utils.db import get_conn
-
+from library_layer.utils.sqs import ReviewCrawlMessage
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
-
 
 logger = Logger(service="spoke-ingest")
 tracer = Tracer(service="spoke-ingest")
@@ -162,7 +161,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     early_stop = (
         reviews_completed_at is not None
         and min_batch_ts > 0
-        and datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) < reviews_completed_at
+        and datetime.fromtimestamp(min_batch_ts, tz=UTC) < reviews_completed_at
     )
 
     total_fetched = _review_repo.count_by_appid(appid)
@@ -176,7 +175,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
         # we have every review up to this moment).
         boundary = (
-            datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
+            datetime.fromtimestamp(min_batch_ts, tz=UTC) if early_stop else None
         )
         _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
         logger.info(
@@ -200,7 +199,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         _catalog_repo.save_review_cursor(appid, msg.next_cursor)
         _sqs.send_message(
             QueueUrl=_review_crawl_queue_url,
-            MessageBody=json.dumps({"appid": appid}),
+            MessageBody=ReviewCrawlMessage(appid=appid).model_dump_json(),
         )
         logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched})
 

@@ -327,6 +327,71 @@ Invariant: All English reviews for an eligible game are fetched and stored.
 - S3 object deleted AFTER cursor management and re-queue (safe for retry)
 - =ensure_stub()= in game_repo uses =ON CONFLICT DO NOTHING= (must not overwrite real game names)
 
+** Flow-03b: Review Crawl Backfill
+
+#+BEGIN_SRC
+Invariant: All eligible uncrawled games are periodically discovered and
+           enqueued for review crawl, ordered newest-released first.
+           Eligibility: meta_status='done', coming_soon=false,
+           review_count_english >= REVIEW_ELIGIBILITY_THRESHOLD (default 50),
+           release_date IS NOT NULL.
+           Only games with review_cursor IS NULL AND reviews_completed_at IS NULL
+           are selected — in-progress and completed games are skipped.
+           From ReviewCrawlQ onward the normal Flow-03 review crawl applies.
+#+END_SRC
+
+#+BEGIN_SRC
+  EventBridge              CrawlerFn              CatalogService         app_catalog + games
+  (daily rule)            handler.py             catalog_service.py          (RDS)
+      │                       │                        │                        │
+      │  {"action":           │                        │                        │
+      │   "review_backfill",  │                        │                        │
+      │   "limit": 10000}     │                        │                        │
+      │──────────────────────>│                        │                        │
+      │                       │  enqueue_review_       │                        │
+      │                       │  backfill(limit=10000) │                        │
+      │                       │───────────────────────>│                        │
+      │                       │                        │  find_uncrawled_       │
+      │                       │                        │  eligible(             │
+      │                       │                        │   threshold=50,        │
+      │                       │                        │   limit=10000)         │
+      │                       │                        │───────────────────────>│
+      │                       │                        │  JOIN games ON appid   │
+      │                       │                        │  WHERE meta_status='done'
+      │                       │                        │    AND review_cursor IS NULL
+      │                       │                        │    AND reviews_completed_at IS NULL
+      │                       │                        │    AND coming_soon=false
+      │                       │                        │    AND review_count_english >= 50
+      │                       │                        │  ORDER BY release_date DESC
+      │                       │                        │  LIMIT 10000           │
+      │                       │                        │<───────────────────────│
+      │                       │                        │  [appid, ...]          │
+
+  ReviewCrawlQ           CrawlerFn
+      │                       │
+      │  send_sqs_batch        │
+      │  [{appid: N}, ...]     │
+      │<──────────────────────│
+      │                       │
+      │  {enqueued: N}        │
+      │  → caller / logs      │
+      │                       │
+      │  ┌─ each {appid} message flows into Flow-03 (Review Crawl) ─┐
+      │  │  CrawlerFn reads cursor from app_catalog (NULL → "*")    │
+      │  │  dispatches to SpokeCrawlerFn, ingest runs normally      │
+      │  └──────────────────────────────────────────────────────────┘
+#+END_SRC
+
+*Drift checklist:*
+- =ReviewBackfillRule= EventBridge rule is =enabled=False= in CDK — must be explicitly enabled when ready
+- Backfill selects only games with =review_cursor IS NULL AND reviews_completed_at IS NULL= (never started)
+- =find_uncrawled_eligible()= JOINs =games= table — game must exist in both =app_catalog= AND =games=
+- Eligibility threshold from =config.REVIEW_ELIGIBILITY_THRESHOLD= (default 50), not hardcoded
+- Messages use =ReviewCrawlMessage(appid=N).model_dump()= → ={appid: N}= — same shape as Flow-03 re-queue
+- Backfill does not set =review_cursor= or =reviews_target= — that happens in Flow-03 dispatch
+- Partial index =idx_app_catalog_backfill= (migration 0008) covers this query
+- Manual trigger: direct invoke ={"action": "review_backfill", "limit": N}= — no schedule needed
+
 ** Flow-04: LLM Analysis
 
 #+BEGIN_SRC

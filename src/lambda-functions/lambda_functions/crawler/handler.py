@@ -33,6 +33,7 @@ from .events import (
     CrawlTask,
     DirectRequest,
     MetadataSpokeRequest,
+    ReviewBackfillRequest,
     ReviewSpokeRequest,
 )
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
@@ -107,6 +108,7 @@ _catalog_service = CatalogService(
     http_client=httpx.Client(timeout=30.0),
     sqs_client=_sqs,
     app_crawl_queue_url=_app_crawl_queue_url,
+    review_queue_url=_review_queue_url,
     sns_client=_sns,
     config=_crawler_config,
     steam_api_key=_steam_api_key,
@@ -253,6 +255,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
                 metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
                 return result
+            case ReviewBackfillRequest():
+                n = _catalog_service.enqueue_review_backfill(req.limit)
+                logger.info("review_backfill complete", extra={"enqueued": n, "limit": req.limit})
+                metrics.add_metric(name="ReviewBackfillEnqueued", unit=MetricUnit.Count, value=n)
+                return {"enqueued": n, "limit": req.limit}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

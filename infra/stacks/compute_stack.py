@@ -579,6 +579,22 @@ class ComputeStack(cdk.Stack):
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
+        # Daily review backfill — enqueues eligible uncrawled games (newest first).
+        review_backfill_rule = events.Rule(
+            self,
+            "ReviewBackfillRule",
+            schedule=events.Schedule.rate(cdk.Duration.days(1)),
+            enabled=False,
+        )
+        review_backfill_rule.add_target(
+            events_targets.LambdaFunction(
+                crawler_fn,
+                event=events.RuleTargetInput.from_object(
+                    {"action": "review_backfill", "limit": 10000}
+                ),
+            )
+        )
+
         # ── SSM outputs — read by MonitoringStack via {{resolve:ssm:...}} ─────
         # Using SSM avoids Fn::ImportValue so MonitoringStack has no hard
         # CloudFormation dependency on this stack.

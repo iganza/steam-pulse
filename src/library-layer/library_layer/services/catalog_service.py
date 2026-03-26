@@ -10,7 +10,7 @@ from library_layer.config import SteamPulseConfig
 from library_layer.events import CatalogRefreshCompleteEvent, GameDiscoveredEvent
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.utils.events import EventPublishError, publish_event
-from library_layer.utils.sqs import send_sqs_batch
+from library_layer.utils.sqs import ReviewCrawlMessage, send_sqs_batch
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 
@@ -26,6 +26,7 @@ class CatalogService:
         http_client: httpx.Client,
         sqs_client: Any,
         app_crawl_queue_url: str,
+        review_queue_url: str,
         sns_client: Any,
         config: SteamPulseConfig,
         steam_api_key: str,
@@ -36,6 +37,7 @@ class CatalogService:
         self._http = http_client
         self._sqs = sqs_client
         self._app_crawl_queue_url = app_crawl_queue_url
+        self._review_queue_url = review_queue_url
         self._steam_api_key = steam_api_key
         self._sns = sns_client
         self._config = config
@@ -102,6 +104,21 @@ class CatalogService:
         messages = [{"appid": e.appid} for e in pending]
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         return len(messages)
+
+    def enqueue_review_backfill(self, limit: int) -> int:
+        """Find uncrawled eligible games (newest first) and enqueue for review crawl."""
+        threshold = self._config.REVIEW_ELIGIBILITY_THRESHOLD
+        appids = self._catalog_repo.find_uncrawled_eligible(threshold, limit)
+        if not appids:
+            logger.info("No uncrawled eligible games for review backfill")
+            return 0
+        send_sqs_batch(
+            self._sqs,
+            self._review_queue_url,
+            [ReviewCrawlMessage(appid=a).model_dump() for a in appids],
+        )
+        logger.info("Review backfill enqueued", extra={"count": len(appids), "limit": limit})
+        return len(appids)
 
     def status(self) -> dict:
         """Return counts per status from catalog_repo.status_summary()."""

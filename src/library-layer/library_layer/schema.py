@@ -214,6 +214,8 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_funny ON reviews(appid, votes_funny DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_posted ON reviews(appid, posted_at)",
     "CREATE INDEX IF NOT EXISTS idx_games_developer_slug ON games(developer_slug) WHERE developer_slug IS NOT NULL",
+    # Backfill query index (0008_add_backfill_index.sql)
+    "CREATE INDEX IF NOT EXISTS idx_app_catalog_backfill ON app_catalog (meta_status, review_cursor, reviews_completed_at) WHERE meta_status = 'done' AND review_cursor IS NULL AND reviews_completed_at IS NULL",
 )
 
 

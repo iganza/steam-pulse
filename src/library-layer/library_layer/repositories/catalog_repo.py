@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg2.extras
 from library_layer.models.catalog import CatalogEntry
@@ -104,7 +104,7 @@ class CatalogRepository(BaseRepository):
         from the early-stop batch) instead of NOW(). This avoids a gap where reviews posted
         *during* a long-running crawl would be skipped on the next re-crawl.
         """
-        ts = completed_at or datetime.now(tz=timezone.utc)
+        ts = completed_at or datetime.now(tz=UTC)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -142,6 +142,26 @@ class CatalogRepository(BaseRepository):
                 (target, appid),
             )
         self.conn.commit()
+
+    def find_uncrawled_eligible(self, threshold: int, limit: int) -> list[int]:
+        """Appids ready for first review crawl, ordered newest-released first."""
+        rows = self._fetchall(
+            """
+            SELECT ac.appid
+            FROM app_catalog ac
+            JOIN games g ON g.appid = ac.appid
+            WHERE ac.meta_status = 'done'
+              AND ac.review_cursor IS NULL
+              AND ac.reviews_completed_at IS NULL
+              AND g.coming_soon = false
+              AND g.review_count_english >= %s
+              AND g.release_date IS NOT NULL
+            ORDER BY g.release_date DESC
+            LIMIT %s
+            """,
+            (threshold, limit),
+        )
+        return [row["appid"] for row in rows]
 
     def status_summary(self) -> dict:
         """Return counts grouped by meta_status."""

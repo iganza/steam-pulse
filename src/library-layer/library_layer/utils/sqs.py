@@ -1,9 +1,17 @@
-"""SQS batch send helper."""
+"""SQS batch send helper and shared SQS message models."""
 
 import json
 import logging
 
+from pydantic import BaseModel
+
 logger = logging.getLogger(__name__)
+
+
+class ReviewCrawlMessage(BaseModel):
+    """SQS message body for ReviewCrawlQ."""
+
+    appid: int
 
 _BATCH_SIZE = 10
 

@@ -414,7 +414,6 @@ def _eligible_reviews(n: int) -> list[int]:
             """SELECT ac.appid FROM app_catalog ac
                JOIN games g ON g.appid = ac.appid
                WHERE ac.meta_status = 'done'
-                 AND ac.review_cursor IS NULL
                  AND ac.reviews_completed_at IS NULL
                  AND g.coming_soon = false
                  AND g.review_count_english >= %s

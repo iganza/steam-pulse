@@ -83,8 +83,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if task == "reviews":
         req = ReviewSpokeRequest.model_validate(event)
         logger.append_keys(appid=req.appid, task=task)
-        logger.info("START reviews", extra={"cursor": req.cursor, "max_reviews": req.max_reviews})
-        count, _ = _process_reviews(req.appid, req.cursor, req.max_reviews)
+        logger.info("START reviews", extra={"cursor": req.cursor, "target": req.target})
+        count, _ = _process_reviews(req.appid, req.cursor, req.target, req.started_at)
         metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
         return SpokeResponse(appid=req.appid, task=task, success=count > 0, count=count).model_dump()
 
@@ -139,21 +139,22 @@ def _process_metadata(appid: int) -> bool:
 def _process_reviews(
     appid: int,
     cursor: str,
-    max_reviews: int | None,
+    target: int | None,
+    started_at: str | None,
 ) -> tuple[int, str | None]:
-    limit = min(max_reviews, BATCH_SIZE) if max_reviews is not None else BATCH_SIZE
+    limit = min(target, BATCH_SIZE) if target is not None else BATCH_SIZE
     logger.info("Fetching reviews", extra={"appid": appid, "limit": limit, "cursor": cursor})
 
     try:
         reviews, next_cursor = _steam.get_reviews(appid, max_reviews=limit, start_cursor=cursor)
     except SteamAPIError as exc:
         logger.warning("Steam reviews error", extra={"appid": appid, "error": str(exc)})
-        _notify_reviews(appid, success=False, error=str(exc), next_cursor=None)
+        _notify_reviews(appid, success=False, error=str(exc), next_cursor=None, target=target, started_at=started_at)
         return 0, None
 
     if not reviews:
         logger.warning("No reviews returned from Steam", extra={"appid": appid, "cursor": cursor})
-        _notify_reviews(appid, success=False, error="no reviews returned", next_cursor=None)
+        _notify_reviews(appid, success=False, error="no reviews returned", next_cursor=None, target=target, started_at=started_at)
         return 0, None
 
     exhausted = next_cursor is None
@@ -166,7 +167,7 @@ def _process_reviews(
 
     uid = uuid.uuid4().hex[:12]
     s3_key = _write_s3(f"spoke-results/reviews/{appid}-{uid}.json.gz", reviews)
-    _notify_reviews(appid, success=True, s3_key=s3_key, count=len(reviews), next_cursor=next_cursor)
+    _notify_reviews(appid, success=True, s3_key=s3_key, count=len(reviews), next_cursor=next_cursor, target=target, started_at=started_at)
     logger.info("DONE reviews", extra={"appid": appid, "count": len(reviews), "s3_key": s3_key})
     return len(reviews), next_cursor
 
@@ -214,6 +215,8 @@ def _notify_reviews(
     s3_key: str | None = None,
     count: int = 0,
     next_cursor: str | None = None,
+    target: int | None = None,
+    started_at: str | None = None,
     error: str | None = None,
 ) -> None:
     msg = ReviewSpokeResult(
@@ -223,6 +226,8 @@ def _notify_reviews(
         count=count,
         spoke_region=os.environ.get("AWS_REGION", "unknown"),
         next_cursor=next_cursor,
+        target=target,
+        started_at=started_at,
         error=error,
     )
     _sqs.send_message(

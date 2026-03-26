@@ -48,7 +48,8 @@ class ReviewSpokeRequest(BaseModel):
     appid: int
     task: CrawlTask = "reviews"
     cursor: str = "*"
-    max_reviews: int | None = None  # None = use BATCH_SIZE
+    target: int | None = None       # None = fetch all; N = stop after N total reviews
+    started_at: str | None = None   # ISO timestamp when this crawl began (observability)
 
 
 # ── Spoke result models (Spoke → Ingest via SQS) ────────────────────────────
@@ -73,6 +74,8 @@ class ReviewSpokeResult(BaseModel):
     count: int = 0
     spoke_region: str
     next_cursor: str | None = None  # None = Steam exhausted; non-None = more pages remain
+    target: int | None = None       # Pass-through from ReviewSpokeRequest
+    started_at: str | None = None   # Pass-through from ReviewSpokeRequest
     error: str | None = None
 
 

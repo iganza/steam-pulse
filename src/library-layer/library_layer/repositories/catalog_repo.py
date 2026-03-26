@@ -75,30 +75,8 @@ class CatalogRepository(BaseRepository):
             )
         self.conn.commit()
 
-    def get_review_cursor(self, appid: int) -> str | None:
-        """Return saved Steam review cursor. None = not started or complete."""
-        row = self._fetchone(
-            "SELECT review_cursor FROM app_catalog WHERE appid = %s", (appid,)
-        )
-        if row is None:
-            return None
-        return row["review_cursor"]
-
-    def save_review_cursor(self, appid: int, cursor: str) -> None:
-        """Persist a mid-stream cursor so the next batch can resume."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE app_catalog
-                SET review_cursor = %s, review_cursor_updated_at = NOW()
-                WHERE appid = %s
-                """,
-                (cursor, appid),
-            )
-        self.conn.commit()
-
     def mark_reviews_complete(self, appid: int, completed_at: datetime | None = None) -> None:
-        """Clear in-flight cursor and record that all reviews have been fetched.
+        """Record that all reviews have been fetched for this game.
 
         Pass completed_at to use a specific watermark (e.g. the minimum timestamp_created
         from the early-stop batch) instead of NOW(). This avoids a gap where reviews posted
@@ -107,13 +85,7 @@ class CatalogRepository(BaseRepository):
         ts = completed_at or datetime.now(tz=timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE app_catalog
-                SET review_cursor            = NULL,
-                    review_cursor_updated_at = NOW(),
-                    reviews_completed_at     = %s
-                WHERE appid = %s
-                """,
+                "UPDATE app_catalog SET reviews_completed_at = %s WHERE appid = %s",
                 (ts, appid),
             )
         self.conn.commit()
@@ -124,24 +96,6 @@ class CatalogRepository(BaseRepository):
             "SELECT reviews_completed_at FROM app_catalog WHERE appid = %s", (appid,)
         )
         return row["reviews_completed_at"] if row else None
-
-    def get_reviews_target(self, appid: int) -> int | None:
-        """Return the max-reviews target set at queue time. None = fetch all."""
-        row = self._fetchone(
-            "SELECT reviews_target FROM app_catalog WHERE appid = %s", (appid,)
-        )
-        if row is None:
-            return None
-        return row["reviews_target"]
-
-    def set_reviews_target(self, appid: int, target: int | None) -> None:
-        """Persist the stopping point for the review-fetch chain."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "UPDATE app_catalog SET reviews_target = %s WHERE appid = %s",
-                (target, appid),
-            )
-        self.conn.commit()
 
     def status_summary(self) -> dict:
         """Return counts grouped by meta_status."""

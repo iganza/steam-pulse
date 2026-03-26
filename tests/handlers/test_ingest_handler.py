@@ -50,9 +50,8 @@ def _gzipped(data: Any) -> bytes:
 
 
 def _mock_catalog_and_review_repos(ih: Any, reviews_completed_at: datetime | None = None) -> None:
-    """Stub out catalog_repo and review_repo so cursor logic doesn't hit DB."""
+    """Stub out catalog_repo and review_repo so termination logic doesn't hit DB."""
     ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=reviews_completed_at)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=0)
@@ -219,12 +218,12 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     }
     ih._sqs = MagicMock()
     ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=5000)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=5000)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    # target travels in the spoke result message, not from DB
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=5000))
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
@@ -232,7 +231,7 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_reviews_more_pages_saves_cursor_and_requeues(lambda_context: Any) -> None:
+def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any) -> None:
     ih = _get_module()
     ih._crawl_service = MagicMock()
     ih._crawl_service.ingest_spoke_reviews = MagicMock(return_value=1000)
@@ -241,18 +240,22 @@ def test_reviews_more_pages_saves_cursor_and_requeues(lambda_context: Any) -> No
         "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
     }
     ih._catalog_repo = MagicMock()
-    ih._catalog_repo.get_reviews_target = MagicMock(return_value=None)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=1000)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=10000, started_at="2026-03-26T12:00:00+00:00"))
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.save_review_cursor.assert_called_once_with(440, "cursor_abc")
     ih._sqs.send_message.assert_called_once()
     sent_body = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
-    assert sent_body == {"appid": 440}
+    assert sent_body == {
+        "appid": 440,
+        "cursor": "cursor_abc",
+        "target": 10000,
+        "started_at": "2026-03-26T12:00:00+00:00",
+    }
+    ih._catalog_repo.save_review_cursor.assert_not_called()
 
 
 # ── count==0 / no s3_key — skip processing ─────────────────────────────────

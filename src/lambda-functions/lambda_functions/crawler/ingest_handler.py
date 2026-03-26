@@ -150,7 +150,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
     metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
-    # Cursor management + re-queue logic — must complete before S3 delete.
+    # Termination + re-queue logic — must complete before S3 delete.
     # If any of these raise (DB hiccup, SQS failure), the SQS record retries
     # and the S3 object is still available. Delete only on full success.
 
@@ -166,7 +166,8 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     )
 
     total_fetched = _review_repo.count_by_appid(appid)
-    target = _catalog_repo.get_reviews_target(appid)
+    # Target and cursor travel in the message — no DB reads needed.
+    target = msg.target
     target_hit = target is not None and total_fetched >= target
     exhausted = msg.next_cursor is None
 
@@ -196,11 +197,15 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             extra={"appid": appid, "reason": "target_hit", "total": total_fetched, "target": target},
         )
     else:
-        # More to fetch — save cursor and re-queue
-        _catalog_repo.save_review_cursor(appid, msg.next_cursor)
+        # More to fetch — re-queue with cursor embedded in message body
         _sqs.send_message(
             QueueUrl=_review_crawl_queue_url,
-            MessageBody=json.dumps({"appid": appid}),
+            MessageBody=json.dumps({
+                "appid": appid,
+                "cursor": msg.next_cursor,
+                "target": target,
+                "started_at": msg.started_at,
+            }),
         )
         logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched})
 

@@ -67,10 +67,6 @@ def _inject_services(mock_crawl: MagicMock, mock_catalog: MagicMock) -> None:
 
     hm._crawl_service = mock_crawl
     hm._catalog_service = mock_catalog
-    # Stub catalog_repo so dispatch doesn't hit real DB
-    hm._catalog_repo = MagicMock()
-    hm._catalog_repo.get_review_cursor = MagicMock(return_value=None)
-    hm._catalog_repo.set_reviews_target = MagicMock()
 
 
 def _eventbridge_event() -> dict:
@@ -176,6 +172,7 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     assert payload.appid == 730
     assert payload.task == "reviews"
     assert payload.cursor == "*"
+    assert payload.started_at is not None  # set on fresh start
 
 
 @mock_aws

@@ -1,7 +1,5 @@
 """CrawlService — orchestrates Steam API, repositories, and AWS clients."""
 
-from __future__ import annotations
-
 import gzip
 import json
 import uuid
@@ -399,8 +397,8 @@ class CrawlService:
                 ContentEncoding="gzip",
                 ContentType="application/json",
             )
-        except Exception:
-            logger.warning("Failed to archive to S3", extra={"key": key})
+        except Exception as exc:
+            logger.warning("Failed to archive to S3", extra={"key": key, "error": str(exc)})
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -498,7 +496,7 @@ class CrawlService:
         return arn
 
 
-def _parse_release_date(raw: str) -> object | None:
+def _parse_release_date(raw: str) -> date | None:
     """Parse a Steam release date string into a date object."""
     for fmt in ("%d %b, %Y", "%b %d, %Y", "%Y-%m-%d", "%d %B, %Y", "%b %Y"):
         try:

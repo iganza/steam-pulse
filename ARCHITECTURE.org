@@ -266,7 +266,7 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 4. =SpokeCrawlerFn= calls Steam =GET /appreviews/{appid}?filter=recent&cursor={cursor}&num_per_page=min(target,BATCH_SIZE)=.
    Overshoot prevention: =limit = min(target, BATCH_SIZE)= caps the final partial batch.
 5. =SpokeCrawlerFn= gzips the review batch, writes to S3:
-   =spoke-results/reviews/{appid}/{uuid}.json.gz=
+   =spoke-results/reviews/{appid}-{uuid}.json.gz=
 6. =SpokeCrawlerFn= sends =ReviewSpokeResult{appid, task, success, s3_key, count, next_cursor, target, started_at, spoke_region}=
    to =SpokeResultsQ=. =target= and =started_at= are passed through unchanged for the ingest hop.
 7. =SpokeIngestFn= receives result from =SpokeResultsQ=. Fetches S3 object, decompresses.
@@ -316,7 +316,7 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
       │                     │                  │                       │<─────────────────│                │
       │                     │                  │                       │                  │                │
       │                     │                  │                       │ gzip reviews     │                │
-      │                     │                  │                       │ spoke-results/reviews/{appid}/{uuid}.json.gz
+      │                     │                  │                       │ spoke-results/reviews/{appid}-{uuid}.json.gz
       │                     │                  │                       │─────────────────────────────────>│
       │                     │                  │                       │                  │                │
       │                     │                  │    ReviewSpokeResult → SpokeResultsQ    │                │

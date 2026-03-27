@@ -8,11 +8,9 @@ Event types handled:
 DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
-from __future__ import annotations
-
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -25,6 +23,7 @@ from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.utils.db import get_conn
+from library_layer.utils.steam_metrics import make_steam_metrics_callback
 from pydantic import TypeAdapter, ValidationError
 
 from .events import (
@@ -36,7 +35,6 @@ from .events import (
     MetadataSpokeRequest,
     ReviewSpokeRequest,
 )
-from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler")
 tracer = Tracer(service="crawler")
@@ -58,7 +56,6 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.catalog_service import CatalogService
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
-
 
 _conn = get_conn()
 _sqs = boto3.client("sqs")
@@ -158,7 +155,7 @@ def _dispatch_to_spoke(record: dict) -> None:
         # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
         # Normalize cursor: treat missing, null, and empty string all as fresh start.
         cursor: str = body.get("cursor") or "*"
-        started_at: str | datetime = body.get("started_at") or datetime.now(tz=timezone.utc)
+        started_at: str | datetime = body.get("started_at") or datetime.now(tz=UTC)
 
         target_raw: int | None = body.get("target")
         if target_raw is None:

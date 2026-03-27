@@ -181,14 +181,28 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
         )
         _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
-        logger.info(
-            "Reviews complete",
-            extra={
-                "appid": appid,
-                "reason": "exhausted" if exhausted else "early_stop",
-                "total": total_fetched,
-            },
-        )
+        if early_stop:
+            logger.info(
+                "Reviews complete",
+                extra={
+                    "appid": appid,
+                    "reason": "early_stop",
+                    "total": total_fetched,
+                    "batch_count": msg.count,
+                    "min_batch_ts": datetime.fromtimestamp(min_batch_ts, tz=timezone.utc).isoformat() if min_batch_ts else None,
+                    "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
+                },
+            )
+        else:
+            logger.info(
+                "Reviews complete",
+                extra={
+                    "appid": appid,
+                    "reason": "exhausted",
+                    "total": total_fetched,
+                    "batch_count": msg.count,
+                },
+            )
     elif target_hit:
         # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
         _catalog_repo.mark_reviews_complete(appid, completed_at=None)
@@ -208,7 +222,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
                 "started_at": msg.started_at.isoformat() if msg.started_at else None,
             }),
         )
-        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched, "remaining": new_remaining})
+        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched, "remaining": new_remaining, "cursor": msg.next_cursor})
 
     # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

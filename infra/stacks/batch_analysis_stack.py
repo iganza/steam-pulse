@@ -205,6 +205,10 @@ class BatchAnalysisStack(cdk.Stack):
         prepare_pass1_task = tasks.LambdaInvoke(
             self, "PreparePass1",
             lambda_function=prepare_pass1_fn,
+            payload=sfn.TaskInput.from_object({
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                "appids": sfn.JsonPath.string_at("$.appids"),
+            }),
             payload_response_only=True,
             result_path="$.pass1",
         )

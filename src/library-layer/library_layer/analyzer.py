@@ -120,7 +120,7 @@ def _aggregate_chunk_summaries(chunk_summaries: list[ChunkSummary]) -> dict:
         "gameplay_friction": [item for cs in chunks for item in cs.gameplay_friction],
         "wishlist_items": [item for cs in chunks for item in cs.wishlist_items],
         "dropout_moments": [item for cs in chunks for item in cs.dropout_moments],
-        "competitor_refs": [item for cs in chunks for item in cs.competitor_refs],
+        "competitor_refs": [item.model_dump() for cs in chunks for item in cs.competitor_refs],
         "notable_quotes": [item for cs in chunks for item in cs.notable_quotes],
         "technical_issues": [item for cs in chunks for item in cs.technical_issues],
         "refund_signals": [item for cs in chunks for item in cs.refund_signals],
@@ -235,7 +235,7 @@ Extract signals from {len(chunk)} Steam reviews{game_label}
   "gameplay_friction": ["string"],
   "wishlist_items": ["string"],
   "dropout_moments": ["string — must include timing"],
-  "competitor_refs": [{{"game": "name", "sentiment": "pos|neg|neutral", "context": "phrase"}}],
+  "competitor_refs": [{{"game": "name", "sentiment": "positive|negative|neutral", "context": "phrase"}}],
   "notable_quotes": ["verbatim, max 2"],
   "technical_issues": ["string"],
   "refund_signals": ["string — verbatim language + context"],
@@ -445,19 +445,17 @@ def _synthesize(
     return report
 
 
-async def analyze_reviews(
+def analyze_reviews(
     reviews: list[dict],
     game_name: str,
     appid: int | None = None,
 ) -> dict:
     """Full two-pass LLM analysis pipeline.
 
-    Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING, cheap, parallel).
+    Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING).
     Pass 2: synthesize aggregated chunk signals into a structured report (LLM_MODEL__SUMMARIZER).
     sentiment_score, hidden_gem_score, and sentiment_trend are computed in Python — not LLM-guessed.
     """
-    import asyncio
-
     if not reviews:
         raise ValueError("No reviews to analyze")
 
@@ -467,29 +465,21 @@ async def analyze_reviews(
     t_start = time.monotonic()
     logger.info("analysis_start", extra={"appid": appid, "reviews": len(reviews), "chunks": total_chunks})
 
-    # Pass 1 — run chunk summarizations in a thread pool (SDK is sync)
-    loop = asyncio.get_event_loop()
-    chunk_summaries: list[ChunkSummary] = []
-    for i, chunk in enumerate(chunks):
-        summary = await loop.run_in_executor(
-            None, _summarize_chunk, client, chunk, i, total_chunks, game_name
-        )
-        chunk_summaries.append(summary)
+    # Pass 1
+    chunk_summaries = [
+        _summarize_chunk(client, chunk, i, total_chunks, game_name)
+        for i, chunk in enumerate(chunks)
+    ]
 
     # Compute numeric scores and trend in Python before calling Sonnet
     sentiment_score = _compute_sentiment_score(chunk_summaries)
     hidden_gem_score = _compute_hidden_gem_score(len(reviews), sentiment_score)
     sentiment_trend, sentiment_trend_note = _compute_sentiment_trend(reviews)
 
-    # Aggregate chunk signals for Pass 2
-    aggregated_signals = _aggregate_chunk_summaries(chunk_summaries)
-
-    # Pass 2 — synthesize
-    result: GameReport = await loop.run_in_executor(
-        None,
-        _synthesize,
+    # Pass 2
+    result: GameReport = _synthesize(
         client,
-        aggregated_signals,
+        _aggregate_chunk_summaries(chunk_summaries),
         game_name,
         len(reviews),
         sentiment_score,

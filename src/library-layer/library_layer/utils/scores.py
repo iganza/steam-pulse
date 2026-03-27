@@ -4,7 +4,7 @@ All three score functions operate on plain Python structures (no Bedrock, no ins
 Import these in analyzer.py (real-time path) and in batch_analysis/prepare_pass2.py.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from library_layer.models.analyzer_models import ChunkSummary
 
@@ -37,14 +37,16 @@ def compute_sentiment_trend(reviews: list[dict]) -> tuple[str, str]:
     recent_str = cutoff_recent.strftime("%Y-%m-%d")
     prior_str = cutoff_prior.strftime("%Y-%m-%d")
 
-    recent = [
-        r for r in reviews
-        if r.get("posted_at") and r["posted_at"][:10] >= recent_str
-    ]
-    prior = [
-        r for r in reviews
-        if r.get("posted_at") and prior_str <= r["posted_at"][:10] < recent_str
-    ]
+    def _date_str(r: dict) -> str | None:
+        v = r.get("posted_at")
+        if isinstance(v, datetime | date):
+            return v.strftime("%Y-%m-%d")
+        if isinstance(v, str):
+            return v[:10]
+        return None
+
+    recent = [r for r in reviews if (_date_str(r) or "") >= recent_str and _date_str(r)]
+    prior = [r for r in reviews if prior_str <= (_date_str(r) or "") < recent_str and _date_str(r)]
 
     if len(recent) < 10 or len(prior) < 10:
         return "stable", "Insufficient recent review volume to determine trend."

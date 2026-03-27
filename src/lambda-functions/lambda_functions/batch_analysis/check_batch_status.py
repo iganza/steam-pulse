@@ -33,7 +33,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     resp = _bedrock.get_model_invocation_job(jobIdentifier=job_id)
     raw_status: str = resp.get("status", "Unknown")
-    mapped_status = _STATUS_MAP.get(raw_status, "Running")
+    mapped_status = _STATUS_MAP.get(raw_status, "Failed")
     message = resp.get("message", raw_status)
 
     logger.info("batch job status", extra={"job_id": job_id, "raw": raw_status, "mapped": mapped_status})

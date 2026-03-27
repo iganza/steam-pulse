@@ -72,7 +72,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
         # Sort chronologically — earlier reviews as first chunk
         reviews_sorted = sorted(
-            [r.__dict__ if hasattr(r, "__dict__") else r for r in reviews],
+            [r.model_dump() for r in reviews],
             key=lambda r: r.get("posted_at") or "",
         )
 

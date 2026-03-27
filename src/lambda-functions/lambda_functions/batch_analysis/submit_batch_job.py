@@ -4,6 +4,7 @@ Input:  {execution_id: str, pass: str, model_id: str, input_s3_uri: str, output_
 Output: {job_id: str}  — job_id is the full Bedrock job ARN
 """
 
+import hashlib
 import os
 
 import boto3
@@ -25,8 +26,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
     input_s3_uri: str = event["input_s3_uri"]
     output_s3_uri: str = event["output_s3_uri"]
 
-    # Job name: max 63 chars, alphanumeric + hyphens
-    job_name = f"steampulse-{pass_name}-{execution_id[:8]}"
+    # Job name: max 63 chars, alphanumeric + hyphens. Hash the full execution_id for uniqueness.
+    uid = hashlib.sha256(f"{execution_id}-{pass_name}".encode()).hexdigest()[:12]
+    job_name = f"sp-{pass_name}-{uid}"
 
     logger.info("submitting batch job", extra={
         "pass": pass_name,

@@ -56,8 +56,14 @@ def _list_output_objects(bucket: str, prefix: str) -> list[str]:
 
 def _read_jsonl_from_s3(bucket: str, key: str) -> list[dict]:
     resp = _s3.get_object(Bucket=bucket, Key=key)
-    body = resp["Body"].read().decode()
-    return [json.loads(line) for line in body.splitlines() if line.strip()]
+    records = []
+    for line in resp["Body"].iter_lines():
+        if isinstance(line, bytes):
+            line = line.decode()
+        line = line.strip()
+        if line:
+            records.append(json.loads(line))
+    return records
 
 
 @tracer.capture_lambda_handler
@@ -109,11 +115,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
         # Compute sentiment trend from DB review timestamps
         reviews_for_trend = review_repo.find_by_appid(appid, limit=2000)
-        reviews_dicts = [
-            r.__dict__ if hasattr(r, "__dict__") else r
-            for r in reviews_for_trend
-        ]
-        sentiment_trend, sentiment_trend_note = compute_sentiment_trend(reviews_dicts)
+        sentiment_trend, sentiment_trend_note = compute_sentiment_trend(
+            [r.model_dump() for r in reviews_for_trend]
+        )
 
         # Store pre-computed scores (ProcessResults will use these to override LLM output)
         scores_by_appid[str(appid)] = {

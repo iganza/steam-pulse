@@ -48,8 +48,14 @@ def _list_output_objects(bucket: str, prefix: str) -> list[str]:
 
 def _read_jsonl_from_s3(bucket: str, key: str) -> list[dict]:
     resp = _s3.get_object(Bucket=bucket, Key=key)
-    body = resp["Body"].read().decode()
-    return [json.loads(line) for line in body.splitlines() if line.strip()]
+    records = []
+    for line in resp["Body"].iter_lines():
+        if isinstance(line, bytes):
+            line = line.decode()
+        line = line.strip()
+        if line:
+            records.append(json.loads(line))
+    return records
 
 
 def _read_scores_from_s3(execution_id: str) -> dict[str, dict]:

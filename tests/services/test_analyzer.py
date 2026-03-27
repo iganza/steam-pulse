@@ -7,12 +7,6 @@ from library_layer.analyzer import (
     _chunk_reviews,
     analyze_reviews,
 )
-from library_layer.utils.scores import (
-    compute_hidden_gem_score as _compute_hidden_gem_score,
-    compute_sentiment_score as _compute_sentiment_score,
-    compute_sentiment_trend as _compute_sentiment_trend,
-    sentiment_label as _sentiment_label,
-)
 from library_layer.models.analyzer_models import (
     AudienceProfile,
     BatchStats,
@@ -25,6 +19,18 @@ from library_layer.models.analyzer_models import (
     GameReport,
     MonetizationSentiment,
     RefundRisk,
+)
+from library_layer.utils.scores import (
+    compute_hidden_gem_score as _compute_hidden_gem_score,
+)
+from library_layer.utils.scores import (
+    compute_sentiment_score as _compute_sentiment_score,
+)
+from library_layer.utils.scores import (
+    compute_sentiment_trend as _compute_sentiment_trend,
+)
+from library_layer.utils.scores import (
+    sentiment_label as _sentiment_label,
 )
 from pydantic import ValidationError
 
@@ -470,7 +476,7 @@ def _fake_report() -> GameReport:
     )
 
 
-async def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_summary = ChunkSummary(batch_stats=BatchStats(positive_count=8, negative_count=2))
     fake_report = _fake_report()
 
@@ -484,7 +490,7 @@ async def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> 
          "written_during_early_access": False, "received_for_free": False}
         for _ in range(10)
     ]
-    result = await analyze_reviews(reviews, "Test Game")
+    result = analyze_reviews(reviews, "Test Game")
 
     assert isinstance(result, dict)
     for key in (
@@ -513,7 +519,7 @@ async def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> 
         assert key in result, f"missing key: {key}"
 
 
-async def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_summary = ChunkSummary(batch_stats=BatchStats(positive_count=5, negative_count=5))
     fake_report = _fake_report()
 
@@ -527,11 +533,11 @@ async def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> No
          "written_during_early_access": False, "received_for_free": False}
         for _ in range(5)
     ]
-    result = await analyze_reviews(reviews, "Test Game", appid=440)
+    result = analyze_reviews(reviews, "Test Game", appid=440)
 
     assert result["appid"] == 440
 
 
-async def test_analyze_reviews_empty_reviews() -> None:
+def test_analyze_reviews_empty_reviews() -> None:
     with pytest.raises(ValueError, match="No reviews to analyze"):
-        await analyze_reviews([], "Test Game")
+        analyze_reviews([], "Test Game")

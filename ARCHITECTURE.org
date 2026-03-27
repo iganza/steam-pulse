@@ -376,74 +376,128 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 - S3 object deleted AFTER all DB writes and SQS re-queue succeed (safe for retry on failure)
 - =reviews_completed_at= is the sole termination signal — no =review_cursor= or =reviews_target= columns
 
-** Flow-04: LLM Analysis
+** Flow-04: LLM Analysis (Batch Mode)
 
 #+BEGIN_SRC
-Invariant: After reviews-ready, a Step Functions execution runs two LLM
-           passes (Haiku chunks → Sonnet synthesis) and stores the report.
-           AnalysisFn is idempotent — re-running the same appid produces
-           a new report that overwrites the old one.
+Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Functions
+           workflow orchestrates two-pass LLM analysis via Bedrock Batch Inference:
+             Pass 1 (Haiku): 50-review chunks → extract 11 signal types
+             Pass 2 (Sonnet): aggregated chunk signals → structured GameReport JSON
+           sentiment_score, hidden_gem_score, and sentiment_trend are computed in
+           Python (PreparePass2 Lambda) — never LLM-guessed.
+           The pipeline is idempotent: re-analyzing an appid overwrites its report.
+           Intermediate JSONL artifacts in S3 are auto-deleted after 7 days.
 #+END_SRC
 
 #+BEGIN_SRC
-  ContentEventsTopic    BatchStagingQ         CrawlerFn          Step Functions
-      │                     │               handler.py           AnalysisMachine
-      │  reviews-ready       │                   │                     │
-      │  {appid}            │                   │                     │
-      │─────────────────────>│                   │                     │
-      │  (SNS filter)        │                   │                     │
-      │                      │  SQS receive      │                     │
-      │                      │──────────────────>│                     │
-      │                      │                   │  StartExecution      │
-      │                      │                   │  {appid}            │
-      │                      │                   │────────────────────>│
+  Admin (CLI)        Step Functions         PreparePass1Fn        S3 Batch Bucket
+      │              (STANDARD)             lambda_functions/     steampulse-batch-{env}
+      │                    │                batch_analysis/               │
+      │  start_execution   │                      │                       │
+      │  {appids:[int]|    │                      │                       │
+      │   "ALL_ELIGIBLE"}  │                      │                       │
+      │───────────────────>│                      │                       │
+      │                    │  PreparePass1        │                       │
+      │                    │─────────────────────>│                       │
+      │                    │                      │  ReviewRepository     │
+      │                    │                      │  .find_by_appid()     │
+      │                    │                      │  (limit=2000)         │
+      │                    │                      │────────────────> RDS  │
+      │                    │                      │<──────────────── RDS  │
+      │                    │                      │  chunk by 50, sort    │
+      │                    │                      │  chronologically      │
+      │                    │                      │  format JSONL records │
+      │                    │                      │  recordId={appid}-    │
+      │                    │                      │  chunk-{n}            │
+      │                    │                      │──────────────────────>│
+      │                    │                      │  PUT pass1/input.jsonl│
+      │                    │<─────────────────────│                       │
+      │                    │  {input_s3_uri,       │                       │
+      │                    │   output_s3_uri}      │                       │
+      │                    │                       │                       │
+      │                    │  SubmitBatchJobFn     │                       │
+      │                    │─────────────────────────────────> Bedrock    │
+      │                    │  create_model_invocation_job()   (Haiku)     │
+      │                    │<───────────────────────────────── {job_id}   │
+      │                    │                                               │
+      │                    │  ┌─ Poll Pass 1 (Wait 300s → CheckStatus) ──┐│
+      │                    │  │  until status = Completed | Failed        ││
+      │                    │  │  Bedrock reads pass1/input.jsonl          ││
+      │                    │  │  writes pass1/output/{job-id}.jsonl.out   ││
+      │                    │  └──────────────────────────────────────────┘│
 
-  Step Functions        AnalysisFn              RDS               Bedrock
-  AnalysisMachine       handler.py              reviews/reports    Claude
-      │                     │                      │                  │
-      │  invoke AnalyzeGame  │                      │                  │
-      │────────────────────>│                      │                  │
-      │                     │  ReviewRepository    │                  │
-      │                     │  .get_for_analysis() │                  │
-      │                     │──────────────────────>                  │
-      │                     │<──────────────────────                  │
-      │                     │  reviews[]           │                  │
-      │                     │                      │                  │
-      │                     │  ┌─ Pass 1: chunk reviews by 50 ──────┐ │
-      │                     │  │  Haiku (claude-3-5-haiku-*)        │ │
-      │                     │  │  extract: design_praise,           │ │
-      │                     │  │  gameplay_friction, wishlist_items, │ │
-      │                     │  │  dropout_moments, competitor_refs,  │ │
-      │                     │  │  notable_quotes, batch_stats        │ │
-      │                     │  │──────────────────────────────────> │ │
-      │                     │  │<────────────────────────────────── │ │
-      │                     │  └────────────────────────────────────┘ │
-      │                     │                      │                  │
-      │                     │  compute sentiment_score (Python)        │
-      │                     │  compute hidden_gem_score (Python)       │
-      │                     │                      │                  │
-      │                     │  ┌─ Pass 2: synthesise ───────────────┐ │
-      │                     │  │  Sonnet (claude-3-5-sonnet-*)      │ │
-      │                     │  │  → structured report JSON          │ │
-      │                     │  │──────────────────────────────────> │ │
-      │                     │  │<────────────────────────────────── │ │
-      │                     │  └────────────────────────────────────┘ │
-      │                     │                      │                  │
-      │                     │  ReportRepository    │                  │
-      │                     │  .upsert(report)     │                  │
-      │                     │──────────────────────>                  │
-      │                     │<──────────────────────                  │
-      │                     │                      │                  │
-      │  execution complete  │                      │                  │
-      │<────────────────────│                      │                  │
+  Step Functions         PreparePass2Fn        S3 Batch Bucket     RDS
+  (STANDARD)             batch_analysis/       steampulse-batch    reviews
+      │                       │                      │               │
+      │  PreparePass2          │                      │               │
+      │──────────────────────>│                      │               │
+      │                       │  GET pass1/output/   │               │
+      │                       │<─────────────────────│               │
+      │                       │  parse ChunkSummary per record        │
+      │                       │  group by appid, aggregate signals    │
+      │                       │  compute sentiment_score (Python)     │
+      │                       │  compute hidden_gem_score (Python)    │
+      │                       │  ReviewRepository.find_by_appid()     │
+      │                       │──────────────────────────────────────>│
+      │                       │<──────────────────────────────────────│
+      │                       │  compute sentiment_trend (Python)     │
+      │                       │  PUT pass2/scores.json                │
+      │                       │─────────────────────>│               │
+      │                       │  PUT pass2/input.jsonl                │
+      │                       │  recordId={appid}-synthesis           │
+      │                       │─────────────────────>│               │
+      │<──────────────────────│                      │               │
+      │  {input_s3_uri,        │                      │               │
+      │   output_s3_uri}       │                      │               │
+      │                        │                      │               │
+      │  SubmitBatchJobFn (Sonnet) ──────────> Bedrock               │
+      │  create_model_invocation_job()         (Sonnet)              │
+      │<─────────────────────────────────────── {job_id}            │
+      │                                                               │
+      │  ┌─ Poll Pass 2 (Wait 300s → CheckStatus) ──────────────────┐│
+      │  │  Bedrock reads pass2/input.jsonl                          ││
+      │  │  writes pass2/output/{job-id}.jsonl.out                   ││
+      │  └──────────────────────────────────────────────────────────┘│
+
+  Step Functions         ProcessResultsFn      RDS            SNS Topics
+  (STANDARD)             batch_analysis/       reports        content/system
+      │                       │                  │               │
+      │  ProcessResults        │                  │               │
+      │──────────────────────>│                  │               │
+      │                       │  GET pass2/output/ + scores.json │
+      │                       │  parse GameReport per record     │
+      │                       │  override scores from scores.json │
+      │                       │  ReportRepository.upsert()        │
+      │                       │──────────────────────────────────>│
+      │                       │  publish report-ready per game    │
+      │                       │──────────────────────────────────────────>│
+      │                       │  publish batch-complete (once)             │
+      │                       │──────────────────────────────────────────>│
+      │<──────────────────────│                  │               │
+      │  {processed, failed}  │                  │               │
+      │                       │                  │               │
+      │  execution complete   │                  │               │
 #+END_SRC
 
 *Drift checklist:*
-- =sentiment_score= and =hidden_gem_score= are computed in Python BEFORE Sonnet call
+- Step Functions type: STANDARD (not EXPRESS) — batch jobs run for hours, Wait states > 5 min
+- Bedrock Batch Inference API: =create_model_invocation_job()= (not Converse) — no prompt caching in batch
+- =recordId= format: ={appid}-chunk-{n}= (Pass 1), ={appid}-synthesis= (Pass 2)
+- =sentiment_score=, =hidden_gem_score= computed from =total_stats= (aggregated =batch_stats=) in PreparePass2
+- =sentiment_trend= computed via =compute_sentiment_trend(reviews)= with DB query in PreparePass2
+- Pre-computed scores saved to =pass2/scores.json=; ProcessResults reads and overrides LLM output
+- =ReportRepository.upsert()= overwrites on conflict — re-analysis is always a full replace
+- =report-ready= event published per game; =batch-complete= published once at end by ProcessResults
+- S3 bucket =steampulse-batch-{env}=: 7-day lifecycle auto-deletes intermediate JSONL artifacts
+- Bedrock batch role assumed by =bedrock.amazonaws.com= (NOT the Lambda execution role)
+- Lambda role requires =iam:PassRole= to pass the Bedrock batch role to =create_model_invocation_job=
+- =BATCH_BUCKET_NAME= is a literal env var (set by CDK) — no SSM resolution needed
+- =BEDROCK_BATCH_ROLE_ARN= is a literal ARN env var (set by CDK) — no SSM resolution needed
 - Pass 1 uses =LLM_MODEL__CHUNKING= env var (Haiku), Pass 2 uses =LLM_MODEL__SUMMARIZER= (Sonnet)
-- Both use =AnthropicBedrock()= via Converse API (NOT direct Anthropic API)
-- State machine type is EXPRESS (not STANDARD) — no execution history, cheaper
-- =ReportRepository.upsert()= overwrites on conflict (re-analysis is always a full replace)
+- Both prompts use XML tags: =<rules>=, =<signal_definitions>=, =<aggregated_signals>=, =<section_definitions>=
+- Scoring functions in =library_layer/utils/scores.py= — shared by real-time path and batch path
+- =_aggregate_chunk_summaries()= in =analyzer.py= — shared by =analyze_reviews()= and PreparePass2
+- Real-time single-game path (Express SFN → AnalysisFn) kept unchanged for =/api/preview= (Flow-05)
 
 ** Flow-05: API Preview
 

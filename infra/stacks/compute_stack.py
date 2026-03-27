@@ -66,7 +66,7 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
-        library_layer = PythonLayerVersion(
+        self.library_layer = PythonLayerVersion(
             self,
             "LibraryLayer",
             entry="src/library-layer",
@@ -74,6 +74,7 @@ class ComputeStack(cdk.Stack):
             layer_version_name=f"{config.ENVIRONMENT}-steampulse-lambda-library-layer",
             description="Shared deps (httpx, psycopg2, boto3, anthropic) + steampulse framework",
         )
+        library_layer = self.library_layer
 
         # ── Analysis Lambda ───────────────────────────────────────────────────
         analysis_role = iam.Role(

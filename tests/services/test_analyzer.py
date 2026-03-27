@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 import pytest
 from library_layer.analyzer import (
     _chunk_reviews,
-    _compute_hidden_gem_score,
-    _compute_sentiment_score,
-    _compute_sentiment_trend,
-    _sentiment_label,
     analyze_reviews,
+)
+from library_layer.utils.scores import (
+    compute_hidden_gem_score as _compute_hidden_gem_score,
+    compute_sentiment_score as _compute_sentiment_score,
+    compute_sentiment_trend as _compute_sentiment_trend,
+    sentiment_label as _sentiment_label,
 )
 from library_layer.models.analyzer_models import (
     AudienceProfile,

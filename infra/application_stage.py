@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "library
 import aws_cdk as cdk
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
+from stacks.batch_analysis_stack import BatchAnalysisStack
 from stacks.certificate_stack import CertificateStack
 from stacks.compute_stack import ComputeStack
 from stacks.data_stack import DataStack
@@ -140,6 +141,23 @@ class ApplicationStage(cdk.Stage):
             env=cdk_env,
         )
         frontend.add_dependency(delivery)
+
+        # ── Batch Analysis ────────────────────────────────────────────────────
+        batch = BatchAnalysisStack(
+            self,
+            "BatchAnalysis",
+            stack_name=f"SteamPulse-{env_name}-BatchAnalysis",
+            config=config,
+            vpc=network.vpc,
+            intra_sg=network.intra_sg,
+            db_secret=data.db_secret,
+            library_layer=compute.library_layer,
+            content_events_topic=messaging.content_events_topic,
+            system_events_topic=messaging.system_events_topic,
+            env=cdk_env,
+        )
+        batch.add_dependency(compute)
+        batch.add_dependency(messaging)
 
         # ── Monitoring ────────────────────────────────────────────────────────
         # Disabled — enable when ready to set up alarms.

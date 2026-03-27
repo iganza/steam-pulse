@@ -3,55 +3,55 @@
 
 Games released within the last 2 years (2024–2026). Covers a range of sentiments and genres.
 
-| Num | Game                                   | AppId   | Reviews | Sentiment               | Genres                          |
-|-----+----------------------------------------+---------+---------+-------------------------+---------------------------------|
-|   1 | Black Myth: Wukong                     | 2358720 | 1196220 | Very Positive (94%)     | Action, Adventure, RPG          |
-|   2 | Monster Hunter Wilds                   | 2246340 |  314290 | Mixed (67%)             | Action, Adventure, RPG          |
-|   3 | R.E.P.O.                               | 3241660 |  367959 | Overwhelmingly Positive | Action, Early Access            |
-|   4 | Schedule I                             | 3164500 |  285612 | Overwhelmingly Positive | Simulation, Strategy, Indie     |
-|   5 | Satisfactory                           |  526870 |  263759 | Overwhelmingly Positive | Simulation, Strategy, Indie     |
-|   6 | Clair Obscur: Expedition 33            | 1903340 |  258417 | Overwhelmingly Positive | Action, RPG                     |
-|   7 | Warhammer 40,000: Space Marine 2       | 2183900 |  203561 | Very Positive (86%)     | Action, Adventure, RPG          |
-|   8 | Battlefield 6                          | 2807960 |  328066 | Mixed (69%)             | Action                          |
-|   9 | Split Fiction                          | 2001120 |  116117 | Overwhelmingly Positive | Action, Adventure               |
-|  10 | Hades II                               | 1145350 |  115243 | Overwhelmingly Positive | Action, Indie, RPG              |
-|  11 | Dragon's Dogma 2                       | 2054970 |  112815 | Mixed (66%)             | Action, RPG                     |
-|  12 | Ghost of Tsushima DIRECTOR'S CUT       | 2215430 |   88238 | Very Positive (94%)     | Action, Adventure               |
-|  13 | Manor Lords                            | 1363080 |   84960 | Very Positive (87%)     | Simulation, Strategy            |
-|  14 | Path of Exile 2                        | 2694490 |  206557 | Mostly Positive (74%)   | Action, RPG, Early Access       |
-|  15 | Kingdom Come: Deliverance II           | 1771300 |  174256 | Very Positive (93%)     | Action, Adventure, RPG          |
-|  16 | S.T.A.L.K.E.R. 2: Heart of Chornobyl  | 1643320 |  130052 | Mostly Positive (77%)   | Action, Adventure, RPG          |
-|  17 | Metaphor: ReFantazio                   | 2679460 |   40258 | Very Positive (93%)     | Action, Adventure, RPG          |
-|  18 | SILENT HILL 2                          | 2124490 |   58330 | Very Positive (95%)     | Action, Adventure (Horror)      |
-|  19 | Dragon Age: The Veilguard              | 1845910 |   43759 | Mixed (68%)             | Action, Adventure, RPG          |
-|  20 | EA SPORTS FC 25                        | 2669320 |  104429 | Mixed (53%)             | Simulation, Sports              |
-|  21 | Marvel Rivals                          | 2767030 |  376509 | Mostly Positive (78%)   | Action, Free To Play            |
-|  22 | Sid Meier's Civilization VII           | 1295660 |   53254 | Mixed (50%)             | Simulation, Strategy            |
-|  23 | Nine Sols                              | 1809540 |   38476 | Overwhelmingly Positive | Action, Adventure, Indie        |
-|  24 | Mouthwashing                           | 2475490 |   36031 | Overwhelmingly Positive | Adventure, Indie                |
-|  25 | ANIMAL WELL                            |  813230 |   23441 | Overwhelmingly Positive | Action, Adventure, Indie        |
-|  26 | Tiny Glade                             | 2198150 |   23289 | Overwhelmingly Positive | Casual, Simulation              |
-|  27 | WEBFISHING                             | 3146520 |   69655 | Overwhelmingly Positive | Casual, Indie, Multiplayer      |
-|  28 | Buckshot Roulette                      | 2835570 |  115117 | Overwhelmingly Positive | Action, Indie, Simulation       |
-|  29 | MiSide                                 | 2527500 |  136674 | Overwhelmingly Positive | Adventure, Indie, Simulation    |
-|  30 | Content Warning                        | 2881650 |  156082 | Very Positive (94%)     | Action, Adventure, Indie        |
-|  31 | Frostpunk 2                            | 1601580 |   25168 | Mostly Positive (79%)   | Simulation, Strategy            |
-|  32 | V Rising                               | 1604030 |  131675 | Very Positive (90%)     | Action, Adventure, Multiplayer  |
-|  33 | Core Keeper                            | 1621690 |   62930 | Very Positive (95%)     | Action, Adventure, Indie        |
-|  34 | Chained Together                       | 2567870 |   60024 | Very Positive (91%)     | Adventure, Casual, Indie        |
-|  35 | TCG Card Shop Simulator                | 3070070 |   46472 | Overwhelmingly Positive | Simulation, Early Access        |
-|  36 | Fields of Mistria                      | 2142790 |   26762 | Overwhelmingly Positive | Indie, Simulation, RPG          |
-|  37 | Halls of Torment                       | 2218750 |   31161 | Overwhelmingly Positive | Action, Indie, RPG              |
-|  38 | The Planet Crafter                     | 1284190 |   66843 | Overwhelmingly Positive | Adventure                       |
-|  39 | DELTARUNE                              | 1671210 |   96918 | Overwhelmingly Positive | Indie, RPG                      |
-|  40 | Farming Simulator 25                   | 2300320 |   48873 | Very Positive (85%)     | Simulation                      |
-|  41 | God of War Ragnarök                    | 2322010 |   44152 | Very Positive (89%)     | Action, Adventure, RPG          |
-|  42 | FINAL FANTASY VII REBIRTH              | 2909400 |   29332 | Very Positive (80%)     | Action, Adventure, RPG          |
-|  43 | FINAL FANTASY XVI                      | 2515020 |   29663 | Very Positive (80%)     | Action, RPG                     |
-|  44 | Assassin's Creed Shadows               | 3159330 |   35188 | Mostly Positive (78%)   | Action, Adventure, RPG          |
-|  45 | inZOI                                  | 2456740 |   29567 | Mostly Positive (79%)   | Simulation, Casual, Early Access|
-|  46 | Football Manager 26                    | 3551340 |   29841 | Mostly Negative (35%)   | Simulation, Sports, Strategy    |
-|  47 | Shadowverse: Worlds Beyond             | 2584990 |   23534 | Mostly Negative (37%)   | Strategy, Casual, Free To Play  |
-|  48 | Dead Island 2                          |  934700 |   23346 | Mostly Positive (76%)   | Action, Adventure               |
-|  49 | Rusty's Retirement                     | 2666510 |   14366 | Overwhelmingly Positive | Simulation, Casual, Indie       |
-|  50 | Desktop Defender                       | 3772810 |    1608 | Very Positive (94%)     | Strategy, Indie                 |
+| Num | Game                                 |   AppId | Reviews | Sentiment               | Genres                           |
+|-----+--------------------------------------+---------+---------+-------------------------+----------------------------------|
+|   1 | Black Myth: Wukong                   | 2358720 | 1196220 | Very Positive (94%)     | Action, Adventure, RPG           |
+|   2 | Monster Hunter Wilds                 | 2246340 |  314290 | Mixed (67%)             | Action, Adventure, RPG           |
+|   3 | R.E.P.O.                             | 3241660 |  367959 | Overwhelmingly Positive | Action, Early Access             |
+|   4 | Schedule I                           | 3164500 |  285612 | Overwhelmingly Positive | Simulation, Strategy, Indie      |
+|   5 | Satisfactory                         |  526870 |  263759 | Overwhelmingly Positive | Simulation, Strategy, Indie      |
+|   6 | Clair Obscur: Expedition 33          | 1903340 |  258417 | Overwhelmingly Positive | Action, RPG                      |
+|   7 | Warhammer 40,000: Space Marine 2     | 2183900 |  203561 | Very Positive (86%)     | Action, Adventure, RPG           |
+|   8 | Battlefield 6                        | 2807960 |  328066 | Mixed (69%)             | Action                           |
+|   9 | Split Fiction                        | 2001120 |  116117 | Overwhelmingly Positive | Action, Adventure                |
+|  10 | Hades II                             | 1145350 |  115243 | Overwhelmingly Positive | Action, Indie, RPG               |
+|  11 | Dragon's Dogma 2                     | 2054970 |  112815 | Mixed (66%)             | Action, RPG                      |
+|  12 | Ghost of Tsushima DIRECTOR'S CUT     | 2215430 |   88238 | Very Positive (94%)     | Action, Adventure                |
+|  13 | Manor Lords                          | 1363080 |   84960 | Very Positive (87%)     | Simulation, Strategy             |
+|  14 | Path of Exile 2                      | 2694490 |  206557 | Mostly Positive (74%)   | Action, RPG, Early Access        |
+|  15 | Kingdom Come: Deliverance II         | 1771300 |  174256 | Very Positive (93%)     | Action, Adventure, RPG           |
+|  16 | S.T.A.L.K.E.R. 2: Heart of Chornobyl | 1643320 |  130052 | Mostly Positive (77%)   | Action, Adventure, RPG           |
+|  17 | Metaphor: ReFantazio                 | 2679460 |   40258 | Very Positive (93%)     | Action, Adventure, RPG           |
+|  18 | SILENT HILL 2                        | 2124490 |   58330 | Very Positive (95%)     | Action, Adventure (Horror)       |
+|  19 | Dragon Age: The Veilguard            | 1845910 |   43759 | Mixed (68%)             | Action, Adventure, RPG           |
+|  20 | EA SPORTS FC 25                      | 2669320 |  104429 | Mixed (53%)             | Simulation, Sports               |
+|  21 | Marvel Rivals                        | 2767030 |  376509 | Mostly Positive (78%)   | Action, Free To Play             |
+|  22 | Sid Meier's Civilization VII         | 1295660 |   53254 | Mixed (50%)             | Simulation, Strategy             |
+|  23 | Nine Sols                            | 1809540 |   38476 | Overwhelmingly Positive | Action, Adventure, Indie         |
+|  24 | Mouthwashing                         | 2475490 |   36031 | Overwhelmingly Positive | Adventure, Indie                 |
+|  25 | ANIMAL WELL                          |  813230 |   23441 | Overwhelmingly Positive | Action, Adventure, Indie         |
+|  26 | Tiny Glade                           | 2198150 |   23289 | Overwhelmingly Positive | Casual, Simulation               |
+|  27 | WEBFISHING                           | 3146520 |   69655 | Overwhelmingly Positive | Casual, Indie, Multiplayer       |
+|  28 | Buckshot Roulette                    | 2835570 |  115117 | Overwhelmingly Positive | Action, Indie, Simulation        |
+|  29 | MiSide                               | 2527500 |  136674 | Overwhelmingly Positive | Adventure, Indie, Simulation     |
+|  30 | Content Warning                      | 2881650 |  156082 | Very Positive (94%)     | Action, Adventure, Indie         |
+|  31 | Frostpunk 2                          | 1601580 |   25168 | Mostly Positive (79%)   | Simulation, Strategy             |
+|  32 | V Rising                             | 1604030 |  131675 | Very Positive (90%)     | Action, Adventure, Multiplayer   |
+|  33 | Core Keeper                          | 1621690 |   62930 | Very Positive (95%)     | Action, Adventure, Indie         |
+|  34 | Chained Together                     | 2567870 |   60024 | Very Positive (91%)     | Adventure, Casual, Indie         |
+|  35 | TCG Card Shop Simulator              | 3070070 |   46472 | Overwhelmingly Positive | Simulation, Early Access         |
+|  36 | Fields of Mistria                    | 2142790 |   26762 | Overwhelmingly Positive | Indie, Simulation, RPG           |
+|  37 | Halls of Torment                     | 2218750 |   31161 | Overwhelmingly Positive | Action, Indie, RPG               |
+|  38 | The Planet Crafter                   | 1284190 |   66843 | Overwhelmingly Positive | Adventure                        |
+|  39 | DELTARUNE                            | 1671210 |   96918 | Overwhelmingly Positive | Indie, RPG                       |
+|  40 | Farming Simulator 25                 | 2300320 |   48873 | Very Positive (85%)     | Simulation                       |
+|  41 | God of War Ragnarök                  | 2322010 |   44152 | Very Positive (89%)     | Action, Adventure, RPG           |
+|  42 | FINAL FANTASY VII REBIRTH            | 2909400 |   29332 | Very Positive (80%)     | Action, Adventure, RPG           |
+|  43 | FINAL FANTASY XVI                    | 2515020 |   29663 | Very Positive (80%)     | Action, RPG                      |
+|  44 | Assassin's Creed Shadows             | 3159330 |   35188 | Mostly Positive (78%)   | Action, Adventure, RPG           |
+|  45 | inZOI                                | 2456740 |   29567 | Mostly Positive (79%)   | Simulation, Casual, Early Access |
+|  46 | Football Manager 26                  | 3551340 |   29841 | Mostly Negative (35%)   | Simulation, Sports, Strategy     |
+|  47 | Shadowverse: Worlds Beyond           | 2584990 |   23534 | Mostly Negative (37%)   | Strategy, Casual, Free To Play   |
+|  48 | Dead Island 2                        |  934700 |   23346 | Mostly Positive (76%)   | Action, Adventure                |
+|  49 | Rusty's Retirement                   | 2666510 |   14366 | Overwhelmingly Positive | Simulation, Casual, Indie        |
+|  50 | Desktop Defender                     | 3772810 |    1608 | Very Positive (94%)     | Strategy, Indie                  |

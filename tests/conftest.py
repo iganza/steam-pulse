@@ -67,6 +67,8 @@ _TEST_ENV_DEFAULTS = {
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
     "LLM_MODEL__CHUNKING": "us.anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "us.anthropic.claude-sonnet-test-v1:0",
+    "BATCH_BUCKET_NAME": "test-batch-bucket",
+    "BEDROCK_BATCH_ROLE_ARN": "arn:aws:iam::123456789012:role/test-bedrock-role",
     "PRIMARY_REGION": "us-east-1",
     "SPOKE_RESULTS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/spoke-results",
     "SPOKE_REGIONS": "us-east-1",

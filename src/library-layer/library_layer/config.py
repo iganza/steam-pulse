@@ -114,6 +114,10 @@ class SteamPulseConfig(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
 
+    @property
+    def library_layer_ssm_path(self) -> str:
+        return f"/steampulse/{self.ENVIRONMENT}/compute/library-layer-arn"
+
     @classmethod
     def for_environment(cls, environment: str) -> Self:
         """Load config from .env.{environment} — used by CDK at synth time."""

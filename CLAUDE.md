@@ -627,3 +627,4 @@ def handler(event: dict, context: object) -> dict:
 - No Jinja2 templates (frontend is Next.js)
 - No SQLAlchemy or any ORM — raw psycopg2 in repositories only
 - No business logic in repositories, no SQL in services — maintain the layer boundary
+- DO NOT ADD __init__.py files, unless they have actual content

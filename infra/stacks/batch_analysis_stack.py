@@ -322,6 +322,7 @@ class BatchAnalysisStack(cdk.Stack):
         state_machine = sfn.StateMachine(
             self,
             "BatchAnalysisMachine",
+            state_machine_name=f"steampulse-batch-analysis-{env}",
             definition_body=sfn.DefinitionBody.from_chainable(definition),
             state_machine_type=sfn.StateMachineType.STANDARD,
             logs=sfn.LogOptions(

@@ -28,6 +28,9 @@ Usage:
 
   poetry run python scripts/sp.py spokes status [--env staging|production]
 
+  poetry run python scripts/sp.py batch <appid...> [--env staging|production] [--watch] [--dry-run]
+  poetry run python scripts/sp.py batch --all-eligible [--env staging|production] [--watch]
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
@@ -55,7 +58,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 # Commands that resolve config from .env.{environment} via for_environment().
 # Skipping load_dotenv for these prevents dummy .env values from overriding
 # real SSM paths that pydantic-settings would read from the env file.
-_DEPLOYED_COMMANDS = {"spokes", "queue", "db"}
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch"}
 _cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
 if _cmd not in _DEPLOYED_COMMANDS:
@@ -576,6 +579,70 @@ def cmd_queue(
     _ok(f"Published {sent} {task} messages to {label}")
 
 
+# ── Batch analysis ────────────────────────────────────────────────────────────
+
+
+def cmd_batch(
+    appids: list[int],
+    all_eligible: bool,
+    dry_run: bool,
+    watch: bool,
+    env: str,
+) -> None:
+    """Start a Bedrock batch analysis Step Functions execution."""
+    import boto3
+
+    payload: dict = {"appids": "ALL_ELIGIBLE" if all_eligible else appids}
+    label = "ALL_ELIGIBLE" if all_eligible else f"{len(appids)} appid(s): {appids}"
+
+    _info(f"Batch analysis → {env}")
+    _info(f"  Input: {label}")
+
+    if dry_run:
+        _warn(f"[dry-run] Would start SFN execution with: {json.dumps(payload)}")
+        return
+
+    ssm = boto3.client("ssm")
+    sfn_arn = ssm.get_parameter(Name=f"/steampulse/{env}/batch/sfn-arn")["Parameter"]["Value"]
+    _info(f"  SFN: {sfn_arn}")
+
+    sfn = boto3.client("stepfunctions")
+    resp = sfn.start_execution(stateMachineArn=sfn_arn, input=json.dumps(payload))
+    execution_arn = resp["executionArn"]
+    region = sfn_arn.split(":")[3]
+    console_url = (
+        f"https://{region}.console.aws.amazon.com/states/home"
+        f"?region={region}#/executions/details/{execution_arn}"
+    )
+
+    _ok("Execution started")
+    _info(f"  ARN:     {execution_arn}")
+    _info(f"  Console: {console_url}")
+
+    if not watch:
+        return
+
+    _info("Watching (Ctrl+C to stop)...")
+    try:
+        while True:
+            time.sleep(30)
+            desc = sfn.describe_execution(executionArn=execution_arn)
+            status = desc["status"]
+            _info(f"  [{time.strftime('%H:%M:%S')}] {status}")
+            if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                if status == "SUCCEEDED":
+                    _ok("Execution succeeded")
+                else:
+                    _err(f"Execution {status.lower()}")
+                    if desc.get("cause"):
+                        _err(f"  Cause: {desc['cause']}")
+                    if desc.get("error"):
+                        _err(f"  Error: {desc['error']}")
+                break
+    except KeyboardInterrupt:
+        _info("Stopped watching (execution still running)")
+
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def _resolve_admin_fn_name(env: str) -> str:
@@ -768,6 +835,19 @@ def _build_parser() -> argparse.ArgumentParser:
     sd.add_argument("appids", type=int, nargs="*", metavar="appid",
                     help=f"Appids to seed (default: {DEFAULT_SEED_APPIDS})")
 
+    # ── batch
+    ba = sub.add_parser("batch", help="Start a Bedrock batch analysis execution")
+    ba.add_argument("appids", type=int, nargs="*", metavar="appid",
+                    help="Specific appids to analyze")
+    ba.add_argument("--all-eligible", action="store_true",
+                    help="Analyze all eligible games (passes ALL_ELIGIBLE to the state machine)")
+    ba.add_argument("--env", default="staging", choices=["staging", "production"],
+                    help="Environment (default: staging)")
+    ba.add_argument("--dry-run", action="store_true",
+                    help="Print the payload without starting an execution")
+    ba.add_argument("--watch", action="store_true",
+                    help="Poll execution status every 30s until complete (Ctrl+C to stop)")
+
     # ── spokes
     sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
     sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
@@ -839,6 +919,11 @@ def main() -> None:
             cmd_db_status(args.env)
         elif args.db_cmd == "query":
             cmd_db_query(args.env, args.sql)
+
+    elif args.cmd == "batch":
+        if not args.appids and not args.all_eligible:
+            parser.error("batch requires appids or --all-eligible")
+        cmd_batch(args.appids, args.all_eligible, args.dry_run, args.watch, args.env)
 
     elif args.cmd == "spokes":
         if args.spokes_cmd == "status":

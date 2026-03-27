@@ -267,6 +267,67 @@ fields @timestamp, appid, reason, total
 | limit 100
 #+end_src
 
+
+
+** 14. Batched Analysis run
+  ---
+  Log groups to select (all batch Lambdas + SFN):
+  /steampulse/staging/batch-prepare-pass1
+  /steampulse/staging/batch-submit-job
+  /steampulse/staging/batch-check-status
+  /steampulse/staging/batch-prepare-pass2
+  /steampulse/staging/batch-process-results
+  /steampulse/staging/batch-sfn
+
+  ---
+  1. Full flow trace for one execution
+
+  Paste the Step Functions execution name (visible in the console) as the filter value:
+
+  fields @timestamp, service, level, message, pass, job_id, appid, processed, failed
+  | filter execution_id = "YOUR-EXECUTION-ID-HERE"
+  | sort @timestamp asc
+
+  ---
+  2. Live progress — all batch activity, last N minutes
+
+  Good for watching a running job:
+
+  fields @timestamp, service, level, message, pass, job_id, job_status, appid, processed, failed
+  | sort @timestamp asc
+  | limit 200
+
+  ---
+  3. Status poll summary — see how many times it polled and when it completed
+
+  fields @timestamp, message, job_status, job_id
+  | filter service = "batch-check-status"
+  | stats count(*) as polls,
+          min(@timestamp) as first_check,
+          max(@timestamp) as last_check
+    by job_id, job_status
+  | sort last_check desc
+
+  ---
+  4. Find failed or errored runs
+
+  fields @timestamp, service, level, message, job_id, appid, error
+  | filter level in ["ERROR", "WARNING"]
+  | sort @timestamp desc
+  | limit 50
+
+  ---
+  5. Batch complete summary — processed/failed counts per run
+
+  fields @timestamp, execution_id, processed, failed, total_games
+  | filter message = "batch analysis complete"
+  | sort @timestamp desc
+  | limit 20
+
+  ---
+  Tip: When you kick off a run, grab the execution name from Step Functions console (format: UUID or whatever name you give it). Paste it into query 1 — that
+   gives you the full chronological trace across all 5 Lambdas for that specific run.
+
 * CLI Shortcuts (copy-paste)
 
 #+begin_src bash

@@ -70,9 +70,22 @@ def handler(event: dict, context: LambdaContext) -> dict:
             logger.info("no reviews, skipping", extra={"appid": appid})
             continue
 
-        # Sort chronologically — earlier reviews as first chunk
+        # Normalize and sort chronologically — earlier reviews as first chunk
+        def _normalize(r: dict) -> dict:
+            posted = r.get("posted_at")
+            return {
+                "voted_up": r["voted_up"],
+                "review_text": r.get("body") or "",
+                "playtime_hours": r.get("playtime_hours") or 0,
+                "votes_helpful": r.get("votes_helpful") or 0,
+                "votes_funny": r.get("votes_funny") or 0,
+                "posted_at": posted.isoformat() if hasattr(posted, "isoformat") else posted,
+                "written_during_early_access": r.get("written_during_early_access") or False,
+                "received_for_free": r.get("received_for_free") or False,
+            }
+
         reviews_sorted = sorted(
-            [r.model_dump() for r in reviews],
+            [_normalize(r.model_dump()) for r in reviews],
             key=lambda r: r.get("posted_at") or "",
         )
 

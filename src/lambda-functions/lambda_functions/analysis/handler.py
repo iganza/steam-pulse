@@ -62,8 +62,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     reviews_for_llm = [
         {
             "voted_up": r.voted_up,
-            "review_text": r.body or "",
-            "playtime_at_review": (r.playtime_hours or 0) * 60,
+            "review_text": r.body,
+            "playtime_hours": r.playtime_hours or 0,
+            "votes_helpful": r.votes_helpful,
+            "votes_funny": r.votes_funny,
+            "posted_at": r.posted_at.isoformat() if r.posted_at else None,
+            "written_during_early_access": r.written_during_early_access,
+            "received_for_free": r.received_for_free,
         }
         for r in db_reviews
         if r.body

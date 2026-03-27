@@ -22,14 +22,8 @@ from library_layer.models.analyzer_models import (
 )
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
-)
-from library_layer.utils.scores import (
     compute_sentiment_score as _compute_sentiment_score,
-)
-from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
-)
-from library_layer.utils.scores import (
     sentiment_label as _sentiment_label,
 )
 from pydantic import ValidationError

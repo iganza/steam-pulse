@@ -1,7 +1,6 @@
 """CLI entry point for SteamPulse."""
 
 import argparse
-import asyncio
 import json
 import os
 import sys
@@ -50,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run(args: argparse.Namespace, console: Console) -> None:
+def _run(args: argparse.Namespace, console: Console) -> None:
     from library_layer.analyzer import analyze_reviews
     from library_layer.fetcher import fetch_app_metadata, fetch_reviews
     from library_layer.reporter import print_rich_report, render_html_report
@@ -94,7 +93,7 @@ async def _run(args: argparse.Namespace, console: Console) -> None:
 
     console.print("[cyan]Running LLM analysis (this may take 30-60s)...[/cyan]")
     try:
-        result = await analyze_reviews(reviews, game_name, appid=appid)
+        result = analyze_reviews(reviews, game_name, appid=appid)
     except Exception as e:
         console.print(f"[red]Analysis failed: {e}[/red]")
         sys.exit(1)
@@ -124,7 +123,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    asyncio.run(_run(args, console))
+    _run(args, console)
 
 
 if __name__ == "__main__":

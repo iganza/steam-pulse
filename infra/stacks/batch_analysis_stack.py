@@ -284,7 +284,6 @@ class BatchAnalysisStack(cdk.Stack):
         )
 
         # Wire Pass 1 polling loop
-        wait_pass1.next(check_pass1_task)
         pass1_complete.when(
             sfn.Condition.string_equals("$.pass1.job.status_result.status", "Completed"),
             prepare_pass2_task,
@@ -294,7 +293,6 @@ class BatchAnalysisStack(cdk.Stack):
         ).otherwise(wait_pass1)
 
         # Wire Pass 2 polling loop
-        wait_pass2.next(check_pass2_task)
         pass2_complete.when(
             sfn.Condition.string_equals("$.pass2.job.status_result.status", "Completed"),
             process_results_task,

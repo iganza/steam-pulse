@@ -17,6 +17,8 @@ REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
 
 _RETRY_STATUSES = frozenset({429, 503})
+_EMPTY_BATCH_RETRIES = 3
+_EMPTY_BATCH_BACKOFF = (2.0, 5.0, 10.0)
 
 MetricsCallback = Callable[[str, str, int, float], None]
 """(endpoint, region, status_code, latency_ms) -> None"""
@@ -234,7 +236,31 @@ class DirectSteamSource(SteamDataSource):
 
             batch = data.get("reviews", [])
             if not batch:
-                return reviews if max_reviews is None else reviews[:max_reviews], None
+                # Steam occasionally returns an empty page for a valid cursor
+                # (transient glitch). Retry before declaring exhaustion.
+                # Proven: a cursor that returned empty in production returned
+                # 100 valid reviews when retried minutes later.
+                for attempt, wait in enumerate(_EMPTY_BATCH_BACKOFF, start=1):
+                    logger.warning(
+                        "Empty batch from Steam — retrying",
+                        extra={"attempt": attempt, "wait": wait, "cursor": cursor},
+                    )
+                    time.sleep(wait)
+                    resp = self._get_with_retry(
+                        url,
+                        json="1",
+                        filter="recent",
+                        language="english",
+                        num_per_page="100",
+                        cursor=cursor,
+                        purchase_type="all",
+                    )
+                    data = resp.json()
+                    batch = data.get("reviews", [])
+                    if batch:
+                        break
+                if not batch:
+                    return reviews if max_reviews is None else reviews[:max_reviews], None
 
             for r in batch:
                 reviews.append({

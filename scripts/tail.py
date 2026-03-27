@@ -130,9 +130,9 @@ def main() -> None:
     p.add_argument(
         "streams",
         nargs="+",
-        choices=[*_PREFIXES, *_ALIASES],
+        choices=[*_SUFFIXES, *_ALIASES],
         metavar="STREAM",
-        help=f"one or more of: {', '.join([*_PREFIXES, *_ALIASES])}",
+        help=f"one or more of: {', '.join([*_SUFFIXES, *_ALIASES])}",
     )
     p.add_argument("--env", default="staging", choices=["staging", "production"])
     p.add_argument("--since", default="5m", metavar="DURATION",

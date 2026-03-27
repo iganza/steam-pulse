@@ -85,7 +85,11 @@ class CatalogRepository(BaseRepository):
         ts = completed_at or datetime.now(tz=timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
-                "UPDATE app_catalog SET reviews_completed_at = %s WHERE appid = %s",
+                """UPDATE app_catalog
+                   SET reviews_completed_at = GREATEST(
+                       COALESCE(reviews_completed_at, '1970-01-01'::timestamptz), %s
+                   )
+                   WHERE appid = %s""",
                 (ts, appid),
             )
         self.conn.commit()

@@ -15,8 +15,8 @@ _ALL_REQUIRED = {
     "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
-    "LLM_MODEL__CHUNKING": "us.anthropic.claude-haiku-test-v1:0",
-    "LLM_MODEL__SUMMARIZER": "us.anthropic.claude-sonnet-test-v1:0",
+    "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
+    "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
 }
 
 
@@ -39,8 +39,8 @@ def test_config_raises_when_required_field_missing(monkeypatch: pytest.MonkeyPat
 def test_model_for_returns_configured_model() -> None:
     """model_for() returns the correct model ID for a known task."""
     config = SteamPulseConfig(**_ALL_REQUIRED)
-    assert config.model_for("chunking") == "us.anthropic.claude-haiku-test-v1:0"
-    assert config.model_for("summarizer") == "us.anthropic.claude-sonnet-test-v1:0"
+    assert config.model_for("chunking") == "anthropic.claude-haiku-test-v1:0"
+    assert config.model_for("summarizer") == "anthropic.claude-sonnet-test-v1:0"
 
 
 def test_model_for_raises_on_unknown_task() -> None:
@@ -74,8 +74,8 @@ def test_to_lambda_env_includes_all_fields() -> None:
     # Top-level string field
     assert env["DB_SECRET_NAME"] == "steampulse/test/db-credentials"
     # Nested dict flattened with __ delimiter
-    assert env["LLM_MODEL__CHUNKING"] == "us.anthropic.claude-haiku-test-v1:0"
-    assert env["LLM_MODEL__SUMMARIZER"] == "us.anthropic.claude-sonnet-test-v1:0"
+    assert env["LLM_MODEL__CHUNKING"] == "anthropic.claude-haiku-test-v1:0"
+    assert env["LLM_MODEL__SUMMARIZER"] == "anthropic.claude-sonnet-test-v1:0"
     # Bool lowercased
     assert env["PRO_ENABLED"] == "false"
     # Int converted to string

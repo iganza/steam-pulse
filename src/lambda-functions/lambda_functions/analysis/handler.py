@@ -2,6 +2,10 @@
 
 Triggered by Step Functions. Input: {"appid": <int>, "game_name": <str>}
 Reads reviews from DB, runs two-pass LLM analysis, writes report to DB.
+
+DEPRECATED: This real-time analysis path is unused. The active analysis path is
+the batch pipeline in lambda_functions/batch_analysis/. This file is slated for
+deletion — see scripts/prompts/remove-realtime-analysis.md. Do not add new features here.
 """
 
 import boto3

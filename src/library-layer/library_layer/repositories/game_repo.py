@@ -348,3 +348,15 @@ class GameRepository(BaseRepository):
             (limit,),
         )
         return [dict(r) for r in rows]
+
+    def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
+        """Cache lifetime review velocity for list-page sort/filter."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """UPDATE games
+                   SET review_velocity_lifetime = %s,
+                       last_velocity_computed_at = NOW()
+                   WHERE appid = %s""",
+                (velocity_lifetime, appid),
+            )
+        self.conn.commit()

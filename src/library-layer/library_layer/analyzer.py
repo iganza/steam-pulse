@@ -14,10 +14,17 @@ import instructor
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.models.analyzer_models import ChunkSummary, GameReport
+from library_layer.models.temporal import GameTemporalContext
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
+)
+from library_layer.utils.scores import (
     compute_sentiment_score as _compute_sentiment_score,
+)
+from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
+)
+from library_layer.utils.scores import (
     sentiment_label as _sentiment_label,
 )
 
@@ -106,7 +113,8 @@ def _aggregate_chunk_summaries(chunk_summaries: list[ChunkSummary]) -> dict:
         cs.batch_stats.positive_count + cs.batch_stats.negative_count for cs in chunks
     )
     weighted_playtime = sum(
-        cs.batch_stats.avg_playtime_hours * (cs.batch_stats.positive_count + cs.batch_stats.negative_count)
+        cs.batch_stats.avg_playtime_hours
+        * (cs.batch_stats.positive_count + cs.batch_stats.negative_count)
         for cs in chunks
     )
     return {
@@ -253,9 +261,29 @@ def _build_synthesis_user_message(
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
+    temporal: GameTemporalContext | None = None,
 ) -> str:
     overall_sentiment = _sentiment_label(sentiment_score)
     signals_json = json.dumps(aggregated_signals, indent=2)
+
+    temporal_lines = ""
+    if temporal is not None:
+        ea_line = "No"
+        if temporal.has_early_access:
+            fraction_str = f"{temporal.ea_fraction:.0%}" if temporal.ea_fraction is not None else "unknown"
+            delta_str = f"{temporal.ea_sentiment_delta:+.1f}pp" if temporal.ea_sentiment_delta is not None else "unknown"
+            ea_line = f"Yes — {fraction_str} of reviews from EA period, sentiment delta: {delta_str}"
+        vel_lifetime = (
+            f"{temporal.review_velocity_lifetime:.1f}"
+            if temporal.review_velocity_lifetime is not None
+            else "N/A"
+        )
+        temporal_lines = f"""
+  Released: {temporal.release_date} ({temporal.days_since_release} days ago, {temporal.release_age_bucket})
+  Review velocity: {vel_lifetime} reviews/day lifetime, {temporal.review_velocity_last_30d} last 30 days ({temporal.velocity_trend})
+  Launch trajectory: {temporal.launch_trajectory}
+  Early Access: {ea_line}
+  Evergreen: {"Yes" if temporal.is_evergreen else "No"}"""
 
     return f"""\
 <game_context>
@@ -263,7 +291,7 @@ def _build_synthesis_user_message(
   Total reviews analyzed: {total_reviews}
   Pre-computed sentiment_score: {sentiment_score} ({overall_sentiment})
   Pre-computed hidden_gem_score: {hidden_gem_score}
-  Pre-computed sentiment_trend: {sentiment_trend} ({sentiment_trend_note})
+  Pre-computed sentiment_trend: {sentiment_trend} ({sentiment_trend_note}){temporal_lines}
 </game_context>
 
 <aggregated_signals>
@@ -358,12 +386,15 @@ def _summarize_chunk(
     game_name: str = "",
 ) -> ChunkSummary:
     """Pass 1: extract raw signals from a batch of reviews (LLM_MODEL__CHUNKING, prompt caching enabled)."""
-    logger.info("chunk_start", extra={
-        "chunk": chunk_index + 1,
-        "total_chunks": total_chunks,
-        "reviews": len(chunk),
-        "model": _config.model_for("chunking"),
-    })
+    logger.info(
+        "chunk_start",
+        extra={
+            "chunk": chunk_index + 1,
+            "total_chunks": total_chunks,
+            "reviews": len(chunk),
+            "model": _config.model_for("chunking"),
+        },
+    )
     t0 = time.monotonic()
     summary, _ = client.messages.create_with_completion(
         model=_config.model_for("chunking"),
@@ -398,13 +429,17 @@ def _synthesize(
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
+    temporal: GameTemporalContext | None = None,
 ) -> GameReport:
     """Pass 2: synthesize aggregated chunk signals into a final structured report (LLM_MODEL__SUMMARIZER)."""
-    logger.info("synthesis_start", extra={
-        "total_reviews": total_reviews,
-        "model": _config.model_for("summarizer"),
-        "sentiment_score": sentiment_score,
-    })
+    logger.info(
+        "synthesis_start",
+        extra={
+            "total_reviews": total_reviews,
+            "model": _config.model_for("summarizer"),
+            "sentiment_score": sentiment_score,
+        },
+    )
     t0 = time.monotonic()
     report, _ = client.messages.create_with_completion(
         model=_config.model_for("summarizer"),
@@ -429,6 +464,7 @@ def _synthesize(
                     hidden_gem_score,
                     sentiment_trend,
                     sentiment_trend_note,
+                    temporal=temporal,
                 ),
             }
         ],
@@ -443,6 +479,7 @@ def analyze_reviews(
     reviews: list[dict],
     game_name: str,
     appid: int | None = None,
+    temporal: GameTemporalContext | None = None,
 ) -> dict:
     """Full two-pass LLM analysis pipeline.
 
@@ -457,7 +494,9 @@ def analyze_reviews(
     chunks = _chunk_reviews(reviews)
     total_chunks = len(chunks)
     t_start = time.monotonic()
-    logger.info("analysis_start", extra={"appid": appid, "reviews": len(reviews), "chunks": total_chunks})
+    logger.info(
+        "analysis_start", extra={"appid": appid, "reviews": len(reviews), "chunks": total_chunks}
+    )
 
     # Pass 1
     chunk_summaries = [
@@ -480,6 +519,7 @@ def analyze_reviews(
         hidden_gem_score,
         sentiment_trend,
         sentiment_trend_note,
+        temporal=temporal,
     )
 
     # Override with Python-computed values — more reliable than LLM-guessed values
@@ -492,11 +532,14 @@ def analyze_reviews(
         result.appid = appid
 
     elapsed_ms = round((time.monotonic() - t_start) * 1000)
-    logger.info("analysis_complete", extra={
-        "appid": appid,
-        "sentiment": result.overall_sentiment,
-        "score": result.sentiment_score,
-        "latency_ms": elapsed_ms,
-    })
+    logger.info(
+        "analysis_complete",
+        extra={
+            "appid": appid,
+            "sentiment": result.overall_sentiment,
+            "score": result.sentiment_score,
+            "latency_ms": elapsed_ms,
+        },
+    )
 
     return result.model_dump()

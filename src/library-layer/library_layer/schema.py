@@ -53,7 +53,10 @@ TABLES: tuple[str, ...] = (
         deck_test_results    JSONB,                   -- raw resolved_items array from Steam
         -- meta
         crawled_at       TIMESTAMPTZ,
-        data_source      TEXT DEFAULT 'steam_direct'
+        data_source      TEXT DEFAULT 'steam_direct',
+        -- temporal velocity cache (0009)
+        review_velocity_lifetime NUMERIC(10,2),
+        last_velocity_computed_at TIMESTAMPTZ
     )
     """,
     """
@@ -194,6 +197,9 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_compatibility INTEGER",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_test_results JSONB",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_completed_at TIMESTAMPTZ",
+    # 0009_game_velocity_cache
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_velocity_lifetime NUMERIC(10,2)",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_velocity_computed_at TIMESTAMPTZ",
 )
 
 # Analytics engine indexes — kept for test suite use only.

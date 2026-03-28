@@ -17,6 +17,8 @@ from library_layer.analyzer import (
     _build_synthesis_user_message,
 )
 from library_layer.models.analyzer_models import ChunkSummary
+from library_layer.models.temporal import build_temporal_context
+from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.utils.db import get_conn
 from library_layer.utils.scores import (
@@ -101,6 +103,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     logger.info("grouped chunks by appid", extra={"games": len(chunks_by_appid)})
 
+    game_repo = GameRepository(_conn)
     review_repo = ReviewRepository(_conn)
     pass2_records: list[dict] = []
     scores_by_appid: dict[str, dict] = {}
@@ -119,6 +122,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
             [r.model_dump() for r in reviews_for_trend]
         )
 
+        # Build temporal context from existing repo data
+        game = game_repo.find_by_appid(appid)
+        velocity_data = review_repo.find_review_velocity(appid)
+        ea_data = review_repo.find_early_access_impact(appid)
+        temporal = build_temporal_context(game, velocity_data, ea_data) if game else None
+
         # Store pre-computed scores (ProcessResults will use these to override LLM output)
         scores_by_appid[str(appid)] = {
             "sentiment_score": sentiment_score,
@@ -126,10 +135,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
             "sentiment_trend": sentiment_trend,
             "sentiment_trend_note": sentiment_trend_note,
             "overall_sentiment": sentiment_label(sentiment_score),
+            "review_velocity_lifetime": temporal.review_velocity_lifetime if temporal else None,
         }
 
         # Format Pass 2 JSONL record
-        game_name = str(appid)  # game name not in Pass 1 output; appid is the fallback
+        game_name = game.name if game else str(appid)
         user_content = _build_synthesis_user_message(
             aggregated,
             game_name,
@@ -138,6 +148,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
             hidden_gem_score,
             sentiment_trend,
             sentiment_trend_note,
+            temporal=temporal,
         )
         pass2_records.append({
             "recordId": f"{appid}-synthesis",

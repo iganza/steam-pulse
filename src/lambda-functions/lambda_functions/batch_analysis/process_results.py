@@ -13,6 +13,7 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.models.analyzer_models import GameReport
+from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.utils.db import get_conn
 
@@ -78,6 +79,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     scores_by_appid = _read_scores_from_s3(execution_id)
 
     report_repo = ReportRepository(_conn)
+    game_repo = GameRepository(_conn)
 
     processed = 0
     failed = 0
@@ -110,6 +112,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
                 report.appid = appid
                 report_repo.upsert(report.model_dump())
+
+                # Update velocity cache if available
+                velocity = pre_computed.get("review_velocity_lifetime") if pre_computed else None
+                if velocity is not None:
+                    game_repo.update_velocity_cache(appid, velocity)
 
                 # Publish report-ready event per game
                 _sns.publish(

@@ -8,6 +8,7 @@ from aws_lambda_powertools import Logger, Tracer
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
+from library_layer.models.temporal import build_temporal_context
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from pydantic import BaseModel
 
@@ -331,7 +332,13 @@ async def get_game_report(appid: int) -> dict:
 
     report = _get_report(appid)
     if report:
-        return {"status": "available", "report": report, "game": game_meta}
+        temporal_dict = None
+        if game:
+            velocity_data = _review_repo.find_review_velocity(appid)
+            ea_data = _review_repo.find_early_access_impact(appid)
+            temporal = build_temporal_context(game, velocity_data, ea_data)
+            temporal_dict = temporal.model_dump()
+        return {"status": "available", "report": report, "game": game_meta, "temporal": temporal_dict}
 
     review_count = (game.review_count_english or game.review_count) if game else _game_repo.get_review_count(appid)
     return {

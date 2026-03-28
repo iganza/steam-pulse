@@ -14,6 +14,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import analyze_reviews
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
+from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -80,8 +81,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
     name = req.game_name or game.name
     logger.info("Analyzing game", extra={"appid": req.appid, "game_name": name, "review_count": len(reviews_for_llm)})
 
-    result = analyze_reviews(reviews_for_llm, name, appid=req.appid)
+    # Build temporal context from existing repo data
+    velocity_data = _review_repo.find_review_velocity(req.appid)
+    ea_data = _review_repo.find_early_access_impact(req.appid)
+    temporal = build_temporal_context(game, velocity_data, ea_data)
+
+    result = analyze_reviews(reviews_for_llm, name, appid=req.appid, temporal=temporal)
     _report_repo.upsert(result)
+
+    if temporal.review_velocity_lifetime is not None:
+        _game_repo.update_velocity_cache(req.appid, temporal.review_velocity_lifetime)
 
     try:
         publish_event(

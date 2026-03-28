@@ -407,7 +407,7 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 - Lambda: initialize DB connections and `httpx.AsyncClient` at module level (outside handler) for warm reuse.
 
 **Data structures:**
-- Use `dataclasses.dataclass` or `pydantic.BaseModel` for structured data — never plain `dict` for domain objects.
+- Use `pydantic.BaseModel` for all domain objects and structured data — never plain `dict`, never `dataclasses.dataclass`. Pydantic is the project standard: it validates on construction, serializes with `.model_dump()`, and is consistent with every other model in `library_layer/models/`.
 - Use `TypedDict` only for JSON-serializable shapes that don't need methods.
 - Prefer immutable defaults: `tuple` over `list` for fixed collections, `frozenset` for sets.
 

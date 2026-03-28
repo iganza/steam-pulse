@@ -108,6 +108,20 @@ def test_get_review_count_returns_zero_for_missing(game_repo: GameRepository) ->
     assert game_repo.get_review_count(9999999) == 0
 
 
+def test_update_velocity_cache(game_repo: GameRepository) -> None:
+    game_repo.upsert(_game_data())
+    game_repo.update_velocity_cache(440, 2.5)
+    with game_repo.conn.cursor() as cur:
+        cur.execute(
+            "SELECT review_velocity_lifetime, last_velocity_computed_at FROM games WHERE appid = %s",
+            (440,),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert float(row["review_velocity_lifetime"]) == 2.5
+    assert row["last_velocity_computed_at"] is not None
+
+
 def test_ensure_stub_creates_minimal_row(game_repo: GameRepository) -> None:
     game_repo.ensure_stub(12345)
     game = game_repo.find_by_appid(12345)

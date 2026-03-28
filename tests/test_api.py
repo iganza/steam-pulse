@@ -133,15 +133,6 @@ def test_preview_unconditional(client: TestClient) -> None:
         assert resp.status_code == 200
 
 
-def test_validate_key_returns_not_found_when_no_report(client: TestClient) -> None:
-    """POST /api/validate-key returns 404 when report has not been analyzed yet."""
-    resp = client.post(
-        "/api/validate-key",
-        json={"license_key": "any-key", "appid": 440},
-    )
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "not_found"
-
 
 # ---------------------------------------------------------------------------
 # In-memory mocks for the data-driven insight endpoints

@@ -59,9 +59,6 @@ class SteamPulseConfig(BaseSettings):
             )
         return self.LLM_MODEL[task]
 
-    # ── Feature flags ─────────────────────────────────────────────────────────
-    PRO_ENABLED: bool = False
-
     # ── Secrets Manager names (Lambda calls get_secret_value(SecretId=name)) ──
     DB_SECRET_NAME: str
     STEAM_API_KEY_SECRET_NAME: str

@@ -14,8 +14,8 @@ When adding a new interaction, add its sequence diagram to `ARCHITECTURE.org` fi
 **SteamPulse** — AI-powered Steam game intelligence platform at **steampulse.io**.
 
 - **Public site**: AI-synthesized review reports for ALL Steam games with any reviews. SEO-driven, cross-linked, no ads.
-- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` and pro-tier analytics sections. Payment integration is deferred — `/api/validate-key` currently stubs full access (always grants all sections).
-- **Pro tier (V2)**: NL chat over full catalog. Feature-flagged behind `PRO_ENABLED=true`.
+- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` and pro-tier analytics sections. Gated via Auth0 JWT `"pro"` role claim (see `scripts/prompts/auth0-authentication.md`).
+- **Pro tier (V2)**: NL chat over full catalog. Not yet available — pending Auth0 integration.
 
 Full architecture decisions in `steampulse-design.org` at the repo root. Read it for anything not covered here.
 
@@ -234,9 +234,8 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 
 | Endpoint | Notes |
 |---|---|
-| `GET /health` | Storage backend + pro_enabled status |
+| `GET /health` | Storage backend + version |
 | `POST /api/preview` | Free: triggers analysis, returns `game_name`, `overall_sentiment`, `sentiment_score`, `one_liner`. 1 per IP. |
-| `POST /api/validate-key` | **Stubbed** — always returns full report with `activations_remaining: 99`. Payment deferred. |
 | `GET /api/status/{job_id}` | Step Functions job polling |
 | `GET /api/games` | List games with filters (genre, tag, sentiment, etc.) |
 | `GET /api/games/{appid}/report` | Full report + game metadata |
@@ -254,7 +253,7 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | `GET /api/analytics/release-timing` | Release timing patterns |
 | `GET /api/analytics/platform-gaps` | Platform coverage gaps |
 | `GET /api/developers/{slug}/analytics` | Developer-level analytics |
-| `POST /api/chat` | V2 only (`PRO_ENABLED=true`): NL → SQL → answer |
+| `POST /api/chat` | V2 only (pending Auth0 integration): NL → SQL → answer |
 
 Rate limit on `/api/preview`: 1 free analysis per IP. Returns `402 {"error": "free_limit_reached"}` on breach.
 
@@ -340,7 +339,7 @@ params it needs at cold start via Powertools `get_parameter()` (cached 5 min).
 
 - **`_SECRET_NAME` fields** — hold a Secrets Manager **name**. Lambda calls `get_secret_value(SecretId=name)` directly (one hop). Set in `.env`. `db.py` already implements this correctly for `DB_SECRET_NAME`.
 - **`_PARAM_NAME` fields** — hold an SSM Parameter Store **path**. Lambda calls `get_parameter(path)` at cold start via Powertools (cached 5 min). Set in `.env`.
-- **Literals** (`ENVIRONMENT`, `LLM_MODEL__*`, `PRO_ENABLED`) — used directly, no resolution needed.
+- **Literals** (`ENVIRONMENT`, `LLM_MODEL__*`) — used directly, no resolution needed.
 
 ```
 # Literals — in .env, used directly
@@ -348,7 +347,6 @@ ENVIRONMENT             # staging | production
 DATABASE_URL            # PostgreSQL connection string (local dev only)
 AWS_DEFAULT_REGION      # us-west-2
 BEDROCK_REGION          # Bedrock region (defaults to AWS_DEFAULT_REGION)
-PRO_ENABLED             # 'true' enables /api/chat (V2)
 LLM_MODEL__CHUNKING     # Bedrock model ID for Haiku pass
 LLM_MODEL__SUMMARIZER   # Bedrock model ID for Sonnet pass
 
@@ -621,7 +619,7 @@ def handler(event: dict, context: object) -> dict:
 - No database migrations framework for data access (raw psycopg2 in repositories) — yoyo-migrations is used for schema DDL only (see `src/lambda-functions/migrations/`)
 - No CSS frameworks (use Tailwind or plain CSS in Next.js)
 - No job queue inside FastAPI (analysis is in Step Functions)
-- No payment integration until explicitly planned (validate-key is intentionally stubbed)
+- No payment integration until explicitly planned
 - No Terraform (CDK only)
 - No separate Railway deployment
 - No Jinja2 templates (frontend is Next.js)

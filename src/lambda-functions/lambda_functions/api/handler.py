@@ -31,13 +31,11 @@ if _is_lambda:
     # SSM parameters or missing IAM permissions and allow the API to run inline
     # analysis instead of Step Functions.
     _api_config = SteamPulseConfig()
-    _pro_enabled = _api_config.PRO_ENABLED
     from aws_lambda_powertools.utilities.parameters import get_parameter
     _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
 else:
     # Local dev — no SSM, no full config.
     _api_config = None  # type: ignore[assignment]
-    _pro_enabled = os.getenv("PRO_ENABLED", "false").lower() == "true"
     _sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
 
 VERSION = "0.1.0"
@@ -72,10 +70,6 @@ _tag_repo = TagRepository(_conn)
 class PreviewRequest(BaseModel):
     appid: int
 
-
-class ValidateKeyRequest(BaseModel):
-    appid: int
-    license_key: str = ""  # kept for frontend compatibility, ignored
 
 
 class ChatRequest(BaseModel):
@@ -183,7 +177,6 @@ def _backend_name() -> str:
 async def health() -> dict:
     return {
         "storage": _backend_name(),
-        "pro_enabled": _pro_enabled,
         "version": VERSION,
     }
 
@@ -226,18 +219,6 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
         content={"job_id": job_id, "appid": appid, "status": "running"},
     )
 
-
-@app.post("/api/validate-key", response_model=None)
-async def validate_key(body: ValidateKeyRequest) -> JSONResponse | dict:
-    appid = body.appid
-    logger.append_keys(appid=appid)
-    report = _get_report(appid)
-    if report is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": f"No cached report for appid {appid}. Run the analysis first.", "code": "not_found"},
-        )
-    return {**report, "activations_remaining": 99}
 
 
 @app.get("/api/status/{job_id:path}")
@@ -470,8 +451,8 @@ async def get_developer_analytics(slug: str) -> dict:
 
 @app.post("/api/chat")
 async def chat(body: ChatRequest) -> dict:
-    if not _pro_enabled:
-        raise HTTPException(status_code=404, detail={"error": "Pro features not enabled", "code": "pro_disabled"})
+    # TODO: gate via JWT "pro" role claim — see scripts/prompts/auth0-authentication.md
+    raise HTTPException(status_code=404, detail={"error": "Not yet available", "code": "not_implemented"})
 
     from .chat import answer_query
 

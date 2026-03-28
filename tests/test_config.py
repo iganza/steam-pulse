@@ -76,8 +76,6 @@ def test_to_lambda_env_includes_all_fields() -> None:
     # Nested dict flattened with __ delimiter
     assert env["LLM_MODEL__CHUNKING"] == "anthropic.claude-haiku-test-v1:0"
     assert env["LLM_MODEL__SUMMARIZER"] == "anthropic.claude-sonnet-test-v1:0"
-    # Bool lowercased
-    assert env["PRO_ENABLED"] == "false"
     # Int converted to string
     assert env["REVIEW_ELIGIBILITY_THRESHOLD"] == "50"
 

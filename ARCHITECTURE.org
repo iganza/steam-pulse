@@ -548,7 +548,6 @@ Invariant: Any caller can request a preview for any appid. If no report
 - =POST /api/preview= returns 402 (not 429) on limit reached
 - Response includes only: =game_name=, =overall_sentiment=, =sentiment_score=, =one_liner=
 - CloudFront behaviour for =/api/*= has caching DISABLED
-- =POST /api/validate-key= is intentionally stubbed — always returns =activations_remaining: 99=
 
 ** Flow-06: Pipeline Deploy
 

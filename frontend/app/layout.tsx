@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Syne, JetBrains_Mono } from "next/font/google";
 import { Navbar } from "@/components/layout/Navbar";
+import { ProProvider } from "@/lib/pro";
 import "./globals.css";
 
 const websiteJsonLd = {
@@ -73,6 +74,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const isPro = process.env.NEXT_PUBLIC_PRO_ENABLED === "true";
+
   return (
     <html
       lang="en"
@@ -83,8 +86,10 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
-        <Navbar />
-        {children}
+        <ProProvider isPro={isPro}>
+          <Navbar />
+          {children}
+        </ProProvider>
       </body>
     </html>
   );

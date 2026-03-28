@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePro } from "@/lib/pro";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -86,8 +87,6 @@ function momentumLabel(reviewsLast30: number, reviewsPerDay: number): { label: s
   return { label: "Slowing", color: "#f59e0b" };
 }
 
-const isPro = true; // TODO: wire to auth
-
 export function GameReportClient({
   report,
   appid,
@@ -104,6 +103,7 @@ export function GameReportClient({
   deckCompatibility,
   deckTestResults,
 }: GameReportClientProps) {
+  const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);

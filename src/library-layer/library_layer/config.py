@@ -62,6 +62,7 @@ class SteamPulseConfig(BaseSettings):
     # ── Secrets Manager names (Lambda calls get_secret_value(SecretId=name)) ──
     DB_SECRET_NAME: str
     STEAM_API_KEY_SECRET_NAME: str
+    RESEND_API_KEY_SECRET_NAME: str
 
     # ── SSM parameter names (resolved at Lambda cold start via get_parameter()) ─
     SFN_PARAM_NAME: str
@@ -69,6 +70,7 @@ class SteamPulseConfig(BaseSettings):
     APP_CRAWL_QUEUE_PARAM_NAME: str
     REVIEW_CRAWL_QUEUE_PARAM_NAME: str
     ASSETS_BUCKET_PARAM_NAME: str
+    EMAIL_QUEUE_PARAM_NAME: str
 
     # ── SNS topic SSM parameter names ──────────────────────────────────────────
     GAME_EVENTS_TOPIC_PARAM_NAME: str

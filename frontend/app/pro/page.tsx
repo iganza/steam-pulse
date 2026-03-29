@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { BarChart3, Swords, TrendingUp, Mail } from "lucide-react";
+import { BarChart3, Swords, TrendingUp } from "lucide-react";
+import WaitlistForm from "./WaitlistForm";
 
 export const metadata: Metadata = {
   title: "Pro \u2014 For Developers",
@@ -89,23 +90,7 @@ export default function ProPage() {
             Coming soon
           </p>
           <h2 className="font-serif text-2xl font-bold mb-6">Join the waitlist</h2>
-          <div className="flex items-center gap-2 max-w-sm mx-auto">
-            <div className="relative flex-1">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
-                type="email"
-                placeholder="your@email.com"
-                className="w-full pl-10 pr-3 py-3 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-400/30"
-              />
-            </div>
-            <button
-              type="button"
-              className="px-5 py-3 rounded-lg text-base font-mono font-medium flex-shrink-0"
-              style={{ background: "var(--teal)", color: "#0c0c0f" }}
-            >
-              Notify me
-            </button>
-          </div>
+          <WaitlistForm />
           <p className="text-sm text-muted-foreground mt-3">
             No spam. We&apos;ll email you once when Pro launches.
           </p>

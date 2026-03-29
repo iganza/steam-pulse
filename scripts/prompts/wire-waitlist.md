@@ -4,56 +4,113 @@
 
 Add a working waitlist to the `/pro` page. When a visitor submits their email:
 1. Store it in PostgreSQL (dedup — no duplicates, no error to user)
-2. Send a confirmation email via Resend ("You're on the list")
-3. Show a success state in the UI
+2. Enqueue a message on SQS — API returns immediately, no waiting for email delivery
+3. A dedicated email Lambda reads from the queue and sends the confirmation via Resend
+4. Show a success state in the UI
+
+**Why SQS:** The API endpoint must return immediately. Calling Resend synchronously
+would block the response until email delivery completes (or fails). Enqueuing decouples
+the two concerns — the user gets instant confirmation, and email delivery happens
+asynchronously with retries via SQS.
 
 ---
 
 ## Changes Required
 
-### 1. `src/library-layer/library_layer/schema.py`
+### 1. Migration: `0010_add_waitlist.sql`
 
-Add the waitlist table to `TABLES` and `RESEND_API_KEY` to `SteamPulseConfig`.
+File: `src/lambda-functions/migrations/0010_add_waitlist.sql`
 
-#### a. Add to `TABLES` tuple (after `analysis_jobs`):
+```sql
+-- depends: 0009_game_velocity_cache
 
-```python
-"""
 CREATE TABLE IF NOT EXISTS waitlist (
     id          SERIAL PRIMARY KEY,
     email       TEXT UNIQUE NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT NOW()
-)
-""",
+);
 ```
 
-#### b. Add migration (idempotent, append at end of migrations list):
+Also update `schema.py`: add the `waitlist` table definition to the `TABLES` tuple
+(after `analysis_jobs`), per CLAUDE.md migration rules.
+
+---
+
+### 2. New abstraction: `src/library-layer/library_layer/utils/email.py`
+
+Provider-agnostic email interface. The only Resend import in the codebase lives here.
+Swapping providers means writing a new implementation class — no call site changes.
 
 ```python
-"CREATE TABLE IF NOT EXISTS waitlist (id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())",
+"""Email sending abstraction — provider-agnostic interface."""
+
+from typing import Protocol
+
+from aws_lambda_powertools import Logger
+
+logger = Logger()
+
+
+class EmailSender(Protocol):
+    """Protocol for sending transactional emails."""
+
+    def send(self, *, to: str, subject: str, html: str, from_addr: str) -> None: ...
+
+
+class ResendEmailSender:
+    """EmailSender implementation backed by Resend."""
+
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    def send(self, *, to: str, subject: str, html: str, from_addr: str) -> None:
+        import resend  # type: ignore[import-untyped]
+
+        resend.api_key = self._api_key
+        resend.Emails.send({"from": from_addr, "to": [to], "subject": subject, "html": html})
+
+
+def send_email_safe(sender: EmailSender, *, to: str, subject: str, html: str, from_addr: str) -> None:
+    """Fire-and-forget wrapper — logs warning on failure, never raises."""
+    try:
+        sender.send(to=to, subject=subject, html=html, from_addr=from_addr)
+    except Exception as exc:
+        logger.warning("Email send failed", extra={"to": to, "subject": subject, "error": str(exc)})
 ```
 
 ---
 
-### 2. `src/library-layer/library_layer/config.py`
+### 3. `src/library-layer/library_layer/config.py`
 
-Add `RESEND_API_KEY` as a required field (no default — must be set in env files):
+Add two fields following existing conventions:
 
 ```python
-# ── Email (required — set in .env.staging / .env.production) ─────────────
-RESEND_API_KEY: str
+# ── Secrets Manager names (Lambda calls get_secret_value(SecretId=name)) ──
+# (alongside DB_SECRET_NAME and STEAM_API_KEY_SECRET_NAME)
+RESEND_API_KEY_SECRET_NAME: str
+
+# ── SSM parameter names (resolved at Lambda cold start via get_parameter()) ─
+# (alongside existing _PARAM_NAME fields)
+EMAIL_QUEUE_PARAM_NAME: str
 ```
+
+`RESEND_API_KEY_SECRET_NAME` — holds the Secrets Manager secret name; the email Lambda
+resolves the actual key at cold start via `get_secret_value(SecretId=name)`, same
+pattern as `DB_SECRET_NAME` in `utils/db.py`.
+
+`EMAIL_QUEUE_PARAM_NAME` — holds the SSM parameter path; resolved at cold start via
+Powertools `get_parameter()`, same pattern as `APP_CRAWL_QUEUE_PARAM_NAME`.
+
+No defaults — missing config must crash at cold start.
 
 ---
 
-### 3. `src/library-layer/library_layer/repositories/waitlist_repo.py` (new file)
+### 4. `src/library-layer/library_layer/repositories/waitlist_repo.py` (new file)
 
 Follow the same pattern as `job_repo.py` — extend `BaseRepository`.
 
 ```python
 """WaitlistRepository — email capture for the Pro waitlist."""
-
-from __future__ import annotations
 
 from library_layer.repositories.base import BaseRepository
 
@@ -87,33 +144,76 @@ class WaitlistRepository(BaseRepository):
 
 ---
 
-### 4. `src/lambda-functions/lambda_functions/api/handler.py`
+### 5. `infra/stacks/messaging_stack.py`
 
-#### a. Add import and wire up `WaitlistRepository` alongside the other repos:
+Add an email queue + DLQ + SSM param for the queue URL.
 
 ```python
-from library_layer.repositories.waitlist_repo import WaitlistRepository
-
-# add with the other module-level repo singletons:
-_waitlist_repo = WaitlistRepository(_conn)
+# ── Email queue ──────────────────────────────────────────────────────────
+self.email_dlq = sqs.Queue(
+    self,
+    "EmailDlq",
+    retention_period=cdk.Duration.days(14),
+)
+self.email_queue = sqs.Queue(
+    self,
+    "EmailQueue",
+    visibility_timeout=cdk.Duration.minutes(2),
+    dead_letter_queue=sqs.DeadLetterQueue(
+        max_receive_count=3,
+        queue=self.email_dlq,
+    ),
+)
+ssm.StringParameter(
+    self,
+    "EmailQueueUrlParam",
+    parameter_name=f"/steampulse/{env}/messaging/email-queue-url",
+    string_value=self.email_queue.queue_url,
+)
 ```
 
-#### b. Add Pydantic request model:
+Export `self.email_queue` as a property so `compute_stack.py` can wire it as an
+event source for the email Lambda.
+
+---
+
+### 6. `src/lambda-functions/lambda_functions/api/handler.py`
+
+The API endpoint saves to DB and enqueues a message. No email sending here.
+
+#### a. Add module-level wiring
+
+```python
+import boto3
+from aws_lambda_powertools.utilities.parameters import get_parameter
+from library_layer.repositories.waitlist_repo import WaitlistRepository
+
+_waitlist_repo = WaitlistRepository(_conn)
+
+# Resolve email queue URL from SSM at cold start (Lambda only).
+if _is_lambda:
+    _email_queue_url: str = get_parameter(_api_config.EMAIL_QUEUE_PARAM_NAME)
+    _sqs_client = boto3.client("sqs")
+else:
+    _email_queue_url = os.getenv("EMAIL_QUEUE_URL", "")
+    _sqs_client = None  # type: ignore[assignment]
+```
+
+#### b. Add Pydantic request model
 
 ```python
 class WaitlistRequest(BaseModel):
     email: str
 ```
 
-#### c. Add the endpoint (after the `/api/validate-key` route):
+#### c. Add the endpoint
 
 ```python
 @app.post("/api/waitlist")
-async def join_waitlist(body: WaitlistRequest) -> dict:
-    """Store email on the Pro waitlist and send a Resend confirmation."""
+def join_waitlist(body: WaitlistRequest) -> dict:
+    """Store email on the Pro waitlist and enqueue a confirmation email."""
     email = body.email.strip().lower()
 
-    # Basic format guard — FastAPI/Pydantic doesn't validate email format by default
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(
             status_code=422,
@@ -122,105 +222,202 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
 
     is_new = _waitlist_repo.insert(email)
 
-    # Always send confirmation — even duplicates get it (they may have lost the first)
-    await _send_waitlist_confirmation(email)
+    if _sqs_client and _email_queue_url:
+        try:
+            import json
+            _sqs_client.send_message(
+                QueueUrl=_email_queue_url,
+                MessageBody=json.dumps({"type": "waitlist_confirmation", "email": email}),
+            )
+        except Exception as exc:
+            logger.warning("Failed to enqueue waitlist email", extra={"email": email, "error": str(exc)})
 
     return {"status": "ok", "new": is_new}
 ```
 
-#### d. Add `_send_waitlist_confirmation()` helper (alongside existing `_send_confirmation_email`):
+Email enqueue failure is logged and swallowed — the record is already saved, and the
+user getting a success response is more important than the confirmation email.
 
-```python
-async def _send_waitlist_confirmation(to_email: str) -> None:
-    """Send Pro waitlist confirmation email via Resend. Fire-and-forget."""
-    try:
-        import resend  # type: ignore[import-untyped]
-
-        from library_layer.config import SteamPulseConfig
-        _cfg = SteamPulseConfig()
-        resend.api_key = _cfg.RESEND_API_KEY
-
-        resend.Emails.send({
-            "from": "SteamPulse <hello@steampulse.io>",
-            "to": [to_email],
-            "subject": "You're on the SteamPulse Pro waitlist",
-            "html": """
-                <p>Hi,</p>
-                <p>You're on the list. We'll email you once when <strong>SteamPulse Pro</strong> launches.</p>
-                <p>Pro will include: custom prompts, fresher analysis, no ads, and export —
-                built for indie developers doing competitive research.</p>
-                <p>— The SteamPulse team</p>
-                <hr>
-                <p><small>You're receiving this because you signed up at steampulse.io.
-                If this was a mistake, just ignore it.</small></p>
-            """,
-        })
-    except Exception:
-        logger.warning("Waitlist confirmation email failed for %s", to_email)
-```
+Route is plain `def`, not `async def` — psycopg2 and boto3 are both synchronous.
 
 ---
 
-### 5. `.env.staging` and `.env.production`
+### 7. New Lambda: `src/lambda-functions/lambda_functions/email/handler.py`
 
-Add the Resend API key (get it from resend.com → API Keys):
+SQS-triggered Lambda. Reads the queue, resolves the Resend key from Secrets Manager,
+sends the email.
+
+```python
+"""Email Lambda — SQS-triggered transactional email sender."""
+
+import json
+
+import boto3
+from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.utilities.typing import LambdaContext
+from library_layer.config import SteamPulseConfig
+from library_layer.utils.email import ResendEmailSender, send_email_safe
+
+logger = Logger(service="email")
+tracer = Tracer(service="email")
+
+_config = SteamPulseConfig()
+_sm = boto3.client("secretsmanager")
+_resend_api_key: str = json.loads(
+    _sm.get_secret_value(SecretId=_config.RESEND_API_KEY_SECRET_NAME)["SecretString"]
+)
+_email_sender = ResendEmailSender(_resend_api_key)
+
+
+@tracer.capture_lambda_handler
+def handler(event: dict, context: LambdaContext) -> None:
+    for record in event["Records"]:
+        body = json.loads(record["body"])
+        msg_type: str = body.get("type", "")
+        email: str = body.get("email", "")
+
+        if not email:
+            logger.warning("Missing email in SQS message", extra={"body": body})
+            continue
+
+        match msg_type:
+            case "waitlist_confirmation":
+                _send_waitlist_confirmation(email)
+            case _:
+                logger.warning("Unknown message type", extra={"type": msg_type, "email": email})
+
+
+def _send_waitlist_confirmation(email: str) -> None:
+    send_email_safe(
+        _email_sender,
+        to=email,
+        subject="You're on the SteamPulse Pro waitlist",
+        html="""
+            <p>Hi,</p>
+            <p>You're on the list. We'll email you once when <strong>SteamPulse Pro</strong> launches.</p>
+            <p>Pro will include: custom prompts, fresher analysis, no ads, and export —
+            built for indie developers doing competitive research.</p>
+            <p>— The SteamPulse team</p>
+            <hr>
+            <p><small>You're receiving this because you signed up at steampulse.io.
+            If this was a mistake, just ignore it.</small></p>
+        """,
+        from_addr="SteamPulse <hello@steampulse.io>",
+    )
+    logger.info("Waitlist confirmation sent", extra={"email": email})
+```
+
+Designed for future extension: new email types are added as new `match` cases and
+`_send_*` helpers without changing the handler structure.
+
+---
+
+### 8. `infra/stacks/compute_stack.py`
+
+Add the email Lambda with SQS event source, Secrets Manager permission, and SQS
+send permission on the API Lambda.
+
+```python
+from aws_cdk.aws_lambda_event_sources import SqsEventSource
+
+# Email Lambda
+email_fn = PythonFunction(
+    self,
+    "EmailFn",
+    entry="src/lambda-functions",
+    index="lambda_functions/email/handler.py",
+    handler="handler",
+    runtime=lambda_.Runtime.PYTHON_3_12,
+    layers=[library_layer],
+    timeout=cdk.Duration.seconds(30),
+    tracing=lambda_.Tracing.ACTIVE,
+    environment=config.to_lambda_env(
+        POWERTOOLS_SERVICE_NAME="email",
+        POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+    ),
+)
+
+# SQS trigger
+email_fn.add_event_source(
+    SqsEventSource(messaging.email_queue, batch_size=10)
+)
+
+# Resolve Resend key from Secrets Manager
+email_fn.add_to_role_policy(
+    iam.PolicyStatement(
+        actions=["secretsmanager:GetSecretValue"],
+        resources=[
+            f"arn:aws:secretsmanager:{self.region}:{self.account}"
+            f":secret:steampulse/*/resend-api-key*"
+        ],
+    )
+)
+
+# API Lambda — grant SQS send permission
+api_fn.add_to_role_policy(
+    iam.PolicyStatement(
+        actions=["sqs:SendMessage"],
+        resources=[messaging.email_queue.queue_arn],
+    )
+)
+```
+
+Also publish the email queue URL to SSM (already done in `messaging_stack.py` above).
+
+---
+
+### 9. `.env.staging` and `.env.production`
 
 ```bash
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+RESEND_API_KEY_SECRET_NAME=/steampulse/staging/resend-api-key
+EMAIL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/email-queue-url
+```
+
+```bash
+RESEND_API_KEY_SECRET_NAME=/steampulse/production/resend-api-key
+EMAIL_QUEUE_PARAM_NAME=/steampulse/production/messaging/email-queue-url
 ```
 
 Also add to `.env.example`:
 
 ```bash
-RESEND_API_KEY=re_your_api_key_here
+RESEND_API_KEY_SECRET_NAME=/steampulse/staging/resend-api-key
+EMAIL_QUEUE_PARAM_NAME=/steampulse/staging/messaging/email-queue-url
 ```
+
+For local dev, set `EMAIL_QUEUE_URL` directly in your local `.env` if you want to
+test the SQS path. If unset, the enqueue step is skipped silently — the record is
+still saved.
 
 ---
 
-### 6. `infra/stacks/compute_stack.py`
+### 10. `frontend/app/pro/page.tsx`
 
-Pass `RESEND_API_KEY` as a Lambda environment variable to the web Lambda.
-Find the section where web Lambda env vars are defined and add:
-
-```python
-"RESEND_API_KEY": config.RESEND_API_KEY,
-```
-
----
-
-### 7. `frontend/app/pro/page.tsx`
-
-Wire the form. The current form has an `<input>` and a `<button>` with no
-state or event handlers. Add state and a submit handler.
-
-Make this a Client Component (add `"use client"` at top). Add:
+Make this a Client Component (add `"use client"` at top). Add state and a submit
+handler:
 
 ```tsx
 "use client";
 
 import { useState } from "react";
 
-// Inside the component:
 const [email, setEmail] = useState("");
 const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 
-async function handleSubmit() {
+function handleSubmit() {
   if (!email || status === "loading") return;
   setStatus("loading");
-  try {
-    const res = await fetch("/api/waitlist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    setStatus(res.ok ? "success" : "error");
-  } catch {
-    setStatus("error");
-  }
+  fetch("/api/waitlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+    .then((res) => setStatus(res.ok ? "success" : "error"))
+    .catch(() => setStatus("error"));
 }
 ```
 
-Update the input to bind `value` and `onChange`:
+Update the input:
 
 ```tsx
 <input
@@ -248,7 +445,8 @@ Update the button:
 </button>
 ```
 
-Add success/error message below the form:
+Add success/error message below the form, replacing the existing static `No spam...`
+message:
 
 ```tsx
 {status === "success" && (
@@ -263,13 +461,11 @@ Add success/error message below the form:
 )}
 ```
 
-Replace the existing static message (`No spam...`) with the above conditional block.
-
 ---
 
-### 8. Tests
+### 11. Tests
 
-Add to `tests/test_api.py` (follow the existing pattern for route tests):
+Add to `tests/test_api.py`:
 
 ```python
 def test_waitlist_join_new_email(client):
@@ -294,32 +490,45 @@ def test_waitlist_invalid_email(client):
     assert res.status_code == 422
 ```
 
-Note: the Resend call will fail silently in tests (no API key set) — this is
-intentional. The endpoint catches all email exceptions and logs a warning.
+SQS enqueue is skipped in tests (`_sqs_client` is `None` when not on Lambda) — no
+mocking needed. Email sending is in the separate email Lambda.
 
 ---
 
 ## Verification
 
 ```bash
-# Tests pass
+# Apply migration
+bash scripts/dev/migrate.sh
+
+# Run tests
 poetry run pytest tests/test_api.py -x -q
 
-# Manual smoke test (local dev, no Resend needed)
+# CDK synth — confirm EmailFn and EmailQueue appear in template
+poetry run cdk synth | grep -i email
+
+# Manual smoke test (local dev)
 curl -X POST http://localhost:8000/api/waitlist \
   -H "Content-Type: application/json" \
   -d '{"email": "test@example.com"}'
 # → {"status": "ok", "new": true}
-
-# Duplicate
-curl -X POST http://localhost:8000/api/waitlist \
-  -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com"}'
-# → {"status": "ok", "new": false}
-
-# Bad email
-curl -X POST http://localhost:8000/api/waitlist \
-  -H "Content-Type: application/json" \
-  -d '{"email": "bademail"}'
-# → 422
 ```
+
+---
+
+## Files to create / modify
+
+| File                                                            | Action                                                                    |
+|-----------------------------------------------------------------|---------------------------------------------------------------------------|
+| `src/lambda-functions/migrations/0010_add_waitlist.sql`         | Create — waitlist table                                                   |
+| `src/library-layer/library_layer/schema.py`                     | Add waitlist table to `TABLES`                                            |
+| `src/library-layer/library_layer/utils/email.py`                | Create — `EmailSender` protocol + `ResendEmailSender` + `send_email_safe` |
+| `src/library-layer/library_layer/config.py`                     | Add `RESEND_API_KEY_SECRET_NAME` + `EMAIL_QUEUE_PARAM_NAME`               |
+| `src/library-layer/library_layer/repositories/waitlist_repo.py` | Create — `WaitlistRepository`                                             |
+| `src/lambda-functions/lambda_functions/api/handler.py`          | Add `WaitlistRequest`, `join_waitlist` endpoint, SQS enqueue              |
+| `src/lambda-functions/lambda_functions/email/handler.py`        | Create — SQS-triggered email sender                                       |
+| `infra/stacks/messaging_stack.py`                               | Add `email_queue` + DLQ + SSM param                                       |
+| `infra/stacks/compute_stack.py`                                 | Add `EmailFn` + SQS event source + IAM grants                             |
+| `.env.staging`, `.env.production`, `.env.example`               | Add `RESEND_API_KEY_SECRET_NAME`, `EMAIL_QUEUE_PARAM_NAME`                |
+| `frontend/app/pro/page.tsx`                                     | Wire form — add state, submit handler, success/error UI                   |
+| `tests/test_api.py`                                             | Add 3 waitlist endpoint tests                                             |

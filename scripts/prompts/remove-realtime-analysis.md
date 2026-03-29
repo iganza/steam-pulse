@@ -13,10 +13,10 @@ removed. What stays: all batch utilities in `analyzer.py`, the batch Lambda func
 
 ## Files to DELETE entirely
 
-| Path | Reason |
-|---|---|
-| `src/lambda-functions/lambda_functions/analysis/` (handler.py, events.py) | Real-time analysis handler |
-| `src/library-layer/library_layer/services/analysis_service.py` | Orphaned service — never imported anywhere |
+| Path                                                                      | Reason                                     |
+|---------------------------------------------------------------------------|--------------------------------------------|
+| `src/lambda-functions/lambda_functions/analysis/` (handler.py, events.py) | Real-time analysis handler                 |
+| `src/library-layer/library_layer/services/analysis_service.py`            | Orphaned service — never imported anywhere |
 
 ---
 

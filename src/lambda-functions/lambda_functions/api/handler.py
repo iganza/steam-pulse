@@ -3,11 +3,13 @@
 import os
 import uuid
 
+import boto3  # type: ignore[import-untyped]
 import httpx
 from aws_lambda_powertools import Logger, Tracer
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
+from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from pydantic import BaseModel
@@ -34,10 +36,14 @@ if _is_lambda:
     _api_config = SteamPulseConfig()
     from aws_lambda_powertools.utilities.parameters import get_parameter
     _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
+    _email_queue_url: str | None = get_parameter(_api_config.EMAIL_QUEUE_PARAM_NAME)
 else:
     # Local dev — no SSM, no full config.
     _api_config = None  # type: ignore[assignment]
     _sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
+    _email_queue_url = os.getenv("EMAIL_QUEUE_URL")
+
+_sqs_client = boto3.client("sqs")
 
 VERSION = "0.1.0"
 
@@ -52,6 +58,7 @@ from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
+from library_layer.repositories.waitlist_repo import WaitlistRepository
 from library_layer.utils.db import get_conn
 
 _conn = get_conn()
@@ -61,6 +68,7 @@ _report_repo = ReportRepository(_conn)
 _review_repo = ReviewRepository(_conn)
 _job_repo = JobRepository(_conn)
 _tag_repo = TagRepository(_conn)
+_waitlist_repo = WaitlistRepository(_conn)
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +79,9 @@ _tag_repo = TagRepository(_conn)
 class PreviewRequest(BaseModel):
     appid: int
 
+
+class WaitlistRequest(BaseModel):
+    email: str
 
 
 class ChatRequest(BaseModel):
@@ -454,6 +465,27 @@ async def get_tag_trend(slug: str) -> dict:
 @app.get("/api/developers/{slug}/analytics")
 async def get_developer_analytics(slug: str) -> dict:
     return _analytics_repo.find_developer_portfolio(slug)
+
+
+@app.post("/api/waitlist")
+async def join_waitlist(body: WaitlistRequest) -> dict:
+    """Add an email to the waitlist and enqueue a confirmation email."""
+    inserted = _waitlist_repo.add(body.email)
+    if not inserted:
+        # Already on the waitlist — return 200 so the UI shows success.
+        return {"status": "already_registered"}
+
+    if _email_queue_url:
+        msg = WaitlistConfirmationMessage(email=body.email)
+        _sqs_client.send_message(
+            QueueUrl=_email_queue_url,
+            MessageBody=msg.model_dump_json(),
+        )
+        logger.info("Waitlist confirmation queued", extra={"email": body.email})
+    else:
+        logger.warning("EMAIL_QUEUE_URL not set — skipping confirmation email", extra={"email": body.email})
+
+    return {"status": "registered"}
 
 
 @app.post("/api/chat")

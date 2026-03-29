@@ -64,6 +64,11 @@ class MessagingStack(cdk.Stack):
             "SpokeResultsDlq",
             retention_period=cdk.Duration.days(14),
         )
+        self.email_dlq = sqs.Queue(
+            self,
+            "EmailDlq",
+            retention_period=cdk.Duration.days(14),
+        )
 
         # Deterministic names — spokes in other regions construct ARN/URL
         # strings from these names (CDK tokens can't cross regions).
@@ -113,6 +118,16 @@ class MessagingStack(cdk.Stack):
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.spoke_results_dlq,
+            ),
+        )
+
+        self.email_queue = sqs.Queue(
+            self,
+            "EmailQueue",
+            visibility_timeout=cdk.Duration.minutes(5),
+            dead_letter_queue=sqs.DeadLetterQueue(
+                max_receive_count=3,
+                queue=self.email_dlq,
             ),
         )
 
@@ -259,6 +274,14 @@ class MessagingStack(cdk.Stack):
             "SpokeResultsQueueUrlParam",
             parameter_name=f"/steampulse/{env}/messaging/spoke-results-queue-url",
             string_value=self.spoke_results_queue.queue_url,
+        )
+
+        # Email queue SSM param — resolved by API and EmailFn at cold start
+        ssm.StringParameter(
+            self,
+            "EmailQueueUrlParam",
+            parameter_name=f"/steampulse/{env}/messaging/email-queue-url",
+            string_value=self.email_queue.queue_url,
         )
 
         # Eligibility threshold SSM param

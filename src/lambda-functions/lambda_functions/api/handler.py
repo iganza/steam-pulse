@@ -143,27 +143,6 @@ def _trigger_analysis(appid: int, game_name: str) -> str:
     )
 
 
-def _send_confirmation_email(to_email: str, game_name: str) -> None:
-    """Fire-and-forget confirmation email via Resend."""
-    try:
-        import resend  # type: ignore[import-untyped]
-
-        resend.api_key = os.getenv("RESEND_API_KEY", "")
-        if not resend.api_key:
-            return
-        resend.Emails.send({
-            "from": "reports@steampulse.io",
-            "to": [to_email],
-            "subject": f"SteamPulse: Your report for {game_name} is ready",
-            "html": (
-                f"<p>Your SteamPulse premium report for <strong>{game_name}</strong> "
-                "is now unlocked. Return to the game page to view your full analysis.</p>"
-                "<hr><p><small>Powered by SteamPulse</small></p>"
-            ),
-        })
-    except Exception:
-        logger.warning("Confirmation email failed", extra={"email": to_email})
-
 
 def _preview_fields(report: dict) -> dict:
     return {

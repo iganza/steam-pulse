@@ -13,11 +13,15 @@ When adding a new interaction, add its sequence diagram to `ARCHITECTURE.org` fi
 
 **SteamPulse** — AI-powered Steam game intelligence platform at **steampulse.io**.
 
-- **Public site**: AI-synthesized review reports for ALL Steam games with any reviews. SEO-driven, cross-linked, no ads.
-- **Premium layer**: Developer-focused. Unlocks `dev_priorities`, `churn_triggers`, `player_wishlist` and pro-tier analytics sections. Gated via Auth0 JWT `"pro"` role claim (see `scripts/prompts/auth0-authentication.md`).
-- **Pro tier (V2)**: NL chat over full catalog. Not yet available — pending Auth0 integration.
+- **Public site**:  (Free)
+    Public site where users can browse the entire steam game catalog.  
+    An "Analysis" section with various tabs showing information available from the games catalog.
+    AI-synthesized review reports for ALL Steam games with any reviews. SEO-driven, cross-linked, no ads.
+    
+- **Pro section**: (Paid Subscription model)
+    Allows more detailed drilling into, and manipulation of feature of the "Analysis" section.  Charts allow drilling in and modification of many more parameters and sections.
+    Cross analysis for game/section/genre/tag and LLM assisted analysis of data cutting across many more elements of the data.
 
-Full architecture decisions in `steampulse-design.org` at the repo root. Read it for anything not covered here.
 
 ---
 
@@ -179,8 +183,58 @@ Handler (Lambda / FastAPI route)
   return output. No SQL, no business logic.
 
 **DRY across repos and services:** Any logic needed by more than one repository or service
-lives in `library_layer/utils/`. Examples: `slugify()`, `send_sqs_batch()`, `row_to_model()`,
+lives in `library_layer/` in an appropriate directory for it. 
+
+Examples: `slugify()`, `send_sqs_batch()`, `row_to_model()`,
+
 timestamp helpers. Import from utils — never duplicate.
+
+SQS common code can be in library_layer/sqs_util
+SNS common code in library_layer/sns_util
+and so on...
+
+### SNS Events and SQS Messages — typed Pydantic models (events.py)
+
+All inter-service messages — both SNS events and SQS queue messages — are defined as typed
+Pydantic models in **`src/library-layer/library_layer/events.py`**. This is the single source
+of truth for everything that flows on queues or topics.
+
+**Two base classes:**
+
+- `BaseEvent` — for SNS events (published to a topic, routed via MessageAttribute filters).
+  Subclasses set `event_type: EventType = "my-event"`.
+- `BaseSqsMessage` — for SQS messages (sent directly to a queue, routed by `message_type`
+  in the consumer Lambda). Subclasses set `message_type: SqsMessageType = "my-message"`.
+
+**Conventions:**
+- Add new event/message types to `EventType` or `SqsMessageType` literals first, then define the model.
+- Subclass discriminator fields use the declared base type with a default — `field: EventType = "my-event"` —
+  **not** ad-hoc `Literal["my-event"]` narrowing (see feedback memory).
+- All new fields on existing events/messages **must have defaults** (`= None` or a sensible value) so
+  old consumers don't fail validation on messages produced by new producers before they've deployed.
+- Serialize with `.model_dump_json()` when enqueuing; deserialize with `.model_validate(json.loads(body))`
+  in the consumer.
+- Never use raw dicts with a string `"type"` key — always a typed model.
+
+**Example — enqueue (producer):**
+```python
+from library_layer.events import WaitlistConfirmationMessage
+
+msg = WaitlistConfirmationMessage(email=email)
+sqs.send_message(QueueUrl=queue_url, MessageBody=msg.model_dump_json())
+```
+
+**Example — consume (consumer):**
+```python
+from library_layer.events import WaitlistConfirmationMessage
+
+body = json.loads(record["body"])
+match body.get("message_type"):
+    case "waitlist_confirmation":
+        msg = WaitlistConfirmationMessage.model_validate(body)
+    case _:
+        logger.warning("Unknown message type", extra={"message_type": body.get("message_type")})
+```
 
 ### SteamDataSource abstraction (steam_source.py)
 
@@ -616,7 +670,6 @@ def handler(event: dict, context: object) -> dict:
 ## Do Not Build
 
 - No user accounts or login system
-- No database migrations framework for data access (raw psycopg2 in repositories) — yoyo-migrations is used for schema DDL only (see `src/lambda-functions/migrations/`)
 - No CSS frameworks (use Tailwind or plain CSS in Next.js)
 - No job queue inside FastAPI (analysis is in Step Functions)
 - No payment integration until explicitly planned

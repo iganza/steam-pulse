@@ -1,5 +1,51 @@
 * SteamPulse
 
+** Executive Summary
+
+** Project Description
+
+Steam hosts over 100,000 games with millions of player reviews and game descriptions, but this
+wealth of qualitative feedback and information remains largely untouched.  Developers, publishers and
+investors rely on aggregate scores and manual reading to understand player sentiment -- a process
+that doesn't scale and misses the deeper patterns buried across thousands of reviews.
+
+The project proposes a batch LLM-powered pipeline that ingests the Steam game catalog, game
+descriptions, reviews, and other relevant data, the processes them through Amazon Bedrock foundation
+models to extract, structured, query-able insights.  A two-pass approach extracts summary
+information first, which is then processed by collected and saved, and provided to a further LLM
+processing step responsible for identifying relevant information such as recurring complaints,
+praised features, and competitive comparison across the entire catalog.
+
+The result is a structured intelligence layer on top of raw data, query-able via simple SQL or
+optionally enhanced with semantic search.  This enabled questions that were previously impossible at
+scale:  "What do players consistently criticize about survival games released in the last two
+years?" or "How does this studio's latest title compare to competitors across various sentiment
+dimensions".
+
+The target market includes:  indie and AA game studios seeking actionable feedback, publishers
+evaluating acquisitions or portfolio health, gaming-focused investors performing due diligence, and
+market research firms looking to add qualitative sentiment data to their offerings.
+
+No existing tool in the space provides this depth of LLM-extracted intelligence.  Current solutions
+stop at surface-level metrics like scores, player counts, and revenue estimates.
+
+
+** High Level Front-End (Website experience)
+- Nice front-page where one can browse and search *ALL* games in Catalog
+*** Free Users
+- Can dig into any game and see standard metrics and the review analysis
+- Can dig into "Analysis" section with dynamic charts and look at range of metrics
+- Cannot modify charts in advanced ways
+- Cannot easily do 'cross' concern analysis or comparisons without PRO (searching across genre/tags/industry/etc...)
+*** PRO Users
+- Can modify chart in advanced ways to allow analysis of cross-cutting concerns.  Search catalog and
+  view metrics across genre/tags/etc/etc/...
+- Can dig into review analysis in more details and allow additional information that cross-cuts across
+  various concerns over more than a single game
+- Full-text search via postgres feature
+- RAG search over review summaries and generated review analysis/insights
+- layer analysis:  per-game --> per-genre --> per-tag --> cross-genre --> etc/etc
+  
 ** 7-Day Launch Plan
    Goal: 50+ game reports live on steampulse.io, indexed by Google, waitlist
    capturing emails. Ship ugly, iterate in public.
@@ -217,31 +263,6 @@
     - No full-text search (Phase 2)
     - No Bedrock Knowledge Base (V2)
     - No 6,000 game backfill ($2k spend — wait for demand signal)
-
-** Prompt Execution Order
-   Implementation prompts in =scripts/prompts/=. Run in this order.
-
-*** Phase 1 — No data dependency (run now, while metadata crawl runs)
-    These can run immediately. #1 and #2 were already done.
-
-    1. =steam-deck-compatibility.md= — DONE ✓
-    2. =analyzer-upgrade-richer-signals.md= — DONE ✓
-    3. =rename-analyzer-models.md= — LLM_MODEL task map config refactor (small, fast)
-    4. =prompt-eval-pipeline.md= — Score the upgraded prompts, compare before/after
-    5. =wire-waitlist.md= — Pre-launch blocker: email capture + Resend confirmation
-    6. =crawl-spoke-stack.md= — Multi-region crawl infra (saves days on review crawl)
-
-*** Phase 2 — After metadata crawl completes
-    7. =analytics-engine-backend.md= — 11 analytics API endpoints (needs games + tags populated)
-
-*** Phase 3 — After reviews crawl completes
-    8. =full-text-search-reviews.md= — tsvector index + search API (needs review bodies in DB)
-
-*** Phase 4 — After backend APIs work
-    9. =analytics-engine-frontend.md= — Visualization components (consumes #7's endpoints)
-
-*** Parked
-    10. =bedrock-batch-analysis.md= — Batch analysis at scale (run when ready to seed all 6k games)
 
 ** Testing Front-Endless
    Make a frontend change prompt → Claude Code updates tests alongside the code

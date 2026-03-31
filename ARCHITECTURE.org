@@ -378,6 +378,38 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 
 ** Flow-04: LLM Analysis (Batch Mode)
 
+TODO:  We need to re-write this section.  What we should be doing is:
+
+*** Batched Map-Reduce (batched analysis + on-demand RAG) (NEW)
+(Step functions)
+
+**** Phase One
+
+1. Pull batches of reviews from RDS (50-100 at a time)
+2. Send each batch to LLM and generate summaries (batched 50 summary at a time or so)
+3. Store the output back in RDS
+4. Repeat for Every Game
+
+*End result:  Rich summary information stored permanently in our database.*
+
+
+**** Phase Two
+
+1. Feed summaries back into LLM for the actual Analysis phase
+2. Generate insight/analysis summary for each game based on previously stored summaries
+3. Store summaries back in RDS
+4. Embed summaries into a vector store (for eventual use with Bedrock knowledge base) or use [[https://github.com/VectifyAI/PageIndex][pageindex]] instead?
+5. Now we have a small, relatively cheap vector-index (vector-index on summaries/insights instead of full reviews)
+6. Use Bedrock knowledge base for natural language queries against summaries
+
+*End Result: LLM generated review analysis and insights stored in database*
+            *Rich query-able database of extract insights/analysis per game*
+
+**** Open Questions
+- how practical and hard would it be to store/have a history?  so sentiment changing over time can be measured?
+
+*** Original (Deprecated, to be removed after above section fleshed out)
+
 #+BEGIN_SRC
 Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Functions
            workflow orchestrates two-pass LLM analysis via Bedrock Batch Inference:

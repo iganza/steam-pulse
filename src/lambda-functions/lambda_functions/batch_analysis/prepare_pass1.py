@@ -24,11 +24,6 @@ _BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _CHUNKING_MODEL = os.environ["LLM_MODEL__CHUNKING"]
 
 
-def _get_eligible_appids(game_repo: GameRepository) -> list[int]:
-    """Return appids for games with at least 50 reviews (batch-eligible)."""
-    return [g.appid for g in game_repo.find_eligible_for_reviews(min_reviews=50)]
-
-
 def _format_chunk_record(appid: int, chunk: list[dict], chunk_index: int, total_chunks: int, game_name: str) -> dict:
     return {
         "recordId": f"{appid}-chunk-{chunk_index}",
@@ -54,18 +49,19 @@ def handler(event: dict, context: LambdaContext) -> dict:
     game_repo = GameRepository(_conn)
     review_repo = ReviewRepository(_conn)
 
-    if appids_input == "ALL_ELIGIBLE":
-        appids = _get_eligible_appids(game_repo)
-        logger.info("resolved eligible appids", extra={"count": len(appids)})
-    else:
-        appids = [int(a) for a in appids_input]
+    appids = [int(a) for a in appids_input]
 
     records: list[dict] = []
     for appid in appids:
         game = game_repo.find_by_appid(appid)
-        game_name = game.name if game else str(appid)
+        if not game:
+            logger.warning("game not found, skipping", extra={"appid": appid})
+            continue
 
-        reviews = review_repo.find_by_appid(appid, limit=2000)
+        # TODO:  find_by_appid: ensure reviews are return in chronologically order, from newest to oldest
+        #                       we don't want to process old review when newer exist!
+        # TODO: limit should be passed in or use sensible default
+        reviews = review_repo.find_by_appid(appid, limit=500)
         if not reviews:
             logger.info("no reviews, skipping", extra={"appid": appid})
             continue
@@ -96,7 +92,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
         total_chunks = len(chunks)
 
         for i, chunk in enumerate(chunks):
-            records.append(_format_chunk_record(appid, chunk, i, total_chunks, game_name))
+            records.append(_format_chunk_record(appid, chunk, i, total_chunks, game.name))
 
     logger.info("prepared pass1 records", extra={"records": len(records), "appids": len(appids)})
 

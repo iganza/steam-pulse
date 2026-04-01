@@ -309,28 +309,26 @@ def _build_synthesis_user_message(
   Metacritic: {metacritic_str}"""
 
     store_description_block = ""
-    if metadata is not None:
-        store_description_block = f"""
-<store_description>
-  <short>{metadata.short_desc or "Not available"}</short>
-  <full>{metadata.about_the_game or "Not available"}</full>
-</store_description>
-"""
-
     store_page_alignment_section = ""
     store_check_items = ""
     if metadata is not None and metadata.about_the_game is not None:
+        store_description_block = f"""
+<store_description>
+  <short>{metadata.short_desc or "Not available"}</short>
+  <full>{metadata.about_the_game}</full>
+</store_description>
+"""
         store_page_alignment_section = """  <section name="store_page_alignment" type="object">
     Compare the store description above against what reviewers actually experienced.
     promises_delivered: up to 4 claims the store page makes that reviews confirm (array)
     promises_broken: up to 3 claims the store page makes that reviews contradict (array)
     hidden_strengths: up to 3 things reviewers love that the store page doesn't mention (array)
     audience_match: aligned|partial_mismatch|significant_mismatch
-    audience_match_note: one sentence explaining the match/mismatch
+    audience_match_note: 1-2 sentences — WHO the description targets vs WHO actually plays (string)
   </section>
 """
-        store_check_items = """5. Any store/description discrepancies are in store_page_alignment only, not gameplay_friction or design_strengths
-6. store_page_alignment.audience_match_note is a single sentence, not a list
+        store_check_items = """5. store_page_alignment claims trace to BOTH the store description AND aggregated signals
+6. No store_page_alignment item duplicates a design_strengths or gameplay_friction item
 """
 
     return f"""\

@@ -9,6 +9,10 @@ from library_layer.repositories.base import BaseRepository
 class GameNotFound(Exception):
     """Raised when a game cannot be found by appid."""
 
+    def __init__(self, appid: int) -> None:
+        self.appid = appid
+        super().__init__(f"Game not found: appid={appid}")
+
 
 class GameRepository(BaseRepository):
     """CRUD operations for the games table."""

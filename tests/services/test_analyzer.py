@@ -608,16 +608,15 @@ def test_synthesis_message_without_metadata_omits_store_description() -> None:
     assert "store_page_alignment" not in msg
 
 
-def test_synthesis_message_metadata_none_about_omits_alignment_section() -> None:
+def test_synthesis_message_metadata_none_about_omits_both_blocks() -> None:
     meta = GameMetadataContext(
         short_desc="Short",
         about_the_game=None,
         price_usd=Decimal("9.99"),
     )
     msg = _call_synthesis_msg(meta)
-    # store_description block should appear (metadata is not None)
-    assert "<store_description>" in msg
-    # but store_page_alignment section should NOT appear (about_the_game is None)
+    # both store_description and store_page_alignment omitted when about_the_game is None
+    assert "<store_description>" not in msg
     assert "store_page_alignment" not in msg
 
 

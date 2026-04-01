@@ -225,7 +225,11 @@ export function AnalyticsClient() {
               data={data.releaseVolume?.periods ?? []}
               dataKey="releases"
               granularity={g}
-              secondaryLine={isPro ? { dataKey: "avg_sentiment", color: "#f59e0b" } : undefined}
+              secondaryLine={
+                isPro
+                  ? { dataKey: "avg_sentiment", color: "#f59e0b" }
+                  : { dataKey: "avg_reviews", color: "#6b7280" }
+              }
             />
           </CardContent>
         </Card>
@@ -332,7 +336,7 @@ export function AnalyticsClient() {
           <CardContent>
             <TrendComposed
               data={data.earlyAccess?.periods ?? []}
-              bars={[{ dataKey: "ea_count", label: "EA Games", color: "#8b5cf6" }]}
+              bars={isPro ? [{ dataKey: "ea_count", label: "EA Games", color: "#8b5cf6" }] : []}
               lines={[
                 { dataKey: "ea_pct", label: "EA %", color: "#f59e0b" },
                 ...(isPro

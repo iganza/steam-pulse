@@ -1,7 +1,7 @@
 """AnalyticsService — business logic for catalog-wide analytics dashboard."""
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, date
 
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 
@@ -260,8 +260,14 @@ class AnalyticsService:
             total = int(r.get("total_reviews", 0))
             if total == 0:
                 continue
+            raw_period = r.get("period", "")
+            try:
+                period_dt = datetime.fromisoformat(str(raw_period)) if raw_period else None
+                formatted_period = self._format_period(period_dt, g) if period_dt else str(raw_period)
+            except (ValueError, TypeError):
+                formatted_period = str(raw_period)
             periods.append({
-                "period": r.get("period", ""),
+                "period": formatted_period,
                 "total_reviews": total,
                 "playtime_under_2h_pct": self._safe_pct(int(r.get("playtime_under_2h", 0)), total),
                 "playtime_2_10h_pct": self._safe_pct(int(r.get("playtime_2_10h", 0)), total),

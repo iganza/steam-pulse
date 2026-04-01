@@ -100,6 +100,9 @@ test.describe('Analytics page — engagement empty state', () => {
     await page.route('**/api/genres**', route =>
       route.fulfill({ json: [] })
     )
+    await page.route('**/api/tags/**', route =>
+      route.fulfill({ json: [] })
+    )
     await page.goto('/analytics')
     await expect(page.getByText(/engagement data is being computed/i)).toBeVisible()
   })

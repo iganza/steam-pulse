@@ -5,6 +5,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class StorePageAlignment(BaseModel):
+    promises_delivered: list[str] = Field(default_factory=list, max_length=4)
+    promises_broken: list[str] = Field(default_factory=list, max_length=3)
+    hidden_strengths: list[str] = Field(default_factory=list, max_length=3)
+    audience_match: Literal["aligned", "partial_mismatch", "significant_mismatch"]
+    audience_match_note: str
+
+
 class CompetitorRef(BaseModel):
     game: str
     sentiment: Literal["positive", "negative", "neutral"]
@@ -111,3 +119,4 @@ class GameReport(BaseModel):
     genre_context: str
     hidden_gem_score: float = Field(ge=0.0, le=1.0, default=0.0)
     appid: int | None = None
+    store_page_alignment: StorePageAlignment | None = None

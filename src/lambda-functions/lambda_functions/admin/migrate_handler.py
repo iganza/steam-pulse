@@ -57,7 +57,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
             applied = [m.id for m in pending]
             logger.info("Migrations applied", extra={"applied": applied})
             return {"status": "ok", "applied": applied, "count": len(applied)}
-        except (OSError, psycopg2.OperationalError, BadMigration) as exc:
+        except BadMigration as exc:
+            # Not a transient error — retrying cannot fix a bad migration definition.
+            logger.error("Bad migration definition — aborting immediately", extra={"error": str(exc)})
+            raise
+        except (OSError, psycopg2.OperationalError) as exc:
             last_err = exc
             if attempt < _MAX_RETRIES:
                 logger.warning(

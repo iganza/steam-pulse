@@ -78,6 +78,7 @@ def reset_api_state() -> None:
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
     api_module._waitlist_repo = _MemWaitlistRepo()  # type: ignore[assignment]
     api_module._sqs_client = _StubSqsClient()  # type: ignore[assignment]
+    api_module._email_queue_url = None  # type: ignore[assignment]
     os.environ.pop("DATABASE_URL", None)
 
 
@@ -295,3 +296,24 @@ def test_waitlist_enqueues_sqs_message_for_new_email(client: TestClient) -> None
     body = _json.loads(sqs_stub.sent[0]["MessageBody"])
     assert body["message_type"] == "waitlist_confirmation"
     assert body["email"] == "dev@example.com"
+
+
+def test_waitlist_normalizes_email(client: TestClient) -> None:
+    """POST /api/waitlist strips and lowercases the email before storing."""
+    resp = client.post("/api/waitlist", json={"email": "  Dev@Example.com  "})
+    assert resp.status_code == 200
+    # A second request with the normalized form should deduplicate
+    resp2 = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp2.json()["status"] == "already_registered"
+
+
+def test_waitlist_rejects_invalid_email(client: TestClient) -> None:
+    """POST /api/waitlist with a non-email string returns 422."""
+    resp = client.post("/api/waitlist", json={"email": "not-an-email"})
+    assert resp.status_code == 422
+
+
+def test_waitlist_rejects_empty_email(client: TestClient) -> None:
+    """POST /api/waitlist with an empty string returns 422."""
+    resp = client.post("/api/waitlist", json={"email": ""})
+    assert resp.status_code == 422

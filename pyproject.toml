@@ -22,6 +22,7 @@ lambda-functions = {path = "src/lambda-functions", develop = true}
 pydantic-settings = "^2.13.1"
 instructor = ">=1.0.0"
 yoyo-migrations = ">=9.0.0"
+email-validator = ">=2.0.0"
 
 [tool.poetry.group.infra]
 optional = true

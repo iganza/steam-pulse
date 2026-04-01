@@ -15,7 +15,7 @@ from aws_lambda_powertools.utilities.parameters import get_secret
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
-from library_layer.utils.email import ResendEmailSender, send_email_safe
+from library_layer.utils.email import ResendEmailSender
 
 logger = Logger(service="email")
 tracer = Tracer(service="email")
@@ -28,8 +28,7 @@ _FROM_ADDR = "hello@steampulse.io"
 
 
 def _handle_waitlist_confirmation(email: str) -> None:
-    send_email_safe(
-        _sender,
+    _sender.send(
         to=email,
         subject="You're on the SteamPulse waitlist",
         html=(

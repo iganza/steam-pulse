@@ -12,7 +12,7 @@ from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 logger = Logger(service="api")
 tracer = Tracer(service="api")
@@ -81,7 +81,7 @@ class PreviewRequest(BaseModel):
 
 
 class WaitlistRequest(BaseModel):
-    email: str
+    email: EmailStr
 
 
 class ChatRequest(BaseModel):

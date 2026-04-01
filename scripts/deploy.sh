@@ -53,8 +53,8 @@ echo ""
 if [[ "$SKIP_FRONTEND" == "false" ]]; then
     echo "▶ Step 1/4 — Building Next.js frontend (OpenNext)"
     cd "$REPO_ROOT/frontend"
-    npm install --silent
-    npx --yes open-next@latest build
+    npm ci --silent
+    npm run build:open-next
     cd "$REPO_ROOT"
     echo "✓ Frontend build complete"
 else

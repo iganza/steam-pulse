@@ -507,7 +507,7 @@ class ComputeStack(cdk.Stack):
             vpc=vpc,
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
-            timeout=cdk.Duration.minutes(5),
+            timeout=cdk.Duration.minutes(10),  # 4 retries × 15s wait + migration time
             memory_size=256,
             reserved_concurrent_executions=1,
             log_group=logs.LogGroup(

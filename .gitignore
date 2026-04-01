@@ -106,3 +106,4 @@ secrets/
 .terraform.lock.hcl
 terraform.tfstate*
 backups/
+/frontend/.open-next/

@@ -123,10 +123,15 @@ poetry run python main.py --appid 440
 poetry run python main.py --appid 440 --max-reviews 200 --json
 poetry run python main.py --appid 440 --dry-run  # no LLM
 
-# CDK (infra)
+# Deploy (no pipeline — deploy runs locally)
+bash scripts/deploy.sh --env staging        # build frontend + cdk deploy + migrate + cdn invalidate
+bash scripts/deploy.sh --env staging --skip-frontend   # skip frontend rebuild (faster)
+bash scripts/deploy.sh --env production     # production deploy
+
+# CDK (direct — for individual stack work)
 poetry install --with infra
 poetry run cdk synth
-poetry run cdk deploy  # only needed once to bootstrap pipeline
+poetry run cdk deploy 'SteamPulse-Staging-*' --require-approval never
 
 # Lambda layer deps — IMPORTANT: after adding/removing deps in src/library-layer/pyproject.toml,
 # regenerate its lock file or the new package won't be installed in the Lambda layer:
@@ -351,9 +356,9 @@ competitive_context[]       # [{game, comparison_sentiment, note}] — named gam
 
 ```
 infra/
-  app.py                    # CDK entry point
-  pipeline_stack.py         # Self-mutating CDK Pipeline (CodeStar Connection to GitHub)
-  application_stage.py
+  app.py                    # CDK entry point — instantiates ApplicationStage directly (no pipeline)
+  application_stage.py      # Wires all stacks in dependency order
+  pipeline_stack.py         # ARCHIVED — kept for reference only, not used
   stacks/
     network_stack.py        # VPC
     data_stack.py           # RDS + S3, termination_protection=True
@@ -366,16 +371,17 @@ infra/
     monitoring_stack.py     # CloudWatch via cdk-monitoring-constructs
 ```
 
+Deploy command: `bash scripts/deploy.sh --env staging` (or `--env production`).
+Do NOT re-add CodePipeline — it costs ~$10/month for no benefit during solo development.
+
 CDK rules (mandatory):
 - No physical resource names — let CDK generate. Exceptions:
-  - `pipeline_name="steampulse"` on the CodePipeline — singleton, no conflict risk, humans need to find it in Console.
   - **Cross-region resources** (S3 buckets, SQS queues referenced by spoke stacks) use deterministic names following `steampulse-{env}-{resource}` — CDK tokens cannot resolve cross-region, so spokes must reference by predictable name.
 - No env var lookups inside constructs — pass as props or context
 - Secrets in AWS Secrets Manager, referenced by ARN
 - `data_stack` has `termination_protection=True`
-- Pipeline uses `CodePipelineSource.connection()` — NOT a PAT token
 - **Staging environment: CloudFront URL only — no custom domain, no ACM cert, no Route53 records. `steampulse.io` is production only.**
-- **Production environment: ACM cert (us-east-1) + CloudFront alias + Route53 A record for `steampulse.io`. Gated by `ManualApprovalStep` in the pipeline.**
+- **Production environment: ACM cert (us-east-1) + CloudFront alias + Route53 A record for `steampulse.io`.**
 - **Monitoring: use `cdk-monitoring-constructs` (npm: `cdk-monitoring-constructs`) — never write raw CloudWatch alarms or dashboards by hand**
 
 ---

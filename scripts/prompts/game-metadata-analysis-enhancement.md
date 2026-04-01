@@ -34,22 +34,22 @@ per game on a single synthesis call; negligible.
 All required data is already fetched, stored, and queryable. No new Steam API calls,
 no new crawl logic, no new tables.
 
-| Data | Source | Storage |
-|---|---|---|
-| `short_desc`, `about_the_game`, `detailed_description` | Steam API `appdetails` | `games` table |
-| `price_usd`, `is_free` | Steam API `appdetails` | `games` table |
-| `platforms` (windows/mac/linux) | Steam API `appdetails` | `games.platforms` JSONB |
-| `deck_compatibility` | Steam API `appdetails` | `games` table |
-| `achievements_total` | Steam API `appdetails` | `games` table |
-| `metacritic_score` | Steam API `appdetails` | `games` table |
-| Tags (with vote counts) | Steam API store tags | `game_tags` join table |
-| Genres | Steam API `appdetails` | `game_genres` join table |
+| Data                                                   | Source                 | Storage                  |
+|--------------------------------------------------------|------------------------|--------------------------|
+| `short_desc`, `about_the_game`, `detailed_description` | Steam API `appdetails` | `games` table            |
+| `price_usd`, `is_free`                                 | Steam API `appdetails` | `games` table            |
+| `platforms` (windows/mac/linux)                        | Steam API `appdetails` | `games.platforms` JSONB  |
+| `deck_compatibility`                                   | Steam API `appdetails` | `games` table            |
+| `achievements_total`                                   | Steam API `appdetails` | `games` table            |
+| `metacritic_score`                                     | Steam API `appdetails` | `games` table            |
+| Tags (with vote counts)                                | Steam API store tags   | `game_tags` join table   |
+| Genres                                                 | Steam API `appdetails` | `game_genres` join table |
 
-| Method | File | Returns |
-|---|---|---|
-| `GameRepository.find_by_appid(appid)` | `game_repo.py:76` | `Game` model with all metadata fields |
-| `TagRepository.find_tags_for_game(appid)` | `tag_repo.py:101` | `list[dict]` — `{id, name, slug, votes}` ordered by votes DESC |
-| `TagRepository.find_genres_for_game(appid)` | `tag_repo.py:114` | `list[dict]` — `{id, name, slug}` |
+| Method                                      | File              | Returns                                                        |
+|---------------------------------------------|-------------------|----------------------------------------------------------------|
+| `GameRepository.find_by_appid(appid)`       | `game_repo.py:76` | `Game` model with all metadata fields                          |
+| `TagRepository.find_tags_for_game(appid)`   | `tag_repo.py:101` | `list[dict]` — `{id, name, slug, votes}` ordered by votes DESC |
+| `TagRepository.find_genres_for_game(appid)` | `tag_repo.py:114` | `list[dict]` — `{id, name, slug}`                              |
 
 The batch PreparePass2 handler (`batch_analysis/prepare_pass2.py:126`) already loads
 the game object — it just doesn't pass metadata to the synthesis prompt.

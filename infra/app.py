@@ -1,8 +1,12 @@
-"""CDK entry point — self-mutating pipeline stacks.
+"""CDK entry point — direct stack deployment (no pipeline).
 
-Two pipelines:
-  SteamPulsePipeline           — watches 'staging' branch → deploys Staging
-  SteamPulseProductionPipeline — watches 'main' branch    → deploys Production (disabled)
+Deploy with:
+    ./scripts/deploy.sh --env staging
+    ./scripts/deploy.sh --env production
+
+Or manually:
+    cd frontend && npx open-next build
+    cd infra && poetry run cdk deploy 'SteamPulse-Staging-*' --require-approval never
 """
 
 import os
@@ -12,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "library
 
 import aws_cdk as cdk
 
-from pipeline_stack import PipelineStack
+from application_stage import ApplicationStage
 from stacks.monitoring_stack import MonitoringStack
 from library_layer.config import SteamPulseConfig
 
@@ -23,25 +27,24 @@ env = cdk.Environment(
     region=app.node.try_get_context("region") or "us-west-2",
 )
 
-# Staging pipeline — watches 'staging' branch
-PipelineStack(
+# Staging stacks — deploy with: cdk deploy 'SteamPulse-Staging-*'
+ApplicationStage(
     app,
-    "SteamPulsePipeline",
-    branch="staging",
-    deploy_stage="Staging",
+    "SteamPulse-Staging",
+    environment="staging",
     env=env,
 )
 
-# Production pipeline — uncomment when ready to go live
-# PipelineStack(
+# Production stacks — deploy with: cdk deploy 'SteamPulse-Production-*'
+# Uncomment when ready to go live.
+# ApplicationStage(
 #     app,
-#     "SteamPulseProductionPipeline",
-#     branch="main",
-#     deploy_stage="Production",
+#     "SteamPulse-Production",
+#     environment="production",
 #     env=env,
 # )
 
-# ── Monitoring stacks (standalone — not in the pipeline) ─────────────────────
+# ── Monitoring stacks (standalone) ───────────────────────────────────────────
 MonitoringStack(
     app,
     "SteamPulse-Staging-Monitoring",

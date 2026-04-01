@@ -53,8 +53,8 @@ echo ""
 if [[ "$SKIP_FRONTEND" == "false" ]]; then
     echo "▶ Step 1/4 — Building Next.js frontend (OpenNext)"
     cd "$REPO_ROOT/frontend"
-    npm install --silent
-    npx --yes open-next@latest build
+    npm ci --silent
+    npm run build:open-next
     cd "$REPO_ROOT"
     echo "✓ Frontend build complete"
 else
@@ -95,8 +95,17 @@ if [[ "$SKIP_MIGRATIONS" == "false" ]]; then
             --log-type Tail \
             --payload '{}' \
             /tmp/steampulse-migrate-out.json \
-            --query LogResult \
-            --output text | base64 --decode | tail -20 || true
+            --output json > /tmp/steampulse-migrate-meta.json || true
+
+        # Decode and print Lambda logs from invocation metadata
+        python3 - <<'PY' 2>/dev/null || true
+import json, base64
+with open("/tmp/steampulse-migrate-meta.json") as f:
+    meta = json.load(f)
+log_b64 = meta.get("LogResult", "")
+if log_b64:
+    print(base64.b64decode(log_b64).decode("utf-8", errors="replace"))
+PY
 
         echo ""
         echo "Migration result:"
@@ -104,11 +113,18 @@ if [[ "$SKIP_MIGRATIONS" == "false" ]]; then
         echo ""
 
         # Fail if Lambda returned a function error
-        if grep -q '"FunctionError"' /tmp/steampulse-migrate-out.json 2>/dev/null; then
-            echo "✗ Migration Lambda returned an error — deploy aborted"
-            exit 1
-        fi
-
+        python3 - <<'PY'
+import json, sys
+try:
+    with open("/tmp/steampulse-migrate-meta.json") as f:
+        meta = json.load(f)
+    if meta.get("FunctionError"):
+        print(f"✗ FunctionError: {meta['FunctionError']}")
+        sys.exit(1)
+except Exception as e:
+    print(f"✗ Could not parse invocation metadata: {e}")
+    sys.exit(1)
+PY
         echo "✓ Migrations applied"
     fi
 else

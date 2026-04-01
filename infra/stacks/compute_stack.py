@@ -54,6 +54,7 @@ class ComputeStack(cdk.Stack):
         content_events_topic: sns.ITopic,
         system_events_topic: sns.ITopic,
         spoke_results_queue: sqs.IQueue,
+        email_queue: sqs.IQueue,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -203,6 +204,7 @@ class ComputeStack(cdk.Stack):
                 resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
             )
         )
+        email_queue.grant_send_messages(api_role)
 
         api_fn = PythonFunction(
             self,
@@ -576,6 +578,68 @@ class ComputeStack(cdk.Stack):
                 ),
                 environment=config.to_lambda_env(),
             )
+
+        # ── Email Lambda (SQS-triggered transactional email sender) ─────────────
+        resend_secret = secretsmanager.Secret.from_secret_name_v2(
+            self,
+            "ResendApiKey",
+            config.RESEND_API_KEY_SECRET_NAME,
+        )
+
+        email_role = iam.Role(
+            self,
+            "EmailRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaSQSQueueExecutionRole",
+                ),
+            ],
+        )
+        email_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                resources=[resend_secret.secret_arn],
+            )
+        )
+        email_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+            )
+        )
+
+        email_fn = PythonFunction(
+            self,
+            "EmailFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/email/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=email_role,
+            timeout=cdk.Duration.seconds(30),
+            memory_size=256,
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=logs.LogGroup(
+                self,
+                "EmailLogs",
+                log_group_name=f"/steampulse/{env}/email",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="email",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
+        )
+        email_fn.add_event_source(
+            event_sources.SqsEventSource(
+                email_queue,
+                batch_size=1,
+                report_batch_item_failures=True,
+            )
+        )
 
         # Weekly catalog refresh — disabled until we're ready to run on a schedule.
         catalog_rule = events.Rule(

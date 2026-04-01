@@ -1,7 +1,10 @@
-"""SteamPulse domain event models for SNS pub/sub pipeline.
+"""SteamPulse domain event and message models.
 
-All event types are defined here as Pydantic models inheriting from BaseEvent.
-The event_type field doubles as the SNS MessageAttribute for filter-based routing.
+SNS events: typed models inheriting from BaseEvent, routed via MessageAttribute filters.
+SQS messages: typed models inheriting from BaseSqsMessage, routed by message_type in consumers.
+
+All event/message types are defined here — single source of truth for everything
+that flows on queues or topics.
 """
 
 from typing import Literal
@@ -121,3 +124,34 @@ class CatalogRefreshCompleteEvent(BaseEvent):
     event_type: Literal["catalog-refresh-complete"] = "catalog-refresh-complete"
     new_games: int
     total_games: int
+
+
+# ---------------------------------------------------------------------------
+# SQS message models
+# ---------------------------------------------------------------------------
+
+SqsMessageType = Literal[
+    # Email queue
+    "waitlist_confirmation",
+]
+
+
+class BaseSqsMessage(BaseModel):
+    """Base class for all SteamPulse SQS messages.
+
+    message_type: discriminator for routing in the consumer Lambda.
+                  Typed as SqsMessageType — unknown values fail validation immediately.
+    version: schema version — new fields on existing messages MUST have defaults
+             so old messages already in the queue don't break consumers.
+    """
+
+    message_type: SqsMessageType
+    version: int = 1
+
+
+# --- Email queue messages ---
+
+
+class WaitlistConfirmationMessage(BaseSqsMessage):
+    message_type: SqsMessageType = "waitlist_confirmation"
+    email: str

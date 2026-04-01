@@ -50,6 +50,25 @@ class _MemJobRepo:
         self._store[job_id] = {"job_id": job_id, "status": status, "appid": appid}
 
 
+class _MemWaitlistRepo:
+    def __init__(self) -> None:
+        self._store: set[str] = set()
+
+    def add(self, email: str) -> bool:
+        if email in self._store:
+            return False
+        self._store.add(email)
+        return True
+
+
+class _StubSqsClient:
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    def send_message(self, **kwargs: object) -> None:
+        self.sent.append(kwargs)
+
+
 @pytest.fixture(autouse=True)
 def reset_api_state() -> None:
     """Inject fresh in-memory mock repos before each test."""
@@ -57,6 +76,9 @@ def reset_api_state() -> None:
     api_module._report_repo = _MemReportRepo()  # type: ignore[assignment]
     api_module._game_repo = _MemGameRepo()  # type: ignore[assignment]
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
+    api_module._waitlist_repo = _MemWaitlistRepo()  # type: ignore[assignment]
+    api_module._sqs_client = _StubSqsClient()  # type: ignore[assignment]
+    api_module._email_queue_url = None  # type: ignore[assignment]
     os.environ.pop("DATABASE_URL", None)
 
 
@@ -239,3 +261,59 @@ def test_benchmarks_endpoint_returns_cohort_data(client: TestClient) -> None:
     assert "sentiment_rank" in data
     assert "cohort_size" in data
     assert data["cohort_size"] == 50
+
+
+# ---------------------------------------------------------------------------
+# waitlist endpoint tests
+# ---------------------------------------------------------------------------
+
+
+def test_waitlist_registers_new_email(client: TestClient) -> None:
+    """POST /api/waitlist with a new email returns status=registered."""
+    resp = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "registered"
+
+
+def test_waitlist_duplicate_email_returns_already_registered(client: TestClient) -> None:
+    """POST /api/waitlist with an already-registered email returns status=already_registered."""
+    client.post("/api/waitlist", json={"email": "dev@example.com"})
+    resp = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "already_registered"
+
+
+def test_waitlist_enqueues_sqs_message_for_new_email(client: TestClient) -> None:
+    """POST /api/waitlist enqueues a WaitlistConfirmationMessage for a new email."""
+    import json as _json
+    import lambda_functions.api.handler as api_module
+
+    api_module._email_queue_url = "https://sqs.us-west-2.amazonaws.com/123456789/email-queue"  # type: ignore[assignment]
+    client.post("/api/waitlist", json={"email": "dev@example.com"})
+
+    sqs_stub: _StubSqsClient = api_module._sqs_client  # type: ignore[assignment]
+    assert len(sqs_stub.sent) == 1
+    body = _json.loads(sqs_stub.sent[0]["MessageBody"])
+    assert body["message_type"] == "waitlist_confirmation"
+    assert body["email"] == "dev@example.com"
+
+
+def test_waitlist_normalizes_email(client: TestClient) -> None:
+    """POST /api/waitlist strips and lowercases the email before storing."""
+    resp = client.post("/api/waitlist", json={"email": "  Dev@Example.com  "})
+    assert resp.status_code == 200
+    # A second request with the normalized form should deduplicate
+    resp2 = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp2.json()["status"] == "already_registered"
+
+
+def test_waitlist_rejects_invalid_email(client: TestClient) -> None:
+    """POST /api/waitlist with a non-email string returns 422."""
+    resp = client.post("/api/waitlist", json={"email": "not-an-email"})
+    assert resp.status_code == 422
+
+
+def test_waitlist_rejects_empty_email(client: TestClient) -> None:
+    """POST /api/waitlist with an empty string returns 422."""
+    resp = client.post("/api/waitlist", json={"email": ""})
+    assert resp.status_code == 422

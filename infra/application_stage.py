@@ -98,6 +98,7 @@ class ApplicationStage(cdk.Stage):
             content_events_topic=messaging.content_events_topic,
             system_events_topic=messaging.system_events_topic,
             spoke_results_queue=messaging.spoke_results_queue,
+            email_queue=messaging.email_queue,
             env=cdk_env,
         )
         compute.add_dependency(data)

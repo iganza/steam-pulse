@@ -65,6 +65,8 @@ _TEST_ENV_DEFAULTS = {
     "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
+    "RESEND_API_KEY_SECRET_NAME": "steampulse/test/resend-api-key",
+    "EMAIL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/email-queue-url",
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
     "BATCH_BUCKET_NAME": "test-batch-bucket",

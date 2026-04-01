@@ -31,6 +31,7 @@ import type {
   EngagementDepthPeriod,
   CategoryTrendPeriod,
   Genre,
+  Tag,
 } from "@/lib/types";
 
 interface TrendData {
@@ -52,19 +53,35 @@ const INITIAL: TrendData = {
 
 const GENRE_COLORS = ["#14b8a6", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6", "#6b7280"];
 
+const GENRE_SHARE_TOP_N_OPTIONS = [5, 10, 15];
+const GAME_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "game", label: "Games" },
+  { value: "dlc", label: "DLC" },
+  { value: "all", label: "All" },
+];
+
 export function AnalyticsClient() {
   const isPro = usePro();
   const [granularity, setGranularity] = useState<Granularity>("month");
   const [genre, setGenre] = useState<string>("");
+  const [tag, setTag] = useState<string>("");
+  const [gameType, setGameType] = useState<string>("game");
+  const [genreShareTopN, setGenreShareTopN] = useState<number>(5);
+  const [sentimentNormalized, setSentimentNormalized] = useState<boolean>(true);
   const [genres, setGenres] = useState<Genre[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [data, setData] = useState<TrendData>(INITIAL);
   const [loading, setLoading] = useState(true);
 
-  // Load genre list for filter dropdown
+  // Load genre + tag lists for filter dropdowns
   useEffect(() => {
     fetch("/api/genres")
       .then((r) => r.json())
       .then((d) => setGenres(Array.isArray(d) ? d : []))
+      .catch(() => {});
+    fetch("/api/tags/top?limit=20")
+      .then((r) => r.json())
+      .then((d) => setTags(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
 
@@ -72,17 +89,20 @@ export function AnalyticsClient() {
     setLoading(true);
     const g = isPro ? granularity : "month";
     const genreSlug = isPro && genre ? genre : undefined;
+    const tagSlug = isPro && tag ? tag : undefined;
+    const type = isPro ? gameType : "game";
+    const topN = isPro ? genreShareTopN : 5;
 
     const results = await Promise.allSettled([
-      getAnalyticsTrendReleaseVolume({ granularity: g, genre: genreSlug }),
-      getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug }),
-      getAnalyticsTrendGenreShare({ granularity: isPro ? granularity : "year" }),
-      getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug }),
-      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "year", genre: genreSlug }),
-      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "year" }),
-      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "year", genre: genreSlug }),
+      getAnalyticsTrendReleaseVolume({ granularity: g, genre: genreSlug, tag: tagSlug, type }),
+      getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug, type }),
+      getAnalyticsTrendGenreShare({ granularity: isPro ? granularity : "year", top_n: topN, type }),
+      getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug, type }),
+      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "year", genre: genreSlug, type }),
+      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "year", type }),
+      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "year", genre: genreSlug, type }),
       getAnalyticsTrendEngagement({ granularity: isPro ? granularity : "year", genre: genreSlug }),
-      getAnalyticsTrendCategories({ granularity: isPro ? granularity : "year" }),
+      getAnalyticsTrendCategories({ granularity: isPro ? granularity : "year", top_n: isPro ? 8 : 4, type }),
     ]);
 
     const val = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -100,7 +120,7 @@ export function AnalyticsClient() {
       categories: val(results[8]),
     });
     setLoading(false);
-  }, [isPro, granularity, genre]);
+  }, [isPro, granularity, genre, tag, gameType, genreShareTopN]);
 
   useEffect(() => {
     fetchAll();
@@ -115,6 +135,7 @@ export function AnalyticsClient() {
         <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
           <div className="flex items-center gap-4 flex-wrap">
             <GranularityToggle value={granularity} onChange={setGranularity} disabled={!isPro} />
+            {/* Genre filter */}
             <select
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
@@ -125,6 +146,46 @@ export function AnalyticsClient() {
                 <option key={g.slug} value={g.slug}>{g.name}</option>
               ))}
             </select>
+            {/* Tag filter (Pro) */}
+            <select
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-card border border-border text-sm text-foreground"
+            >
+              <option value="">All Tags</option>
+              {tags.map((t) => (
+                <option key={t.slug} value={t.slug}>{t.name}</option>
+              ))}
+            </select>
+            {/* Type filter (Pro) */}
+            <select
+              value={gameType}
+              onChange={(e) => setGameType(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-card border border-border text-sm text-foreground"
+            >
+              {GAME_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {/* Genre share top-N (Pro) */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground font-mono">Genres:</span>
+              <div className="inline-flex rounded-lg border border-border overflow-hidden">
+                {GENRE_SHARE_TOP_N_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setGenreShareTopN(n)}
+                    className={`px-2 py-1 text-xs font-mono transition-colors ${
+                      genreShareTopN === n
+                        ? "bg-teal-500/20 text-teal-400"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
         {!isPro && (
@@ -172,6 +233,22 @@ export function AnalyticsClient() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Sentiment Distribution</CardTitle>
+            {isPro && (
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  onClick={() => setSentimentNormalized(true)}
+                  className={`text-xs font-mono px-2 py-0.5 rounded transition-colors ${sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  % Share
+                </button>
+                <button
+                  onClick={() => setSentimentNormalized(false)}
+                  className={`text-xs font-mono px-2 py-0.5 rounded transition-colors ${!sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Raw
+                </button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <TrendStackedArea
@@ -182,6 +259,8 @@ export function AnalyticsClient() {
                 { key: "negative_count", label: "Negative", color: "#ef4444" },
               ]}
               granularity={g}
+              normalized={isPro ? sentimentNormalized : true}
+              secondaryLine={isPro ? { dataKey: "avg_metacritic", label: "Metacritic", color: "#6366f1" } : undefined}
             />
           </CardContent>
         </Card>

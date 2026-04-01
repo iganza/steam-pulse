@@ -64,7 +64,7 @@ PRO+ UPSELL  → "What's the biggest unmet need in my genre?"
 |---|---------------------------------------------------------|--------|-----------------------------------------------------------------------------------|
 | 1 | `scripts/prompts/game-temporal-intelligence.md`         | Done  | Temporal context (age, velocity, trajectory) in LLM reports + API                 |
 | 2 | `scripts/prompts/game-metadata-analysis-enhancement.md` | Done  | Promise vs. Reality (`store_page_alignment`) in every report                      |
-| 3 | `scripts/prompts/analytics-dashboard.md`                | Ready  | 9 catalog-wide API endpoints (release volume, sentiment dist., genre share, etc.) |
+| 3 | `scripts/prompts/analytics-dashboard.md`                | Done  | 9 catalog-wide API endpoints (release volume, sentiment dist., genre share, etc.) |
 
 ### 2. Per-Game Frontend (Free tier — existing pages)
 | # | Prompt                                         | Status | Delivers                                              |

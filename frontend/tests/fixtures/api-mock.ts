@@ -3,7 +3,40 @@ import {
   MOCK_GAMES_LIST, MOCK_GENRES, MOCK_TAGS,
   MOCK_REPORT, MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED,
   MOCK_REVIEW_STATS, MOCK_BENCHMARKS,
+  MOCK_RELEASE_VOLUME, MOCK_SENTIMENT_DIST, MOCK_GENRE_SHARE,
+  MOCK_VELOCITY_DIST, MOCK_PRICING, MOCK_EARLY_ACCESS,
+  MOCK_PLATFORMS, MOCK_ENGAGEMENT, MOCK_CATEGORIES,
 } from './mock-data'
+
+export async function mockAnalyticsRoutes(page: Page) {
+  await page.route('**/api/analytics/trends/release-volume**', route =>
+    route.fulfill({ json: MOCK_RELEASE_VOLUME })
+  )
+  await page.route('**/api/analytics/trends/sentiment**', route =>
+    route.fulfill({ json: MOCK_SENTIMENT_DIST })
+  )
+  await page.route('**/api/analytics/trends/genre-share**', route =>
+    route.fulfill({ json: MOCK_GENRE_SHARE })
+  )
+  await page.route('**/api/analytics/trends/velocity**', route =>
+    route.fulfill({ json: MOCK_VELOCITY_DIST })
+  )
+  await page.route('**/api/analytics/trends/pricing**', route =>
+    route.fulfill({ json: MOCK_PRICING })
+  )
+  await page.route('**/api/analytics/trends/early-access**', route =>
+    route.fulfill({ json: MOCK_EARLY_ACCESS })
+  )
+  await page.route('**/api/analytics/trends/platforms**', route =>
+    route.fulfill({ json: MOCK_PLATFORMS })
+  )
+  await page.route('**/api/analytics/trends/engagement**', route =>
+    route.fulfill({ json: MOCK_ENGAGEMENT })
+  )
+  await page.route('**/api/analytics/trends/categories**', route =>
+    route.fulfill({ json: MOCK_CATEGORIES })
+  )
+}
 
 export async function mockAllApiRoutes(page: Page) {
   // Register wildcard routes FIRST — Playwright uses LIFO so routes registered
@@ -84,4 +117,6 @@ export async function mockAllApiRoutes(page: Page) {
       },
     })
   )
+
+  await mockAnalyticsRoutes(page)
 }

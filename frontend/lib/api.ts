@@ -177,43 +177,43 @@ function trendParams(params: Record<string, string | number | undefined>): strin
 }
 
 export async function getAnalyticsTrendReleaseVolume(params: {
-  granularity?: Granularity; genre?: string; tag?: string; limit?: number;
+  granularity?: Granularity; genre?: string; tag?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; filter: Record<string, string>; periods: ReleaseVolumePeriod[]; summary: { total_releases: number; avg_per_period: number; trend: string } }> {
   return apiFetch(`/api/analytics/trends/release-volume${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendSentiment(params: {
-  granularity?: Granularity; genre?: string; limit?: number;
+  granularity?: Granularity; genre?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: SentimentDistPeriod[] }> {
   return apiFetch(`/api/analytics/trends/sentiment${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendGenreShare(params: {
-  granularity?: Granularity; top_n?: number; limit?: number;
+  granularity?: Granularity; top_n?: number; type?: string; limit?: number;
 }): Promise<{ granularity: string; genres: string[]; periods: GenreSharePeriod[] }> {
   return apiFetch(`/api/analytics/trends/genre-share${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendVelocity(params: {
-  granularity?: Granularity; genre?: string; limit?: number;
+  granularity?: Granularity; genre?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: VelocityDistPeriod[] }> {
   return apiFetch(`/api/analytics/trends/velocity${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendPricing(params: {
-  granularity?: Granularity; genre?: string; limit?: number;
+  granularity?: Granularity; genre?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: PriceTrendPeriod[] }> {
   return apiFetch(`/api/analytics/trends/pricing${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendEarlyAccess(params: {
-  granularity?: Granularity; limit?: number;
+  granularity?: Granularity; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: EATrendPeriod[] }> {
   return apiFetch(`/api/analytics/trends/early-access${trendParams(params)}`);
 }
 
 export async function getAnalyticsTrendPlatforms(params: {
-  granularity?: Granularity; genre?: string; limit?: number;
+  granularity?: Granularity; genre?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: PlatformTrendPeriod[] }> {
   return apiFetch(`/api/analytics/trends/platforms${trendParams(params)}`);
 }
@@ -225,7 +225,7 @@ export async function getAnalyticsTrendEngagement(params: {
 }
 
 export async function getAnalyticsTrendCategories(params: {
-  granularity?: Granularity; top_n?: number; limit?: number;
+  granularity?: Granularity; top_n?: number; type?: string; limit?: number;
 }): Promise<{ granularity: string; categories: string[]; periods: CategoryTrendPeriod[] }> {
   return apiFetch(`/api/analytics/trends/categories${trendParams(params)}`);
 }

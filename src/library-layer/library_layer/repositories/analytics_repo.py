@@ -731,12 +731,10 @@ class AnalyticsRepository(BaseRepository):
             SELECT
                 DATE_TRUNC(%s, g.release_date) AS period,
                 COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE (g.platforms->>'windows')::boolean) AS windows_count,
                 COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac_count,
                 COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux_count,
                 COUNT(*) FILTER (WHERE g.deck_compatibility = 3) AS deck_verified,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 1) AS deck_unsupported
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable
             FROM games g
             {genre_join}
             WHERE g.release_date IS NOT NULL

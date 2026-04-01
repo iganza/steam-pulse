@@ -24,8 +24,8 @@ class AnalyticsService:
             q = (period.month - 1) // 3 + 1
             return f"{period.year}-Q{q}"
         if granularity == "week":
-            _, week, _ = period.isocalendar()
-            return f"{period.year}-W{week:02d}"
+            iso_year, week, _ = period.isocalendar()
+            return f"{iso_year}-W{week:02d}"
         # month
         return f"{period.year}-{period.month:02d}"
 
@@ -269,7 +269,7 @@ class AnalyticsService:
                 "playtime_50_200h_pct": self._safe_pct(int(r.get("playtime_50_200h", 0)), total),
                 "playtime_200h_plus_pct": self._safe_pct(int(r.get("playtime_200h_plus", 0)), total),
             })
-        return {"granularity": g, "data_available": True, "periods": periods}
+        return {"granularity": g, "data_available": bool(periods), "periods": periods}
 
     def get_category_trend(
         self,

@@ -587,7 +587,7 @@ class AnalyticsRepository(BaseRepository):
                   AND g.coming_soon = FALSE
                   {type_clause}
                   AND g.review_count >= 10
-                ORDER BY 1
+                ORDER BY 1 DESC
                 LIMIT %s
             )
             SELECT
@@ -808,7 +808,7 @@ class AnalyticsRepository(BaseRepository):
                   AND g.coming_soon = FALSE
                   {type_clause}
                   AND g.review_count >= 10
-                ORDER BY 1
+                ORDER BY 1 DESC
                 LIMIT %s
             )
             SELECT

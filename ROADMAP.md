@@ -83,7 +83,7 @@ PRO+ UPSELL  → "What's the biggest unmet need in my genre?"
 | 7 | `scripts/prompts/analytics-dashboard-frontend.md`  | **Needs writing** | Trends lens preset — `/analytics` page, 9 charts, granularity + genre filter              |
 | 8 | `scripts/prompts/toolkit-compare.md`               | **Needs writing** | **Compare lens — Pro conversion trigger.** Game picker, side-by-side metrics, radar chart |
 
-### 5. Pro Data & Monetisation
+### 5. Pro Data & Monetization
 | #  | Prompt                                 | Status            | Delivers                                                                              |
 |----|----------------------------------------|-------------------|---------------------------------------------------------------------------------------|
 | 9  | `scripts/prompts/revenue-estimates.md` | **Needs writing** | Boxleiter ratio, genre-calibrated `estimated_owners` + `estimated_revenue` — Pro only |

@@ -2,11 +2,12 @@
 
 import os
 import uuid
+from typing import Annotated
 
 import boto3  # type: ignore[import-untyped]
 import httpx
 from aws_lambda_powertools import Logger, Tracer
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
@@ -457,13 +458,13 @@ async def get_trend_release_volume(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_release_volume(
             granularity=granularity, genre_slug=genre, tag_slug=tag,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -473,13 +474,13 @@ async def get_trend_release_volume(
 async def get_trend_sentiment(
     granularity: str = "month",
     genre: str | None = None,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_sentiment_distribution(
             granularity=granularity, genre_slug=genre,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -489,13 +490,13 @@ async def get_trend_sentiment(
 async def get_trend_genre_share(
     granularity: str = "year",
     top_n: int = 5,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_genre_share(
             granularity=granularity, top_n=max(1, min(top_n, 15)),
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -505,13 +506,13 @@ async def get_trend_genre_share(
 async def get_trend_velocity(
     granularity: str = "month",
     genre: str | None = None,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_velocity_distribution(
             granularity=granularity, genre_slug=genre,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -521,13 +522,13 @@ async def get_trend_velocity(
 async def get_trend_pricing(
     granularity: str = "year",
     genre: str | None = None,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_price_trend(
             granularity=granularity, genre_slug=genre,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -536,13 +537,13 @@ async def get_trend_pricing(
 @app.get("/api/analytics/trends/early-access")
 async def get_trend_early_access(
     granularity: str = "year",
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_ea_trend(
             granularity=granularity,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -552,13 +553,13 @@ async def get_trend_early_access(
 async def get_trend_platforms(
     granularity: str = "year",
     genre: str | None = None,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_platform_trend(
             granularity=granularity, genre_slug=genre,
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -583,13 +584,13 @@ async def get_trend_engagement(
 async def get_trend_categories(
     granularity: str = "year",
     top_n: int = 4,
-    type: str = "game",
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_category_trend(
             granularity=granularity, top_n=max(1, min(top_n, 8)),
-            game_type=type, limit=max(1, min(limit, 200)),
+            game_type=game_type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None

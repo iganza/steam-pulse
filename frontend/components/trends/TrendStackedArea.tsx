@@ -2,7 +2,7 @@
 
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  ComposedChart, Line,
+  ComposedChart, Line, Legend,
 } from "recharts";
 import type { Granularity, TrendPeriod } from "@/lib/types";
 import { formatPeriodLabel } from "./periodLabel";
@@ -35,6 +35,7 @@ export function TrendStackedArea({
   // pre-computed percentages causes Recharts to re-normalize to 0–1 internally,
   // which makes the tooltip formatter receive fractional values and display
   // "0.3%" instead of "30%".
+  // Raw counts are preserved as "_raw_<key>" so the tooltip can show both.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartData: any[] = normalized
     ? data.map((d) => {
@@ -43,6 +44,7 @@ export function TrendStackedArea({
         const row: Record<string, unknown> = { period: d.period };
         for (const s of series) {
           row[s.key] = total > 0 ? Math.round((rec[s.key] || 0) / total * 1000) / 10 : 0;
+          row[`_raw_${s.key}`] = rec[s.key] || 0;
         }
         if (secondaryLine) {
           row[secondaryLine.dataKey] = (rec as Record<string, unknown>)[secondaryLine.dataKey];
@@ -54,7 +56,7 @@ export function TrendStackedArea({
   const tooltipStyle = { background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tooltipFormatter = (value: unknown, name: unknown): any => {
+  const tooltipFormatter = (value: unknown, name: unknown, props: any): any => {
     const n = String(name);
     if (value == null) {
       if (secondaryLine && n === secondaryLine.dataKey) return ["N/A", secondaryLine.label];
@@ -66,27 +68,35 @@ export function TrendStackedArea({
       return [v.toFixed(2), secondaryLine.label];
     }
     const s = series.find((s) => s.key === n);
-    return [normalized ? `${v.toFixed(1)}%` : v.toLocaleString(), s?.label ?? n];
+    if (normalized) {
+      const rawCount = props?.payload?.[`_raw_${n}`];
+      const rawStr = rawCount != null ? ` (${Number(rawCount).toLocaleString()})` : "";
+      return [`${v.toFixed(1)}%${rawStr}`, s?.label ?? n];
+    }
+    return [v.toLocaleString(), s?.label ?? n];
   };
 
   // Y-axis formatter: values are already 0–100 when normalized.
   const yTickFormatter = normalized ? (v: number) => `${v.toFixed(0)}%` : undefined;
+  const tickFmt = (v: string) => formatPeriodLabel(v, granularity);
 
   if (secondaryLine) {
     return (
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={(v) => formatPeriodLabel(v, granularity)} />
+          <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
           <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
           {series.map((s) => (
             <Area
               key={s.key}
               yAxisId="left"
               type="monotone"
               dataKey={s.key}
+              name={s.label}
               stackId="1"
               fill={s.color}
               stroke={s.color}
@@ -97,6 +107,7 @@ export function TrendStackedArea({
             yAxisId="right"
             type="monotone"
             dataKey={secondaryLine.dataKey}
+            name={secondaryLine.label}
             stroke={secondaryLine.color}
             strokeWidth={2}
             dot={false}
@@ -110,14 +121,16 @@ export function TrendStackedArea({
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+        <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
         <YAxis tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
         <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
         {series.map((s) => (
           <Area
             key={s.key}
             type="monotone"
             dataKey={s.key}
+            name={s.label}
             stackId="1"
             fill={s.color}
             stroke={s.color}

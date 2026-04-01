@@ -122,3 +122,42 @@ class TagRepository(BaseRepository):
             (appid,),
         )
         return [dict(r) for r in rows]
+
+    def find_tags_for_appids(self, appids: list[int]) -> dict[int, list[dict]]:
+        """Fetch tags for multiple appids in one query. Returns {appid: [tag, ...]}."""
+        if not appids:
+            return {}
+        rows = self._fetchall(
+            """
+            SELECT gt.appid, t.id, t.name, t.slug, gt.votes
+            FROM tags t
+            JOIN game_tags gt ON gt.tag_id = t.id
+            WHERE gt.appid = ANY(%s)
+            ORDER BY gt.appid, gt.votes DESC
+            """,
+            (appids,),
+        )
+        result: dict[int, list[dict]] = {appid: [] for appid in appids}
+        for r in rows:
+            d = dict(r)
+            result[d["appid"]].append(d)
+        return result
+
+    def find_genres_for_appids(self, appids: list[int]) -> dict[int, list[dict]]:
+        """Fetch genres for multiple appids in one query. Returns {appid: [genre, ...]}."""
+        if not appids:
+            return {}
+        rows = self._fetchall(
+            """
+            SELECT gg.appid, g.id, g.name, g.slug
+            FROM genres g
+            JOIN game_genres gg ON gg.genre_id = g.id
+            WHERE gg.appid = ANY(%s)
+            """,
+            (appids,),
+        )
+        result: dict[int, list[dict]] = {appid: [] for appid in appids}
+        for r in rows:
+            d = dict(r)
+            result[d["appid"]].append(d)
+        return result

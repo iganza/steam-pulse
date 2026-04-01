@@ -1,9 +1,11 @@
 """Tests for analyzer.py — Pydantic models, scoring helpers, and integration."""
 
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
 from library_layer.analyzer import (
+    _build_synthesis_user_message,
     _chunk_reviews,
     analyze_reviews,
 )
@@ -20,10 +22,17 @@ from library_layer.models.analyzer_models import (
     MonetizationSentiment,
     RefundRisk,
 )
+from library_layer.models.metadata import GameMetadataContext
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
+)
+from library_layer.utils.scores import (
     compute_sentiment_score as _compute_sentiment_score,
+)
+from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
+)
+from library_layer.utils.scores import (
     sentiment_label as _sentiment_label,
 )
 from pydantic import ValidationError
@@ -535,3 +544,98 @@ def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_analyze_reviews_empty_reviews() -> None:
     with pytest.raises(ValueError, match="No reviews to analyze"):
         analyze_reviews([], "Test Game")
+
+
+# ---------------------------------------------------------------------------
+# _build_synthesis_user_message — metadata injection tests
+# ---------------------------------------------------------------------------
+
+_MINIMAL_AGGREGATED: dict = {
+    "design_praise": [],
+    "gameplay_friction": [],
+    "wishlist_items": [],
+    "dropout_moments": [],
+    "competitor_refs": [],
+    "notable_quotes": [],
+    "technical_issues": [],
+    "refund_signals": [],
+    "community_health": [],
+    "monetization_sentiment": [],
+    "content_depth": [],
+    "total_stats": {
+        "positive_count": 5,
+        "negative_count": 5,
+        "avg_playtime_hours": 10.0,
+        "high_playtime_count": 0,
+        "early_access_count": 0,
+        "free_key_count": 0,
+    },
+}
+
+
+def _call_synthesis_msg(metadata: GameMetadataContext | None = None) -> str:
+    return _build_synthesis_user_message(
+        _MINIMAL_AGGREGATED,
+        "Test Game",
+        total_reviews=10,
+        sentiment_score=0.7,
+        hidden_gem_score=0.3,
+        sentiment_trend="stable",
+        sentiment_trend_note="No change",
+        metadata=metadata,
+    )
+
+
+def test_synthesis_message_with_metadata_includes_store_description() -> None:
+    meta = GameMetadataContext(
+        short_desc="Short",
+        about_the_game="Full description here",
+        price_usd=Decimal("9.99"),
+        platforms=["Windows"],
+        tags=["RPG"],
+        genres=["Action"],
+        deck_status="Verified",
+    )
+    msg = _call_synthesis_msg(meta)
+    assert "<store_description>" in msg
+    assert "Full description here" in msg
+    assert "store_page_alignment" in msg
+
+
+def test_synthesis_message_without_metadata_omits_store_description() -> None:
+    msg = _call_synthesis_msg(None)
+    assert "<store_description>" not in msg
+    assert "store_page_alignment" not in msg
+
+
+def test_synthesis_message_metadata_none_about_omits_both_blocks() -> None:
+    meta = GameMetadataContext(
+        short_desc="Short",
+        about_the_game=None,
+        price_usd=Decimal("9.99"),
+    )
+    msg = _call_synthesis_msg(meta)
+    # both store_description and store_page_alignment omitted when about_the_game is None
+    assert "<store_description>" not in msg
+    assert "store_page_alignment" not in msg
+
+
+def test_synthesis_message_metadata_fields_in_game_context() -> None:
+    meta = GameMetadataContext(
+        price_usd=Decimal("14.99"),
+        is_free=False,
+        platforms=["Windows", "Mac"],
+        deck_status="Playable",
+        genres=["Indie"],
+        tags=["Roguelike", "Action"],
+        achievements_total=30,
+        metacritic_score=78,
+    )
+    msg = _call_synthesis_msg(meta)
+    assert "14.99" in msg
+    assert "Windows, Mac" in msg
+    assert "Playable" in msg
+    assert "Indie" in msg
+    assert "Roguelike, Action" in msg
+    assert "30" in msg
+    assert "78" in msg

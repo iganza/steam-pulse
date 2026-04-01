@@ -17,9 +17,11 @@ from library_layer.analyzer import (
     _build_synthesis_user_message,
 )
 from library_layer.models.analyzer_models import ChunkSummary
+from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 from library_layer.utils.scores import (
     compute_hidden_gem_score,
@@ -105,8 +107,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     game_repo = GameRepository(_conn)
     review_repo = ReviewRepository(_conn)
+    tag_repo = TagRepository(_conn)
     pass2_records: list[dict] = []
     scores_by_appid: dict[str, dict] = {}
+
+    all_appids = list(chunks_by_appid.keys())
+    tags_by_appid = tag_repo.find_tags_for_appids(all_appids)
+    genres_by_appid = tag_repo.find_genres_for_appids(all_appids)
 
     for appid, chunks in chunks_by_appid.items():
         aggregated = _aggregate_chunk_summaries(chunks)
@@ -122,11 +129,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
             [r.model_dump() for r in reviews_for_trend]
         )
 
+        # Game must exist — chunks were produced from its reviews, so absence is a data integrity error
+        game = game_repo.get_by_appid(appid)
+
         # Build temporal context from existing repo data
-        game = game_repo.find_by_appid(appid)
         velocity_data = review_repo.find_review_velocity(appid)
         ea_data = review_repo.find_early_access_impact(appid)
-        temporal = build_temporal_context(game, velocity_data, ea_data) if game else None
+        temporal = build_temporal_context(game, velocity_data, ea_data)
+
+        # Build metadata context from store page data (prefetched above)
+        metadata = build_metadata_context(game, tags_by_appid[appid], genres_by_appid[appid])
 
         # Store pre-computed scores (ProcessResults will use these to override LLM output)
         scores_by_appid[str(appid)] = {
@@ -135,11 +147,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
             "sentiment_trend": sentiment_trend,
             "sentiment_trend_note": sentiment_trend_note,
             "overall_sentiment": sentiment_label(sentiment_score),
-            "review_velocity_lifetime": temporal.review_velocity_lifetime if temporal else None,
+            "review_velocity_lifetime": temporal.review_velocity_lifetime,
         }
 
         # Format Pass 2 JSONL record
-        game_name = game.name if game else str(appid)
+        game_name = game.name
         user_content = _build_synthesis_user_message(
             aggregated,
             game_name,
@@ -149,6 +161,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
             sentiment_trend,
             sentiment_trend_note,
             temporal=temporal,
+            metadata=metadata,
         )
         pass2_records.append({
             "recordId": f"{appid}-synthesis",

@@ -14,6 +14,7 @@ import instructor
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.models.analyzer_models import ChunkSummary, GameReport
+from library_layer.models.metadata import GameMetadataContext
 from library_layer.models.temporal import GameTemporalContext
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
@@ -77,6 +78,8 @@ and keep it only where the definition fits best:
 - "Dead multiplayer lobbies" → community_health ONLY (not churn_triggers)
 - "Refunded after 2 hours" → refund_risk ONLY (not churn_triggers)
 - player_wishlist = features that DON'T EXIST; fixes to broken things = gameplay_friction
+- "Store page says X but reviews disagree" → store_page_alignment ONLY (not gameplay_friction)
+- "Reviewers love X but store page doesn't mention it" → store_page_alignment ONLY (not design_strengths)
 </anti_duplication_rules>
 
 <tone>
@@ -262,12 +265,14 @@ def _build_synthesis_user_message(
     sentiment_trend: str,
     sentiment_trend_note: str,
     temporal: GameTemporalContext | None = None,
+    metadata: GameMetadataContext | None = None,
 ) -> str:
     overall_sentiment = _sentiment_label(sentiment_score)
     signals_json = json.dumps(aggregated_signals, indent=2)
 
     temporal_lines = ""
     if temporal is not None:
+
         ea_line = "No"
         if temporal.has_early_access:
             fraction_str = f"{temporal.ea_fraction:.0%}" if temporal.ea_fraction is not None else "unknown"
@@ -285,15 +290,56 @@ def _build_synthesis_user_message(
   Early Access: {ea_line}
   Evergreen: {"Yes" if temporal.is_evergreen else "No"}"""
 
+    metadata_lines = ""
+    if metadata is not None:
+        if metadata.is_free:
+            price_str = "Free"
+        elif metadata.price_usd is not None:
+            price_str = f"${metadata.price_usd}"
+        else:
+            price_str = "N/A"
+        metacritic_str = str(metadata.metacritic_score) if metadata.metacritic_score is not None else "N/A"
+        metadata_lines = f"""
+  Price: {price_str}
+  Platforms: {", ".join(metadata.platforms)}
+  Steam Deck: {metadata.deck_status}
+  Genres: {", ".join(metadata.genres)}
+  Tags: {", ".join(metadata.tags)}
+  Achievements: {metadata.achievements_total}
+  Metacritic: {metacritic_str}"""
+
+    store_description_block = ""
+    store_page_alignment_section = ""
+    store_check_items = ""
+    if metadata is not None and metadata.about_the_game is not None:
+        store_description_block = f"""
+<store_description>
+  <short>{metadata.short_desc or "Not available"}</short>
+  <full>{metadata.about_the_game}</full>
+</store_description>
+"""
+        store_page_alignment_section = """  <section name="store_page_alignment" type="object">
+    Compare the store description above against what reviewers actually experienced.
+    promises_delivered: up to 4 claims the store page makes that reviews confirm (array)
+    promises_broken: up to 3 claims the store page makes that reviews contradict (array)
+    hidden_strengths: up to 3 things reviewers love that the store page doesn't mention (array)
+    audience_match: aligned|partial_mismatch|significant_mismatch
+    audience_match_note: 1-2 sentences — WHO the description targets vs WHO actually plays (string)
+  </section>
+"""
+        store_check_items = """5. store_page_alignment claims trace to BOTH the store description AND aggregated signals
+6. No store_page_alignment item duplicates a design_strengths or gameplay_friction item
+"""
+
     return f"""\
 <game_context>
   Game: {game_name}
   Total reviews analyzed: {total_reviews}
   Pre-computed sentiment_score: {sentiment_score} ({overall_sentiment})
   Pre-computed hidden_gem_score: {hidden_gem_score}
-  Pre-computed sentiment_trend: {sentiment_trend} ({sentiment_trend_note}){temporal_lines}
+  Pre-computed sentiment_trend: {sentiment_trend} ({sentiment_trend_note}){temporal_lines}{metadata_lines}
 </game_context>
-
+{store_description_block}
 <aggregated_signals>
 {signals_json}
 </aggregated_signals>
@@ -357,7 +403,7 @@ def _build_synthesis_user_message(
   <section name="genre_context" type="string">
     1-2 sentences benchmarking against genre norms. No named competitors here.
   </section>
-</section_definitions>
+{store_page_alignment_section}</section_definitions>
 
 <self_check>
 Before returning, verify:
@@ -365,7 +411,7 @@ Before returning, verify:
 2. Every claim traces to a signal in aggregated_signals
 3. dev_priorities are ranked by impact x frequency, not just listed
 4. Literal enum values match exactly (e.g. "thriving" not "Thriving")
-</self_check>
+{store_check_items}</self_check>
 
 <output_format>
 Return the complete GameReport JSON. Include pre-computed values exactly as given:
@@ -430,6 +476,7 @@ def _synthesize(
     sentiment_trend: str,
     sentiment_trend_note: str,
     temporal: GameTemporalContext | None = None,
+    metadata: GameMetadataContext | None = None,
 ) -> GameReport:
     """Pass 2: synthesize aggregated chunk signals into a final structured report (LLM_MODEL__SUMMARIZER)."""
     logger.info(
@@ -465,6 +512,7 @@ def _synthesize(
                     sentiment_trend,
                     sentiment_trend_note,
                     temporal=temporal,
+                    metadata=metadata,
                 ),
             }
         ],
@@ -480,6 +528,7 @@ def analyze_reviews(
     game_name: str,
     appid: int | None = None,
     temporal: GameTemporalContext | None = None,
+    metadata: GameMetadataContext | None = None,
 ) -> dict:
     """Full two-pass LLM analysis pipeline.
 
@@ -520,6 +569,7 @@ def analyze_reviews(
         sentiment_trend,
         sentiment_trend_note,
         temporal=temporal,
+        metadata=metadata,
     )
 
     # Override with Python-computed values — more reliable than LLM-guessed values

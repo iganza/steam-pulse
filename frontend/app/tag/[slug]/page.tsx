@@ -106,7 +106,7 @@ export default async function TagPage({ params }: Props) {
         )}
 
         {/* Tag Trends */}
-        {trend && (
+        {trend && trend.yearly.length >= 2 && (
           <section className="mb-10 space-y-4">
             <h2 className="font-serif text-lg font-semibold">Tag Trends</h2>
             <TagTrendChart data={trend} />

@@ -77,7 +77,7 @@ export function DeveloperPortfolio({ data }: DeveloperPortfolioProps) {
   });
 
   const trajectoryGames = data.games
-    .filter((g) => g.release_date)
+    .filter((g): g is DeveloperGame & { release_date: string } => g.release_date != null && g.positive_pct != null)
     .sort((a, b) => new Date(a.release_date).getTime() - new Date(b.release_date).getTime())
     .map((g) => ({
       name: g.name,

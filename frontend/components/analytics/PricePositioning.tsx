@@ -91,7 +91,7 @@ export function PricePositioning({ data }: PricePositioningProps) {
           >
             <span className="text-muted-foreground">Sweet Spot: </span>
             <span className="font-medium" style={{ color: "#f59e0b" }}>
-              {summary.sweet_spot}
+              {summary.sweet_spot ?? "\u2014"}
             </span>
           </div>
           <div
@@ -99,9 +99,9 @@ export function PricePositioning({ data }: PricePositioningProps) {
             style={{ background: "var(--card)", border: "1px solid var(--border)" }}
           >
             <span className="text-muted-foreground">Avg Price: </span>
-            <span className="font-medium">${summary.avg_price.toFixed(2)}</span>
+            <span className="font-medium">{summary.avg_price != null ? `$${summary.avg_price.toFixed(2)}` : "\u2014"}</span>
             <span className="text-muted-foreground"> &middot; Median: </span>
-            <span className="font-medium">${summary.median_price.toFixed(2)}</span>
+            <span className="font-medium">{summary.median_price != null ? `$${summary.median_price.toFixed(2)}` : "\u2014"}</span>
           </div>
           <div
             className="rounded-lg px-3 py-2"

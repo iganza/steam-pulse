@@ -89,7 +89,7 @@ export function TagTrendChart({ data }: TagTrendChartProps) {
           >
             <span className="text-muted-foreground">Growth: </span>
             <span className="font-medium">
-              {Math.round(data.growth_rate * 100)}% since {earliestYear}
+              {data.growth_rate != null ? `${Math.round(data.growth_rate * 100)}%` : "\u2014"} since {earliestYear}
             </span>
           </div>
           <div
@@ -97,7 +97,7 @@ export function TagTrendChart({ data }: TagTrendChartProps) {
             style={{ background: "var(--card)", border: "1px solid var(--border)" }}
           >
             <span className="text-muted-foreground">Peak: </span>
-            <span className="font-medium">{data.peak_year}</span>
+            <span className="font-medium">{data.peak_year ?? "\u2014"}</span>
           </div>
           <div
             className="rounded-lg px-3 py-2"

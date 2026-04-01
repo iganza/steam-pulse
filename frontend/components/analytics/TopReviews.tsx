@@ -8,7 +8,8 @@ interface TopReviewsProps {
   onSortChange?: (sort: "helpful" | "funny") => void;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | null): string {
+  if (!iso) return "\u2014";
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
@@ -21,16 +22,16 @@ function ReviewCard({ review }: { review: TopReview }) {
     >
       <div className="flex-shrink-0 text-xl mt-0.5">
         {review.voted_up ? (
-          <span style={{ color: "#22c55e" }} title="Recommended">&#x1F44D;</span>
+          <span style={{ color: "#22c55e" }} title="Recommended" aria-label="Thumbs up">&#x1F44D;</span>
         ) : (
-          <span style={{ color: "#ef4444" }} title="Not Recommended">&#x1F44E;</span>
+          <span style={{ color: "#ef4444" }} title="Not Recommended" aria-label="Thumbs down">&#x1F44E;</span>
         )}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm leading-relaxed line-clamp-3">{review.body_preview}</p>
 
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="font-mono">{review.playtime_hours}h played</span>
+          <span className="font-mono">{review.playtime_hours != null ? `${review.playtime_hours}h` : "\u2014"} played</span>
           <span>&middot;</span>
           <span>{review.votes_helpful} helpful</span>
           <span>&middot;</span>

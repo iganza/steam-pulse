@@ -81,35 +81,41 @@ export function ReleaseTiming({ data }: ReleaseTimingProps) {
         </ResponsiveContainer>
 
         <div className="mt-4 flex flex-wrap gap-3 text-xs">
-          <div
-            className="rounded-lg px-3 py-2"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <span style={{ color: "#22c55e" }} className="font-medium">
-              Best: {data.best_month.month_name}
-            </span>
-            <span className="text-muted-foreground">
-              {" "}({data.best_month.avg_sentiment}% avg)
-            </span>
-          </div>
-          <div
-            className="rounded-lg px-3 py-2"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <span className="font-medium">Busiest: {data.busiest_month.month_name}</span>
-            <span className="text-muted-foreground">
-              {" "}({data.busiest_month.releases} releases)
-            </span>
-          </div>
-          <div
-            className="rounded-lg px-3 py-2"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <span className="font-medium">Quietest: {data.quietest_month.month_name}</span>
-            <span className="text-muted-foreground">
-              {" "}({data.quietest_month.releases} releases)
-            </span>
-          </div>
+          {data.best_month && (
+            <div
+              className="rounded-lg px-3 py-2"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <span style={{ color: "#22c55e" }} className="font-medium">
+                Best: {data.best_month.month_name}
+              </span>
+              <span className="text-muted-foreground">
+                {" "}({data.best_month.avg_sentiment ?? "\u2014"}% avg)
+              </span>
+            </div>
+          )}
+          {data.busiest_month && (
+            <div
+              className="rounded-lg px-3 py-2"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <span className="font-medium">Busiest: {data.busiest_month.month_name}</span>
+              <span className="text-muted-foreground">
+                {" "}({data.busiest_month.releases} releases)
+              </span>
+            </div>
+          )}
+          {data.quietest_month && (
+            <div
+              className="rounded-lg px-3 py-2"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <span className="font-medium">Quietest: {data.quietest_month.month_name}</span>
+              <span className="text-muted-foreground">
+                {" "}({data.quietest_month.releases} releases)
+              </span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

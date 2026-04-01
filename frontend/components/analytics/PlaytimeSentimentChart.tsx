@@ -96,7 +96,7 @@ export function PlaytimeSentimentChart({ data }: PlaytimeSentimentChartProps) {
           <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
             <p className="text-xs text-muted-foreground">Value Score</p>
             <p className="text-lg font-mono font-semibold">
-              {data.value_score !== null ? `${data.value_score} hrs/$` : "Free"}
+              {data.value_score != null ? `${data.value_score} hrs/$` : "\u2014"}
             </p>
           </div>
         </div>

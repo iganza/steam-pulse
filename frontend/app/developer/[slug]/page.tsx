@@ -133,7 +133,7 @@ export default async function DeveloperPage({ params }: Props) {
         )}
 
         {/* Developer Analytics */}
-        {portfolio && (
+        {portfolio && portfolio.games.length > 0 && (
           <section className="mb-10 space-y-4">
             <h2 className="font-serif text-lg font-semibold">Developer Analytics</h2>
             <DeveloperPortfolio data={portfolio} />

@@ -263,7 +263,7 @@ export interface EarlyAccessImpact {
   early_access: ReviewSegment | null;
   post_launch: ReviewSegment | null;
   impact_delta: number | null;
-  verdict: "improved" | "declined" | "stable" | "no_ea";
+  verdict: "improved" | "declined" | "stable" | "no_ea" | "no_post";
 }
 
 export interface ReviewSegment {
@@ -303,11 +303,11 @@ export interface TopReviewsResponse {
 export interface TopReview {
   steam_review_id: string;
   voted_up: boolean;
-  playtime_hours: number;
+  playtime_hours: number | null;
   body_preview: string;
   votes_helpful: number;
   votes_funny: number;
-  posted_at: string;
+  posted_at: string | null;
   written_during_early_access: boolean;
   received_for_free: boolean;
 }
@@ -323,33 +323,33 @@ export interface PricePositioning {
 export interface PriceRange {
   price_range: string;
   game_count: number;
-  avg_sentiment: number;
+  avg_sentiment: number | null;
   median_price: number;
 }
 
 export interface PriceSummary {
-  avg_price: number;
-  median_price: number;
+  avg_price: number | null;
+  median_price: number | null;
   free_count: number;
   paid_count: number;
-  sweet_spot: string;
+  sweet_spot: string | null;
 }
 
 // Feature 8: Release Timing
 export interface ReleaseTiming {
   genre: string;
   monthly: ReleaseMonth[];
-  best_month: MonthHighlight;
-  worst_month: MonthHighlight;
-  quietest_month: MonthHighlight;
-  busiest_month: MonthHighlight;
+  best_month: MonthHighlight | null;
+  worst_month: MonthHighlight | null;
+  quietest_month: MonthHighlight | null;
+  busiest_month: MonthHighlight | null;
 }
 
 export interface ReleaseMonth {
   month: number;
   month_name: string;
   releases: number;
-  avg_sentiment: number;
+  avg_sentiment: number | null;
   avg_reviews: number;
 }
 
@@ -369,13 +369,13 @@ export interface PlatformGaps {
     mac: PlatformStats;
     linux: PlatformStats;
   };
-  underserved: string;
+  underserved: string | null;
 }
 
 export interface PlatformStats {
   count: number;
   pct: number;
-  avg_sentiment: number;
+  avg_sentiment: number | null;
 }
 
 // Feature 10: Tag Trend
@@ -383,15 +383,15 @@ export interface TagTrend {
   tag: string;
   tag_slug: string;
   yearly: TagYear[];
-  growth_rate: number;
-  peak_year: number;
+  growth_rate: number | null;
+  peak_year: number | null;
   total_games: number;
 }
 
 export interface TagYear {
   year: number;
   game_count: number;
-  avg_sentiment: number;
+  avg_sentiment: number | null;
 }
 
 // Feature 11: Developer Portfolio
@@ -406,8 +406,8 @@ export interface DeveloperSummary {
   total_games: number;
   total_reviews: number;
   avg_sentiment: number;
-  first_release: string;
-  latest_release: string;
+  first_release: string | null;
+  latest_release: string | null;
   avg_price: number | null;
   free_games: number;
   well_received: number;
@@ -419,8 +419,8 @@ export interface DeveloperGame {
   appid: number;
   name: string;
   slug: string;
-  header_image: string;
-  release_date: string;
+  header_image: string | null;
+  release_date: string | null;
   price_usd: number | null;
   is_free: boolean;
   review_count: number;

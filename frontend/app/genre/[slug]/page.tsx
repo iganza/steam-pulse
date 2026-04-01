@@ -92,7 +92,7 @@ export default async function GenrePage({ params }: Props) {
         )}
 
         {/* Market Intelligence */}
-        {(pricing || timing || platforms) && (
+        {(pricing?.distribution?.length || timing?.monthly?.length || platforms?.total_games) && (
           <section className="mb-12 space-y-6">
             <h2 className="font-serif text-lg font-semibold">Market Intelligence</h2>
             {pricing && <PricePositioning data={pricing} />}

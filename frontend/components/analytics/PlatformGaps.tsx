@@ -20,7 +20,7 @@ function PlatformBar({ label, stats, totalGames, color }: PlatformBarProps) {
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground">
-          {stats.count}/{totalGames} games &middot; {stats.avg_sentiment}% avg sentiment
+          {stats.count}/{totalGames} games &middot; {stats.avg_sentiment != null ? `${stats.avg_sentiment}%` : "\u2014"} avg sentiment
         </span>
       </div>
       <div
@@ -40,12 +40,13 @@ export function PlatformGaps({ data }: PlatformGapsProps) {
   if (data.total_games === 0) return null;
 
   const underservedPlatform = data.underserved;
-  const underservedStats =
-    underservedPlatform === "linux"
+  const underservedStats = underservedPlatform
+    ? underservedPlatform === "linux"
       ? data.platforms.linux
       : underservedPlatform === "mac"
         ? data.platforms.mac
-        : data.platforms.windows;
+        : data.platforms.windows
+    : null;
 
   return (
     <Card>
@@ -77,17 +78,19 @@ export function PlatformGaps({ data }: PlatformGapsProps) {
           />
         </div>
 
-        <div
-          className="mt-4 rounded-lg p-3 text-xs"
-          style={{ background: "var(--card)", border: "1px solid var(--teal)" }}
-        >
-          <p>
-            <span className="font-medium" style={{ color: "var(--teal)" }}>Opportunity: </span>
-            Only {underservedStats.pct}% of {data.genre} games support{" "}
-            {underservedPlatform === "mac" ? "macOS" : underservedPlatform === "linux" ? "Linux" : "Windows"}
-            {" "}&mdash; those that do average {underservedStats.avg_sentiment}% positive
-          </p>
-        </div>
+        {underservedPlatform && underservedStats && (
+          <div
+            className="mt-4 rounded-lg p-3 text-xs"
+            style={{ background: "var(--card)", border: "1px solid var(--teal)" }}
+          >
+            <p>
+              <span className="font-medium" style={{ color: "var(--teal)" }}>Opportunity: </span>
+              Only {underservedStats.pct}% of {data.genre} games support{" "}
+              {underservedPlatform === "mac" ? "macOS" : underservedPlatform === "linux" ? "Linux" : "Windows"}
+              {" "}&mdash; those that do average {underservedStats.avg_sentiment != null ? `${underservedStats.avg_sentiment}%` : "\u2014"} positive
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

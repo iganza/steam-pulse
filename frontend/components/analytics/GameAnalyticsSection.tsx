@@ -74,6 +74,8 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
     [appid],
   );
 
+  const hasData = overlap || playtimeSentiment || eaImpact || velocity || topReviews;
+
   if (loading) {
     return (
       <p className="text-base text-muted-foreground font-mono py-8">
@@ -81,6 +83,8 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
       </p>
     );
   }
+
+  if (!hasData) return null;
 
   return (
     <div className="space-y-6">

@@ -637,13 +637,17 @@ class AnalyticsRepository(BaseRepository):
                         < 1) AS velocity_under_1,
                     COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
                         g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                        BETWEEN 1 AND 10) AS velocity_1_10,
+                        >= 1 AND COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        < 10) AS velocity_1_10,
                     COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
                         g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                        BETWEEN 10 AND 50) AS velocity_10_50,
+                        >= 10 AND COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        < 50) AS velocity_10_50,
                     COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
                         g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                        > 50) AS velocity_50_plus
+                        >= 50) AS velocity_50_plus
                 FROM games g
                 {genre_join}
                 WHERE g.release_date IS NOT NULL

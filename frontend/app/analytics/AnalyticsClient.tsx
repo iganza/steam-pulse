@@ -299,19 +299,20 @@ export function AnalyticsClient() {
           </CardHeader>
           <CardContent>
             <TrendStackedArea
-              data={data.genreShare?.periods?.map((p) => {
+              data={(data.genreShare?.periods ?? []).map((p) => {
                 const row: Record<string, unknown> = { period: p.period };
                 for (const [genre, share] of Object.entries(p.shares)) {
-                  row[genre] = share;
+                  row[genre] = Math.round(share * 1000) / 10;
                 }
                 return row;
-              }) as unknown[] as import("@/lib/types").TrendPeriod[] ?? []}
+              }) as { period: string; [k: string]: unknown }[]}
               series={(data.genreShare?.genres ?? []).map((genre, i) => ({
                 key: genre,
                 label: genre,
                 color: GENRE_COLORS[i % GENRE_COLORS.length],
               }))}
               granularity={isPro ? coarseGenreGranularity(granularity) : "year"}
+              normalized={false}
             />
           </CardContent>
         </Card>
@@ -419,6 +420,7 @@ export function AnalyticsClient() {
                   { key: "playtime_200h_plus_pct", label: "200h+", color: "#22c55e" },
                 ]}
                 granularity={isPro ? granularity : "year"}
+                normalized={false}
               />
             )}
           </CardContent>
@@ -431,13 +433,13 @@ export function AnalyticsClient() {
           </CardHeader>
           <CardContent>
             <TrendComposed
-              data={data.categories?.periods?.map((p) => {
+              data={(data.categories?.periods ?? []).map((p) => {
                 const row: Record<string, unknown> = { period: p.period, total: p.total };
                 for (const [cat, pct] of Object.entries(p.adoption)) {
                   row[cat] = Math.round(pct * 100);
                 }
                 return row;
-              }) as unknown[] as import("@/lib/types").TrendPeriod[] ?? []}
+              }) as { period: string; [k: string]: unknown }[]}
               bars={[]}
               lines={(data.categories?.categories ?? []).map((cat, i) => ({
                 dataKey: cat,

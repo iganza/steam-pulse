@@ -689,19 +689,21 @@ class AnalyticsRepository(BaseRepository):
             SELECT
                 DATE_TRUNC(%s, g.release_date) AS period,
                 COUNT(*) AS total_releases,
-                COUNT(*) FILTER (WHERE EXISTS (
-                    SELECT 1 FROM reviews r
-                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
-                )) AS ea_count,
-                ROUND(AVG(g.positive_pct) FILTER (WHERE EXISTS (
-                    SELECT 1 FROM reviews r
-                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
-                )), 1) AS ea_avg_sentiment,
-                ROUND(AVG(g.positive_pct) FILTER (WHERE NOT EXISTS (
-                    SELECT 1 FROM reviews r
-                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
-                )), 1) AS non_ea_avg_sentiment
+                COUNT(*) FILTER (WHERE COALESCE(ea.has_ea, FALSE)) AS ea_count,
+                ROUND(
+                    AVG(g.positive_pct) FILTER (WHERE COALESCE(ea.has_ea, FALSE)),
+                    1
+                ) AS ea_avg_sentiment,
+                ROUND(
+                    AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ea.has_ea, FALSE)),
+                    1
+                ) AS non_ea_avg_sentiment
             FROM games g
+            LEFT JOIN LATERAL (
+                SELECT BOOL_OR(r.written_during_early_access) AS has_ea
+                FROM reviews r
+                WHERE r.appid = g.appid
+            ) ea ON TRUE
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
               {type_clause}
@@ -734,7 +736,8 @@ class AnalyticsRepository(BaseRepository):
                 COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac_count,
                 COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux_count,
                 COUNT(*) FILTER (WHERE g.deck_compatibility = 3) AS deck_verified,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable,
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 1) AS deck_unsupported
             FROM games g
             {genre_join}
             WHERE g.release_date IS NOT NULL

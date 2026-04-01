@@ -1,7 +1,7 @@
 """AnalyticsService — business logic for catalog-wide analytics dashboard."""
 
 from collections import defaultdict
-from datetime import datetime, date
+from datetime import datetime
 
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 
@@ -241,6 +241,7 @@ class AnalyticsService:
                 "linux_pct": self._safe_pct(int(r["linux_count"]), total),
                 "deck_verified_pct": self._safe_pct(int(r["deck_verified"]), total),
                 "deck_playable_pct": self._safe_pct(int(r["deck_playable"]), total),
+                "deck_unsupported_pct": self._safe_pct(int(r["deck_unsupported"]), total),
             })
         return {"granularity": g, "periods": periods}
 

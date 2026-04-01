@@ -495,7 +495,7 @@ async def get_trend_genre_share(
 ) -> dict:
     try:
         return _analytics_service.get_genre_share(
-            granularity=granularity, top_n=min(top_n, 15),
+            granularity=granularity, top_n=max(1, min(top_n, 15)),
             game_type=type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -589,7 +589,7 @@ async def get_trend_categories(
 ) -> dict:
     try:
         return _analytics_service.get_category_trend(
-            granularity=granularity, top_n=min(top_n, 8),
+            granularity=granularity, top_n=max(1, min(top_n, 8)),
             game_type=type, limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:

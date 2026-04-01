@@ -54,6 +54,23 @@ const INITIAL: TrendData = {
 
 const GENRE_COLORS = ["#14b8a6", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6", "#6b7280"];
 
+// Genre Share only makes sense at quarter/year granularity — week/month produces
+// too many near-empty slices. Map finer granularities to quarter for Pro.
+function coarseGenreGranularity(g: Granularity): Granularity {
+  return g === "week" || g === "month" ? "quarter" : g;
+}
+
+// Compute a trailing N-period moving average for a numeric field and attach it
+// as a new key on each row.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withMovingAverage(rows: any[], srcKey: string, dstKey: string, window = 3): any[] {
+  return rows.map((row, i) => {
+    const slice = rows.slice(Math.max(0, i - window + 1), i + 1);
+    const avg = slice.reduce((sum: number, r: Record<string, unknown>) => sum + (Number(r[srcKey]) || 0), 0) / slice.length;
+    return { ...row, [dstKey]: Math.round(avg) };
+  });
+}
+
 const GENRE_SHARE_TOP_N_OPTIONS = [5, 10, 15];
 const GAME_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "game", label: "Games" },
@@ -97,7 +114,7 @@ export function AnalyticsClient() {
     const results = await Promise.allSettled([
       getAnalyticsTrendReleaseVolume({ granularity: g, genre: genreSlug, tag: tagSlug, type }),
       getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug, type }),
-      getAnalyticsTrendGenreShare({ granularity: isPro ? granularity : "year", top_n: topN, type }),
+      getAnalyticsTrendGenreShare({ granularity: isPro ? coarseGenreGranularity(granularity) : "year", top_n: topN, type }),
       getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug, type }),
       getAnalyticsTrendPricing({ granularity: isPro ? granularity : "year", genre: genreSlug, type }),
       getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "year", type }),
@@ -222,13 +239,13 @@ export function AnalyticsClient() {
           </CardHeader>
           <CardContent>
             <TrendBarChart
-              data={data.releaseVolume?.periods ?? []}
+              data={withMovingAverage(data.releaseVolume?.periods ?? [], "releases", "releases_ma3")}
               dataKey="releases"
               granularity={g}
               secondaryLine={
                 isPro
                   ? { dataKey: "avg_sentiment", color: "#f59e0b" }
-                  : { dataKey: "avg_reviews", color: "#6b7280" }
+                  : { dataKey: "releases_ma3", color: "#6b7280" }
               }
             />
           </CardContent>
@@ -289,7 +306,7 @@ export function AnalyticsClient() {
                 label: genre,
                 color: GENRE_COLORS[i % GENRE_COLORS.length],
               }))}
-              granularity={isPro ? granularity : "year"}
+              granularity={isPro ? coarseGenreGranularity(granularity) : "year"}
             />
           </CardContent>
         </Card>
@@ -336,16 +353,16 @@ export function AnalyticsClient() {
           <CardContent>
             <TrendComposed
               data={data.earlyAccess?.periods ?? []}
-              bars={isPro ? [{ dataKey: "ea_count", label: "EA Games", color: "#8b5cf6" }] : []}
-              lines={[
-                { dataKey: "ea_pct", label: "EA %", color: "#f59e0b" },
-                ...(isPro
-                  ? [
-                      { dataKey: "ea_avg_sentiment", label: "EA Sentiment", color: "#22c55e" },
-                      { dataKey: "non_ea_avg_sentiment", label: "Non-EA Sentiment", color: "#ef4444" },
-                    ]
-                  : []),
-              ]}
+              bars={isPro
+                ? [{ dataKey: "ea_count", label: "EA Games", color: "#8b5cf6" }]
+                : [{ dataKey: "ea_pct", label: "EA %", color: "#f59e0b" }]}
+              lines={isPro
+                ? [
+                    { dataKey: "ea_pct", label: "EA %", color: "#f59e0b" },
+                    { dataKey: "ea_avg_sentiment", label: "EA Sentiment", color: "#22c55e" },
+                    { dataKey: "non_ea_avg_sentiment", label: "Non-EA Sentiment", color: "#ef4444" },
+                  ]
+                : []}
               granularity={isPro ? granularity : "year"}
             />
           </CardContent>
@@ -367,6 +384,7 @@ export function AnalyticsClient() {
                   ? [
                       { dataKey: "deck_verified_pct", label: "Deck Verified %", color: "#22c55e" },
                       { dataKey: "deck_playable_pct", label: "Deck Playable %", color: "#14b8a6" },
+                      { dataKey: "deck_unsupported_pct", label: "Deck Unsupported %", color: "#ef4444" },
                     ]
                   : []),
               ]}

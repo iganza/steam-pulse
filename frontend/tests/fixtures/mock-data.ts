@@ -142,7 +142,7 @@ export const MOCK_RELEASE_VOLUME = {
   periods: PERIODS_MONTHLY.map((period, i) => ({
     period,
     releases: 100 + i * 10,
-    avg_sentiment: 70.0 + i * 1,  // 0–100 scale (sentiment_score in DB)
+    avg_sentiment: 70.0 + i * 1,  // 0–100 scale (AVG of games.positive_pct)
     avg_reviews: 45 + i * 2,
     free_count: 20 + i,
   })),

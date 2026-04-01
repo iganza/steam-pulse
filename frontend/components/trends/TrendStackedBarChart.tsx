@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 import type { Granularity, TrendPeriod } from "@/lib/types";
+import { formatPeriodLabel } from "./periodLabel";
 
 export function TrendStackedBarChart({
   data,
@@ -28,7 +29,7 @@ export function TrendStackedBarChart({
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+        <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={(v) => formatPeriodLabel(v, granularity)} />
         <YAxis tick={{ fontSize: 11 }} />
         <Tooltip
           contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}

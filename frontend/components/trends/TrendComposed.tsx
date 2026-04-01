@@ -4,6 +4,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 import type { Granularity, TrendPeriod } from "@/lib/types";
+import { formatPeriodLabel } from "./periodLabel";
 
 export function TrendComposed({
   data,
@@ -36,7 +37,7 @@ export function TrendComposed({
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+        <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={(v) => formatPeriodLabel(v, granularity)} />
         <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
         {hasDualAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />}
         <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />

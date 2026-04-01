@@ -228,7 +228,7 @@ export function AnalyticsClient() {
               secondaryLine={
                 isPro
                   ? { dataKey: "avg_sentiment", color: "#f59e0b" }
-                  : { dataKey: "releases_ma3", color: "#6b7280" }
+                  : { dataKey: "releases_ma3", color: "#6b7280", sameAxis: true }
               }
             />
           </CardContent>

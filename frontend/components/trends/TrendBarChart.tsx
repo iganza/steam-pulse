@@ -5,11 +5,7 @@ import {
   ComposedChart,
 } from "recharts";
 import type { Granularity, TrendPeriod } from "@/lib/types";
-
-function formatXLabel(period: string, _granularity: Granularity): string {
-  // Already formatted by the API: "2024-01", "2024", "2024-Q1", "2024-W03"
-  return period;
-}
+import { formatPeriodLabel } from "./periodLabel";
 
 export function TrendBarChart({
   data,
@@ -25,7 +21,7 @@ export function TrendBarChart({
   xKey?: string;
   color?: string;
   granularity: Granularity;
-  secondaryLine?: { dataKey: string; color: string };
+  secondaryLine?: { dataKey: string; color: string; sameAxis?: boolean };
   height?: number;
 }) {
   if (data.length < 2) {
@@ -36,17 +32,23 @@ export function TrendBarChart({
     );
   }
 
+  const tooltipStyle = { background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
+  const tickFmt = (v: string) => formatPeriodLabel(v, granularity);
+
   if (secondaryLine) {
+    // sameAxis=true: MA overlay shares left axis (same unit as bars)
+    // sameAxis=false (default): secondary line on right axis (different unit, e.g. avg_sentiment)
+    const lineAxisId = secondaryLine.sameAxis ? "left" : "right";
     return (
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 11 }} tickFormatter={(v) => formatXLabel(v, granularity)} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
           <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-          <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
+          {!secondaryLine.sameAxis && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />}
+          <Tooltip contentStyle={tooltipStyle} />
           <Bar yAxisId="left" dataKey={dataKey} fill={color} radius={[2, 2, 0, 0]} />
-          <Line yAxisId="right" type="monotone" dataKey={secondaryLine.dataKey} stroke={secondaryLine.color} strokeWidth={2} dot={false} />
+          <Line yAxisId={lineAxisId} type="monotone" dataKey={secondaryLine.dataKey} stroke={secondaryLine.color} strokeWidth={2} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     );
@@ -56,9 +58,9 @@ export function TrendBarChart({
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey={xKey} tick={{ fontSize: 11 }} tickFormatter={(v) => formatXLabel(v, granularity)} />
+        <XAxis dataKey={xKey} tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
         <YAxis tick={{ fontSize: 11 }} />
-        <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
+        <Tooltip contentStyle={tooltipStyle} />
         <Bar dataKey={dataKey} fill={color} radius={[2, 2, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>

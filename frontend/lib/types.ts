@@ -195,6 +195,7 @@ export interface PlatformTrendPeriod extends TrendPeriod {
   linux_pct: number;
   deck_verified_pct: number;
   deck_playable_pct: number;
+  deck_unsupported_pct: number;
 }
 
 export interface EngagementDepthPeriod extends TrendPeriod {

@@ -5,6 +5,7 @@ import {
   ComposedChart, Line,
 } from "recharts";
 import type { Granularity, TrendPeriod } from "@/lib/types";
+import { formatPeriodLabel } from "./periodLabel";
 
 export function TrendStackedArea({
   data,
@@ -54,8 +55,13 @@ export function TrendStackedArea({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipFormatter = (value: unknown, name: unknown): any => {
-    const v = Number(value);
     const n = String(name);
+    if (value == null) {
+      if (secondaryLine && n === secondaryLine.dataKey) return ["N/A", secondaryLine.label];
+      const s = series.find((s) => s.key === n);
+      return ["N/A", s?.label ?? n];
+    }
+    const v = Number(value);
     if (secondaryLine && n === secondaryLine.dataKey) {
       return [v.toFixed(2), secondaryLine.label];
     }
@@ -71,7 +77,7 @@ export function TrendStackedArea({
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+          <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={(v) => formatPeriodLabel(v, granularity)} />
           <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />

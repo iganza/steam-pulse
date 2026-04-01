@@ -574,26 +574,39 @@ class AnalyticsRepository(BaseRepository):
         game_type: str = "game",
         limit: int = 100,
     ) -> list[dict]:
+        # limit controls the number of *periods* returned, not rows. Because there
+        # are multiple (period, genre) rows per period, we first collect the N most
+        # recent periods and then return all genre rows within them.
         type_clause = self._type_clause(game_type)
         rows = self._fetchall(
             f"""
+            WITH periods AS (
+                SELECT DISTINCT DATE_TRUNC(%s, g.release_date) AS period
+                FROM games g
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                ORDER BY 1
+                LIMIT %s
+            )
             SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
+                p.period,
                 gn.name AS genre,
                 gn.slug AS genre_slug,
                 COUNT(*) AS releases
             FROM games g
             JOIN game_genres gg ON gg.appid = g.appid
             JOIN genres gn ON gg.genre_id = gn.id
+            JOIN periods p ON p.period = DATE_TRUNC(%s, g.release_date)
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
               {type_clause}
               AND g.review_count >= 10
             GROUP BY 1, 2, 3
             ORDER BY 1, 4 DESC
-            LIMIT %s
             """,
-            (granularity, limit),
+            (granularity, limit, granularity),
         )
         return [dict(r) for r in rows]
 
@@ -686,24 +699,25 @@ class AnalyticsRepository(BaseRepository):
         type_clause = self._type_clause(game_type)
         rows = self._fetchall(
             f"""
+            WITH ea_flags AS (
+                SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
+                FROM reviews
+                GROUP BY appid
+            )
             SELECT
                 DATE_TRUNC(%s, g.release_date) AS period,
                 COUNT(*) AS total_releases,
-                COUNT(*) FILTER (WHERE COALESCE(ea.has_ea, FALSE)) AS ea_count,
+                COUNT(*) FILTER (WHERE COALESCE(ef.has_ea, FALSE)) AS ea_count,
                 ROUND(
-                    AVG(g.positive_pct) FILTER (WHERE COALESCE(ea.has_ea, FALSE)),
+                    AVG(g.positive_pct) FILTER (WHERE COALESCE(ef.has_ea, FALSE)),
                     1
                 ) AS ea_avg_sentiment,
                 ROUND(
-                    AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ea.has_ea, FALSE)),
+                    AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ef.has_ea, FALSE)),
                     1
                 ) AS non_ea_avg_sentiment
             FROM games g
-            LEFT JOIN LATERAL (
-                SELECT BOOL_OR(r.written_during_early_access) AS has_ea
-                FROM reviews r
-                WHERE r.appid = g.appid
-            ) ea ON TRUE
+            LEFT JOIN ea_flags ef ON ef.appid = g.appid
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
               {type_clause}
@@ -783,15 +797,27 @@ class AnalyticsRepository(BaseRepository):
         game_type: str = "game",
         limit: int = 100,
     ) -> list[dict]:
+        # limit controls periods returned, not rows. Collect N periods first.
         type_clause = self._type_clause(game_type)
         rows = self._fetchall(
             f"""
+            WITH periods AS (
+                SELECT DISTINCT DATE_TRUNC(%s, g.release_date) AS period
+                FROM games g
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                ORDER BY 1
+                LIMIT %s
+            )
             SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
+                p.period,
                 gc.category_name,
                 COUNT(*) AS games_with_category
             FROM games g
             JOIN game_categories gc ON gc.appid = g.appid
+            JOIN periods p ON p.period = DATE_TRUNC(%s, g.release_date)
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
               {type_clause}
@@ -802,8 +828,7 @@ class AnalyticsRepository(BaseRepository):
               )
             GROUP BY 1, 2
             ORDER BY 1, 3 DESC
-            LIMIT %s
             """,
-            (granularity, limit),
+            (granularity, limit, granularity),
         )
         return [dict(r) for r in rows]

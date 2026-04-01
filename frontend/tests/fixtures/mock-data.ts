@@ -157,6 +157,7 @@ export const MOCK_SENTIMENT_DIST = {
     mixed_count: 20,
     negative_count: 20 - i,
     positive_pct: 60 + i,
+    avg_sentiment: 72.0 + i,
     avg_metacritic: 72.0,
   })),
 }
@@ -219,6 +220,7 @@ export const MOCK_ENGAGEMENT = {
   data_available: true,
   periods: PERIODS_MONTHLY.map((period) => ({
     period,
+    total_reviews: 500,
     playtime_under_2h_pct: 15,
     playtime_2_10h_pct: 25,
     playtime_10_50h_pct: 35,

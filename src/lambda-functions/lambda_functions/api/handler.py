@@ -11,7 +11,16 @@ from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
+from library_layer.repositories.analytics_repo import AnalyticsRepository
+from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
+from library_layer.repositories.waitlist_repo import WaitlistRepository
+from library_layer.services.analytics_service import AnalyticsService
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
+from library_layer.utils.db import get_conn
 from pydantic import BaseModel, EmailStr
 
 logger = Logger(service="api")
@@ -51,16 +60,6 @@ VERSION = "0.1.0"
 # Repository wiring — built once at module level.
 # Raises RuntimeError at cold start if DATABASE_URL is not set.
 # ---------------------------------------------------------------------------
-
-from library_layer.repositories.analytics_repo import AnalyticsRepository
-from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.job_repo import JobRepository
-from library_layer.repositories.report_repo import ReportRepository
-from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.repositories.tag_repo import TagRepository
-from library_layer.repositories.waitlist_repo import WaitlistRepository
-from library_layer.services.analytics_service import AnalyticsService
-from library_layer.utils.db import get_conn
 
 _conn = get_conn()
 _analytics_repo = AnalyticsRepository(_conn)

@@ -6,6 +6,10 @@ from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
 
 
+class GameNotFound(Exception):
+    """Raised when a game cannot be found by appid."""
+
+
 class GameRepository(BaseRepository):
     """CRUD operations for the games table."""
 
@@ -78,6 +82,13 @@ class GameRepository(BaseRepository):
         if row is None:
             return None
         return Game.model_validate(dict(row))
+
+    def get_by_appid(self, appid: int) -> Game:
+        """Return the game, raising GameNotFound if it does not exist."""
+        game = self.find_by_appid(appid)
+        if game is None:
+            raise GameNotFound(appid)
+        return game
 
     def find_by_slug(self, slug: str) -> Game | None:
         row = self._fetchone("SELECT * FROM games WHERE slug = %s", (slug,))

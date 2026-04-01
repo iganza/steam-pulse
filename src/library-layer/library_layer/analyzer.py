@@ -292,7 +292,12 @@ def _build_synthesis_user_message(
 
     metadata_lines = ""
     if metadata is not None:
-        price_str = f"${metadata.price_usd} {'(Free)' if metadata.is_free else ''}".strip()
+        if metadata.is_free:
+            price_str = "Free"
+        elif metadata.price_usd is not None:
+            price_str = f"${metadata.price_usd}"
+        else:
+            price_str = "N/A"
         metacritic_str = str(metadata.metacritic_score) if metadata.metacritic_score is not None else "N/A"
         metadata_lines = f"""
   Price: {price_str}

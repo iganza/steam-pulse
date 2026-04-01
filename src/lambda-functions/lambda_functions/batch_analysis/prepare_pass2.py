@@ -125,16 +125,18 @@ def handler(event: dict, context: LambdaContext) -> dict:
             [r.model_dump() for r in reviews_for_trend]
         )
 
+        # Game must exist — chunks were produced from its reviews, so absence is a data integrity error
+        game = game_repo.get_by_appid(appid)
+
         # Build temporal context from existing repo data
-        game = game_repo.find_by_appid(appid)
         velocity_data = review_repo.find_review_velocity(appid)
         ea_data = review_repo.find_early_access_impact(appid)
-        temporal = build_temporal_context(game, velocity_data, ea_data) if game else None
+        temporal = build_temporal_context(game, velocity_data, ea_data)
 
         # Build metadata context from store page data
         tags = tag_repo.find_tags_for_game(appid)
         genres = tag_repo.find_genres_for_game(appid)
-        metadata = build_metadata_context(game, tags, genres) if game else None
+        metadata = build_metadata_context(game, tags, genres)
 
         # Store pre-computed scores (ProcessResults will use these to override LLM output)
         scores_by_appid[str(appid)] = {
@@ -143,11 +145,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
             "sentiment_trend": sentiment_trend,
             "sentiment_trend_note": sentiment_trend_note,
             "overall_sentiment": sentiment_label(sentiment_score),
-            "review_velocity_lifetime": temporal.review_velocity_lifetime if temporal else None,
+            "review_velocity_lifetime": temporal.review_velocity_lifetime,
         }
 
         # Format Pass 2 JSONL record
-        game_name = game.name if game else str(appid)
+        game_name = game.name
         user_content = _build_synthesis_user_message(
             aggregated,
             game_name,

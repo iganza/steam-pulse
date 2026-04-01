@@ -96,7 +96,7 @@ def test_top_10_tags_only() -> None:
     assert ctx.tags == [f"tag{i}" for i in range(10)]
 
 
-def test_gameMetadataContext_defaults() -> None:
+def test_game_metadata_context_defaults() -> None:
     ctx = GameMetadataContext()
     assert ctx.short_desc is None
     assert ctx.about_the_game is None

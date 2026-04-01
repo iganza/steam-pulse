@@ -116,9 +116,9 @@ export function AnalyticsClient() {
       getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug, type }),
       getAnalyticsTrendGenreShare({ granularity: isPro ? coarseGenreGranularity(granularity) : "year", top_n: topN, type }),
       getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug, type }),
-      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "year", genre: genreSlug, type }),
-      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "year", type }),
-      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "year", genre: genreSlug, type }),
+      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "quarter", genre: genreSlug, type }),
+      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "quarter", type }),
+      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "quarter", genre: genreSlug, type }),
       getAnalyticsTrendEngagement({ granularity: isPro ? granularity : "year", genre: genreSlug }),
       getAnalyticsTrendCategories({ granularity: isPro ? granularity : "year", top_n: isPro ? 8 : 4, type }),
     ]);
@@ -148,12 +148,11 @@ export function AnalyticsClient() {
 
   return (
     <div className="space-y-6">
-      {/* Control bar */}
+      {/* Control bar — granularity + genre only (per spec) */}
       <div className="relative">
         <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
           <div className="flex items-center gap-4 flex-wrap">
             <GranularityToggle value={granularity} onChange={setGranularity} disabled={!isPro} />
-            {/* Genre filter */}
             <select
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
@@ -164,46 +163,6 @@ export function AnalyticsClient() {
                 <option key={g.slug} value={g.slug}>{g.name}</option>
               ))}
             </select>
-            {/* Tag filter (Pro) */}
-            <select
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-card border border-border text-sm text-foreground"
-            >
-              <option value="">All Tags</option>
-              {tags.map((t) => (
-                <option key={t.slug} value={t.slug}>{t.name}</option>
-              ))}
-            </select>
-            {/* Type filter (Pro) */}
-            <select
-              value={gameType}
-              onChange={(e) => setGameType(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-card border border-border text-sm text-foreground"
-            >
-              {GAME_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            {/* Genre share top-N (Pro) */}
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground font-mono">Genres:</span>
-              <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                {GENRE_SHARE_TOP_N_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setGenreShareTopN(n)}
-                    className={`px-2 py-1 text-xs font-mono transition-colors ${
-                      genreShareTopN === n
-                        ? "bg-teal-500/20 text-teal-400"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
         {!isPro && (
@@ -235,6 +194,30 @@ export function AnalyticsClient() {
                 {data.releaseVolume.summary.avg_per_period}/period &middot;{" "}
                 {data.releaseVolume.summary.trend}
               </p>
+            )}
+            {/* Per-chart Pro controls: tag + type */}
+            {isPro && (
+              <div className="flex items-center gap-2 mt-1">
+                <select
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  className="px-2 py-1 rounded bg-card border border-border text-xs text-foreground"
+                >
+                  <option value="">All Tags</option>
+                  {tags.map((t) => (
+                    <option key={t.slug} value={t.slug}>{t.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={gameType}
+                  onChange={(e) => setGameType(e.target.value)}
+                  className="px-2 py-1 rounded bg-card border border-border text-xs text-foreground"
+                >
+                  {GAME_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
             )}
           </CardHeader>
           <CardContent>
@@ -291,6 +274,27 @@ export function AnalyticsClient() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Genre Share</CardTitle>
+            {/* Per-chart Pro control: top-N selector */}
+            {isPro && (
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-xs text-muted-foreground font-mono">Top:</span>
+                <div className="inline-flex rounded-lg border border-border overflow-hidden">
+                  {GENRE_SHARE_TOP_N_OPTIONS.map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setGenreShareTopN(n)}
+                      className={`px-2 py-0.5 text-xs font-mono transition-colors ${
+                        genreShareTopN === n
+                          ? "bg-teal-500/20 text-teal-400"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <TrendStackedArea
@@ -330,7 +334,7 @@ export function AnalyticsClient() {
           </CardContent>
         </Card>
 
-        {/* 5. Pricing Trends */}
+        {/* 5. Pricing Trends — free gets bar+line combo at quarterly */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Pricing Trends</CardTitle>
@@ -338,14 +342,14 @@ export function AnalyticsClient() {
           <CardContent>
             <TrendComposed
               data={data.pricing?.periods ?? []}
-              bars={isPro ? [{ dataKey: "free_pct", label: "Free %", color: "#6366f1" }] : []}
+              bars={[{ dataKey: "free_pct", label: "Free %", color: "#6366f1" }]}
               lines={[{ dataKey: "avg_paid_price", label: "Avg Paid Price", color: "#14b8a6" }]}
-              granularity={isPro ? granularity : "year"}
+              granularity={isPro ? granularity : "quarter"}
             />
           </CardContent>
         </Card>
 
-        {/* 6. Early Access Trends */}
+        {/* 6. Early Access Trends — free gets EA % bar at quarterly */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Early Access Trends</CardTitle>
@@ -363,12 +367,12 @@ export function AnalyticsClient() {
                     { dataKey: "non_ea_avg_sentiment", label: "Non-EA Sentiment", color: "#ef4444" },
                   ]
                 : []}
-              granularity={isPro ? granularity : "year"}
+              granularity={isPro ? granularity : "quarter"}
             />
           </CardContent>
         </Card>
 
-        {/* 7. Platform & Steam Deck */}
+        {/* 7. Platform & Steam Deck — free gets Mac/Linux + Deck Verified at quarterly */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Platform &amp; Steam Deck</CardTitle>
@@ -380,15 +384,15 @@ export function AnalyticsClient() {
               lines={[
                 { dataKey: "mac_pct", label: "Mac %", color: "#6b7280" },
                 { dataKey: "linux_pct", label: "Linux %", color: "#f59e0b" },
+                { dataKey: "deck_verified_pct", label: "Deck Verified %", color: "#22c55e" },
                 ...(isPro
                   ? [
-                      { dataKey: "deck_verified_pct", label: "Deck Verified %", color: "#22c55e" },
                       { dataKey: "deck_playable_pct", label: "Deck Playable %", color: "#14b8a6" },
                       { dataKey: "deck_unsupported_pct", label: "Deck Unsupported %", color: "#ef4444" },
                     ]
                   : []),
               ]}
-              granularity={isPro ? granularity : "year"}
+              granularity={isPro ? granularity : "quarter"}
             />
           </CardContent>
         </Card>

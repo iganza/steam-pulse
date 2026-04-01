@@ -132,3 +132,81 @@ export interface Tag {
   game_count?: number;
   analyzed_count?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Analytics Dashboard — trend types
+// ---------------------------------------------------------------------------
+
+export type Granularity = "week" | "month" | "quarter" | "year";
+
+export interface TrendPeriod {
+  period: string;
+}
+
+export interface ReleaseVolumePeriod extends TrendPeriod {
+  releases: number;
+  avg_sentiment: number | null;
+  avg_reviews: number;
+  free_count: number;
+}
+
+export interface SentimentDistPeriod extends TrendPeriod {
+  total: number;
+  positive_count: number;
+  mixed_count: number;
+  negative_count: number;
+  positive_pct: number;
+  avg_sentiment: number | null;
+  avg_metacritic: number | null;
+}
+
+export interface GenreSharePeriod extends TrendPeriod {
+  total: number;
+  shares: Record<string, number>;
+}
+
+export interface VelocityDistPeriod extends TrendPeriod {
+  total: number;
+  velocity_under_1: number;
+  velocity_1_10: number;
+  velocity_10_50: number;
+  velocity_50_plus: number;
+}
+
+export interface PriceTrendPeriod extends TrendPeriod {
+  total: number;
+  avg_paid_price: number | null;
+  avg_price_incl_free: number | null;
+  free_count: number;
+  free_pct: number;
+}
+
+export interface EATrendPeriod extends TrendPeriod {
+  total_releases: number;
+  ea_count: number;
+  ea_pct: number;
+  ea_avg_sentiment: number | null;
+  non_ea_avg_sentiment: number | null;
+}
+
+export interface PlatformTrendPeriod extends TrendPeriod {
+  total: number;
+  mac_pct: number;
+  linux_pct: number;
+  deck_verified_pct: number;
+  deck_playable_pct: number;
+}
+
+export interface EngagementDepthPeriod extends TrendPeriod {
+  total_reviews: number;
+  playtime_under_2h_pct: number;
+  playtime_2_10h_pct: number;
+  playtime_10_50h_pct: number;
+  playtime_50_200h_pct: number;
+  playtime_200h_plus_pct: number;
+}
+
+export interface CategoryTrendPeriod extends TrendPeriod {
+  total: number;
+  adoption: Record<string, number>;
+}

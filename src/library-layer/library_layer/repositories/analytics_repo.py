@@ -1,5 +1,7 @@
 """AnalyticsRepository — cross-cutting analytics queries spanning multiple tables."""
 
+import json
+
 from library_layer.repositories.base import BaseRepository
 
 _MONTH_NAMES = [
@@ -453,3 +455,354 @@ class AnalyticsRepository(BaseRepository):
             },
             "games": games,
         }
+
+    # -----------------------------------------------------------------------
+    # Catalog-wide trend methods (analytics dashboard)
+    # -----------------------------------------------------------------------
+
+    def _type_clause(self, game_type: str) -> str:
+        """Return SQL fragment for game type filtering."""
+        if game_type == "dlc":
+            return "AND g.type = 'dlc'"
+        if game_type == "all":
+            return ""
+        return "AND g.type = 'game'"
+
+    def _genre_join_and_filter(
+        self, genre_slug: str | None, params: list,
+    ) -> tuple[str, str]:
+        """Return (JOIN clause, WHERE clause) for optional genre filter."""
+        if genre_slug is None:
+            return "", ""
+        params.append(genre_slug)
+        return (
+            "JOIN game_genres gg ON gg.appid = g.appid JOIN genres gn ON gg.genre_id = gn.id",
+            "AND gn.slug = %s",
+        )
+
+    def _tag_join_and_filter(
+        self, tag_slug: str | None, params: list,
+    ) -> tuple[str, str]:
+        """Return (JOIN clause, WHERE clause) for optional tag filter."""
+        if tag_slug is None:
+            return "", ""
+        params.append(tag_slug)
+        return (
+            "JOIN game_tags gt2 ON gt2.appid = g.appid JOIN tags t2 ON gt2.tag_id = t2.id",
+            "AND t2.slug = %s",
+        )
+
+    def find_release_volume_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+        tag_slug: str | None = None,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list = [granularity]
+        genre_join, genre_where = self._genre_join_and_filter(genre_slug, params)
+        tag_join, tag_where = self._tag_join_and_filter(tag_slug, params)
+        type_clause = self._type_clause(game_type)
+        params.append(limit)
+
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS releases,
+                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                ROUND(AVG(g.review_count), 0) AS avg_reviews,
+                COUNT(*) FILTER (WHERE g.is_free) AS free_count
+            FROM games g
+            {genre_join}
+            {tag_join}
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              {genre_where}
+              {tag_where}
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
+    def find_sentiment_distribution_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list = [granularity]
+        genre_join, genre_where = self._genre_join_and_filter(genre_slug, params)
+        type_clause = self._type_clause(game_type)
+        params.append(limit)
+
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE g.positive_pct >= 70) AS positive_count,
+                COUNT(*) FILTER (WHERE g.positive_pct >= 40 AND g.positive_pct < 70) AS mixed_count,
+                COUNT(*) FILTER (WHERE g.positive_pct < 40) AS negative_count,
+                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                ROUND(AVG(g.metacritic_score) FILTER (WHERE g.metacritic_score IS NOT NULL), 1) AS avg_metacritic
+            FROM games g
+            {genre_join}
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              {genre_where}
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
+    def find_genre_share_rows(
+        self,
+        granularity: str,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        type_clause = self._type_clause(game_type)
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                gn.name AS genre,
+                gn.slug AS genre_slug,
+                COUNT(*) AS releases
+            FROM games g
+            JOIN game_genres gg ON gg.appid = g.appid
+            JOIN genres gn ON gg.genre_id = gn.id
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+            GROUP BY 1, 2, 3
+            ORDER BY 1, 4 DESC
+            LIMIT %s
+            """,
+            (granularity, limit),
+        )
+        return [dict(r) for r in rows]
+
+    def find_velocity_distribution_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list = [granularity]
+        genre_join, genre_where = self._genre_join_and_filter(genre_slug, params)
+        type_clause = self._type_clause(game_type)
+        params.append(limit)
+
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                    < 1) AS velocity_under_1,
+                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                    BETWEEN 1 AND 10) AS velocity_1_10,
+                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                    BETWEEN 10 AND 50) AS velocity_10_50,
+                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                    > 50) AS velocity_50_plus
+            FROM games g
+            {genre_join}
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              AND CURRENT_DATE - g.release_date > 0
+              {genre_where}
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
+    def find_price_trend_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list = [granularity]
+        genre_join, genre_where = self._genre_join_and_filter(genre_slug, params)
+        type_clause = self._type_clause(game_type)
+        params.append(limit)
+
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS total,
+                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_paid_price,
+                ROUND(AVG(g.price_usd), 2) AS avg_price_incl_free,
+                COUNT(*) FILTER (WHERE g.is_free) AS free_count
+            FROM games g
+            {genre_join}
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              {genre_where}
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
+    def find_ea_trend_rows(
+        self,
+        granularity: str,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        type_clause = self._type_clause(game_type)
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS total_releases,
+                COUNT(*) FILTER (WHERE EXISTS (
+                    SELECT 1 FROM reviews r
+                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
+                )) AS ea_count,
+                ROUND(AVG(g.positive_pct) FILTER (WHERE EXISTS (
+                    SELECT 1 FROM reviews r
+                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
+                )), 1) AS ea_avg_sentiment,
+                ROUND(AVG(g.positive_pct) FILTER (WHERE NOT EXISTS (
+                    SELECT 1 FROM reviews r
+                    WHERE r.appid = g.appid AND r.written_during_early_access LIMIT 1
+                )), 1) AS non_ea_avg_sentiment
+            FROM games g
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            (granularity, limit),
+        )
+        return [dict(r) for r in rows]
+
+    def find_platform_trend_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list = [granularity]
+        genre_join, genre_where = self._genre_join_and_filter(genre_slug, params)
+        type_clause = self._type_clause(game_type)
+        params.append(limit)
+
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE (g.platforms->>'windows')::boolean) AS windows_count,
+                COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac_count,
+                COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux_count,
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 3) AS deck_verified,
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable,
+                COUNT(*) FILTER (WHERE g.deck_compatibility = 1) AS deck_unsupported
+            FROM games g
+            {genre_join}
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              {genre_where}
+            GROUP BY 1
+            ORDER BY 1
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
+    def find_engagement_depth_rows(
+        self,
+        granularity: str,
+        genre_slug: str | None = None,
+    ) -> list[dict]:
+        slug = f"{granularity}:{genre_slug or 'all'}"
+        row = self._fetchone(
+            """
+            SELECT insight_json
+            FROM index_insights
+            WHERE type = 'engagement_depth'
+              AND slug = %s
+            ORDER BY computed_at DESC
+            LIMIT 1
+            """,
+            (slug,),
+        )
+        if row is None or row["insight_json"] is None:
+            return []
+        data = row["insight_json"]
+        if isinstance(data, str):
+            data = json.loads(data)
+        return data if isinstance(data, list) else []
+
+    def find_category_trend_rows(
+        self,
+        granularity: str,
+        game_type: str = "game",
+        limit: int = 100,
+    ) -> list[dict]:
+        type_clause = self._type_clause(game_type)
+        rows = self._fetchall(
+            f"""
+            SELECT
+                DATE_TRUNC(%s, g.release_date) AS period,
+                gc.category_name,
+                COUNT(*) AS games_with_category
+            FROM games g
+            JOIN game_categories gc ON gc.appid = g.appid
+            WHERE g.release_date IS NOT NULL
+              AND g.coming_soon = FALSE
+              {type_clause}
+              AND g.review_count >= 10
+              AND gc.category_name IN (
+                'Single-player', 'Multi-player', 'Co-op', 'Steam Workshop',
+                'VR Supported', 'Full controller support', 'Steam Cloud', 'Steam Achievements'
+              )
+            GROUP BY 1, 2
+            ORDER BY 1, 3 DESC
+            LIMIT %s
+            """,
+            (granularity, limit),
+        )
+        return [dict(r) for r in rows]

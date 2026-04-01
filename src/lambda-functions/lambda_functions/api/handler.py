@@ -54,6 +54,7 @@ VERSION = "0.1.0"
 
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import GameRepository
+from library_layer.services.analytics_service import AnalyticsService
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -69,6 +70,7 @@ _review_repo = ReviewRepository(_conn)
 _job_repo = JobRepository(_conn)
 _tag_repo = TagRepository(_conn)
 _waitlist_repo = WaitlistRepository(_conn)
+_analytics_service = AnalyticsService(_analytics_repo)
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +446,146 @@ async def get_tag_trend(slug: str) -> dict:
 @app.get("/api/developers/{slug}/analytics")
 async def get_developer_analytics(slug: str) -> dict:
     return _analytics_repo.find_developer_portfolio(slug)
+
+
+# ---------------------------------------------------------------------------
+# Analytics trends — catalog-wide time-series (analytics dashboard)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/analytics/trends/release-volume")
+async def get_trend_release_volume(
+    granularity: str = "month",
+    genre: str | None = None,
+    tag: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_release_volume(
+            granularity=granularity, genre_slug=genre, tag_slug=tag,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/sentiment")
+async def get_trend_sentiment(
+    granularity: str = "month",
+    genre: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_sentiment_distribution(
+            granularity=granularity, genre_slug=genre,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/genre-share")
+async def get_trend_genre_share(
+    granularity: str = "year",
+    top_n: int = 5,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_genre_share(
+            granularity=granularity, top_n=min(top_n, 15),
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/velocity")
+async def get_trend_velocity(
+    granularity: str = "month",
+    genre: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_velocity_distribution(
+            granularity=granularity, genre_slug=genre,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/pricing")
+async def get_trend_pricing(
+    granularity: str = "year",
+    genre: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_price_trend(
+            granularity=granularity, genre_slug=genre,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/early-access")
+async def get_trend_early_access(
+    granularity: str = "year",
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_ea_trend(
+            granularity=granularity,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/platforms")
+async def get_trend_platforms(
+    granularity: str = "year",
+    genre: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_platform_trend(
+            granularity=granularity, genre_slug=genre,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/engagement")
+async def get_trend_engagement(
+    granularity: str = "year",
+    genre: str | None = None,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_engagement_depth(
+            granularity=granularity, genre_slug=genre,
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/analytics/trends/categories")
+async def get_trend_categories(
+    granularity: str = "year",
+    top_n: int = 4,
+    limit: int = 100,
+) -> dict:
+    try:
+        return _analytics_service.get_category_trend(
+            granularity=granularity, top_n=min(top_n, 8),
+            limit=min(limit, 200),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @app.post("/api/waitlist")

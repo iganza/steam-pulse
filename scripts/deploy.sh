@@ -39,6 +39,16 @@ if [[ "$ENV" != "staging" && "$ENV" != "production" ]]; then
     exit 1
 fi
 
+if [[ "$ENV" == "production" ]]; then
+    CURRENT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    if [[ "$CURRENT_BRANCH" != "main" ]]; then
+        echo "Error: production deploys must be run from the 'main' branch."
+        echo "  Current branch: $CURRENT_BRANCH"
+        echo "  Run: git checkout main && git pull"
+        exit 1
+    fi
+fi
+
 ENV_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${ENV:0:1}")${ENV:1}"  # "Staging" | "Production"
 STACK_PATTERN="SteamPulse-${ENV_CAP}-*"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

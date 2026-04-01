@@ -130,8 +130,8 @@ export interface ReviewSegment {
   avg_playtime: number;
 }
 
-// Feature 4: Review Integrity
-export interface ReviewIntegrity {
+// Feature 4: Review Integrity — DEFERRED (no backend endpoint yet, planned for a later phase)
+// export interface ReviewIntegrity {
   paid_reviews: ReviewIntegritySegment;
   free_key_reviews: ReviewIntegritySegment | null;
   bias_delta: number | null;

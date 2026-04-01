@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getGames, getGenres } from "@/lib/api";
+import { getGames, getGenres, getPricePositioning, getReleaseTiming, getPlatformGaps } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
-import { GenreAnalytics } from "@/components/analytics/GenreAnalytics";
+import { PricePositioning } from "@/components/analytics/PricePositioning";
+import { ReleaseTiming } from "@/components/analytics/ReleaseTiming";
+import { PlatformGaps } from "@/components/analytics/PlatformGaps";
 import type { Game, Genre } from "@/lib/types";
 
 interface Props {
@@ -36,16 +38,22 @@ export default async function GenrePage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  // Fetch genre info and top picks in parallel
-  const [genresResult, topPicksResult] = await Promise.allSettled([
+  // Fetch genre info, top picks, and market analytics in parallel
+  const [genresResult, topPicksResult, pricingResult, timingResult, platformsResult] = await Promise.allSettled([
     getGenres(),
     getGames({ genre: slug, sort: "sentiment_score", min_reviews: 200, limit: 3 }),
+    getPricePositioning(slug),
+    getReleaseTiming(slug),
+    getPlatformGaps(slug),
   ]);
 
   const genres = genresResult.status === "fulfilled" ? genresResult.value : [];
   const genreInfo = genres.find((g: Genre) => g.slug === slug);
   const topPicks: Game[] =
     topPicksResult.status === "fulfilled" ? topPicksResult.value.games ?? [] : [];
+  const pricing = pricingResult.status === "fulfilled" ? pricingResult.value : null;
+  const timing = timingResult.status === "fulfilled" ? timingResult.value : null;
+  const platforms = platformsResult.status === "fulfilled" ? platformsResult.value : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -84,7 +92,14 @@ export default async function GenrePage({ params }: Props) {
         )}
 
         {/* Market Intelligence */}
-        <GenreAnalytics slug={slug} />
+        {(pricing || timing || platforms) && (
+          <section className="mb-12 space-y-6">
+            <h2 className="font-serif text-lg font-semibold">Market Intelligence</h2>
+            {pricing && <PricePositioning data={pricing} />}
+            {timing && <ReleaseTiming data={timing} />}
+            {platforms && <PlatformGaps data={platforms} />}
+          </section>
+        )}
 
         {/* Full catalog with filters */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>

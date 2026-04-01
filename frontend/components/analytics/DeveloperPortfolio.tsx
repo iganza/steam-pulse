@@ -45,6 +45,8 @@ function trajectoryLabel(t: string): string {
       return "Stable";
     case "single_title":
       return "Single Title";
+    case "no_games":
+      return "No Games";
     default:
       return t;
   }

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getGames } from "@/lib/api";
+import { getGames, getDeveloperAnalytics } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import { DeveloperPortfolio } from "@/components/analytics/DeveloperPortfolio";
 import type { Game } from "@/lib/types";
-import { DeveloperAnalyticsSection } from "@/components/analytics/DeveloperAnalyticsSection";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -42,13 +42,15 @@ export default async function DeveloperPage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  let games: Game[] = [];
-  try {
-    const result = await getGames({ developer: slug, sort: "review_count", limit: 100 });
-    games = result.games ?? [];
-  } catch {
-    notFound();
-  }
+  // Fetch games and developer analytics in parallel
+  const [gamesResult, portfolioResult] = await Promise.allSettled([
+    getGames({ developer: slug, sort: "review_count", limit: 100 }),
+    getDeveloperAnalytics(slug),
+  ]);
+
+  if (gamesResult.status === "rejected") notFound();
+  const games: Game[] = gamesResult.value.games ?? [];
+  const portfolio = portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
 
   const avgScore = avg(games, "sentiment_score") ?? avg(games, "positive_pct");
   const totalReviews = games.reduce((a, g) => a + (g.review_count ?? 0), 0);
@@ -131,7 +133,12 @@ export default async function DeveloperPage({ params }: Props) {
         )}
 
         {/* Developer Analytics */}
-        <DeveloperAnalyticsSection slug={slug} />
+        {portfolio && (
+          <section className="mb-10 space-y-4">
+            <h2 className="font-serif text-lg font-semibold">Developer Analytics</h2>
+            <DeveloperPortfolio data={portfolio} />
+          </section>
+        )}
 
         {/* Game list */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

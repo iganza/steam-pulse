@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getTopTags } from "@/lib/api";
+import { getTopTags, getTagTrend } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
-import { TagAnalytics } from "@/components/analytics/TagAnalytics";
+import { TagTrendChart } from "@/components/analytics/TagTrendChart";
 import type { Tag } from "@/lib/types";
 
 interface Props {
@@ -36,11 +36,17 @@ export default async function TagPage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  // Fetch related tags
-  const tagsResult = await getTopTags(50).catch(() => []);
-  const relatedTags = (tagsResult as Tag[])
+  // Fetch related tags and tag trend in parallel
+  const [tagsResult, trendResult] = await Promise.allSettled([
+    getTopTags(50),
+    getTagTrend(slug),
+  ]);
+
+  const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
+  const relatedTags = (tags as Tag[])
     .filter((t) => t.slug !== slug)
     .slice(0, 8);
+  const trend = trendResult.status === "fulfilled" ? trendResult.value : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -100,7 +106,12 @@ export default async function TagPage({ params }: Props) {
         )}
 
         {/* Tag Trends */}
-        <TagAnalytics slug={slug} />
+        {trend && (
+          <section className="mb-10 space-y-4">
+            <h2 className="font-serif text-lg font-semibold">Tag Trends</h2>
+            <TagTrendChart data={trend} />
+          </section>
+        )}
 
         {/* Full catalog with filters */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>

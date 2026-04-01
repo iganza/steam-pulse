@@ -19,7 +19,7 @@ function sentimentColor(pct: number): string {
 export function AudienceOverlap({ data, gameName, showAll = false }: AudienceOverlapProps) {
   if (data.overlaps.length === 0) return null;
 
-  const maxOverlap = Math.max(...data.overlaps.map((e) => e.overlap_pct));
+  const maxOverlap = Math.max(...data.overlaps.map((e) => e.overlap_pct)) || 1;
   const items: AudienceOverlapEntry[] = showAll
     ? data.overlaps
     : data.overlaps.slice(0, 5);
@@ -62,8 +62,8 @@ export function AudienceOverlap({ data, gameName, showAll = false }: AudienceOve
                 </div>
               </div>
               <div className="text-right flex-shrink-0 text-xs whitespace-nowrap">
-                <span className="font-mono font-medium">{entry.overlap_pct.toFixed(1)}%</span>
-                <span className="text-muted-foreground"> overlap</span>
+                <span className="font-mono font-medium">{entry.overlap_count.toLocaleString()}</span>
+                <span className="text-muted-foreground"> shared ({entry.overlap_pct.toFixed(1)}%)</span>
                 <span className="mx-1">&middot;</span>
                 <span style={{ color: sentimentColor(entry.shared_sentiment_pct) }}>
                   {entry.shared_sentiment_pct.toFixed(0)}% agree

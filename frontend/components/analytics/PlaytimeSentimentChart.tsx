@@ -82,7 +82,7 @@ export function PlaytimeSentimentChart({ data }: PlaytimeSentimentChartProps) {
                 x={data.churn_point.bucket}
                 stroke="#ef4444"
                 strokeDasharray="5 5"
-                label={{ value: "Churn Wall", fill: "#ef4444", fontSize: 11, position: "top" }}
+                label={{ value: `Churn Wall: ${data.churn_point.delta}% at ${data.churn_point.bucket}`, fill: "#ef4444", fontSize: 11, position: "top" }}
               />
             )}
           </ComposedChart>

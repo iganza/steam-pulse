@@ -195,15 +195,15 @@ export async function getTopReviews(
 }
 
 export async function getPricePositioning(genre: string): Promise<PricePositioning> {
-  return apiFetch<PricePositioning>(`/api/analytics/price-positioning?genre=${genre}`);
+  return apiFetch<PricePositioning>(`/api/analytics/price-positioning?genre=${encodeURIComponent(genre)}`);
 }
 
 export async function getReleaseTiming(genre: string): Promise<ReleaseTiming> {
-  return apiFetch<ReleaseTiming>(`/api/analytics/release-timing?genre=${genre}`);
+  return apiFetch<ReleaseTiming>(`/api/analytics/release-timing?genre=${encodeURIComponent(genre)}`);
 }
 
 export async function getPlatformGaps(genre: string): Promise<PlatformGaps> {
-  return apiFetch<PlatformGaps>(`/api/analytics/platform-gaps?genre=${genre}`);
+  return apiFetch<PlatformGaps>(`/api/analytics/platform-gaps?genre=${encodeURIComponent(genre)}`);
 }
 
 export async function getTagTrend(slug: string): Promise<TagTrend> {

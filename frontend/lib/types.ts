@@ -211,3 +211,221 @@ export interface CategoryTrendPeriod extends TrendPeriod {
   total: number;
   adoption: Record<string, number>;
 }
+
+// ---------------------------------------------------------------------------
+// Per-entity analytics (game report, genre, tag, developer pages)
+// ---------------------------------------------------------------------------
+
+// Feature 1: Audience Overlap
+export interface AudienceOverlap {
+  total_reviewers: number;
+  overlaps: AudienceOverlapEntry[];
+}
+
+export interface AudienceOverlapEntry {
+  appid: number;
+  name: string;
+  slug: string;
+  header_image: string;
+  positive_pct: number;
+  review_count: number;
+  overlap_count: number;
+  overlap_pct: number;
+  shared_sentiment_pct: number;
+}
+
+// Feature 2: Playtime Sentiment
+export interface PlaytimeSentiment {
+  buckets: PlaytimeSentimentBucket[];
+  churn_point: ChurnPoint | null;
+  median_playtime_hours: number;
+  value_score: number | null;
+}
+
+export interface PlaytimeSentimentBucket {
+  bucket: string;
+  total: number;
+  positive: number;
+  negative: number;
+  pct_positive: number;
+}
+
+export interface ChurnPoint {
+  bucket: string;
+  drop_from: number;
+  drop_to: number;
+  delta: number;
+}
+
+// Feature 3: Early Access Impact
+export interface EarlyAccessImpact {
+  has_ea_reviews: boolean;
+  early_access: ReviewSegment | null;
+  post_launch: ReviewSegment | null;
+  impact_delta: number | null;
+  verdict: "improved" | "declined" | "stable" | "no_ea";
+}
+
+export interface ReviewSegment {
+  total: number;
+  positive: number;
+  pct_positive: number;
+  avg_playtime: number;
+}
+
+// Feature 5: Review Velocity
+export interface ReviewVelocity {
+  monthly: VelocityMonth[];
+  summary: VelocitySummary;
+}
+
+export interface VelocityMonth {
+  month: string;
+  total: number;
+  positive: number;
+  pct_positive: number;
+}
+
+export interface VelocitySummary {
+  avg_monthly: number;
+  last_30_days: number;
+  last_3_months_avg: number;
+  peak_month: { month: string; total: number };
+  trend: "accelerating" | "stable" | "decelerating";
+}
+
+// Feature 6: Top Reviews
+export interface TopReviewsResponse {
+  sort: string;
+  reviews: TopReview[];
+}
+
+export interface TopReview {
+  steam_review_id: string;
+  voted_up: boolean;
+  playtime_hours: number;
+  body_preview: string;
+  votes_helpful: number;
+  votes_funny: number;
+  posted_at: string;
+  written_during_early_access: boolean;
+  received_for_free: boolean;
+}
+
+// Feature 7: Price Positioning
+export interface PricePositioning {
+  genre: string;
+  genre_slug: string;
+  distribution: PriceRange[];
+  summary: PriceSummary;
+}
+
+export interface PriceRange {
+  price_range: string;
+  game_count: number;
+  avg_sentiment: number;
+  median_price: number;
+}
+
+export interface PriceSummary {
+  avg_price: number;
+  median_price: number;
+  free_count: number;
+  paid_count: number;
+  sweet_spot: string;
+}
+
+// Feature 8: Release Timing
+export interface ReleaseTiming {
+  genre: string;
+  monthly: ReleaseMonth[];
+  best_month: MonthHighlight;
+  worst_month: MonthHighlight;
+  quietest_month: MonthHighlight;
+  busiest_month: MonthHighlight;
+}
+
+export interface ReleaseMonth {
+  month: number;
+  month_name: string;
+  releases: number;
+  avg_sentiment: number;
+  avg_reviews: number;
+}
+
+export interface MonthHighlight {
+  month: number;
+  month_name: string;
+  releases?: number;
+  avg_sentiment?: number;
+}
+
+// Feature 9: Platform Gaps
+export interface PlatformGaps {
+  genre: string;
+  total_games: number;
+  platforms: {
+    windows: PlatformStats;
+    mac: PlatformStats;
+    linux: PlatformStats;
+  };
+  underserved: string;
+}
+
+export interface PlatformStats {
+  count: number;
+  pct: number;
+  avg_sentiment: number;
+}
+
+// Feature 10: Tag Trend
+export interface TagTrend {
+  tag: string;
+  tag_slug: string;
+  yearly: TagYear[];
+  growth_rate: number;
+  peak_year: number;
+  total_games: number;
+}
+
+export interface TagYear {
+  year: number;
+  game_count: number;
+  avg_sentiment: number;
+}
+
+// Feature 11: Developer Portfolio
+export interface DeveloperPortfolio {
+  developer: string;
+  developer_slug: string;
+  summary: DeveloperSummary;
+  games: DeveloperGame[];
+}
+
+export interface DeveloperSummary {
+  total_games: number;
+  total_reviews: number;
+  avg_sentiment: number;
+  first_release: string;
+  latest_release: string;
+  avg_price: number | null;
+  free_games: number;
+  well_received: number;
+  poorly_received: number;
+  sentiment_trajectory: "improving" | "stable" | "declining" | "single_title" | "no_games";
+}
+
+export interface DeveloperGame {
+  appid: number;
+  name: string;
+  slug: string;
+  header_image: string;
+  release_date: string;
+  price_usd: number | null;
+  is_free: boolean;
+  review_count: number;
+  positive_pct: number;
+  review_score_desc: string;
+  metacritic_score: number | null;
+  achievements_total: number | null;
+}

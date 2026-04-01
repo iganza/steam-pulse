@@ -4,6 +4,7 @@ import { getGames, getGenres } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
+import { GenreAnalytics } from "@/components/analytics/GenreAnalytics";
 import type { Game, Genre } from "@/lib/types";
 
 interface Props {
@@ -81,6 +82,9 @@ export default async function GenrePage({ params }: Props) {
             </div>
           </section>
         )}
+
+        {/* Market Intelligence */}
+        <GenreAnalytics slug={slug} />
 
         {/* Full catalog with filters */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>

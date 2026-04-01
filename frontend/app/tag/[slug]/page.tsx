@@ -4,6 +4,7 @@ import { getTopTags } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
+import { TagAnalytics } from "@/components/analytics/TagAnalytics";
 import type { Tag } from "@/lib/types";
 
 interface Props {
@@ -97,6 +98,9 @@ export default async function TagPage({ params }: Props) {
             </div>
           </div>
         )}
+
+        {/* Tag Trends */}
+        <TagAnalytics slug={slug} />
 
         {/* Full catalog with filters */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>

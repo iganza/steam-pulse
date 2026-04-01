@@ -5,6 +5,7 @@ import { getGames } from "@/lib/api";
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import type { Game } from "@/lib/types";
+import { DeveloperAnalyticsSection } from "@/components/analytics/DeveloperAnalyticsSection";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -128,6 +129,9 @@ export default async function DeveloperPage({ params }: Props) {
             </div>
           </div>
         )}
+
+        {/* Developer Analytics */}
+        <DeveloperAnalyticsSection slug={slug} />
 
         {/* Game list */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

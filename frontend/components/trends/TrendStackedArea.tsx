@@ -29,7 +29,11 @@ export function TrendStackedArea({
     );
   }
 
-  // For normalized view, compute percentages per row
+  // For normalized view, pre-compute 0–100 percentages so the chart receives
+  // explicit values. We do NOT use stackOffset="expand" — combining that with
+  // pre-computed percentages causes Recharts to re-normalize to 0–1 internally,
+  // which makes the tooltip formatter receive fractional values and display
+  // "0.3%" instead of "30%".
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartData: any[] = normalized
     ? data.map((d) => {
@@ -59,17 +63,16 @@ export function TrendStackedArea({
     return [normalized ? `${v.toFixed(1)}%` : v.toLocaleString(), s?.label ?? n];
   };
 
+  // Y-axis formatter: values are already 0–100 when normalized.
+  const yTickFormatter = normalized ? (v: number) => `${v.toFixed(0)}%` : undefined;
+
   if (secondaryLine) {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <ComposedChart data={chartData} stackOffset={normalized ? "expand" : undefined}>
+        <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-          <YAxis
-            yAxisId="left"
-            tick={{ fontSize: 11 }}
-            tickFormatter={normalized ? (v: number) => `${Math.round(v * 100)}%` : undefined}
-          />
+          <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
           {series.map((s) => (
@@ -99,17 +102,11 @@ export function TrendStackedArea({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={chartData} stackOffset={normalized ? "expand" : undefined}>
+      <AreaChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-        <YAxis
-          tick={{ fontSize: 11 }}
-          tickFormatter={normalized ? (v: number) => `${Math.round(v * 100)}%` : undefined}
-        />
-        <Tooltip
-          contentStyle={tooltipStyle}
-          formatter={tooltipFormatter}
-        />
+        <YAxis tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
+        <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
         {series.map((s) => (
           <Area
             key={s.key}

@@ -141,7 +141,7 @@ export const MOCK_RELEASE_VOLUME = {
   periods: PERIODS_MONTHLY.map((period, i) => ({
     period,
     releases: 100 + i * 10,
-    avg_sentiment: 0.7 + i * 0.01,
+    avg_sentiment: 70.0 + i * 1,  // 0–100 scale (sentiment_score in DB)
   })),
   summary: { total_releases: 690, avg_per_period: 115, trend: 'increasing' },
 }
@@ -160,7 +160,8 @@ export const MOCK_GENRE_SHARE = {
   genres: ['Action', 'Indie', 'RPG', 'Strategy', 'Other'],
   periods: PERIODS_MONTHLY.map((period) => ({
     period,
-    shares: { Action: 30, Indie: 25, RPG: 20, Strategy: 15, Other: 10 },
+    // Backend returns 0–1 fractions (round(count/total, 2))
+    shares: { Action: 0.30, Indie: 0.25, RPG: 0.20, Strategy: 0.15, Other: 0.10 },
   })),
 }
 
@@ -178,7 +179,7 @@ export const MOCK_PRICING = {
   periods: PERIODS_MONTHLY.map((period, i) => ({
     period,
     avg_paid_price: 12.5 + i * 0.5,
-    avg_all_price: 10.0 + i * 0.3,
+    avg_price_incl_free: 10.0 + i * 0.3,  // matches API field name
     free_pct: 20 - i,
   })),
 }
@@ -188,8 +189,8 @@ export const MOCK_EARLY_ACCESS = {
     period,
     ea_count: 30 + i,
     ea_pct: 15 + i * 0.5,
-    ea_avg_sentiment: 0.65,
-    non_ea_avg_sentiment: 0.72,
+    ea_avg_sentiment: 65.0,   // 0–100 scale (AVG of sentiment_score)
+    non_ea_avg_sentiment: 72.0,
   })),
 }
 

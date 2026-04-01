@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { GranularityToggle } from "@/components/trends/GranularityToggle";
 import { TrendBarChart } from "@/components/trends/TrendBarChart";
 import { TrendStackedArea } from "@/components/trends/TrendStackedArea";
+import { TrendStackedBarChart } from "@/components/trends/TrendStackedBarChart";
 import { TrendComposed } from "@/components/trends/TrendComposed";
 import {
   getAnalyticsTrendReleaseVolume,
@@ -295,7 +296,7 @@ export function AnalyticsClient() {
             <CardTitle className="text-base">Review Velocity</CardTitle>
           </CardHeader>
           <CardContent>
-            <TrendStackedArea
+            <TrendStackedBarChart
               data={data.velocity?.periods ?? []}
               series={[
                 { key: "velocity_under_1", label: "<1/day", color: "#6b7280" },
@@ -304,7 +305,6 @@ export function AnalyticsClient() {
                 { key: "velocity_50_plus", label: "50+/day", color: "#22c55e" },
               ]}
               granularity={g}
-              normalized={false}
             />
           </CardContent>
         </Card>

@@ -58,22 +58,23 @@ export function TrendStackedArea({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipFormatter = (value: unknown, name: unknown, props: any): any => {
     const n = String(name);
+    // Recharts passes the `name` prop (label) not `dataKey`, so match by both.
     if (value == null) {
-      if (secondaryLine && n === secondaryLine.dataKey) return ["N/A", secondaryLine.label];
-      const s = series.find((s) => s.key === n);
+      if (secondaryLine && (n === secondaryLine.dataKey || n === secondaryLine.label)) return ["N/A", secondaryLine.label];
+      const s = series.find((s) => s.key === n || s.label === n);
       return ["N/A", s?.label ?? n];
     }
     const v = Number(value);
-    if (secondaryLine && n === secondaryLine.dataKey) {
+    if (secondaryLine && (n === secondaryLine.dataKey || n === secondaryLine.label)) {
       return [v.toFixed(2), secondaryLine.label];
     }
-    const s = series.find((s) => s.key === n);
-    if (normalized) {
-      const rawCount = props?.payload?.[`_raw_${n}`];
+    const s = series.find((s) => s.key === n || s.label === n);
+    if (normalized && s) {
+      const rawCount = props?.payload?.[`_raw_${s.key}`];
       const rawStr = rawCount != null ? ` (${Number(rawCount).toLocaleString()})` : "";
-      return [`${v.toFixed(1)}%${rawStr}`, s?.label ?? n];
+      return [`${v.toFixed(1)}%${rawStr}`, s.label];
     }
-    return [v.toLocaleString(), s?.label ?? n];
+    return [normalized ? `${v.toFixed(1)}%` : v.toLocaleString(), s?.label ?? n];
   };
 
   // Y-axis formatter: values are already 0–100 when normalized.

@@ -508,24 +508,26 @@ class AnalyticsRepository(BaseRepository):
 
         rows = self._fetchall(
             f"""
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS releases,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
-                ROUND(AVG(g.review_count), 0) AS avg_reviews,
-                COUNT(*) FILTER (WHERE g.is_free) AS free_count
-            FROM games g
-            {genre_join}
-            {tag_join}
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-              {genre_where}
-              {tag_where}
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS releases,
+                    ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                    ROUND(AVG(g.review_count), 0) AS avg_reviews,
+                    COUNT(*) FILTER (WHERE g.is_free) AS free_count
+                FROM games g
+                {genre_join}
+                {tag_join}
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                  {genre_where}
+                  {tag_where}
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             tuple(params),
         )
@@ -545,24 +547,26 @@ class AnalyticsRepository(BaseRepository):
 
         rows = self._fetchall(
             f"""
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE g.positive_pct >= 70) AS positive_count,
-                COUNT(*) FILTER (WHERE g.positive_pct >= 40 AND g.positive_pct < 70) AS mixed_count,
-                COUNT(*) FILTER (WHERE g.positive_pct < 40) AS negative_count,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
-                ROUND(AVG(g.metacritic_score) FILTER (WHERE g.metacritic_score IS NOT NULL), 1) AS avg_metacritic
-            FROM games g
-            {genre_join}
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-              {genre_where}
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE g.positive_pct >= 70) AS positive_count,
+                    COUNT(*) FILTER (WHERE g.positive_pct >= 40 AND g.positive_pct < 70) AS mixed_count,
+                    COUNT(*) FILTER (WHERE g.positive_pct < 40) AS negative_count,
+                    ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                    ROUND(AVG(g.metacritic_score) FILTER (WHERE g.metacritic_score IS NOT NULL), 1) AS avg_metacritic
+                FROM games g
+                {genre_join}
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                  {genre_where}
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             tuple(params),
         )
@@ -624,32 +628,34 @@ class AnalyticsRepository(BaseRepository):
 
         rows = self._fetchall(
             f"""
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
-                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                    < 1) AS velocity_under_1,
-                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
-                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                    BETWEEN 1 AND 10) AS velocity_1_10,
-                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
-                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                    BETWEEN 10 AND 50) AS velocity_10_50,
-                COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
-                    g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
-                    > 50) AS velocity_50_plus
-            FROM games g
-            {genre_join}
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-              AND CURRENT_DATE - g.release_date > 0
-              {genre_where}
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        < 1) AS velocity_under_1,
+                    COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        BETWEEN 1 AND 10) AS velocity_1_10,
+                    COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        BETWEEN 10 AND 50) AS velocity_10_50,
+                    COUNT(*) FILTER (WHERE COALESCE(g.review_velocity_lifetime,
+                        g.review_count_english::numeric / NULLIF(CURRENT_DATE - g.release_date, 0))
+                        > 50) AS velocity_50_plus
+                FROM games g
+                {genre_join}
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                  AND CURRENT_DATE - g.release_date > 0
+                  {genre_where}
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             tuple(params),
         )
@@ -669,22 +675,24 @@ class AnalyticsRepository(BaseRepository):
 
         rows = self._fetchall(
             f"""
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS total,
-                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_paid_price,
-                ROUND(AVG(g.price_usd), 2) AS avg_price_incl_free,
-                COUNT(*) FILTER (WHERE g.is_free) AS free_count
-            FROM games g
-            {genre_join}
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-              {genre_where}
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS total,
+                    ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_paid_price,
+                    ROUND(AVG(g.price_usd), 2) AS avg_price_incl_free,
+                    COUNT(*) FILTER (WHERE g.is_free) AS free_count
+                FROM games g
+                {genre_join}
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                  {genre_where}
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             tuple(params),
         )
@@ -704,27 +712,29 @@ class AnalyticsRepository(BaseRepository):
                 FROM reviews
                 GROUP BY appid
             )
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS total_releases,
-                COUNT(*) FILTER (WHERE COALESCE(ef.has_ea, FALSE)) AS ea_count,
-                ROUND(
-                    AVG(g.positive_pct) FILTER (WHERE COALESCE(ef.has_ea, FALSE)),
-                    1
-                ) AS ea_avg_sentiment,
-                ROUND(
-                    AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ef.has_ea, FALSE)),
-                    1
-                ) AS non_ea_avg_sentiment
-            FROM games g
-            LEFT JOIN ea_flags ef ON ef.appid = g.appid
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS total_releases,
+                    COUNT(*) FILTER (WHERE COALESCE(ef.has_ea, FALSE)) AS ea_count,
+                    ROUND(
+                        AVG(g.positive_pct) FILTER (WHERE COALESCE(ef.has_ea, FALSE)),
+                        1
+                    ) AS ea_avg_sentiment,
+                    ROUND(
+                        AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ef.has_ea, FALSE)),
+                        1
+                    ) AS non_ea_avg_sentiment
+                FROM games g
+                LEFT JOIN ea_flags ef ON ef.appid = g.appid
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             (granularity, limit),
         )
@@ -744,24 +754,26 @@ class AnalyticsRepository(BaseRepository):
 
         rows = self._fetchall(
             f"""
-            SELECT
-                DATE_TRUNC(%s, g.release_date) AS period,
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac_count,
-                COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux_count,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 3) AS deck_verified,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable,
-                COUNT(*) FILTER (WHERE g.deck_compatibility = 1) AS deck_unsupported
-            FROM games g
-            {genre_join}
-            WHERE g.release_date IS NOT NULL
-              AND g.coming_soon = FALSE
-              {type_clause}
-              AND g.review_count >= 10
-              {genre_where}
-            GROUP BY 1
-            ORDER BY 1
-            LIMIT %s
+            SELECT * FROM (
+                SELECT
+                    DATE_TRUNC(%s, g.release_date) AS period,
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac_count,
+                    COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux_count,
+                    COUNT(*) FILTER (WHERE g.deck_compatibility = 3) AS deck_verified,
+                    COUNT(*) FILTER (WHERE g.deck_compatibility = 2) AS deck_playable,
+                    COUNT(*) FILTER (WHERE g.deck_compatibility = 1) AS deck_unsupported
+                FROM games g
+                {genre_join}
+                WHERE g.release_date IS NOT NULL
+                  AND g.coming_soon = FALSE
+                  {type_clause}
+                  AND g.review_count >= 10
+                  {genre_where}
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT %s
+            ) sub ORDER BY period
             """,
             tuple(params),
         )
@@ -788,7 +800,10 @@ class AnalyticsRepository(BaseRepository):
             return []
         data = row["insight_json"]
         if isinstance(data, str):
-            data = json.loads(data)
+            try:
+                data = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                return []
         return data if isinstance(data, list) else []
 
     def find_category_trend_rows(

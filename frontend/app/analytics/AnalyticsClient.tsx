@@ -108,19 +108,20 @@ export function AnalyticsClient() {
     const g = isPro ? granularity : "month";
     const genreSlug = isPro && genre ? genre : undefined;
     const tagSlug = isPro && tag ? tag : undefined;
-    const type = isPro ? gameType : "game";
+    // gameType is scoped to Release Volume only — other charts always use "game"
+    const rvType = isPro ? gameType : "game";
     const topN = isPro ? genreShareTopN : 5;
 
     const results = await Promise.allSettled([
-      getAnalyticsTrendReleaseVolume({ granularity: g, genre: genreSlug, tag: tagSlug, type }),
-      getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug, type }),
-      getAnalyticsTrendGenreShare({ granularity: isPro ? coarseGenreGranularity(granularity) : "year", top_n: topN, type }),
-      getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug, type }),
-      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "quarter", genre: genreSlug, type }),
-      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "quarter", type }),
-      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "quarter", genre: genreSlug, type }),
+      getAnalyticsTrendReleaseVolume({ granularity: g, genre: genreSlug, tag: tagSlug, type: rvType }),
+      getAnalyticsTrendSentiment({ granularity: g, genre: genreSlug }),
+      getAnalyticsTrendGenreShare({ granularity: isPro ? coarseGenreGranularity(granularity) : "year", top_n: topN }),
+      getAnalyticsTrendVelocity({ granularity: g, genre: genreSlug }),
+      getAnalyticsTrendPricing({ granularity: isPro ? granularity : "quarter", genre: genreSlug }),
+      getAnalyticsTrendEarlyAccess({ granularity: isPro ? granularity : "quarter" }),
+      getAnalyticsTrendPlatforms({ granularity: isPro ? granularity : "quarter", genre: genreSlug }),
       getAnalyticsTrendEngagement({ granularity: isPro ? granularity : "year", genre: genreSlug }),
-      getAnalyticsTrendCategories({ granularity: isPro ? granularity : "year", top_n: isPro ? 8 : 4, type }),
+      getAnalyticsTrendCategories({ granularity: isPro ? granularity : "year", top_n: isPro ? 8 : 4 }),
     ]);
 
     const val = <T,>(r: PromiseSettledResult<T>): T | null =>

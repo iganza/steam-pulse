@@ -28,17 +28,17 @@ sensible defaults — they can hover and read tooltips. The **control bar**
 
 ### Tiering table
 
-| Chart                  | Free defaults                            | Pro extras                                                       |
-|------------------------|------------------------------------------|------------------------------------------------------------------|
-| Release Volume         | Monthly, all genres, bar + trend line    | Granularity toggle, genre/tag filter, type filter (game vs DLC)  |
-| Sentiment Distribution | Monthly, all genres, stacked % area      | Granularity toggle, genre filter, toggle %/raw, Metacritic overlay |
-| Genre Share            | Yearly, top 5 genres                     | Granularity toggle (quarter/year), choose top N genres           |
-| Review Velocity        | Monthly, all genres                      | Granularity toggle, genre filter                                 |
-| Pricing Trends         | Yearly, avg paid price line only         | Granularity toggle, genre filter, overlay free-to-play %         |
-| Early Access           | Yearly, EA % bar only                    | Granularity toggle, add EA vs non-EA sentiment lines             |
-| Platform & Deck        | Yearly, Mac/Linux support % lines        | Granularity toggle, genre filter, Deck verification breakdown    |
-| Engagement Depth       | Yearly, all genres, playtime band areas  | Granularity toggle, genre filter                                 |
-| Feature Adoption       | Yearly, top 4 categories                 | Granularity toggle, all 8 categories                             |
+| Chart                  | Free defaults                                        | Pro extras                                                            |
+|------------------------|------------------------------------------------------|-----------------------------------------------------------------------|
+| Release Volume         | Monthly, all genres, bar + MA trend line             | Granularity toggle, genre/tag filter, type filter (in card header)    |
+| Sentiment Distribution | Monthly, all genres, stacked % area                  | Granularity toggle, genre filter, toggle %/raw, Metacritic overlay    |
+| Genre Share            | Yearly, top 5 genres                                 | Granularity toggle (quarter/year), choose top N genres (card header)  |
+| Review Velocity        | Monthly, all genres, stacked bars                    | Granularity toggle, genre filter                                      |
+| Pricing Trends         | Quarterly, free % bar + avg price line               | Granularity toggle, genre filter                                      |
+| Early Access           | Quarterly, EA % bar                                  | Granularity toggle, EA count bar + EA/non-EA sentiment lines          |
+| Platform & Deck        | Quarterly, Mac/Linux + Deck Verified % lines         | Granularity toggle, genre filter, full Deck breakdown (Play/Unsup)    |
+| Engagement Depth       | Yearly, all genres, playtime band areas              | Granularity toggle, genre filter                                      |
+| Feature Adoption       | Yearly, top 4 categories                             | Granularity toggle, all 8 categories                                  |
 
 ### Implementation pattern
 
@@ -961,50 +961,55 @@ The page has a **shared control bar** at the top and **9 chart sections** below.
 - Controls apply to all charts simultaneously. Changing a control re-fetches all charts.
 - Free users see the control bar blurred with a "Customize with Pro →" CTA overlay
   (see free/pro pattern above). Free users always see monthly granularity, all genres.
+- **Only granularity + genre live in the shared bar.** Per-chart Pro controls
+  (tag filter, type selector, top-N) render in the respective card headers.
 
 **Chart sections** (each in a shadcn `Card`):
 
-1. **Release Volume** — `BarChart` (Recharts)
+1. **Release Volume** — `TrendBarChart` (Recharts `BarChart` / `ComposedChart`)
    - X: time period, Y: release count
-   - Summary stat cards above: total releases, avg per period, trend arrow
-   - **Pro extra:** overlay line for avg sentiment on secondary Y axis
+   - Summary stat line above: total releases, avg per period, trend direction
+   - Free: bars + 3-period moving average trend line (grey)
+   - **Pro extras:** avg sentiment overlay line (amber) on secondary Y axis;
+     tag + type dropdowns in card header (scoped to this chart)
 
-2. **Sentiment Distribution** — `StackedAreaChart` (Recharts), normalized to 100%
-   - X: time period, Y: percentage (0–100%)
+2. **Sentiment Distribution** — `TrendStackedArea` (Recharts `AreaChart`)
+   - X: time period, Y: percentage (0–100%), pre-computed normalized values
    - Three stacked areas: Positive (green), Mixed (amber), Negative (red)
    - Tooltip shows counts + percentages
    - **Pro extra:** toggle between normalized % view and raw count view;
-     Metacritic overlay line (dashed, purple) showing avg professional score per period
+     Metacritic overlay line (indigo) on secondary Y axis
 
-3. **Genre Share** — `StackedAreaChart` (Recharts), normalized to 100%
+3. **Genre Share** — `TrendStackedArea` (Recharts `AreaChart`)
    - X: time period, Y: percentage share (0–100%)
    - One area per top genre, "Other" at bottom; legend with genre colors
    - Free: top 5 genres, yearly granularity (unaffected by control bar genre filter)
-   - **Pro extra:** granularity toggle; choose top N genres (5/10/15) via dropdown
+   - **Pro extra:** granularity toggle (week/month map to quarter);
+     choose top N genres (5/10/15) via radio buttons in card header
 
-4. **Review Velocity** — `StackedBarChart` (Recharts)
+4. **Review Velocity** — `TrendStackedBarChart` (Recharts `BarChart`)
    - X: time period, Y: game count per velocity band
    - Four stacked bars: <1/day (grey), 1–10/day (blue), 10–50/day (teal), 50+/day (green)
    - **Pro extra:** genre filter via shared control bar
 
-5. **Pricing Trends** — `ComposedChart` (Recharts)
-   - Line: avg paid price over time (left Y axis)
-   - Free: price line only
-   - **Pro extra:** overlay bar or area for free-to-play % (right Y axis)
+5. **Pricing Trends** — `TrendComposed` (Recharts `ComposedChart`)
+   - Bar: free-to-play % (left Y axis); Line: avg paid price (right Y axis)
+   - Free: quarterly granularity, bar + line combo (both always visible)
+   - **Pro extra:** granularity toggle, genre filter
 
-6. **Early Access Trends** — `ComposedChart` (Recharts)
-   - Bar: EA game count per period; line: EA % of total releases
-   - Free: EA count + EA % line only
-   - **Pro extra:** two additional lines — EA avg sentiment vs non-EA avg sentiment
+6. **Early Access Trends** — `TrendComposed` (Recharts `ComposedChart`)
+   - Free: quarterly granularity, EA % as bar only
+   - **Pro extra:** granularity toggle; switches to EA count bar +
+     EA % line + EA avg sentiment + non-EA avg sentiment lines
 
-7. **Platform & Steam Deck** — `ComposedChart` (Recharts)
-   - Lines: Mac support % and Linux support % over time
+7. **Platform & Steam Deck** — `TrendComposed` (Recharts `ComposedChart`)
+   - Lines: Mac support %, Linux support %, Deck Verified %
    - Tooltip shows raw counts + percentages
-   - Free: Mac/Linux support % lines only
-   - **Pro extra:** Deck verification breakdown (Verified/Playable/Unsupported stacked
-     area or additional lines), genre filter
+   - Free: quarterly granularity, Mac/Linux/Deck Verified % lines
+   - **Pro extra:** granularity toggle, genre filter;
+     full Deck breakdown adds Playable % + Unsupported % lines
 
-8. **Engagement Depth** — `StackedAreaChart` (Recharts), normalized to 100%
+8. **Engagement Depth** — `TrendStackedArea` (Recharts `AreaChart`)
    - X: time period, Y: percentage of reviews by playtime band
    - Five stacked areas: <2h (red), 2–10h (amber), 10–50h (blue), 50–200h (teal), 200h+ (green)
    - Tooltip shows "X% of reviews from players with Y hours"
@@ -1013,7 +1018,7 @@ The page has a **shared control bar** at the top and **9 chart sections** below.
    - **Empty state:** if precomputed data is not yet available, show "Engagement data
      is being computed — check back soon" instead of the chart
 
-9. **Feature Adoption** — `TrendStackedArea` or multi-line chart (Recharts)
+9. **Feature Adoption** — `TrendComposed` (Recharts `ComposedChart`)
    - X: time period, Y: adoption % (0–100%)
    - One line per category (e.g., Multiplayer, Co-op, Workshop, VR, Controller, Cloud)
    - Free: top 4 categories, yearly

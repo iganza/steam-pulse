@@ -132,3 +132,125 @@ export const MOCK_BENCHMARKS = {
   popularity_rank: 0.45,
   cohort_size: 312,
 }
+
+// Analytics trend mock data
+
+const PERIODS_MONTHLY = ['2024-01', '2024-02', '2024-03', '2024-04', '2024-05', '2024-06']
+
+// Releases: 100, 110, 120, 130, 140, 150 → total=750, avg=125
+export const MOCK_RELEASE_VOLUME = {
+  granularity: 'month',
+  filter: {},
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    releases: 100 + i * 10,
+    avg_sentiment: 70.0 + i * 1,  // 0–100 scale (AVG of games.positive_pct)
+    avg_reviews: 45 + i * 2,
+    free_count: 20 + i,
+  })),
+  summary: { total_releases: 750, avg_per_period: 125, trend: 'increasing' },
+}
+
+export const MOCK_SENTIMENT_DIST = {
+  granularity: 'month',
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total: 100,
+    positive_count: 60 + i,
+    mixed_count: 20,
+    negative_count: 20 - i,
+    positive_pct: 60 + i,
+    avg_sentiment: 72.0 + i,
+    avg_metacritic: 72.0,
+  })),
+}
+
+export const MOCK_GENRE_SHARE = {
+  granularity: 'year',
+  genres: ['Action', 'Indie', 'RPG', 'Strategy', 'Other'],
+  periods: PERIODS_MONTHLY.map((period) => ({
+    period,
+    total: 100,
+    // Backend returns 0–1 fractions (round(count/total, 2))
+    shares: { Action: 0.30, Indie: 0.25, RPG: 0.20, Strategy: 0.15, Other: 0.10 },
+  })),
+}
+
+export const MOCK_VELOCITY_DIST = {
+  granularity: 'month',
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total: 100 + i,
+    velocity_under_1: 50 + i,
+    velocity_1_10: 30,
+    velocity_10_50: 15,
+    velocity_50_plus: 5,
+  })),
+}
+
+export const MOCK_PRICING = {
+  granularity: 'quarter',
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total: 100 + i * 10,
+    avg_paid_price: 12.5 + i * 0.5,
+    avg_price_incl_free: 10.0 + i * 0.3,
+    free_count: 20 + i,
+    free_pct: 20 - i,
+  })),
+}
+
+export const MOCK_EARLY_ACCESS = {
+  granularity: 'quarter',
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total_releases: 200 + i * 10,
+    ea_count: 30 + i,
+    ea_pct: 15 + i * 0.5,
+    ea_avg_sentiment: 65.0,   // 0–100 scale (AVG of games.positive_pct)
+    non_ea_avg_sentiment: 72.0,
+  })),
+}
+
+export const MOCK_PLATFORMS = {
+  granularity: 'quarter',
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total: 100 + i * 10,
+    mac_pct: 12 + i * 0.2,
+    linux_pct: 8 + i * 0.1,
+    deck_verified_pct: 20 + i,
+    deck_playable_pct: 35 + i,
+    deck_unsupported_pct: 10 + i,
+  })),
+}
+
+export const MOCK_ENGAGEMENT = {
+  granularity: 'year',
+  data_available: true,
+  periods: PERIODS_MONTHLY.map((period) => ({
+    period,
+    total_reviews: 500,
+    playtime_under_2h_pct: 15,
+    playtime_2_10h_pct: 25,
+    playtime_10_50h_pct: 35,
+    playtime_50_200h_pct: 18,
+    playtime_200h_plus_pct: 7,
+  })),
+}
+
+export const MOCK_ENGAGEMENT_UNAVAILABLE = {
+  granularity: 'year',
+  data_available: false,
+  periods: [],
+}
+
+export const MOCK_CATEGORIES = {
+  granularity: 'year',
+  categories: ['VR Supported', 'Co-op', 'Full controller support'],
+  periods: PERIODS_MONTHLY.map((period, i) => ({
+    period,
+    total: 100 + i,
+    adoption: { 'VR Supported': 0.05, 'Co-op': 0.35, 'Full controller support': 0.60 },
+  })),
+}

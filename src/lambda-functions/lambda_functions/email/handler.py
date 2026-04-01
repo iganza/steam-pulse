@@ -44,14 +44,35 @@ def _handle_waitlist_confirmation(email: str) -> None:
 
 @logger.inject_lambda_context(clear_state=True)
 @tracer.capture_lambda_handler
-def handler(event: dict, context: LambdaContext) -> None:
-    for record in event.get("Records", []):
-        body_raw = json.loads(record["body"])
-        msg_type = body_raw.get("message_type", "")
+def handler(event: dict, context: LambdaContext) -> dict:
+    """Process SQS email queue records with partial-batch failure reporting.
 
-        match msg_type:
-            case "waitlist_confirmation":
-                msg = WaitlistConfirmationMessage.model_validate(body_raw)
-                _handle_waitlist_confirmation(msg.email)
-            case _:
-                logger.warning("Unknown SQS message type — dropping", extra={"message_type": msg_type})
+    Returns a batchItemFailures structure so that only records that raise
+    exceptions are retried. Unknown message types are dropped without retry.
+    """
+    batch_item_failures: list[dict[str, str]] = []
+
+    for record in event.get("Records", []):
+        try:
+            body_raw = json.loads(record["body"])
+            msg_type = body_raw.get("message_type", "")
+
+            match msg_type:
+                case "waitlist_confirmation":
+                    msg = WaitlistConfirmationMessage.model_validate(body_raw)
+                    _handle_waitlist_confirmation(msg.email)
+                case _:
+                    logger.warning(
+                        "Unknown SQS message type — dropping",
+                        extra={"message_type": msg_type},
+                    )
+        except Exception:
+            logger.exception(
+                "Failed to process SQS record",
+                extra={"message_id": record.get("messageId")},
+            )
+            message_id = record.get("messageId")
+            if message_id:
+                batch_item_failures.append({"itemIdentifier": message_id})
+
+    return {"batchItemFailures": batch_item_failures}

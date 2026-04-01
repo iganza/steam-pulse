@@ -449,20 +449,26 @@ async def get_developer_analytics(slug: str) -> dict:
 @app.post("/api/waitlist")
 async def join_waitlist(body: WaitlistRequest) -> dict:
     """Add an email to the waitlist and enqueue a confirmation email."""
-    inserted = _waitlist_repo.add(body.email)
+    normalized_email = body.email.strip().lower()
+    inserted = _waitlist_repo.add(normalized_email)
     if not inserted:
         # Already on the waitlist — return 200 so the UI shows success.
         return {"status": "already_registered"}
 
     if _email_queue_url:
-        msg = WaitlistConfirmationMessage(email=body.email)
-        _sqs_client.send_message(
-            QueueUrl=_email_queue_url,
-            MessageBody=msg.model_dump_json(),
-        )
-        logger.info("Waitlist confirmation queued", extra={"email": body.email})
+        msg = WaitlistConfirmationMessage(email=normalized_email)
+        try:
+            _sqs_client.send_message(
+                QueueUrl=_email_queue_url,
+                MessageBody=msg.model_dump_json(),
+            )
+            logger.info("Waitlist confirmation queued", extra={"email": normalized_email})
+        except Exception:
+            # SQS failure must not return 500 — email is already registered.
+            # Confirmation will be missing but the signup succeeded.
+            logger.exception("Failed to enqueue waitlist confirmation", extra={"email": normalized_email})
     else:
-        logger.warning("EMAIL_QUEUE_URL not set — skipping confirmation email", extra={"email": body.email})
+        logger.warning("EMAIL_QUEUE_URL not set — skipping confirmation email", extra={"email": normalized_email})
 
     return {"status": "registered"}
 

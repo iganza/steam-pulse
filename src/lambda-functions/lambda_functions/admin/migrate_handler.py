@@ -7,7 +7,9 @@ Reserved concurrency: 1 (set in CDK) so migrations never run concurrently.
 
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+import psycopg2
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.utils.db import get_db_url
@@ -16,9 +18,19 @@ from yoyo.exceptions import BadMigration
 
 logger = Logger(service="migration")
 
+
+def _add_connect_timeout(url: str, timeout: int = 30) -> str:
+    """Merge connect_timeout into the DB URL without duplicating query params."""
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    params["connect_timeout"] = [str(timeout)]
+    new_query = urlencode({k: v[0] for k, v in params.items()})
+    return urlunparse(parsed._replace(query=new_query))
+
+
 # Resolve DB URL at cold start — fails loud if DB_SECRET_NAME / DATABASE_URL missing.
 # connect_timeout=30 gives Aurora Serverless v2 time to wake from 0 ACU.
-_db_url: str = get_db_url() + "?connect_timeout=30"
+_db_url: str = _add_connect_timeout(get_db_url())
 
 # migrations/ lives at the root of the Lambda bundle (/var/task/migrations/ at runtime).
 _MIGRATIONS_DIR: str = str(Path(__file__).parent.parent.parent / "migrations")
@@ -45,7 +57,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
             applied = [m.id for m in pending]
             logger.info("Migrations applied", extra={"applied": applied})
             return {"status": "ok", "applied": applied, "count": len(applied)}
-        except (OSError, BadMigration) as exc:
+        except (OSError, psycopg2.OperationalError, BadMigration) as exc:
             last_err = exc
             if attempt < _MAX_RETRIES:
                 logger.warning(

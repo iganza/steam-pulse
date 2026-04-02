@@ -425,9 +425,9 @@ export interface DeveloperGame {
   release_date: string | null;
   price_usd: number | null;
   is_free: boolean;
-  review_count: number;
-  positive_pct: number;
-  review_score_desc: string;
+  review_count: number | null;
+  positive_pct: number | null;
+  review_score_desc: string | null;
   metacritic_score: number | null;
   achievements_total: number | null;
 }

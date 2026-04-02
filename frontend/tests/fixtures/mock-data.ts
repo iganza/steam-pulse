@@ -417,6 +417,20 @@ export const MOCK_DEVELOPER_PORTFOLIO = {
       review_count: 8500000, positive_pct: 82, review_score_desc: 'Very Positive',
       metacritic_score: null, achievements_total: 168,
     },
+    {
+      appid: 440, name: 'Team Fortress 2', slug: 'team-fortress-2-440',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
+      release_date: '2007-10-10', price_usd: null, is_free: true,
+      review_count: 1000000, positive_pct: 92, review_score_desc: 'Overwhelmingly Positive',
+      metacritic_score: 92, achievements_total: 520,
+    },
+    {
+      appid: 570, name: 'Dota 2', slug: 'dota-2-570',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+      release_date: '2013-07-09', price_usd: null, is_free: true,
+      review_count: 2000000, positive_pct: 81, review_score_desc: 'Very Positive',
+      metacritic_score: 90, achievements_total: null,
+    },
   ],
 }
 

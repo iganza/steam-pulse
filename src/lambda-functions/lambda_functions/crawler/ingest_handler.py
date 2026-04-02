@@ -116,7 +116,7 @@ def _ingest_record(record: dict) -> None:
 
 def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not msg.success:
-        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     appid = msg.appid
@@ -138,12 +138,11 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
 
 
 def _handle_tags(msg: TagsSpokeResult) -> None:
-    if not msg.success:
-        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
-        return
-
     if not msg.s3_key:
-        logger.info("Tags: no s3_key (no tags found)", extra={"appid": msg.appid})
+        if msg.success:
+            logger.warning("No SteamSpy data available", extra={"appid": msg.appid})
+        else:
+            logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
@@ -167,7 +166,7 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
 
 def _handle_reviews(msg: ReviewSpokeResult) -> None:
     if not msg.success:
-        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     appid = msg.appid

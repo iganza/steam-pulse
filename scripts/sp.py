@@ -608,9 +608,7 @@ def cmd_queue(
         _info(f"  max_reviews={max_reviews}")
 
     def _make_body(appid: int) -> dict:
-        body: dict = {"appid": appid}
-        if task == "tags":
-            body["task"] = "tags"
+        body: dict = {"appid": appid, "task": task}
         if task == "reviews" and max_reviews is not None:
             body["max_reviews"] = max_reviews
         return body

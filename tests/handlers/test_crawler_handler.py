@@ -125,11 +125,13 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     from lambda_functions.crawler.handler import handler
 
     event = {
-        "Records": [{
-            "messageId": "m1",
-            "body": json.dumps({"appid": 440}),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m1",
+                "body": json.dumps({"appid": 440, "task": "metadata"}),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 
@@ -157,11 +159,13 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     from lambda_functions.crawler.handler import handler
 
     event = {
-        "Records": [{
-            "messageId": "m2",
-            "body": json.dumps({"appid": 730}),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m2",
+                "body": json.dumps({"appid": 730, "task": "reviews"}),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 
@@ -194,15 +198,17 @@ def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
         "Type": "Notification",
         "MessageId": "abc-123",
         "TopicArn": "arn:aws:sns:us-east-1:123456789012:game-events",
-        "Message": json.dumps({"appid": 570}),
+        "Message": json.dumps({"appid": 570, "task": "metadata"}),
         "Timestamp": "2026-03-20T00:00:00.000Z",
     }
     event = {
-        "Records": [{
-            "messageId": "m3",
-            "body": json.dumps(sns_envelope),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m3",
+                "body": json.dumps(sns_envelope),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 
@@ -229,11 +235,15 @@ def test_review_dispatch_normalizes_null_cursor_to_fresh_start(lambda_context: A
     from lambda_functions.crawler.handler import handler
 
     event = {
-        "Records": [{
-            "messageId": "m4",
-            "body": json.dumps({"appid": 730, "cursor": None, "target": 5000}),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m4",
+                "body": json.dumps(
+                    {"appid": 730, "task": "reviews", "cursor": None, "target": 5000}
+                ),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 
@@ -260,11 +270,13 @@ def test_review_dispatch_defaults_target_when_missing(lambda_context: Any) -> No
 
     # Continuing message (has cursor) but no target field
     event = {
-        "Records": [{
-            "messageId": "m5",
-            "body": json.dumps({"appid": 730, "cursor": "AoJ4sometoken"}),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m5",
+                "body": json.dumps({"appid": 730, "task": "reviews", "cursor": "AoJ4sometoken"}),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 
@@ -290,11 +302,15 @@ def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
     from lambda_functions.crawler.handler import handler
 
     event = {
-        "Records": [{
-            "messageId": "m6",
-            "body": json.dumps({"appid": 730, "cursor": "AoJ4sometoken", "target": 0}),
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
-        }],
+        "Records": [
+            {
+                "messageId": "m6",
+                "body": json.dumps(
+                    {"appid": 730, "task": "reviews", "cursor": "AoJ4sometoken", "target": 0}
+                ),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+            }
+        ],
     }
     handler(event, lambda_context)
 

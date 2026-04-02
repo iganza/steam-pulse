@@ -249,6 +249,7 @@ def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any)
     # target becomes remaining = 10000 - 1000 = 9000 to prevent overshoot on the final batch
     assert sent_body == {
         "appid": 440,
+        "task": "reviews",
         "cursor": "cursor_abc",
         "target": 9000,
         "started_at": "2026-03-26T12:00:00+00:00",

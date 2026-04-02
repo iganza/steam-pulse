@@ -145,56 +145,46 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
-
-    # Task routing: explicit "task" field in body takes priority (used by backfill),
-    # otherwise infer from which SQS queue the message came from.
-    source_arn = record.get("eventSourceARN", "")
-    if "task" in body:
-        task: CrawlTask = body["task"]
-    elif "review-crawl" in source_arn:
-        task = "reviews"
-    else:
-        task = "metadata"
+    task: CrawlTask = body["task"]
     logger.append_keys(appid=appid, task=task)
 
-    if task == "tags":
-        req: MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest = TagsSpokeRequest(
-            appid=appid
-        )
-    elif task == "reviews":
-        # Cursor and target travel in the SQS message body — no DB reads needed.
-        # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
-        # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
-        # Normalize cursor: treat missing, null, and empty string all as fresh start.
-        cursor: str = body.get("cursor") or "*"
-        started_at: str | datetime = body.get("started_at") or datetime.now(tz=UTC)
+    match task:
+        case "tags":
+            req = TagsSpokeRequest(appid=appid)
+        case "reviews":
+            # Cursor and target travel in the SQS message body — no DB reads needed.
+            # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
+            # Normalize cursor: treat missing, null, and empty string all as fresh start.
+            cursor: str = body.get("cursor") or "*"
+            started_at: str | datetime = body.get("started_at") or datetime.now(tz=UTC)
 
-        target_raw: int | None = body.get("target")
-        if target_raw is None:
-            # Fresh-start or missing target — apply configured default limit.
-            target: int = _crawler_config.REVIEW_LIMIT
-        elif target_raw <= 0:
-            # Remaining budget is zero — nothing left to fetch; skip dispatch.
-            logger.info("review crawl budget exhausted — skipping dispatch", extra={"appid": appid})
-            return
-        else:
-            target = target_raw
+            target_raw: int | None = body.get("target")
+            if target_raw is None:
+                target: int = _crawler_config.REVIEW_LIMIT
+            elif target_raw <= 0:
+                logger.info(
+                    "review crawl budget exhausted — skipping dispatch", extra={"appid": appid}
+                )
+                return
+            else:
+                target = target_raw
 
-        if cursor == "*":
-            logger.info("reviews fresh start", extra={"appid": appid, "target": target})
-        else:
-            logger.info(
-                "reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target}
+            if cursor == "*":
+                logger.info("reviews fresh start", extra={"appid": appid, "target": target})
+            else:
+                logger.info(
+                    "reviews continuing",
+                    extra={"appid": appid, "cursor": cursor, "target": target},
+                )
+
+            req = ReviewSpokeRequest(
+                appid=appid,
+                cursor=cursor,
+                target=target,
+                started_at=started_at,
             )
-
-        req = ReviewSpokeRequest(
-            appid=appid,
-            cursor=cursor,
-            target=target,
-            started_at=started_at,
-        )
-    else:
-        req = MetadataSpokeRequest(appid=appid)
+        case _:
+            req = MetadataSpokeRequest(appid=appid)
 
     # Deterministic: same appid always hits the same spoke, spreading load
     # evenly and ensuring retries go to the same region.

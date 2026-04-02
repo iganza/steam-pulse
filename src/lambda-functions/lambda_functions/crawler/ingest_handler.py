@@ -262,6 +262,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             MessageBody=json.dumps(
                 {
                     "appid": appid,
+                    "task": "reviews",
                     "cursor": msg.next_cursor,
                     "target": new_remaining,
                     "started_at": msg.started_at.isoformat() if msg.started_at else None,

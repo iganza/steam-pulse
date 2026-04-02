@@ -359,14 +359,6 @@ class CrawlService:
 
         self._game_repo.upsert(game_data)
 
-        tag_items = genres + categories
-        self._tag_repo.upsert_tags(
-            [
-                {"appid": appid, "name": item.get("description") or "", "votes": 0}
-                for item in tag_items
-                if item.get("description")
-            ]
-        )
         self._tag_repo.upsert_genres(appid, genres)
         self._tag_repo.upsert_categories(appid, categories)
 

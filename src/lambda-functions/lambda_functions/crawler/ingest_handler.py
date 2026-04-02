@@ -26,11 +26,12 @@ from aws_lambda_powertools.utilities.batch import (
 )
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from lambda_functions.crawler.events import MetadataSpokeResult, ReviewSpokeResult
+from lambda_functions.crawler.events import MetadataSpokeResult, ReviewSpokeResult, TagsSpokeResult
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.steamspy_repo import SteamspyRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
@@ -61,6 +62,8 @@ _content_events_topic_arn = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAM
 
 _catalog_repo = CatalogRepository(_conn)
 _review_repo = ReviewRepository(_conn)
+_tag_repo = TagRepository(_conn)
+_steamspy_repo = SteamspyRepository(_conn)
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -104,6 +107,9 @@ def _ingest_record(record: dict) -> None:
     elif task == "reviews":
         msg = ReviewSpokeResult.model_validate(body)
         _handle_reviews(msg)
+    elif task == "tags":
+        msg = TagsSpokeResult.model_validate(body)
+        _handle_tags(msg)
     else:
         raise ValueError(f"Unknown task: {task}")
 
@@ -131,6 +137,34 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)
 
 
+def _handle_tags(msg: TagsSpokeResult) -> None:
+    if not msg.success:
+        logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        return
+
+    if not msg.s3_key:
+        logger.info("Tags: no s3_key (no tags found)", extra={"appid": msg.appid})
+        return
+
+    response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
+    data = json.loads(gzip.decompress(response["Body"].read()))
+
+    tags = data.get("tags") or []
+    if tags:
+        _tag_repo.upsert_tags(
+            [{"appid": msg.appid, "name": t["name"], "votes": t["votes"]} for t in tags]
+        )
+        logger.info("Tags upserted", extra={"appid": msg.appid, "count": len(tags)})
+
+    steamspy = data.get("steamspy") or {}
+    if steamspy:
+        _steamspy_repo.upsert(msg.appid, steamspy)
+        logger.info("SteamSpy data upserted", extra={"appid": msg.appid})
+
+    metrics.add_metric(name="TagsIngested", unit=MetricUnit.Count, value=len(tags))
+    _s3.delete_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
+
+
 def _handle_reviews(msg: ReviewSpokeResult) -> None:
     if not msg.success:
         logger.info("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
@@ -138,7 +172,10 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
 
     appid = msg.appid
     s3_key = msg.s3_key
-    logger.info("Ingesting reviews", extra={"appid": appid, "count": msg.count, "next_cursor": msg.next_cursor})
+    logger.info(
+        "Ingesting reviews",
+        extra={"appid": appid, "count": msg.count, "next_cursor": msg.next_cursor},
+    )
 
     if not s3_key:
         raise ValueError(f"success=True but s3_key missing: task=reviews appid={appid}")
@@ -177,9 +214,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # posted *during* this crawl are not skipped on the next re-crawl.
         # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
         # we have every review up to this moment).
-        boundary = (
-            datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
-        )
+        boundary = datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
         _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
         if early_stop:
             logger.info(
@@ -189,7 +224,11 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
                     "reason": "early_stop",
                     "total": total_fetched,
                     "batch_count": msg.count,
-                    "min_batch_ts": datetime.fromtimestamp(min_batch_ts, tz=timezone.utc).isoformat() if min_batch_ts else None,
+                    "min_batch_ts": datetime.fromtimestamp(
+                        min_batch_ts, tz=timezone.utc
+                    ).isoformat()
+                    if min_batch_ts
+                    else None,
                     "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
                 },
             )
@@ -208,21 +247,36 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         _catalog_repo.mark_reviews_complete(appid, completed_at=None)
         logger.info(
             "Reviews complete",
-            extra={"appid": appid, "reason": "target_hit", "batch_count": msg.count, "target": msg.target},
+            extra={
+                "appid": appid,
+                "reason": "target_hit",
+                "batch_count": msg.count,
+                "target": msg.target,
+            },
         )
     else:
         # More to fetch — re-queue with cursor and decremented remaining budget.
         new_remaining = msg.target - msg.count if msg.target is not None else None
         _sqs.send_message(
             QueueUrl=_review_crawl_queue_url,
-            MessageBody=json.dumps({
-                "appid": appid,
-                "cursor": msg.next_cursor,
-                "target": new_remaining,
-                "started_at": msg.started_at.isoformat() if msg.started_at else None,
-            }),
+            MessageBody=json.dumps(
+                {
+                    "appid": appid,
+                    "cursor": msg.next_cursor,
+                    "target": new_remaining,
+                    "started_at": msg.started_at.isoformat() if msg.started_at else None,
+                }
+            ),
         )
-        logger.info("Re-queued for next batch", extra={"appid": appid, "total_so_far": total_fetched, "remaining": new_remaining, "cursor": msg.next_cursor})
+        logger.info(
+            "Re-queued for next batch",
+            extra={
+                "appid": appid,
+                "total_so_far": total_fetched,
+                "remaining": new_remaining,
+                "cursor": msg.next_cursor,
+            },
+        )
 
     # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

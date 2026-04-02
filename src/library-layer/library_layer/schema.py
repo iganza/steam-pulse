@@ -183,6 +183,26 @@ TABLES: tuple[str, ...] = (
         created_at  TIMESTAMPTZ DEFAULT NOW()
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS steamspy_data (
+        appid             INTEGER PRIMARY KEY REFERENCES games(appid),
+        score_rank        TEXT,
+        positive          INTEGER,
+        negative          INTEGER,
+        userscore         INTEGER,
+        owners            TEXT,
+        average_forever   INTEGER,
+        average_2weeks    INTEGER,
+        median_forever    INTEGER,
+        median_2weeks     INTEGER,
+        price             INTEGER,
+        initialprice      INTEGER,
+        discount          INTEGER,
+        ccu               INTEGER,
+        languages         TEXT,
+        upserted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
     # Legacy table — kept for CLI backward compatibility
     """
     CREATE TABLE IF NOT EXISTS review_summaries (

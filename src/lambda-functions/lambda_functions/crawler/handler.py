@@ -27,6 +27,7 @@ from library_layer.utils.steam_metrics import make_steam_metrics_callback
 from pydantic import TypeAdapter, ValidationError
 
 from .events import (
+    BackfillTagsRequest,
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
@@ -34,6 +35,7 @@ from .events import (
     DirectRequest,
     MetadataSpokeRequest,
     ReviewSpokeRequest,
+    TagsSpokeRequest,
 )
 
 logger = Logger(service="crawler")
@@ -134,6 +136,35 @@ def _extract_payload(record_body: str) -> dict:
     if "Type" in body and body["Type"] == "Notification":
         return json.loads(body["Message"])
     return body
+
+
+def _get_backfill_appids(limit: int | None) -> list[int]:
+    """Fetch all game appids ordered by review count (most reviewed first)."""
+    sql = "SELECT appid FROM games WHERE type = 'game' ORDER BY review_count DESC NULLS LAST"
+    if limit:
+        sql += f" LIMIT {limit}"
+    with _conn.cursor() as cur:
+        cur.execute(sql)
+        return [row[0] for row in cur.fetchall()]
+
+
+def _dispatch_tags_to_spoke(appid: int) -> None:
+    """Send a TagsSpokeRequest to the deterministic spoke for this appid."""
+    if not _spoke_targets:
+        raise RuntimeError("No spoke targets configured — cannot dispatch tags")
+
+    req = TagsSpokeRequest(appid=appid)
+    idx = appid % len(_spoke_targets)
+    fn_name, client = _spoke_targets[idx]
+
+    response = client.invoke(
+        FunctionName=fn_name,
+        InvocationType="Event",
+        Payload=req.model_dump_json().encode(),
+    )
+    status = response["StatusCode"]
+    if status != 202:
+        raise RuntimeError(f"Spoke async invoke failed for tags appid={appid}: HTTP {status}")
 
 
 def _dispatch_to_spoke(record: dict) -> None:
@@ -250,6 +281,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
                 metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
                 return result
+            case BackfillTagsRequest():
+                appids = _get_backfill_appids(req.limit)
+                logger.info("Backfill tags starting", extra={"count": len(appids), "limit": req.limit})
+                for appid in appids:
+                    _dispatch_tags_to_spoke(appid)
+                metrics.add_metric(name="TagsBackfillDispatched", unit=MetricUnit.Count, value=len(appids))
+                return {"queued": len(appids)}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

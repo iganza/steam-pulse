@@ -25,38 +25,48 @@ class CatalogRefreshRequest(BaseModel):
     action: Literal["catalog_refresh"]
 
 
+class BackfillTagsRequest(BaseModel):
+    action: Literal["backfill_tags"] = "backfill_tags"
+    limit: int | None = None
+
+
 DirectRequest = Annotated[
-    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest,
+    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest | BackfillTagsRequest,
     Field(discriminator="action"),
 ]
 
 
 # ── Spoke payload contracts ─────────────────────────────────────────────────
 
-CrawlTask = Literal["metadata", "reviews"]
+CrawlTask = Literal["metadata", "reviews", "tags"]
 
 
 # ── Spoke request models (Primary → Spoke) ──────────────────────────────────
 
+
 class MetadataSpokeRequest(BaseModel):
     """Primary → Spoke: async Lambda invoke payload for metadata crawl."""
+
     appid: int
     task: CrawlTask = "metadata"
 
 
 class ReviewSpokeRequest(BaseModel):
     """Primary → Spoke: async Lambda invoke payload for review crawl."""
+
     appid: int
     task: CrawlTask = "reviews"
     cursor: str = "*"
-    target: int | None = None           # remaining reviews to fetch in this chain
+    target: int | None = None  # remaining reviews to fetch in this chain
     started_at: datetime | None = None  # when this crawl began (observability)
 
 
 # ── Spoke result models (Spoke → Ingest via SQS) ────────────────────────────
 
+
 class MetadataSpokeResult(BaseModel):
     """Spoke → Primary: SQS message body for completed metadata fetch."""
+
     appid: int
     task: CrawlTask = "metadata"
     success: bool
@@ -68,6 +78,7 @@ class MetadataSpokeResult(BaseModel):
 
 class ReviewSpokeResult(BaseModel):
     """Spoke → Primary: SQS message body for completed review batch fetch."""
+
     appid: int
     task: CrawlTask = "reviews"
     success: bool
@@ -75,13 +86,33 @@ class ReviewSpokeResult(BaseModel):
     count: int = 0
     spoke_region: str
     next_cursor: str | None = None  # None = Steam exhausted; non-None = more pages remain
-    target: int | None = None           # remaining reviews to fetch (pass-through, decremented per hop)
+    target: int | None = None  # remaining reviews to fetch (pass-through, decremented per hop)
     started_at: datetime | None = None  # Pass-through from ReviewSpokeRequest
+    error: str | None = None
+
+
+class TagsSpokeRequest(BaseModel):
+    """Primary → Spoke: async Lambda invoke payload for tags crawl."""
+
+    appid: int
+    task: CrawlTask = "tags"
+
+
+class TagsSpokeResult(BaseModel):
+    """Spoke → Primary: SQS message body for completed tags fetch."""
+
+    appid: int
+    task: CrawlTask = "tags"
+    success: bool
+    s3_key: str | None = None
+    count: int = 0
+    spoke_region: str
     error: str | None = None
 
 
 class SpokeResponse(BaseModel):
     """Spoke Lambda return value (logged by Lambda, useful for debugging)."""
+
     appid: int
     task: CrawlTask
     success: bool

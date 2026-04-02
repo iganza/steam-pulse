@@ -35,6 +35,15 @@ class TagRepository(BaseRepository):
         if not valid_items:
             return
 
+        # Deduplicate slugs — two different names can slugify to the same string
+        slug_counts: dict[str, int] = {}
+        deduped_rows: list[tuple[str, str]] = []
+        for name, slug in tag_rows:
+            count = slug_counts.get(slug, 0)
+            slug_counts[slug] = count + 1
+            deduped_rows.append((name, f"{slug}-{count}" if count > 0 else slug))
+        tag_rows = deduped_rows
+
         with self.conn.cursor() as cur:
             # Bulk insert all tags (2 queries instead of N*3)
             from psycopg2.extras import execute_values

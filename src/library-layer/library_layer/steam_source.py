@@ -84,7 +84,10 @@ class SteamDataSource(ABC):
 
     @abstractmethod
     def get_steamspy_data(self, appid: int) -> dict:
-        """Returns full SteamSpy response dict, or {} on error."""
+        """Returns full SteamSpy response dict, or {} if no data available.
+
+        Raises SteamAPIError on HTTP failure.
+        """
 
 
 class DirectSteamSource(SteamDataSource):

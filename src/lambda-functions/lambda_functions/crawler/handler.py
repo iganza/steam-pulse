@@ -27,7 +27,6 @@ from library_layer.utils.steam_metrics import make_steam_metrics_callback
 from pydantic import TypeAdapter, ValidationError
 
 from .events import (
-    BackfillTagsRequest,
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
@@ -79,9 +78,9 @@ _assets_bucket_name = get_parameter(_crawler_config.ASSETS_BUCKET_PARAM_NAME)
 
 # Resolve Steam API key from Secrets Manager at cold start
 _sm = boto3.client("secretsmanager")
-_steam_api_key: str = _sm.get_secret_value(
-    SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
-)["SecretString"]
+_steam_api_key: str = _sm.get_secret_value(SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME)[
+    "SecretString"
+]
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -138,36 +137,6 @@ def _extract_payload(record_body: str) -> dict:
     return body
 
 
-def _get_backfill_appids(limit: int | None) -> list[int]:
-    """Fetch all game appids ordered by review count (most reviewed first)."""
-    sql = "SELECT appid FROM games WHERE type = 'game' ORDER BY review_count DESC NULLS LAST"
-    if limit:
-        sql += f" LIMIT {limit}"
-    with _conn.cursor() as cur:
-        cur.execute(sql)
-        return [row[0] for row in cur.fetchall()]
-
-
-def _enqueue_tags_backfill(appids: list[int]) -> int:
-    """Send tag backfill messages to app-crawl-queue in batches of 10."""
-    sent = 0
-    for i in range(0, len(appids), 10):
-        batch = appids[i : i + 10]
-        entries = [
-            {
-                "Id": str(j),
-                "MessageBody": json.dumps({"appid": appid, "task": "tags"}),
-            }
-            for j, appid in enumerate(batch)
-        ]
-        resp = _sqs.send_message_batch(QueueUrl=_app_crawl_queue_url, Entries=entries)
-        failed = resp.get("Failed", [])
-        if failed:
-            logger.warning("SQS batch send failed", extra={"failed": len(failed), "offset": i})
-        sent += len(batch) - len(failed)
-    return sent
-
-
 def _dispatch_to_spoke(record: dict) -> None:
     """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
 
@@ -189,7 +158,9 @@ def _dispatch_to_spoke(record: dict) -> None:
     logger.append_keys(appid=appid, task=task)
 
     if task == "tags":
-        req: MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest = TagsSpokeRequest(appid=appid)
+        req: MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest = TagsSpokeRequest(
+            appid=appid
+        )
     elif task == "reviews":
         # Cursor and target travel in the SQS message body — no DB reads needed.
         # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
@@ -212,7 +183,9 @@ def _dispatch_to_spoke(record: dict) -> None:
         if cursor == "*":
             logger.info("reviews fresh start", extra={"appid": appid, "target": target})
         else:
-            logger.info("reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target})
+            logger.info(
+                "reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target}
+            )
 
         req = ReviewSpokeRequest(
             appid=appid,
@@ -242,9 +215,7 @@ def _dispatch_to_spoke(record: dict) -> None:
     )
     status = response["StatusCode"]
     if status != 202:
-        raise RuntimeError(
-            f"Spoke async invoke failed for appid={appid}: HTTP {status}"
-        )
+        raise RuntimeError(f"Spoke async invoke failed for appid={appid}: HTTP {status}")
 
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
 
@@ -260,8 +231,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
-        metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
-        metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+        metrics.add_metric(
+            name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0)
+        )
+        metrics.add_metric(
+            name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0)
+        )
         return result
 
     # 2. Direct invocation (from web Lambda or manual)
@@ -277,7 +252,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 logger.append_keys(appid=req.appid, task="metadata")
                 ok = _crawl_service.crawl_app(req.appid)
                 logger.info("crawl_app complete", extra={"appid": req.appid, "success": ok})
-                metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
+                metrics.add_metric(
+                    name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0
+                )
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 logger.append_keys(appid=req.appid, task="reviews")
@@ -288,15 +265,17 @@ def handler(event: dict, context: LambdaContext) -> dict:
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
                 logger.info("catalog_refresh complete", extra={**result})
-                metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
-                metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+                metrics.add_metric(
+                    name="CatalogAppsDiscovered",
+                    unit=MetricUnit.Count,
+                    value=result.get("new_rows", 0),
+                )
+                metrics.add_metric(
+                    name="CatalogAppsEnqueued",
+                    unit=MetricUnit.Count,
+                    value=result.get("enqueued", 0),
+                )
                 return result
-            case BackfillTagsRequest():
-                appids = _get_backfill_appids(req.limit)
-                logger.info("Backfill tags starting", extra={"count": len(appids), "limit": req.limit})
-                sent = _enqueue_tags_backfill(appids)
-                metrics.add_metric(name="TagsBackfillDispatched", unit=MetricUnit.Count, value=sent)
-                return {"queued": sent}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

@@ -21,6 +21,8 @@ Usage:
   poetry run python scripts/sp.py queue reviews <appid...>    # publish to deployed review-crawl queue
   poetry run python scripts/sp.py queue metadata --all        # all pending from app_catalog
   poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
+  poetry run python scripts/sp.py queue tags <appid...>      # publish tag backfill for specific games
+  poetry run python scripts/sp.py queue tags --all           # all games for SteamSpy tag backfill
 
   poetry run python scripts/sp.py db init [--env staging|production]
   poetry run python scripts/sp.py db status [--env staging|production]
@@ -37,6 +39,7 @@ Requires:
   ANTHROPIC_API_KEY in .env  (analyze command)
   AWS credentials        (queue commands — publishes to deployed SQS)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -97,6 +100,7 @@ from library_layer.steam_source import DirectSteamSource  # noqa: E402
 try:
     from rich.console import Console
     from rich.table import Table
+
     _con = Console()
 
     def _table(headers: list[str], rows: list[list[str]]) -> None:
@@ -105,21 +109,36 @@ try:
             t.add_row(*[str(c) for c in row])
         _con.print(t)
 
-    def _info(msg: str) -> None: _con.print(f"[cyan]▶[/cyan] {msg}")
-    def _ok(msg: str) -> None:   _con.print(f"[green]✓[/green] {msg}")
-    def _warn(msg: str) -> None: _con.print(f"[yellow]⚠[/yellow]  {msg}")
-    def _err(msg: str) -> None:  _con.print(f"[red]✗[/red] {msg}")
+    def _info(msg: str) -> None:
+        _con.print(f"[cyan]▶[/cyan] {msg}")
+
+    def _ok(msg: str) -> None:
+        _con.print(f"[green]✓[/green] {msg}")
+
+    def _warn(msg: str) -> None:
+        _con.print(f"[yellow]⚠[/yellow]  {msg}")
+
+    def _err(msg: str) -> None:
+        _con.print(f"[red]✗[/red] {msg}")
 
 except ImportError:
+
     def _table(headers: list[str], rows: list[list[str]]) -> None:
         print("  ".join(f"{h:<20}" for h in headers))
         for row in rows:
             print("  ".join(f"{c:<20}" for c in row))
 
-    def _info(msg: str) -> None: print(f"▶ {msg}")
-    def _ok(msg: str) -> None:   print(f"✓ {msg}")
-    def _warn(msg: str) -> None: print(f"⚠  {msg}")
-    def _err(msg: str) -> None:  print(f"✗ {msg}", file=sys.stderr)
+    def _info(msg: str) -> None:
+        print(f"▶ {msg}")
+
+    def _ok(msg: str) -> None:
+        print(f"✓ {msg}")
+
+    def _warn(msg: str) -> None:
+        print(f"⚠  {msg}")
+
+    def _err(msg: str) -> None:
+        print(f"✗ {msg}", file=sys.stderr)
 
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://steampulse:dev@127.0.0.1:5432/steampulse")
@@ -151,9 +170,9 @@ def _get_repos() -> tuple[
     )
 
 
-
 class _NoOpSnsClient:
     """Silently discards all SNS publish calls — used when running locally."""
+
     def publish(self, **kwargs: object) -> dict:
         return {"MessageId": "no-op"}
 
@@ -168,6 +187,7 @@ def _build_crawl_service(
     http_client: httpx.Client,
 ) -> CrawlService:
     import boto3
+
     real_aws = _has_real_aws_credentials()
     return CrawlService(
         game_repo=GameRepository(conn),
@@ -184,7 +204,9 @@ def _build_crawl_service(
         sfn_arn=None,
         sfn_client=None,
         s3_client=boto3.client("s3") if real_aws else None,
-        archive_bucket=os.getenv("ARCHIVE_BUCKET", "steampulse-raw-archive-v1") if real_aws else None,
+        archive_bucket=os.getenv("ARCHIVE_BUCKET", "steampulse-raw-archive-v1")
+        if real_aws
+        else None,
     )
 
 
@@ -210,6 +232,7 @@ def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[di
 
 
 # ── catalog ──────────────────────────────────────────────────────────────────
+
 
 def cmd_catalog_update(dry_run: bool, limit: int | None) -> None:
     api_key = os.getenv("STEAM_API_KEY")
@@ -258,16 +281,27 @@ def cmd_catalog_status() -> None:
     _table(
         ["Phase", "Pending", "Done", "Failed", "Total"],
         [
-            ["metadata", f"{meta.get('pending', 0):,}", f"{meta.get('done', 0):,}",
-             f"{meta.get('failed', 0):,}", f"{total:,}"],
-            ["reviews", f"{review.get('pending', 0):,}", f"{review.get('done', 0):,}",
-             f"{review.get('failed', 0):,}", "—"],
+            [
+                "metadata",
+                f"{meta.get('pending', 0):,}",
+                f"{meta.get('done', 0):,}",
+                f"{meta.get('failed', 0):,}",
+                f"{total:,}",
+            ],
+            [
+                "reviews",
+                f"{review.get('pending', 0):,}",
+                f"{review.get('done', 0):,}",
+                f"{review.get('failed', 0):,}",
+                "—",
+            ],
             ["analysis", "—", f"{reports:,}", "—", "—"],
         ],
     )
 
 
 # ── game ─────────────────────────────────────────────────────────────────────
+
 
 def cmd_game_info(appid: int) -> None:
     conn, game_repo, catalog_repo, report_repo, review_repo = _get_repos()
@@ -284,23 +318,23 @@ def cmd_game_info(appid: int) -> None:
         return
 
     rows: list[list[str]] = [
-        ["appid",               str(appid)],
-        ["meta_status",         catalog.meta_status or "—"],
-        ["review_status",       catalog.review_status or "—"],
+        ["appid", str(appid)],
+        ["meta_status", catalog.meta_status or "—"],
+        ["review_status", catalog.review_status or "—"],
     ]
     if game:
         rows += [
-            ["name",            game.name or "—"],
-            ["slug",            game.slug or "—"],
-            ["steam reviews",   f"{game.review_count:,}" if game.review_count else "—"],
-            ["price",           f"${game.price_usd:.2f}" if game.price_usd else "—"],
+            ["name", game.name or "—"],
+            ["slug", game.slug or "—"],
+            ["steam reviews", f"{game.review_count:,}" if game.review_count else "—"],
+            ["price", f"${game.price_usd:.2f}" if game.price_usd else "—"],
         ]
     rows.append(["reviews in DB", f"{reviews_in_db:,}"])
     if report:
         report_data = report.report_json if isinstance(report.report_json, dict) else {}
         rows += [
-            ["last_analyzed",   str(report.last_analyzed)],
-            ["sentiment",       report_data.get("overall_sentiment") or "—"],
+            ["last_analyzed", str(report.last_analyzed)],
+            ["sentiment", report_data.get("overall_sentiment") or "—"],
         ]
     else:
         rows.append(["report", "none"])
@@ -309,6 +343,7 @@ def cmd_game_info(appid: int) -> None:
 
 
 # ── shared crawl machinery ────────────────────────────────────────────────────
+
 
 def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
     c = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -384,7 +419,7 @@ def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
                 rate = processed / elapsed * 60 if elapsed > 0 else 0
                 remaining = max(0, total_pending - processed)
                 eta_min = remaining / rate if rate > 0 else 0
-                eta_str = f"{eta_min/60:.1f}h" if eta_min >= 60 else f"{eta_min:.0f}m"
+                eta_str = f"{eta_min / 60:.1f}h" if eta_min >= 60 else f"{eta_min:.0f}m"
                 pct = processed / total_pending * 100 if total_pending else 0
                 _info(
                     f"[{phase}] {processed:,}/{total_pending:,} ({pct:.1f}%) | "
@@ -396,10 +431,13 @@ def _crawl_bulk(phase: str, fetch_fn: object, concurrency: int) -> None:
         client.close()
 
     elapsed = time.monotonic() - start
-    _ok(f"[{phase}] done={n_done:,} skipped={n_skipped:,} failed={n_failed:,} in {elapsed/60:.1f} min")
+    _ok(
+        f"[{phase}] done={n_done:,} skipped={n_skipped:,} failed={n_failed:,} in {elapsed / 60:.1f} min"
+    )
 
 
 # ── fetch helpers for bulk modes ─────────────────────────────────────────────
+
 
 def _pending_meta(n: int) -> list[int]:
     conn, _, catalog_repo, _, _ = _get_repos()
@@ -427,6 +465,18 @@ def _eligible_reviews(n: int) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
+def _all_games(n: int) -> list[int]:
+    """Return all game appids ordered by review count (most reviewed first)."""
+    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
+        cur.execute(
+            """SELECT appid FROM games
+               WHERE type = 'game'
+               ORDER BY review_count DESC NULLS LAST LIMIT %s""",
+            (n,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
 def _ready_for_analysis(n: int = 1000) -> list[int]:
     with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
         cur.execute(
@@ -441,6 +491,7 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
 
 
 # ── subcommand implementations ────────────────────────────────────────────────
+
 
 def cmd_game_crawl(appids: list[int], all_pending: bool, concurrency: int) -> None:
     if all_pending:
@@ -465,6 +516,7 @@ class _MockLambdaContext:
 
 def _analyze_one(appid: int) -> None:
     from lambda_functions.analysis.handler import handler  # lazy import (heavy)
+
     conn, game_repo, _, _, _ = _get_repos()
     try:
         game = game_repo.find_by_appid(appid)
@@ -509,6 +561,7 @@ def cmd_seed(appids: list[int]) -> None:
 def _resolve_queue_url(param_name: str) -> str:
     """Resolve an SQS queue URL from SSM parameter store."""
     import boto3
+
     ssm = boto3.client("ssm")
     resp = ssm.get_parameter(Name=param_name)
     return resp["Parameter"]["Value"]
@@ -517,14 +570,12 @@ def _resolve_queue_url(param_name: str) -> str:
 def _send_sqs_batch(queue_url: str, messages: list[dict]) -> int:
     """Send messages to SQS in batches of 10. Returns count successfully sent."""
     import boto3
+
     sqs = boto3.client("sqs")
     sent = 0
     for i in range(0, len(messages), 10):
         batch = messages[i : i + 10]
-        entries = [
-            {"Id": str(j), "MessageBody": json.dumps(msg)}
-            for j, msg in enumerate(batch)
-        ]
+        entries = [{"Id": str(j), "MessageBody": json.dumps(msg)} for j, msg in enumerate(batch)]
         resp = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
         failed = resp.get("Failed", [])
         if failed:
@@ -545,7 +596,7 @@ def cmd_queue(
     """Publish appids to deployed SQS queues for the spoke pipeline to process."""
     config = SteamPulseConfig.for_environment(env)
 
-    if task == "metadata":
+    if task in ("metadata", "tags"):
         param = config.APP_CRAWL_QUEUE_PARAM_NAME
         label = "app-crawl-queue"
     else:
@@ -558,6 +609,8 @@ def cmd_queue(
 
     def _make_body(appid: int) -> dict:
         body: dict = {"appid": appid}
+        if task == "tags":
+            body["task"] = "tags"
         if task == "reviews" and max_reviews is not None:
             body["max_reviews"] = max_reviews
         return body
@@ -645,6 +698,7 @@ def cmd_batch(
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
+
 def _resolve_admin_fn_name(env: str) -> str:
     """Resolve Admin Lambda name from SSM."""
     import boto3
@@ -717,6 +771,7 @@ def cmd_db_query(env: str, sql: str) -> None:
 
 # ── Spokes ───────────────────────────────────────────────────────────────────
 
+
 def cmd_spokes_status(env: str) -> None:
     """Show deployed spoke Lambdas across all regions."""
     import boto3
@@ -749,7 +804,16 @@ def cmd_spokes_status(env: str) -> None:
             rows.append([region, fn_name, f"ERROR: {exc}", "—", "—", "—", "—", "—"])
 
     _table(
-        ["Region", "Function", "State", "Runtime", "Memory", "Timeout", "Concurrency", "Last Modified"],
+        [
+            "Region",
+            "Function",
+            "State",
+            "Runtime",
+            "Memory",
+            "Timeout",
+            "Concurrency",
+            "Last Modified",
+        ],
         rows,
     )
 
@@ -772,6 +836,7 @@ def cmd_spokes_status(env: str) -> None:
 
 
 # ── CLI wiring ────────────────────────────────────────────────────────────────
+
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -798,10 +863,13 @@ def _build_parser() -> argparse.ArgumentParser:
     gi.add_argument("appid", type=int)
 
     gc = gm_sub.add_parser("crawl", help="Crawl Steam metadata for games")
-    gc.add_argument("appids", type=int, nargs="*", metavar="appid",
-                    help="Specific appids to crawl")
-    gc.add_argument("--all", dest="all_pending", action="store_true",
-                    help="Crawl all pending entries in app_catalog")
+    gc.add_argument("appids", type=int, nargs="*", metavar="appid", help="Specific appids to crawl")
+    gc.add_argument(
+        "--all",
+        dest="all_pending",
+        action="store_true",
+        help="Crawl all pending entries in app_catalog",
+    )
     gc.add_argument("-c", "--concurrency", type=int, default=1, metavar="N")
 
     # ── reviews
@@ -810,20 +878,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     rc = rv_sub.add_parser("crawl", help="Crawl Steam reviews")
     rc.add_argument("appids", type=int, nargs="*", metavar="appid")
-    rc.add_argument("--eligible", action="store_true",
-                    help="Crawl all games with metadata done and reviews pending")
+    rc.add_argument(
+        "--eligible",
+        action="store_true",
+        help="Crawl all games with metadata done and reviews pending",
+    )
     rc.add_argument("-c", "--concurrency", type=int, default=1, metavar="N")
 
     # ── analyze
     az = sub.add_parser("analyze", help="Run LLM analysis (writes to reports table)")
     az.add_argument("appids", type=int, nargs="*", metavar="appid")
-    az.add_argument("--ready", action="store_true",
-                    help="Analyze all games that have reviews but no report yet")
+    az.add_argument(
+        "--ready", action="store_true", help="Analyze all games that have reviews but no report yet"
+    )
 
     # ── db
     db = sub.add_parser("db", help="Database operations on deployed RDS")
-    db.add_argument("--env", default="staging", choices=["staging", "production"],
-                    help="Environment (default: staging)")
+    db.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
     db_sub = db.add_subparsers(dest="db_cmd", required=True)
     db_sub.add_parser("init", help="Create all tables (idempotent)")
     db_sub.add_parser("status", help="Show tables and row counts")
@@ -832,50 +908,92 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # ── seed
     sd = sub.add_parser("seed", help="Full pipeline: metadata → reviews → analysis")
-    sd.add_argument("appids", type=int, nargs="*", metavar="appid",
-                    help=f"Appids to seed (default: {DEFAULT_SEED_APPIDS})")
+    sd.add_argument(
+        "appids",
+        type=int,
+        nargs="*",
+        metavar="appid",
+        help=f"Appids to seed (default: {DEFAULT_SEED_APPIDS})",
+    )
 
     # ── batch
     ba = sub.add_parser("batch", help="Start a Bedrock batch analysis execution")
-    ba.add_argument("appids", type=int, nargs="*", metavar="appid",
-                    help="Specific appids to analyze")
-    ba.add_argument("--all-eligible", action="store_true",
-                    help="Analyze all eligible games (passes ALL_ELIGIBLE to the state machine)")
-    ba.add_argument("--env", default="staging", choices=["staging", "production"],
-                    help="Environment (default: staging)")
-    ba.add_argument("--dry-run", action="store_true",
-                    help="Print the payload without starting an execution")
-    ba.add_argument("--watch", action="store_true",
-                    help="Poll execution status every 30s until complete (Ctrl+C to stop)")
+    ba.add_argument(
+        "appids", type=int, nargs="*", metavar="appid", help="Specific appids to analyze"
+    )
+    ba.add_argument(
+        "--all-eligible",
+        action="store_true",
+        help="Analyze all eligible games (passes ALL_ELIGIBLE to the state machine)",
+    )
+    ba.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
+    ba.add_argument(
+        "--dry-run", action="store_true", help="Print the payload without starting an execution"
+    )
+    ba.add_argument(
+        "--watch",
+        action="store_true",
+        help="Poll execution status every 30s until complete (Ctrl+C to stop)",
+    )
 
     # ── spokes
     sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
     sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
     ss = sp_sub.add_parser("status", help="Show deployed spoke Lambdas")
-    ss.add_argument("--env", default="staging", choices=["staging", "production"],
-                    help="Environment to check (default: staging)")
+    ss.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment to check (default: staging)",
+    )
 
     # ── queue (publish to deployed SQS)
     qu = sub.add_parser("queue", help="Publish appids to deployed SQS queues")
-    qu.add_argument("--env", default="staging", choices=["staging", "production"],
-                    help="Environment to publish to (default: staging)")
+    qu.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment to publish to (default: staging)",
+    )
     qu_sub = qu.add_subparsers(dest="queue_cmd", required=True)
 
     qm = qu_sub.add_parser("metadata", help="Publish to app-crawl queue")
     qm.add_argument("appids", type=int, nargs="*", metavar="appid")
-    qm.add_argument("--all", dest="all_pending", action="store_true",
-                    help="Queue all pending entries from app_catalog")
+    qm.add_argument(
+        "--all",
+        dest="all_pending",
+        action="store_true",
+        help="Queue all pending entries from app_catalog",
+    )
     qm.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qm.add_argument("--dry-run", action="store_true")
 
     qr = qu_sub.add_parser("reviews", help="Publish to review-crawl queue")
     qr.add_argument("appids", type=int, nargs="*", metavar="appid")
-    qr.add_argument("--eligible", action="store_true",
-                    help="Queue all review-eligible games from app_catalog")
+    qr.add_argument(
+        "--eligible", action="store_true", help="Queue all review-eligible games from app_catalog"
+    )
     qr.add_argument("--limit", type=int, metavar="N", help="Limit --eligible to N entries")
-    qr.add_argument("--max-reviews", type=int, metavar="N",
-                    help="Stop after fetching N reviews (default: fetch all)")
+    qr.add_argument(
+        "--max-reviews",
+        type=int,
+        metavar="N",
+        help="Stop after fetching N reviews (default: fetch all)",
+    )
     qr.add_argument("--dry-run", action="store_true")
+
+    qt = qu_sub.add_parser("tags", help="Publish to app-crawl queue for SteamSpy tag backfill")
+    qt.add_argument("appids", type=int, nargs="*", metavar="appid")
+    qt.add_argument(
+        "--all", dest="all_games", action="store_true", help="Queue all games for tag backfill"
+    )
+    qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
+    qt.add_argument("--dry-run", action="store_true")
 
     return p
 
@@ -944,6 +1062,12 @@ def main() -> None:
                 appids = _eligible_reviews(args.limit or 100_000)
             max_reviews = getattr(args, "max_reviews", None)
             cmd_queue("reviews", appids, args.dry_run, args.env, max_reviews=max_reviews)
+        elif args.queue_cmd == "tags":
+            if not appids and not args.all_games:
+                parser.error("queue tags requires appids or --all")
+            if args.all_games:
+                appids = _all_games(args.limit or 200_000)
+            cmd_queue("tags", appids, args.dry_run, args.env)
 
 
 if __name__ == "__main__":

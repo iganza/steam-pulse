@@ -25,13 +25,8 @@ class CatalogRefreshRequest(BaseModel):
     action: Literal["catalog_refresh"]
 
 
-class BackfillTagsRequest(BaseModel):
-    action: Literal["backfill_tags"] = "backfill_tags"
-    limit: int | None = None
-
-
 DirectRequest = Annotated[
-    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest | BackfillTagsRequest,
+    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest,
     Field(discriminator="action"),
 ]
 

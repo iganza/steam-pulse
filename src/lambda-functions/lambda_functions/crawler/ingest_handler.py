@@ -138,11 +138,12 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
 
 
 def _handle_tags(msg: TagsSpokeResult) -> None:
+    if not msg.success:
+        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        return
+
     if not msg.s3_key:
-        if msg.success:
-            logger.warning("No SteamSpy data available", extra={"appid": msg.appid})
-        else:
-            logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning("No SteamSpy data available", extra={"appid": msg.appid})
         return
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)

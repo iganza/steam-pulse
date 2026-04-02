@@ -233,10 +233,6 @@ def _write_s3(key: str, data: dict | list) -> str:
 
 def _process_tags(appid: int) -> bool:
     """Fetch SteamSpy data, upload to S3, notify ingest via SQS."""
-    import time as _time
-
-    _time.sleep(0.3)  # SteamSpy rate limit: ~4 req/sec globally
-
     try:
         raw = _steam.get_steamspy_data(appid)
     except Exception as exc:

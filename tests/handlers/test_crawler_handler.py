@@ -9,10 +9,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import boto3
+import pytest
 from lambda_functions.crawler.events import (
     MetadataSpokeRequest,
     ReviewSpokeRequest,
     TagsSpokeRequest,
+    parse_spoke_request,
 )
 from moto import mock_aws
 
@@ -443,9 +445,6 @@ def test_handler_infers_reviews_from_review_crawl_arn(lambda_context: Any) -> No
 
 
 # ── parse_spoke_request unit tests ───────────────────────────────────────────
-
-import pytest
-from lambda_functions.crawler.events import parse_spoke_request
 
 
 def _sqs_record(

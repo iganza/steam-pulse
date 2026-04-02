@@ -354,25 +354,22 @@ class DirectSteamSource(SteamDataSource):
     def get_steamspy_data(self, appid: int) -> dict:
         """Fetch full SteamSpy data for a game.
 
-        Returns the raw SteamSpy response dict, or {} on error.
+        Returns the raw SteamSpy response dict, or {} if SteamSpy has no usable
+        data for the appid.
+
         SteamSpy rate limit: ~4 req/sec. Caller must handle pacing.
+
+        Raises:
+            SteamAPIError: on HTTP failure from SteamSpy.
         """
         self._jitter()
-        try:
-            resp = self._get_with_retry(
-                STEAMSPY_API_URL,
-                request="appdetails",
-                appid=str(appid),
-            )
-            data = resp.json()
-            # SteamSpy returns partial data for invalid appids — valid responses have "tags"
-            if "tags" not in data:
-                return {}
-            return data
-        except Exception as exc:
-            logger.warning(
-                "SteamSpy fetch failed",
-                extra={"appid": appid, "error": str(exc)},
-                exc_info=True,
-            )
+        resp = self._get_with_retry(
+            STEAMSPY_API_URL,
+            request="appdetails",
+            appid=str(appid),
+        )
+        data = resp.json()
+        # SteamSpy returns partial data for invalid appids — valid responses have "tags"
+        if "tags" not in data:
             return {}
+        return data

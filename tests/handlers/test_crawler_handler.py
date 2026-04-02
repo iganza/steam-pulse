@@ -9,7 +9,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import boto3
-from lambda_functions.crawler.events import MetadataSpokeRequest, ReviewSpokeRequest
+from lambda_functions.crawler.events import (
+    MetadataSpokeRequest,
+    ReviewSpokeRequest,
+    TagsSpokeRequest,
+)
 from moto import mock_aws
 
 # ── SSM seed — required before handler import (module-level get_parameter) ───
@@ -315,3 +319,124 @@ def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
     handler(event, lambda_context)
 
     mock_lambda_client.invoke.assert_not_called()
+
+
+@mock_aws
+def test_handler_dispatches_tags_to_spoke(lambda_context: Any) -> None:
+    """SQS message with task=tags → dispatches TagsSpokeRequest to spoke."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    event = {
+        "Records": [
+            {
+                "messageId": "m7",
+                "body": json.dumps({"appid": 440, "task": "tags"}),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+            }
+        ],
+    }
+    handler(event, lambda_context)
+
+    mock_lambda_client.invoke.assert_called_once()
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    assert call_kwargs["InvocationType"] == "Event"
+    payload = TagsSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 440
+    assert payload.task == "tags"
+
+
+@mock_aws
+def test_handler_infers_task_from_arn_when_missing(lambda_context: Any) -> None:
+    """SNS-routed domain event without task field → infers metadata from app-crawl ARN."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    # SNS-wrapped game-discovered event — no "task" field
+    sns_envelope = {
+        "Type": "Notification",
+        "MessageId": "abc-456",
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:game-events",
+        "Message": json.dumps({"event_type": "game-discovered", "appid": 999}),
+        "Timestamp": "2026-03-20T00:00:00.000Z",
+    }
+    event = {
+        "Records": [
+            {
+                "messageId": "m8",
+                "body": json.dumps(sns_envelope),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-app-crawl",
+            }
+        ],
+    }
+    handler(event, lambda_context)
+
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 999
+    assert payload.task == "metadata"
+
+
+@mock_aws
+def test_handler_infers_reviews_from_review_crawl_arn(lambda_context: Any) -> None:
+    """SNS-routed event on review-crawl queue without task field → infers reviews."""
+    mock_crawl = _make_crawl_service()
+    mock_catalog = _make_catalog_service()
+    _inject_services(mock_crawl, mock_catalog)
+
+    import lambda_functions.crawler.handler as hm
+
+    mock_lambda_client = MagicMock()
+    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
+    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+
+    from lambda_functions.crawler.handler import handler
+
+    # SNS-wrapped game-metadata-ready event — no "task" field
+    sns_envelope = {
+        "Type": "Notification",
+        "MessageId": "abc-789",
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:game-events",
+        "Message": json.dumps(
+            {
+                "event_type": "game-metadata-ready",
+                "appid": 888,
+                "review_count": 500,
+                "is_eligible": True,
+            }
+        ),
+        "Timestamp": "2026-03-20T00:00:00.000Z",
+    }
+    event = {
+        "Records": [
+            {
+                "messageId": "m9",
+                "body": json.dumps(sns_envelope),
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:steampulse-staging-review-crawl",
+            }
+        ],
+    }
+    handler(event, lambda_context)
+
+    call_kwargs = mock_lambda_client.invoke.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    assert payload.appid == 888
+    assert payload.task == "reviews"

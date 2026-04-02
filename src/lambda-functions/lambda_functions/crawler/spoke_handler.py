@@ -245,9 +245,9 @@ def _process_tags(appid: int) -> bool:
         return False
 
     if not raw:
-        logger.info("Empty SteamSpy response", extra={"appid": appid})
+        logger.warning("Empty SteamSpy response", extra={"appid": appid})
         _notify_tags(appid, success=True, count=0)
-        return False
+        return True
 
     tags_dict: dict = raw.get("tags") or {}
     tags = [{"name": k, "votes": int(v)} for k, v in tags_dict.items()]

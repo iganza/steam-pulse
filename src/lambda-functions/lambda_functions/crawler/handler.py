@@ -145,7 +145,14 @@ def _dispatch_to_spoke(record: dict) -> None:
 
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
-    task: CrawlTask = body["task"]
+
+    # Explicit task field is authoritative. SNS-routed domain events (game-discovered,
+    # game-metadata-ready, etc.) don't carry task — infer from which queue delivered them.
+    if "task" in body:
+        task: CrawlTask = body["task"]
+    else:
+        source_arn = record.get("eventSourceARN", "")
+        task = "reviews" if "review-crawl" in source_arn else "metadata"
     logger.append_keys(appid=appid, task=task)
 
     match task:

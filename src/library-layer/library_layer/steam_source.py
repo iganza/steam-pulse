@@ -369,6 +369,10 @@ class DirectSteamSource(SteamDataSource):
             if "tags" not in data:
                 return {}
             return data
-        except Exception:
-            logger.warning("SteamSpy fetch failed", extra={"appid": appid})
+        except Exception as exc:
+            logger.warning(
+                "SteamSpy fetch failed",
+                extra={"appid": appid, "error": str(exc)},
+                exc_info=True,
+            )
             return {}

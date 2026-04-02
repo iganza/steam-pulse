@@ -610,7 +610,7 @@ def cmd_queue(
     def _make_body(appid: int) -> dict:
         body: dict = {"appid": appid, "task": task}
         if task == "reviews" and max_reviews is not None:
-            body["max_reviews"] = max_reviews
+            body["target"] = max_reviews
         return body
 
     if dry_run:

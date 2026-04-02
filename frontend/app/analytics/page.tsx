@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AnalyticsClient } from "./AnalyticsClient";
+import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 
 export const metadata: Metadata = {
   title: "Steam Analytics — SteamPulse",
@@ -14,7 +16,15 @@ export default function AnalyticsPage() {
       <p className="text-muted-foreground text-sm mb-6">
         Catalog-wide trends across the Steam ecosystem.
       </p>
-      <AnalyticsClient />
+      <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
+        <ToolkitShell
+          defaultLens="trends"
+          visibleLenses={["trends", "market-map", "explorer"]}
+          lensContent={{
+            trends: <AnalyticsClient />,
+          }}
+        />
+      </Suspense>
     </main>
   );
 }

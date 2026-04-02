@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Gem, TrendingUp, Sparkles, BarChart3, X, Menu } from "lucide-react";
+import { ChevronDown, Gem, TrendingUp, Sparkles, BarChart3, SlidersHorizontal, X, Menu } from "lucide-react";
 import type { Genre, Tag } from "@/lib/types";
 import { SearchAutocomplete } from "./SearchAutocomplete";
 
@@ -155,6 +155,12 @@ export function Navbar() {
           >
             <BarChart3 className="w-3 h-3" /> Analytics
           </Link>
+          <Link
+            href="/toolkit"
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <SlidersHorizontal className="w-3 h-3" /> Toolkit
+          </Link>
         </div>
 
         {/* Search bar — desktop */}
@@ -207,6 +213,7 @@ export function Navbar() {
             <Link href="/new-releases" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">New Releases</Link>
             <Link href="/trending" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Trending</Link>
             <Link href="/analytics" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Analytics</Link>
+            <Link href="/toolkit" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Toolkit</Link>
             <Link href="/pro" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base" style={{ color: "var(--teal)" }}>For Developers &rarr;</Link>
           </div>
         </div>

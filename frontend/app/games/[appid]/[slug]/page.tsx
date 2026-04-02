@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getGameReport } from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import { Suspense } from "react";
 import { GameReportClient } from "./GameReportClient";
+import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 
 interface Props {
   params: Promise<{ appid: string; slug: string }>;
@@ -159,22 +161,33 @@ export default async function GameReportPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <main>
-        <GameReportClient
-          report={report}
-          appid={numericAppid}
-          gameName={gameData.gameName}
-          headerImage={headerImage}
-          releaseDate={gameData.releaseDate}
-          developer={gameData.developer}
-          priceUsd={gameData.priceUsd}
-          isFree={gameData.isFree ?? false}
-          genres={gameData.genres ?? []}
-          tags={gameData.tags ?? []}
-          shortDesc={gameData.shortDesc}
-          reviewCount={gameData.reviewCount}
-          deckCompatibility={gameData.deckCompatibility}
-          deckTestResults={gameData.deckTestResults}
-        />
+        <Suspense>
+          <ToolkitShell
+            lockedFilters={{ appids: [numericAppid] }}
+            defaultLens="sentiment"
+            visibleLenses={["sentiment", "compare", "benchmark"]}
+            lensContent={{
+              sentiment: (
+                <GameReportClient
+                  report={report}
+                  appid={numericAppid}
+                  gameName={gameData.gameName}
+                  headerImage={headerImage}
+                  releaseDate={gameData.releaseDate}
+                  developer={gameData.developer}
+                  priceUsd={gameData.priceUsd}
+                  isFree={gameData.isFree ?? false}
+                  genres={gameData.genres ?? []}
+                  tags={gameData.tags ?? []}
+                  shortDesc={gameData.shortDesc}
+                  reviewCount={gameData.reviewCount}
+                  deckCompatibility={gameData.deckCompatibility}
+                  deckTestResults={gameData.deckTestResults}
+                />
+              ),
+            }}
+          />
+        </Suspense>
       </main>
     </>
   );

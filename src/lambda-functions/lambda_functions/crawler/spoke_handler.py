@@ -28,8 +28,11 @@ from lambda_functions.crawler.events import (
     ReviewSpokeRequest,
     ReviewSpokeResult,
     SpokeResponse,
+    TagsSpokeRequest,
+    TagsSpokeResult,
 )
 from library_layer.config import SteamPulseConfig
+from library_layer.repositories.steamspy_repo import SteamspyRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
@@ -46,9 +49,9 @@ BATCH_SIZE = 1000
 
 # Steam API key — resolve cross-region from primary's Secrets Manager
 _sm = boto3.client("secretsmanager", region_name=_PRIMARY_REGION)
-_steam_api_key: str = _sm.get_secret_value(
-    SecretId=_config.STEAM_API_KEY_SECRET_NAME
-)["SecretString"]
+_steam_api_key: str = _sm.get_secret_value(SecretId=_config.STEAM_API_KEY_SECRET_NAME)[
+    "SecretString"
+]
 
 _steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT, metrics)
 _steam = DirectSteamSource(
@@ -78,7 +81,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("START metadata")
         ok = _process_metadata(req.appid)
         metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
-        return SpokeResponse(appid=req.appid, task=task, success=ok, count=1 if ok else 0).model_dump()
+        return SpokeResponse(
+            appid=req.appid, task=task, success=ok, count=1 if ok else 0
+        ).model_dump()
 
     if task == "reviews":
         req = ReviewSpokeRequest.model_validate(event)
@@ -86,7 +91,19 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("START reviews", extra={"cursor": req.cursor, "target": req.target})
         count, _ = _process_reviews(req.appid, req.cursor, req.target, req.started_at)
         metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
-        return SpokeResponse(appid=req.appid, task=task, success=count > 0, count=count).model_dump()
+        return SpokeResponse(
+            appid=req.appid, task=task, success=count > 0, count=count
+        ).model_dump()
+
+    if task == "tags":
+        req = TagsSpokeRequest.model_validate(event)
+        logger.append_keys(appid=req.appid, task=task)
+        logger.info("START tags")
+        ok = _process_tags(req.appid)
+        metrics.add_metric(name="TagsFetched", unit=MetricUnit.Count, value=1 if ok else 0)
+        return SpokeResponse(
+            appid=req.appid, task=task, success=ok, count=1 if ok else 0
+        ).model_dump()
 
     raise ValueError(f"Unknown task: {task}")
 
@@ -117,10 +134,13 @@ def _process_metadata(appid: int) -> bool:
         _notify_metadata(appid, success=False, error=str(exc))
         return False
 
-    logger.info("Fetched review_summary", extra={
-        "appid": appid,
-        "total_reviews": summary.get("total_reviews_all", summary.get("total_reviews", "?")),
-    })
+    logger.info(
+        "Fetched review_summary",
+        extra={
+            "appid": appid,
+            "total_reviews": summary.get("total_reviews_all", summary.get("total_reviews", "?")),
+        },
+    )
 
     try:
         deck_compat = _steam.get_deck_compatibility(appid)
@@ -149,25 +169,50 @@ def _process_reviews(
         reviews, next_cursor = _steam.get_reviews(appid, max_reviews=limit, start_cursor=cursor)
     except SteamAPIError as exc:
         logger.warning("Steam reviews error", extra={"appid": appid, "error": str(exc)})
-        _notify_reviews(appid, success=False, error=str(exc), next_cursor=None, target=target, started_at=started_at)
+        _notify_reviews(
+            appid,
+            success=False,
+            error=str(exc),
+            next_cursor=None,
+            target=target,
+            started_at=started_at,
+        )
         return 0, None
 
     if not reviews:
         logger.warning("No reviews returned from Steam", extra={"appid": appid, "cursor": cursor})
-        _notify_reviews(appid, success=False, error="no reviews returned", next_cursor=None, target=target, started_at=started_at)
+        _notify_reviews(
+            appid,
+            success=False,
+            error="no reviews returned",
+            next_cursor=None,
+            target=target,
+            started_at=started_at,
+        )
         return 0, None
 
     exhausted = next_cursor is None
-    logger.info("Fetched reviews", extra={
-        "appid": appid,
-        "count": len(reviews),
-        "exhausted": exhausted,
-        "next_cursor": next_cursor,
-    })
+    logger.info(
+        "Fetched reviews",
+        extra={
+            "appid": appid,
+            "count": len(reviews),
+            "exhausted": exhausted,
+            "next_cursor": next_cursor,
+        },
+    )
 
     uid = uuid.uuid4().hex[:12]
     s3_key = _write_s3(f"spoke-results/reviews/{appid}-{uid}.json.gz", reviews)
-    _notify_reviews(appid, success=True, s3_key=s3_key, count=len(reviews), next_cursor=next_cursor, target=target, started_at=started_at)
+    _notify_reviews(
+        appid,
+        success=True,
+        s3_key=s3_key,
+        count=len(reviews),
+        next_cursor=next_cursor,
+        target=target,
+        started_at=started_at,
+    )
     logger.info("DONE reviews", extra={"appid": appid, "count": len(reviews), "s3_key": s3_key})
     return len(reviews), next_cursor
 
@@ -184,6 +229,55 @@ def _write_s3(key: str, data: dict | list) -> str:
     )
     logger.info("Wrote to S3", extra={"bytes": len(payload), "bucket": bucket, "key": key})
     return key
+
+
+def _process_tags(appid: int) -> bool:
+    """Fetch SteamSpy data, upload to S3, notify ingest via SQS."""
+    try:
+        raw = _steam.get_steamspy_data(appid)
+    except Exception as exc:
+        logger.warning("SteamSpy error", extra={"appid": appid, "error": str(exc)})
+        _notify_tags(appid, success=False, error=str(exc))
+        return False
+
+    if not raw:
+        logger.warning("Empty SteamSpy response", extra={"appid": appid})
+        _notify_tags(appid, success=True, count=0)
+        return True
+
+    tags_dict: dict = raw.get("tags") or {}
+    tags = [{"name": k, "votes": int(v)} for k, v in tags_dict.items()]
+
+    steamspy_payload = {k: raw[k] for k in SteamspyRepository.STEAMSPY_FIELDS if k in raw}
+
+    result_data = {"tags": tags, "steamspy": steamspy_payload}
+    uid = uuid.uuid4().hex[:12]
+    s3_key = _write_s3(f"spoke-results/tags/{appid}-{uid}.json.gz", result_data)
+    _notify_tags(appid, success=True, s3_key=s3_key, count=len(tags))
+    logger.info("DONE tags", extra={"appid": appid, "tag_count": len(tags), "s3_key": s3_key})
+    return True
+
+
+def _notify_tags(
+    appid: int,
+    *,
+    success: bool,
+    s3_key: str | None = None,
+    count: int = 0,
+    error: str | None = None,
+) -> None:
+    msg = TagsSpokeResult(
+        appid=appid,
+        success=success,
+        s3_key=s3_key,
+        count=count,
+        spoke_region=os.environ.get("AWS_REGION", "unknown"),
+        error=error,
+    )
+    _sqs.send_message(
+        QueueUrl=_SPOKE_RESULTS_QUEUE_URL,
+        MessageBody=msg.model_dump_json(),
+    )
 
 
 def _notify_metadata(

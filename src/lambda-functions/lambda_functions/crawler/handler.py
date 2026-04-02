@@ -10,7 +10,6 @@ DB ingest from spoke results is handled by ingest_handler.py (primary region).
 
 import json
 import os
-from datetime import UTC, datetime
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -30,10 +29,8 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
-    CrawlTask,
     DirectRequest,
-    MetadataSpokeRequest,
-    ReviewSpokeRequest,
+    parse_spoke_request,
 )
 
 logger = Logger(service="crawler")
@@ -77,9 +74,9 @@ _assets_bucket_name = get_parameter(_crawler_config.ASSETS_BUCKET_PARAM_NAME)
 
 # Resolve Steam API key from Secrets Manager at cold start
 _sm = boto3.client("secretsmanager")
-_steam_api_key: str = _sm.get_secret_value(
-    SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME
-)["SecretString"]
+_steam_api_key: str = _sm.get_secret_value(SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME)[
+    "SecretString"
+]
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -128,81 +125,29 @@ if not _spoke_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     )
 
 
-def _extract_payload(record_body: str) -> dict:
-    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
-    body = json.loads(record_body)
-    if "Type" in body and body["Type"] == "Notification":
-        return json.loads(body["Message"])
-    return body
-
-
 def _dispatch_to_spoke(record: dict) -> None:
     """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
-
     if not _spoke_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
 
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
+    req = parse_spoke_request(record, review_limit=_crawler_config.REVIEW_LIMIT)
+    if req is None:
+        logger.info("Skipping dispatch (budget exhausted)", extra={"record": record["messageId"]})
+        return
 
-    source_arn = record.get("eventSourceARN", "")
-    task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
-    logger.append_keys(appid=appid, task=task)
-
-    if task == "reviews":
-        # Cursor and target travel in the SQS message body — no DB reads needed.
-        # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
-        # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
-        # Normalize cursor: treat missing, null, and empty string all as fresh start.
-        cursor: str = body.get("cursor") or "*"
-        started_at: str | datetime = body.get("started_at") or datetime.now(tz=UTC)
-
-        target_raw: int | None = body.get("target")
-        if target_raw is None:
-            # Fresh-start or missing target — apply configured default limit.
-            target: int = _crawler_config.REVIEW_LIMIT
-        elif target_raw <= 0:
-            # Remaining budget is zero — nothing left to fetch; skip dispatch.
-            logger.info("review crawl budget exhausted — skipping dispatch", extra={"appid": appid})
-            return
-        else:
-            target = target_raw
-
-        if cursor == "*":
-            logger.info("reviews fresh start", extra={"appid": appid, "target": target})
-        else:
-            logger.info("reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target})
-
-        req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
-            appid=appid,
-            cursor=cursor,
-            target=target,
-            started_at=started_at,
-        )
-    else:
-        req = MetadataSpokeRequest(appid=appid)
-
-    # Deterministic: same appid always hits the same spoke, spreading load
-    # evenly and ensuring retries go to the same region.
-    idx = appid % len(_spoke_targets)
+    logger.append_keys(appid=req.appid, task=req.task)
+    idx = req.appid % len(_spoke_targets)
     fn_name, client = _spoke_targets[idx]
+    logger.info("Dispatching to spoke", extra={"fn_name": fn_name})
 
-    logger.info("Dispatching to spoke", extra={"appid": appid, "task": task, "fn_name": fn_name})
-
-    # Async invoke — returns 202 immediately, spoke runs independently.
-    # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
-    # Spoke failures: Lambda auto-retries async invocations (2 attempts),
-    # then routes to the spoke's DLQ (SpokeCrawlerDlq in CrawlSpokeStack).
-    # Spoke also sends success=False on Steam API errors so ingest_handler logs the skip.
     response = client.invoke(
         FunctionName=fn_name,
         InvocationType="Event",
         Payload=req.model_dump_json().encode(),
     )
-    status = response["StatusCode"]
-    if status != 202:
+    if response["StatusCode"] != 202:
         raise RuntimeError(
-            f"Spoke async invoke failed for appid={appid}: HTTP {status}"
+            f"Spoke invoke failed for appid={req.appid}: HTTP {response['StatusCode']}"
         )
 
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
@@ -219,8 +164,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
-        metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
-        metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+        metrics.add_metric(
+            name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0)
+        )
+        metrics.add_metric(
+            name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0)
+        )
         return result
 
     # 2. Direct invocation (from web Lambda or manual)
@@ -236,7 +185,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 logger.append_keys(appid=req.appid, task="metadata")
                 ok = _crawl_service.crawl_app(req.appid)
                 logger.info("crawl_app complete", extra={"appid": req.appid, "success": ok})
-                metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0)
+                metrics.add_metric(
+                    name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0
+                )
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 logger.append_keys(appid=req.appid, task="reviews")
@@ -247,8 +198,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
                 logger.info("catalog_refresh complete", extra={**result})
-                metrics.add_metric(name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0))
-                metrics.add_metric(name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0))
+                metrics.add_metric(
+                    name="CatalogAppsDiscovered",
+                    unit=MetricUnit.Count,
+                    value=result.get("new_rows", 0),
+                )
+                metrics.add_metric(
+                    name="CatalogAppsEnqueued",
+                    unit=MetricUnit.Count,
+                    value=result.get("enqueued", 0),
+                )
                 return result
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas

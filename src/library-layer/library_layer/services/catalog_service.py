@@ -99,7 +99,7 @@ class CatalogService:
             logger.info("No pending appids to enqueue")
             return 0
 
-        messages = [{"appid": e.appid} for e in pending]
+        messages = [{"appid": e.appid, "task": "metadata"} for e in pending]
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         return len(messages)
 

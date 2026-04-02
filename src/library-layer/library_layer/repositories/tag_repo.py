@@ -10,38 +10,81 @@ class TagRepository(BaseRepository):
     """CRUD operations for tags, game_tags, genres, game_genres, game_categories."""
 
     def upsert_tags(self, items: list[dict]) -> None:
-        """Upsert tags and game_tag associations.
+        """Upsert tags and game_tag associations in bulk.
 
         Args:
             items: List of dicts with keys: appid, name (tag name), votes.
         """
-        with self.conn.cursor() as cur:
-            for item in items:
-                tag_name: str = item.get("name") or ""
-                if not tag_name:
-                    continue
-                appid: int = item["appid"]
-                votes: int = item.get("votes", 0)
-                tag_slug = slugify(tag_name) or tag_name.lower()[:50]
+        # Build deduplicated tag list and prepare data
+        tag_rows: list[tuple[str, str]] = []
+        seen_names: set[str] = set()
+        valid_items: list[tuple[int, str, int]] = []
 
-                cur.execute(
-                    """
-                    INSERT INTO tags (name, slug) VALUES (%s, %s)
-                    ON CONFLICT (name) DO NOTHING
-                    """,
-                    (tag_name, tag_slug),
+        for item in items:
+            tag_name: str = item.get("name") or ""
+            if not tag_name:
+                continue
+            appid: int = item["appid"]
+            votes: int = item.get("votes", 0)
+            tag_slug = slugify(tag_name) or tag_name.lower()[:50]
+            valid_items.append((appid, tag_name, votes))
+            if tag_name not in seen_names:
+                seen_names.add(tag_name)
+                tag_rows.append((tag_name, tag_slug))
+
+        if not valid_items:
+            return
+
+        with self.conn.cursor() as cur:
+            from psycopg2.extras import execute_values
+
+            # Prefetch existing slugs to avoid unique violations on slug column
+            candidate_slugs = [slug for _, slug in tag_rows]
+            cur.execute("SELECT slug FROM tags WHERE slug = ANY(%s)", (candidate_slugs,))
+            existing_slugs: set[str] = {
+                row["slug"] if isinstance(row, dict) else row[0] for row in cur.fetchall()
+            }
+
+            # Deduplicate slugs against both existing DB rows and within the batch
+            used_slugs: set[str] = set(existing_slugs)
+            deduped_rows: list[tuple[str, str]] = []
+            for name, slug in tag_rows:
+                final_slug = slug
+                counter = 1
+                while final_slug in used_slugs:
+                    final_slug = f"{slug}-{counter}"
+                    counter += 1
+                used_slugs.add(final_slug)
+                deduped_rows.append((name, final_slug))
+
+            execute_values(
+                cur,
+                "INSERT INTO tags (name, slug) VALUES %s ON CONFLICT (name) DO NOTHING",
+                deduped_rows,
+            )
+
+            # Fetch all tag IDs in one query
+            names = [name for name, _ in tag_rows]
+            cur.execute("SELECT id, name FROM tags WHERE name = ANY(%s)", (names,))
+            name_to_id: dict[str, int] = {}
+            for row in cur.fetchall():
+                tag_id = row["id"] if isinstance(row, dict) else row[0]
+                tag_name = row["name"] if isinstance(row, dict) else row[1]
+                name_to_id[tag_name] = tag_id
+
+            # Bulk upsert game_tags
+            game_tag_rows = [
+                (appid, name_to_id[name], votes)
+                for appid, name, votes in valid_items
+                if name in name_to_id
+            ]
+            if game_tag_rows:
+                execute_values(
+                    cur,
+                    """INSERT INTO game_tags (appid, tag_id, votes) VALUES %s
+                       ON CONFLICT (appid, tag_id) DO UPDATE SET votes = EXCLUDED.votes""",
+                    game_tag_rows,
                 )
-                cur.execute("SELECT id FROM tags WHERE name = %s", (tag_name,))
-                row = cur.fetchone()
-                if row:
-                    tag_id: int = row["id"] if isinstance(row, dict) else row[0]
-                    cur.execute(
-                        """
-                        INSERT INTO game_tags (appid, tag_id, votes) VALUES (%s, %s, %s)
-                        ON CONFLICT (appid, tag_id) DO UPDATE SET votes = EXCLUDED.votes
-                        """,
-                        (appid, tag_id, votes),
-                    )
         self.conn.commit()
 
     def upsert_genres(self, appid: int, genres: list[dict]) -> None:

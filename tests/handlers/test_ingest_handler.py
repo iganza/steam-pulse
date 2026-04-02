@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import boto3
 import pytest
 from aws_lambda_powertools.utilities.batch.exceptions import BatchProcessingError
-from lambda_functions.crawler.events import MetadataSpokeResult, ReviewSpokeResult
+from lambda_functions.crawler.events import MetadataSpokeResult, ReviewSpokeResult, TagsSpokeResult
 from moto import mock_aws
 
 
@@ -32,16 +32,19 @@ def _seed_ssm_and_secrets() -> None:
 def _get_module() -> Any:
     _seed_ssm_and_secrets()
     import lambda_functions.crawler.ingest_handler as ih
+
     return ih
 
 
-def _sqs_event(result: MetadataSpokeResult | ReviewSpokeResult) -> dict:
+def _sqs_event(result: MetadataSpokeResult | ReviewSpokeResult | TagsSpokeResult) -> dict:
     return {
-        "Records": [{
-            "messageId": "msg-1",
-            "body": result.model_dump_json(),
-            "receiptHandle": "receipt",
-        }],
+        "Records": [
+            {
+                "messageId": "msg-1",
+                "body": result.model_dump_json(),
+                "receiptHandle": "receipt",
+            }
+        ],
     }
 
 
@@ -70,10 +73,20 @@ def test_metadata_task_calls_ingest_spoke_metadata(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {"name": "TF2"}}))),
     }
 
-    event = _sqs_event(MetadataSpokeResult(appid=440, success=True, s3_key="spoke-results/metadata/440-abc.json.gz", count=1, spoke_region="us-east-1"))
+    event = _sqs_event(
+        MetadataSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="spoke-results/metadata/440-abc.json.gz",
+            count=1,
+            spoke_region="us-east-1",
+        )
+    )
     ih.handler(event, lambda_context)
 
-    ih._crawl_service.ingest_spoke_metadata.assert_called_once_with(440, {"details": {"name": "TF2"}})
+    ih._crawl_service.ingest_spoke_metadata.assert_called_once_with(
+        440, {"details": {"name": "TF2"}}
+    )
 
 
 @mock_aws
@@ -88,7 +101,16 @@ def test_reviews_task_calls_ingest_spoke_reviews(lambda_context: Any) -> None:
     }
     _mock_catalog_and_review_repos(ih)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="spoke-results/reviews/440-abc.json.gz", count=3, spoke_region="us-east-1", next_cursor=None))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="spoke-results/reviews/440-abc.json.gz",
+            count=3,
+            spoke_region="us-east-1",
+            next_cursor=None,
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._crawl_service.ingest_spoke_reviews.assert_called_once_with(440, reviews)
@@ -101,11 +123,22 @@ def test_unknown_task_raises(lambda_context: Any) -> None:
 
     # Bypass model construction — raw JSON with unknown task
     event = {
-        "Records": [{
-            "messageId": "msg-1",
-            "body": json.dumps({"appid": 440, "task": "bogus", "success": True, "s3_key": "x", "count": 1, "spoke_region": "us-east-1"}),
-            "receiptHandle": "receipt",
-        }],
+        "Records": [
+            {
+                "messageId": "msg-1",
+                "body": json.dumps(
+                    {
+                        "appid": 440,
+                        "task": "bogus",
+                        "success": True,
+                        "s3_key": "x",
+                        "count": 1,
+                        "spoke_region": "us-east-1",
+                    }
+                ),
+                "receiptHandle": "receipt",
+            }
+        ],
     }
     with pytest.raises(BatchProcessingError):
         ih.handler(event, lambda_context)
@@ -126,7 +159,16 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     ih._sqs = MagicMock()
     _mock_catalog_and_review_repos(ih)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=500, spoke_region="us-east-1", next_cursor=None))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=500,
+            spoke_region="us-east-1",
+            next_cursor=None,
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
@@ -150,12 +192,23 @@ def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_con
         reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=10, spoke_region="us-east-1", next_cursor="has_more"))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=10,
+            spoke_region="us-east-1",
+            next_cursor="has_more",
+        )
+    )
     ih.handler(event, lambda_context)
 
     # On early-stop, completed_at is set to the batch boundary (oldest timestamp in batch)
     expected_boundary = datetime(2023, 1, 1, tzinfo=timezone.utc)
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=expected_boundary)
+    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(
+        440, completed_at=expected_boundary
+    )
     ih._sqs.send_message.assert_not_called()
 
 
@@ -174,7 +227,16 @@ def test_no_early_stop_on_first_crawl(lambda_context: Any) -> None:
     ih._sqs = MagicMock()
     _mock_catalog_and_review_repos(ih, reviews_completed_at=None)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_abc",
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
@@ -199,7 +261,16 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
         reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc"))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_abc",
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
@@ -220,7 +291,17 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     _mock_catalog_and_review_repos(ih)
 
     # target=1000 equals batch count=1000 → this batch exhausts the budget
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=1000))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_abc",
+            target=1000,
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
@@ -241,7 +322,18 @@ def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=1000)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key="k", count=1000, spoke_region="us-east-1", next_cursor="cursor_abc", target=10000, started_at="2026-03-26T12:00:00+00:00"))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_abc",
+            target=10000,
+            started_at="2026-03-26T12:00:00+00:00",
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._sqs.send_message.assert_called_once()
@@ -249,6 +341,7 @@ def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any)
     # target becomes remaining = 10000 - 1000 = 9000 to prevent overshoot on the final batch
     assert sent_body == {
         "appid": 440,
+        "task": "reviews",
         "cursor": "cursor_abc",
         "target": 9000,
         "started_at": "2026-03-26T12:00:00+00:00",
@@ -275,11 +368,18 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     started_at = "2026-03-26T12:00:00+00:00"
 
     # Hop 1: target=2000, count=1000 → budget not yet exhausted, re-queue with remaining=1000
-    hop1 = _sqs_event(ReviewSpokeResult(
-        appid=440, success=True, s3_key="k1", count=1000,
-        spoke_region="us-east-1", next_cursor="cursor_hop2",
-        target=2000, started_at=started_at,
-    ))
+    hop1 = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k1",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_hop2",
+            target=2000,
+            started_at=started_at,
+        )
+    )
     ih.handler(hop1, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
@@ -290,11 +390,18 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     ih._sqs.reset_mock()
 
     # Hop 2: target=1000, count=1000 → budget exactly exhausted → mark complete
-    hop2 = _sqs_event(ReviewSpokeResult(
-        appid=440, success=True, s3_key="k2", count=1000,
-        spoke_region="us-east-1", next_cursor="cursor_hop3",
-        target=1000, started_at=started_at,
-    ))
+    hop2 = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="k2",
+            count=1000,
+            spoke_region="us-east-1",
+            next_cursor="cursor_hop3",
+            target=1000,
+            started_at=started_at,
+        )
+    )
     ih.handler(hop2, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
@@ -310,7 +417,11 @@ def test_failure_skips_s3_and_ingest(lambda_context: Any) -> None:
     ih._crawl_service = MagicMock()
     ih._s3 = MagicMock()
 
-    event = _sqs_event(MetadataSpokeResult(appid=440, success=False, spoke_region="us-east-1", error="Steam API: rate limited"))
+    event = _sqs_event(
+        MetadataSpokeResult(
+            appid=440, success=False, spoke_region="us-east-1", error="Steam API: rate limited"
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._s3.get_object.assert_not_called()
@@ -343,7 +454,11 @@ def test_s3_object_deleted_after_metadata_ingest(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {}}))),
     }
 
-    event = _sqs_event(MetadataSpokeResult(appid=440, success=True, s3_key=s3_key, count=1, spoke_region="us-east-1"))
+    event = _sqs_event(
+        MetadataSpokeResult(
+            appid=440, success=True, s3_key=s3_key, count=1, spoke_region="us-east-1"
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_called_once_with(Bucket=ih._assets_bucket_name, Key=s3_key)
@@ -361,7 +476,16 @@ def test_s3_object_deleted_after_reviews_ingest(lambda_context: Any) -> None:
     }
     _mock_catalog_and_review_repos(ih)
 
-    event = _sqs_event(ReviewSpokeResult(appid=440, success=True, s3_key=s3_key, count=2, spoke_region="us-east-1", next_cursor=None))
+    event = _sqs_event(
+        ReviewSpokeResult(
+            appid=440,
+            success=True,
+            s3_key=s3_key,
+            count=2,
+            spoke_region="us-east-1",
+            next_cursor=None,
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_called_once_with(Bucket=ih._assets_bucket_name, Key=s3_key)
@@ -378,7 +502,15 @@ def test_s3_not_deleted_on_ingest_failure(lambda_context: Any) -> None:
         "Body": MagicMock(read=MagicMock(return_value=_gzipped({"details": {}}))),
     }
 
-    event = _sqs_event(MetadataSpokeResult(appid=440, success=True, s3_key="spoke-results/metadata/440-abc.json.gz", count=1, spoke_region="us-east-1"))
+    event = _sqs_event(
+        MetadataSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="spoke-results/metadata/440-abc.json.gz",
+            count=1,
+            spoke_region="us-east-1",
+        )
+    )
     with pytest.raises(BatchProcessingError):
         ih.handler(event, lambda_context)
 
@@ -390,7 +522,99 @@ def test_s3_not_deleted_when_failure(lambda_context: Any) -> None:
     ih = _get_module()
     ih._s3 = MagicMock()
 
-    event = _sqs_event(MetadataSpokeResult(appid=440, success=False, spoke_region="us-east-1", error="empty details"))
+    event = _sqs_event(
+        MetadataSpokeResult(
+            appid=440, success=False, spoke_region="us-east-1", error="empty details"
+        )
+    )
     ih.handler(event, lambda_context)
 
     ih._s3.delete_object.assert_not_called()
+
+
+# ── Tags ingest ──────────────────────────────────────────────────────────────
+
+
+@mock_aws
+def test_tags_task_upserts_tags_and_steamspy(lambda_context: Any) -> None:
+    """Successful tags result → upsert tags + steamspy data, emit metric, delete S3."""
+    ih = _get_module()
+    ih._tag_repo = MagicMock()
+    ih._steamspy_repo = MagicMock()
+    ih._s3 = MagicMock()
+
+    payload = {
+        "tags": [{"name": "FPS", "votes": 5000}, {"name": "Multiplayer", "votes": 3000}],
+        "steamspy": {"positive": 384000, "negative": 35000, "ccu": 68423},
+    }
+    ih._s3.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=_gzipped(payload))),
+    }
+
+    event = _sqs_event(
+        TagsSpokeResult(
+            appid=440,
+            success=True,
+            s3_key="spoke-results/tags/440-abc.json.gz",
+            count=2,
+            spoke_region="us-east-1",
+        )
+    )
+    ih.handler(event, lambda_context)
+
+    ih._tag_repo.upsert_tags.assert_called_once()
+    tag_args = ih._tag_repo.upsert_tags.call_args[0][0]
+    assert len(tag_args) == 2
+    assert tag_args[0] == {"appid": 440, "name": "FPS", "votes": 5000}
+
+    ih._steamspy_repo.upsert.assert_called_once_with(
+        440,
+        {"positive": 384000, "negative": 35000, "ccu": 68423},
+    )
+
+    ih._s3.delete_object.assert_called_once()
+
+
+@mock_aws
+def test_tags_failure_skips_processing(lambda_context: Any) -> None:
+    """Tags spoke failure → log warning, no S3 fetch, no upsert."""
+    ih = _get_module()
+    ih._tag_repo = MagicMock()
+    ih._steamspy_repo = MagicMock()
+    ih._s3 = MagicMock()
+
+    event = _sqs_event(
+        TagsSpokeResult(
+            appid=440,
+            success=False,
+            spoke_region="us-east-1",
+            error="SteamSpy timeout",
+        )
+    )
+    ih.handler(event, lambda_context)
+
+    ih._s3.get_object.assert_not_called()
+    ih._tag_repo.upsert_tags.assert_not_called()
+    ih._steamspy_repo.upsert.assert_not_called()
+
+
+@mock_aws
+def test_tags_success_no_s3_key_skips(lambda_context: Any) -> None:
+    """Tags success with no s3_key (no SteamSpy data) → skip, no crash."""
+    ih = _get_module()
+    ih._tag_repo = MagicMock()
+    ih._steamspy_repo = MagicMock()
+    ih._s3 = MagicMock()
+
+    event = _sqs_event(
+        TagsSpokeResult(
+            appid=440,
+            success=True,
+            count=0,
+            spoke_region="us-east-1",
+        )
+    )
+    ih.handler(event, lambda_context)
+
+    ih._s3.get_object.assert_not_called()
+    ih._tag_repo.upsert_tags.assert_not_called()

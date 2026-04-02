@@ -15,6 +15,7 @@ APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
+STEAMSPY_API_URL = "https://steamspy.com/api.php"
 
 _RETRY_STATUSES = frozenset({429, 503})
 _EMPTY_BATCH_RETRIES = 3
@@ -34,6 +35,8 @@ def _endpoint_name(url: str) -> str:
         return "deck_compat"
     if "GetAppList" in url:
         return "app_list"
+    if "steamspy.com" in url:
+        return "steamspy"
     return "unknown"
 
 
@@ -78,6 +81,13 @@ class SteamDataSource(ABC):
     @abstractmethod
     def get_deck_compatibility(self, appid: int) -> dict:
         """Returns {resolved_category, resolved_items} or {} if unavailable."""
+
+    @abstractmethod
+    def get_steamspy_data(self, appid: int) -> dict:
+        """Returns full SteamSpy response dict, or {} if no data available.
+
+        Raises SteamAPIError on HTTP failure.
+        """
 
 
 class DirectSteamSource(SteamDataSource):
@@ -343,3 +353,26 @@ class DirectSteamSource(SteamDataSource):
             "resolved_category": results.get("resolved_category", 0),
             "resolved_items": results.get("resolved_items", []),
         }
+
+    def get_steamspy_data(self, appid: int) -> dict:
+        """Fetch full SteamSpy data for a game.
+
+        Returns the raw SteamSpy response dict, or {} if SteamSpy has no usable
+        data for the appid.
+
+        SteamSpy rate limit: ~4 req/sec. Caller must handle pacing.
+
+        Raises:
+            SteamAPIError: on HTTP failure from SteamSpy.
+        """
+        self._jitter()
+        resp = self._get_with_retry(
+            STEAMSPY_API_URL,
+            request="appdetails",
+            appid=str(appid),
+        )
+        data = resp.json()
+        # SteamSpy returns partial data for invalid appids — valid responses have "tags"
+        if "tags" not in data:
+            return {}
+        return data

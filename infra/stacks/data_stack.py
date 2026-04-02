@@ -104,6 +104,17 @@ class DataStack(cdk.Stack):
             db_secret = db_cluster.secret  # type: ignore[assignment]
             db_endpoint = db_cluster.cluster_endpoint.hostname
 
+            # The secret was originally created by the CDK Pipeline stack, giving it a
+            # pipeline-prefixed logical ID. Override to match so CloudFormation treats it
+            # as the same resource (not remove+add) on direct deploys.
+            cfn_secret = db_cluster.node.find_child("Secret").node.default_child
+            cfn_secret.override_logical_id(  # type: ignore[union-attr]
+                "SteamPulsePipelineSteamPulseStagingDataDbSecret2839FCE63fdaad7efa858a3daf9490cf0a702aeb"
+            )
+            # Step 1 of secret migration: ensure physical secret survives if ever removed
+            # from this stack (prerequisite for switching to from_secret_name_v2).
+            cfn_secret.cfn_options.deletion_policy = cdk.CfnDeletionPolicy.RETAIN  # type: ignore[union-attr]
+
         self.db_secret: secretsmanager.ISecret = db_secret
 
         # Exported so db-tunnel.sh can resolve the endpoint without extra AWS API calls.

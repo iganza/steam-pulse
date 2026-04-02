@@ -724,3 +724,18 @@ e.g. =/tag/multiplayer=, =/tag/roguelike=. Chart appears below the game list.
 e.g. =/developer/valve=. Chart appears alongside the game list.
 
 - Developer Portfolio — sentiment and review trends across all games by that developer
+
+** TODO Pro gating: backend auth + per-entity analytics fetch gating
+
+Currently all per-game analytics endpoints (playtime-sentiment, early-access-impact,
+review-velocity, top-reviews, audience-overlap) are fetched for every user regardless
+of Pro status. The frontend conditionally renders based on =usePro()=, but the full
+data is exposed in network responses.
+
+When auth ships:
+- Add backend auth middleware to Pro-only endpoints (return 403 for free users)
+- In =GameAnalyticsSection.tsx=: only fetch Pro-only endpoints when =isPro= is true
+- Clamp =TopReviews= limit (3 free, 10+ Pro)
+- Same pattern for genre page market analytics (PricePositioning, ReleaseTiming are Pro-only)
+
+Backend auth is the real security boundary — client-side gating is UX only.

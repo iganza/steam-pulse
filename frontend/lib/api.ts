@@ -30,9 +30,12 @@ async function apiFetch<T>(
   path: string,
   init?: RequestInit & { next?: { revalidate?: number; tags?: string[] } },
 ): Promise<T> {
+  // Server-side: allow 25s for Lambda cold starts chained across SSR + API.
+  // Browser-side: keep 8s to avoid hanging UI.
+  const timeout = typeof window === "undefined" ? 25000 : 8000;
   const res = await fetch(`${getApiBase()}${path}`, {
     headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(timeout),
     ...init,
   });
   if (!res.ok) {

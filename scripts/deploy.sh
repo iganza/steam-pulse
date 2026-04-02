@@ -50,7 +50,11 @@ if [[ "$ENV" == "production" ]]; then
 fi
 
 ENV_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${ENV:0:1}")${ENV:1}"  # "Staging" | "Production"
-STACK_PATTERN="SteamPulse-${ENV_CAP}-*"
+# Stage stacks use path notation (SteamPulse-Staging/Compute) while standalone
+# stacks like Monitoring live at the top level (SteamPulse-Staging-Monitoring).
+# Both patterns are required to deploy all stacks.
+STAGE_PATTERN="SteamPulse-${ENV_CAP}/*"
+STANDALONE_PATTERN="SteamPulse-${ENV_CAP}-Monitoring"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo ""
@@ -74,9 +78,9 @@ fi
 echo ""
 
 # ── Step 2: CDK deploy ────────────────────────────────────────────────────────
-echo "▶ Step 2/4 — CDK deploy: ${STACK_PATTERN}"
+echo "▶ Step 2/4 — CDK deploy: ${STAGE_PATTERN} + ${STANDALONE_PATTERN}"
 cd "$REPO_ROOT"
-poetry run cdk deploy "$STACK_PATTERN" \
+poetry run cdk deploy "$STAGE_PATTERN" "$STANDALONE_PATTERN" \
     --require-approval never \
     --concurrency 5 \
     --verbose \

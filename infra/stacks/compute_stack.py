@@ -390,6 +390,21 @@ class ComputeStack(cdk.Stack):
                 )
             )
 
+        # Override logical IDs to match the pipeline-era CloudFormation stack so
+        # CDK doesn't try to delete+recreate existing EventSourceMappings.
+        # Staging only — production was never deployed via CDK Pipelines.
+        if not config.is_production:
+            crawler_fn.node.find_child(
+                "SqsEventSource:SteamPulseStagingMessagingMetadataEnrichmentQueue3591136B"
+            ).node.default_child.override_logical_id(
+                "CrawlerFnSqsEventSourceSteamPulsePipelineSteamPulseStagingMessagingMetadataEnrichmentQueueA474040326CE7FBE"
+            )
+            crawler_fn.node.find_child(
+                "SqsEventSource:SteamPulseStagingMessagingReviewCrawlQueue7583C282"
+            ).node.default_child.override_logical_id(
+                "CrawlerFnSqsEventSourceSteamPulsePipelineSteamPulseStagingMessagingReviewCrawlQueue69735A7ED670F960"
+            )
+
         # Cross-region invoke on spoke Lambdas (deterministic names)
         spoke_regions = config.spoke_region_list
         if spoke_regions:
@@ -438,6 +453,12 @@ class ComputeStack(cdk.Stack):
                 report_batch_item_failures=True,
             )
         )
+        if not config.is_production:
+            ingest_fn.node.find_child(
+                "SqsEventSource:SteamPulseStagingMessagingSpokeResultsQueue052BE137"
+            ).node.default_child.override_logical_id(
+                "SpokeIngestFnSqsEventSourceSteamPulsePipelineSteamPulseStagingMessagingSpokeResultsQueueEFF7E445BA6FB25C"
+            )
 
         # ── Admin Lambda (DB operations — invoked by sp.py) ──────────────────
         admin_fn = PythonFunction(
@@ -649,6 +670,15 @@ class ComputeStack(cdk.Stack):
             enabled=False,
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
+
+        # Override logical ID to match the pipeline-era stack.
+        # Staging only — production was never deployed via CDK Pipelines.
+        if not config.is_production:
+            catalog_rule.node.find_child(
+                "AllowEventRuleSteamPulseStagingComputeCrawlerFnD591DFAD"
+            ).override_logical_id(
+                "CatalogRefreshRuleAllowEventRuleSteamPulsePipelineSteamPulseStagingComputeCrawlerFnCBFED1AD54DE85D7"
+            )
 
         # ── SSM outputs — read by MonitoringStack via {{resolve:ssm:...}} ─────
         # Using SSM avoids Fn::ImportValue so MonitoringStack has no hard

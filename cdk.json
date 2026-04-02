@@ -10,7 +10,6 @@
     "domain-name": "steampulse.io",
     "github-repo": "iganza/steam-pulse",
     "github-branch": "main",
-    "codestar-connection-arn": "arn:aws:codeconnections:us-west-2:052475889199:connection/2183379f-5e1c-4b98-9021-4b85679826e1",
-    "@aws-cdk/core:bundlingStacks": []
+    "codestar-connection-arn": "arn:aws:codeconnections:us-west-2:052475889199:connection/2183379f-5e1c-4b98-9021-4b85679826e1"
   }
 }

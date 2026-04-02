@@ -53,14 +53,13 @@ class DataStack(cdk.Stack):
         env = config.ENVIRONMENT
         secret_name = f"steampulse/{env}/db-credentials"
 
-        # Secret is pre-created manually before deploy — CDK imports it, never owns it.
-        # Shape to pre-create: {"username": "postgres", "password": "..."}
-        # RDS writes host/port/dbname/engine back into the secret after cluster creation.
-        db_secret: secretsmanager.ISecret = secretsmanager.Secret.from_secret_name_v2(
-            self, "DbSecret", secret_name,
-        )
-
         if config.is_production:
+            # Production: secret is pre-created manually before deploy — CDK imports it.
+            # Shape to pre-create: {"username": "postgres", "password": "..."}
+            # RDS writes host/port/dbname/engine back into the secret after cluster creation.
+            db_secret: secretsmanager.ISecret = secretsmanager.Secret.from_secret_name_v2(
+                self, "DbSecret", secret_name,
+            )
             # db.t4g.micro (Graviton2): ~$12/mo single-AZ, no cold-start latency.
             db_instance = rds.DatabaseInstance(
                 self, "Db",
@@ -81,13 +80,18 @@ class DataStack(cdk.Stack):
             )
             db_endpoint: str = db_instance.db_instance_endpoint_address
         else:
+            # Staging: CDK owns and manages the secret (from_generated_secret).
+            # The override_logical_id keeps it stable across pipeline vs direct deploys.
             # Aurora Serverless v2 (min=0 ACU): near-$0 when idle, scales on demand.
             db_cluster = rds.DatabaseCluster(
                 self, "Db",
                 engine=rds.DatabaseClusterEngine.aurora_postgres(
                     version=rds.AuroraPostgresEngineVersion.VER_16_4,
                 ),
-                credentials=rds.Credentials.from_secret(db_secret),
+                credentials=rds.Credentials.from_generated_secret(
+                    "postgres",
+                    secret_name=secret_name,
+                ),
                 default_database_name=db_name,
                 vpc=vpc,
                 vpc_subnets=isolated_subnets,
@@ -101,7 +105,16 @@ class DataStack(cdk.Stack):
                 enable_data_api=True,
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
+            db_secret = db_cluster.secret  # type: ignore[assignment]
             db_endpoint = db_cluster.cluster_endpoint.hostname
+
+            # Stable logical ID — matches the pipeline-created resource so CloudFormation
+            # treats it as the same resource (not remove+add) on direct deploys.
+            cfn_secret = db_cluster.node.find_child("Secret").node.default_child
+            cfn_secret.override_logical_id(  # type: ignore[union-attr]
+                "SteamPulsePipelineSteamPulseStagingDataDbSecret2839FCE63fdaad7efa858a3daf9490cf0a702aeb"
+            )
+            cfn_secret.cfn_options.deletion_policy = cdk.CfnDeletionPolicy.RETAIN  # type: ignore[union-attr]
 
         self.db_secret: secretsmanager.ISecret = db_secret
 

@@ -35,14 +35,13 @@ ApplicationStage(
     env=env,
 )
 
-# Production stacks — deploy with: cdk deploy 'SteamPulse-Production-*'
-# Uncomment when ready to go live.
-# ApplicationStage(
-#     app,
-#     "SteamPulse-Production",
-#     environment="production",
-#     env=env,
-# )
+# Production stacks — deploy with: cdk deploy 'SteamPulse-Production/*'
+ApplicationStage(
+    app,
+    "SteamPulse-Production",
+    environment="production",
+    env=env,
+)
 
 # ── Monitoring stacks (standalone) ───────────────────────────────────────────
 MonitoringStack(
@@ -53,13 +52,12 @@ MonitoringStack(
     env=env,
 )
 
-# Production — uncomment when ready
-# MonitoringStack(
-#     app,
-#     "SteamPulse-Production-Monitoring",
-#     stack_name="SteamPulse-Production-Monitoring",
-#     config=SteamPulseConfig.for_environment("production"),
-#     env=env,
-# )
+MonitoringStack(
+    app,
+    "SteamPulse-Production-Monitoring",
+    stack_name="SteamPulse-Production-Monitoring",
+    config=SteamPulseConfig.for_environment("production"),
+    env=env,
+)
 
 app.synth()

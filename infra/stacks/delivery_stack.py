@@ -112,8 +112,9 @@ class DeliveryStack(cdk.Stack):
             http_version=cloudfront.HttpVersion.HTTP2_AND_3,
         )
 
-        # ── Route53 (production only) ─────────────────────────────────────────
-        if config.is_production:
+        # ── Route53 (production only, and only when domain-live=true) ────────
+        domain_live: bool = bool(self.node.try_get_context("domain-live"))
+        if config.is_production and domain_live:
             zone_id: str = self.node.try_get_context("hosted-zone-id") or ""
             hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
                 self, "HostedZone",

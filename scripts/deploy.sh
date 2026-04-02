@@ -12,6 +12,30 @@
 #   - Node.js + npm installed (for frontend build)
 #   - Poetry installed
 #   - Docker running (required for CDK asset bundling)
+#
+# ── FIRST-TIME PRODUCTION DEPLOY — manual pre-flight steps ───────────────────
+#
+# The db-credentials secret is managed outside CDK (no lifecycle coupling).
+# Create it once before the first production deploy, then never touch it again:
+#
+#   aws secretsmanager create-secret \
+#     --name "steampulse/production/db-credentials" \
+#     --secret-string '{"username":"postgres","password":"STRONG_RANDOM_PASSWORD"}'
+#
+# Also create the other two secrets if they don't exist:
+#
+#   aws secretsmanager create-secret \
+#     --name "steampulse/production/steam-api-key" \
+#     --secret-string '{"api_key":"YOUR_STEAM_API_KEY"}'
+#
+#   aws secretsmanager create-secret \
+#     --name "steampulse/production/resend-api-key" \
+#     --secret-string '{"api_key":"YOUR_RESEND_API_KEY"}'
+#
+# To point steampulse.io at production once ready, set in cdk.json:
+#   "domain-live": true
+# …then re-run this script.
+# ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 

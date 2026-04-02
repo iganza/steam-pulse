@@ -41,30 +41,34 @@ class DataStack(cdk.Stack):
             ec2.Port.tcp(5432),
             "Lambda to Postgres",
         )
-        if not config.is_production:
-            # Allow the NAT instance to reach RDS/Postgres in non-production only — enables SSM
-            # port-forwarding for dev/ops access without opening this path in production.
-            db_sg.add_ingress_rule(
-                ec2.Peer.security_group_id(nat_sg.security_group_id),
-                ec2.Port.tcp(5432),
-                "NAT instance (SSM bastion) to Postgres",
-            )
+        # Allow the NAT instance (SSM bastion) to reach RDS — enables db-tunnel.sh
+        # for ops access in both envs. SSM session manager controls access; no ports
+        # are opened to the internet.
+        db_sg.add_ingress_rule(
+            ec2.Peer.security_group_id(nat_sg.security_group_id),
+            ec2.Port.tcp(5432),
+            "NAT instance (SSM bastion) to Postgres",
+        )
 
         env = config.ENVIRONMENT
         secret_name = f"steampulse/{env}/db-credentials"
 
+        # Secret is pre-created manually before deploy — CDK imports it, never owns it.
+        # Shape to pre-create: {"username": "postgres", "password": "..."}
+        # RDS writes host/port/dbname/engine back into the secret after cluster creation.
+        db_secret: secretsmanager.ISecret = secretsmanager.Secret.from_secret_name_v2(
+            self, "DbSecret", secret_name,
+        )
+
         if config.is_production:
-            # t3.micro: ~$15/mo, predictable cost, no cold-start latency.
+            # db.t4g.micro (Graviton2): ~$12/mo single-AZ, no cold-start latency.
             db_instance = rds.DatabaseInstance(
                 self, "Db",
                 engine=rds.DatabaseInstanceEngine.postgres(
                     version=rds.PostgresEngineVersion.VER_16_3,
                 ),
-                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
-                credentials=rds.Credentials.from_generated_secret(
-                    "postgres",
-                    secret_name=secret_name,
-                ),
+                instance_type=ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+                credentials=rds.Credentials.from_secret(db_secret),
                 vpc=vpc,
                 vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
@@ -75,7 +79,6 @@ class DataStack(cdk.Stack):
                 multi_az=False,
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
-            db_secret: secretsmanager.ISecret = db_instance.secret  # type: ignore[assignment]
             db_endpoint: str = db_instance.db_instance_endpoint_address
         else:
             # Aurora Serverless v2 (min=0 ACU): near-$0 when idle, scales on demand.
@@ -84,10 +87,7 @@ class DataStack(cdk.Stack):
                 engine=rds.DatabaseClusterEngine.aurora_postgres(
                     version=rds.AuroraPostgresEngineVersion.VER_16_4,
                 ),
-                credentials=rds.Credentials.from_generated_secret(
-                    "postgres",
-                    secret_name=secret_name,
-                ),
+                credentials=rds.Credentials.from_secret(db_secret),
                 default_database_name=db_name,
                 vpc=vpc,
                 vpc_subnets=isolated_subnets,
@@ -101,19 +101,7 @@ class DataStack(cdk.Stack):
                 enable_data_api=True,
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
-            db_secret = db_cluster.secret  # type: ignore[assignment]
             db_endpoint = db_cluster.cluster_endpoint.hostname
-
-            # The secret was originally created by the CDK Pipeline stack, giving it a
-            # pipeline-prefixed logical ID. Override to match so CloudFormation treats it
-            # as the same resource (not remove+add) on direct deploys.
-            cfn_secret = db_cluster.node.find_child("Secret").node.default_child
-            cfn_secret.override_logical_id(  # type: ignore[union-attr]
-                "SteamPulsePipelineSteamPulseStagingDataDbSecret2839FCE63fdaad7efa858a3daf9490cf0a702aeb"
-            )
-            # Step 1 of secret migration: ensure physical secret survives if ever removed
-            # from this stack (prerequisite for switching to from_secret_name_v2).
-            cfn_secret.cfn_options.deletion_policy = cdk.CfnDeletionPolicy.RETAIN  # type: ignore[union-attr]
 
         self.db_secret: secretsmanager.ISecret = db_secret
 

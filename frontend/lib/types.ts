@@ -367,11 +367,11 @@ export interface PlatformGaps {
   genre: string;
   total_games: number;
   platforms: {
-    windows: PlatformStats;
-    mac: PlatformStats;
-    linux: PlatformStats;
+    windows?: PlatformStats;
+    mac?: PlatformStats;
+    linux?: PlatformStats;
   };
-  underserved: string | null;
+  underserved: "windows" | "mac" | "linux" | null;
 }
 
 export interface PlatformStats {

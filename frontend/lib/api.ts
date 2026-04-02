@@ -190,8 +190,9 @@ export async function getReviewVelocity(appid: number): Promise<ReviewVelocity> 
 export async function getTopReviews(
   appid: number, sort: "helpful" | "funny" = "helpful", limit = 10
 ): Promise<TopReviewsResponse> {
+  const clampedLimit = Math.max(1, Math.min(50, limit));
   return apiFetch<TopReviewsResponse>(
-    `/api/games/${appid}/top-reviews?sort=${sort}&limit=${limit}`
+    `/api/games/${appid}/top-reviews?sort=${sort}&limit=${clampedLimit}`
   );
 }
 

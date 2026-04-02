@@ -58,24 +58,30 @@ export function PlatformGaps({ data }: PlatformGapsProps) {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">
-          <PlatformBar
-            label="Windows"
-            stats={data.platforms.windows}
-            totalGames={data.total_games}
-            color="#6b7280"
-          />
-          <PlatformBar
-            label="macOS"
-            stats={data.platforms.mac}
-            totalGames={data.total_games}
-            color="#3b82f6"
-          />
-          <PlatformBar
-            label="Linux"
-            stats={data.platforms.linux}
-            totalGames={data.total_games}
-            color="#f59e0b"
-          />
+          {data.platforms.windows && (
+            <PlatformBar
+              label="Windows"
+              stats={data.platforms.windows}
+              totalGames={data.total_games}
+              color="#6b7280"
+            />
+          )}
+          {data.platforms.mac && (
+            <PlatformBar
+              label="macOS"
+              stats={data.platforms.mac}
+              totalGames={data.total_games}
+              color="#3b82f6"
+            />
+          )}
+          {data.platforms.linux && (
+            <PlatformBar
+              label="Linux"
+              stats={data.platforms.linux}
+              totalGames={data.total_games}
+              color="#f59e0b"
+            />
+          )}
         </div>
 
         {underservedPlatform && underservedStats && (

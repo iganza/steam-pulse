@@ -125,7 +125,8 @@ test.describe('Developer page — portfolio analytics', () => {
 
 // Graceful degradation
 // NOTE: Only game page analytics use client-side fetching (interceptable by page.route).
-// Genre/tag/developer analytics are SSR-fetched, so failures are tested via mock-api-server.mjs.
+// Genre/tag/developer analytics are SSR-fetched via mock-api-server.mjs which always
+// returns 200. SSR failure testing would require a mock server failure mode (not yet implemented).
 test.describe('Analytics — graceful degradation', () => {
   test('game page renders when analytics endpoints fail', async ({ page }) => {
     await mockAllApiRoutes(page)

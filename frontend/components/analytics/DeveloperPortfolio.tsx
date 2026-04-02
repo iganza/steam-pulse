@@ -12,6 +12,16 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import type { DeveloperPortfolio as DeveloperPortfolioData, DeveloperGame } from "@/lib/types";
 
+/** Parse YYYY-MM-DD as a local date (avoids UTC timezone shift). */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatShortDate(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 const tooltipStyle = {
   background: "var(--popover)",
   border: "1px solid var(--border)",
@@ -73,18 +83,15 @@ export function DeveloperPortfolio({ data }: DeveloperPortfolioProps) {
   const sortedGames = [...data.games].sort((a, b) => {
     if (!a.release_date) return 1;
     if (!b.release_date) return -1;
-    return new Date(b.release_date).getTime() - new Date(a.release_date).getTime();
+    return parseLocalDate(b.release_date).getTime() - parseLocalDate(a.release_date).getTime();
   });
 
   const trajectoryGames = data.games
     .filter((g): g is DeveloperGame & { release_date: string } => g.release_date != null && g.positive_pct != null)
-    .sort((a, b) => new Date(a.release_date).getTime() - new Date(b.release_date).getTime())
+    .sort((a, b) => parseLocalDate(a.release_date).getTime() - parseLocalDate(b.release_date).getTime())
     .map((g) => ({
       name: g.name,
-      date: new Date(g.release_date).toLocaleDateString("en-US", {
-        month: "short",
-        year: "numeric",
-      }),
+      date: formatShortDate(g.release_date),
       positive_pct: g.positive_pct,
     }));
 
@@ -214,12 +221,7 @@ function GameCard({ game }: { game: DeveloperGame }) {
         </Link>
         <div className="flex items-center gap-2 text-muted-foreground">
           {game.release_date && (
-            <span>
-              {new Date(game.release_date).toLocaleDateString("en-US", {
-                month: "short",
-                year: "numeric",
-              })}
-            </span>
+            <span>{formatShortDate(game.release_date)}</span>
           )}
           <span>{priceLabel}</span>
         </div>

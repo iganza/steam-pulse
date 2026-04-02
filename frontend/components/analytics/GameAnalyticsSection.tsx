@@ -47,7 +47,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
     async function fetchAll() {
       const results = await Promise.allSettled([
-        getAudienceOverlap(appid, isPro ? 20 : 5),
+        getAudienceOverlap(appid, isPro ? 50 : 5),
         getPlaytimeSentiment(appid),
         getEarlyAccessImpact(appid),
         getReviewVelocity(appid),
@@ -66,7 +66,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
     fetchAll();
     return () => { cancelled = true; };
-  }, [appid]);
+  }, [appid, isPro]);
 
   const handleSortChange = useCallback(
     async (sort: "helpful" | "funny") => {

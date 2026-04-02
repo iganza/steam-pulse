@@ -290,7 +290,7 @@ export interface VelocitySummary {
   avg_monthly: number;
   last_30_days: number;
   last_3_months_avg: number;
-  peak_month: { month: string; total: number };
+  peak_month: { month: string; total: number } | null;
   trend: "accelerating" | "stable" | "decelerating";
 }
 

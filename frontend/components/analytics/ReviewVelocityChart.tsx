@@ -110,11 +110,13 @@ export function ReviewVelocityChart({ data }: ReviewVelocityChartProps) {
           <span className="text-muted-foreground">
             Monthly avg: <span className="font-mono font-medium text-foreground">{Math.round(summary.avg_monthly)}</span>
           </span>
-          <span className="text-muted-foreground">
-            Peak: <span className="font-mono font-medium text-foreground">
-              {formatMonth(summary.peak_month.month)} ({summary.peak_month.total})
+          {summary.peak_month && (
+            <span className="text-muted-foreground">
+              Peak: <span className="font-mono font-medium text-foreground">
+                {formatMonth(summary.peak_month.month)} ({summary.peak_month.total})
+              </span>
             </span>
-          </span>
+          )}
         </div>
       </CardContent>
     </Card>

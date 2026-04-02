@@ -33,9 +33,9 @@ function ReviewCard({ review }: { review: TopReview }) {
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono">{review.playtime_hours != null ? `${review.playtime_hours}h` : "\u2014"} played</span>
           <span>&middot;</span>
-          <span>{review.votes_helpful} helpful</span>
+          <span>{review.votes_helpful.toLocaleString()} helpful</span>
           <span>&middot;</span>
-          <span>{review.votes_funny} funny</span>
+          <span>{review.votes_funny.toLocaleString()} funny</span>
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-2">

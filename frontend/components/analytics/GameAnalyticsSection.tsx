@@ -38,6 +38,12 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setOverlap(null);
+    setPlaytimeSentiment(null);
+    setEaImpact(null);
+    setVelocity(null);
+    setTopReviews(null);
 
     async function fetchAll() {
       const results = await Promise.allSettled([

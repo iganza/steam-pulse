@@ -4,7 +4,8 @@ CDK / boto3 callers construct these and call .model_dump() as the payload.
 The dispatcher validates the raw event dict using TypeAdapter.
 """
 
-from datetime import datetime
+import json
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -112,3 +113,63 @@ class SpokeResponse(BaseModel):
     task: CrawlTask
     success: bool
     count: int
+
+
+# ── SQS record → typed spoke request ────────────────────────────────────────
+
+SpokeRequest = MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest
+
+
+def parse_spoke_request(record: dict, *, review_limit: int) -> SpokeRequest | None:
+    """Parse an SQS record into a typed spoke request.
+
+    Handles SNS envelope unwrapping, task resolution, and review
+    cursor/target normalization.
+
+    Returns None if the message should be skipped (e.g. zero review budget).
+    Raises ValueError for unrecognized messages.
+    """
+    body = json.loads(record["body"])
+    if body.get("Type") == "Notification":
+        body = json.loads(body["Message"])
+
+    appid = int(body["appid"])
+
+    # Direct SQS messages carry an explicit "task" field.
+    # SNS-routed domain events (game-discovered, game-metadata-ready) don't —
+    # infer from the queue that delivered them. Fail if neither is available.
+    if "task" in body:
+        task: str = body["task"]
+    elif "review-crawl" in record.get("eventSourceARN", ""):
+        task = "reviews"
+    elif "app-crawl" in record.get("eventSourceARN", ""):
+        task = "metadata"
+    else:
+        raise ValueError(
+            f"Cannot determine task: no 'task' field in body and "
+            f"unrecognized queue ARN {record.get('eventSourceARN', '<missing>')}"
+        )
+
+    match task:
+        case "tags":
+            return TagsSpokeRequest(appid=appid)
+        case "reviews":
+            cursor = body.get("cursor") or "*"
+            started_at = body.get("started_at") or datetime.now(tz=UTC).isoformat()
+            target_raw = body.get("target")
+            if target_raw is None:
+                target = review_limit
+            elif target_raw <= 0:
+                return None
+            else:
+                target = target_raw
+            return ReviewSpokeRequest(
+                appid=appid,
+                cursor=cursor,
+                target=target,
+                started_at=started_at,
+            )
+        case "metadata":
+            return MetadataSpokeRequest(appid=appid)
+        case _:
+            raise ValueError(f"Unknown task: {task!r} for appid={appid}")

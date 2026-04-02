@@ -440,3 +440,113 @@ def test_handler_infers_reviews_from_review_crawl_arn(lambda_context: Any) -> No
     payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
     assert payload.appid == 888
     assert payload.task == "reviews"
+
+
+# ── parse_spoke_request unit tests ───────────────────────────────────────────
+
+import pytest
+from lambda_functions.crawler.events import parse_spoke_request
+
+
+def _sqs_record(
+    body: dict, arn: str = "arn:aws:sqs:us-east-1:123:steampulse-staging-app-crawl"
+) -> dict:
+    return {"messageId": "test", "body": json.dumps(body), "eventSourceARN": arn}
+
+
+def _sns_record(inner: dict, arn: str) -> dict:
+    envelope = {
+        "Type": "Notification",
+        "MessageId": "sns-test",
+        "TopicArn": "arn:aws:sns:us-east-1:123:game-events",
+        "Message": json.dumps(inner),
+        "Timestamp": "2026-01-01T00:00:00.000Z",
+    }
+    return {"messageId": "test", "body": json.dumps(envelope), "eventSourceARN": arn}
+
+
+def test_parse_explicit_metadata_task() -> None:
+    req = parse_spoke_request(_sqs_record({"appid": 440, "task": "metadata"}), review_limit=5000)
+    assert req is not None
+    assert req.appid == 440
+    assert req.task == "metadata"
+
+
+def test_parse_explicit_tags_task() -> None:
+    req = parse_spoke_request(_sqs_record({"appid": 440, "task": "tags"}), review_limit=5000)
+    assert req is not None
+    assert req.appid == 440
+    assert req.task == "tags"
+
+
+def test_parse_explicit_reviews_with_target() -> None:
+    req = parse_spoke_request(
+        _sqs_record({"appid": 730, "task": "reviews", "cursor": "abc", "target": 3000}),
+        review_limit=5000,
+    )
+    assert req is not None
+    assert req.task == "reviews"
+    assert req.cursor == "abc"
+    assert req.target == 3000
+
+
+def test_parse_reviews_defaults_target_to_limit() -> None:
+    req = parse_spoke_request(
+        _sqs_record({"appid": 730, "task": "reviews"}),
+        review_limit=5000,
+    )
+    assert req is not None
+    assert req.target == 5000
+
+
+def test_parse_reviews_zero_target_returns_none() -> None:
+    req = parse_spoke_request(
+        _sqs_record({"appid": 730, "task": "reviews", "target": 0}),
+        review_limit=5000,
+    )
+    assert req is None
+
+
+def test_parse_sns_app_crawl_infers_metadata() -> None:
+    arn = "arn:aws:sqs:us-east-1:123:steampulse-staging-app-crawl"
+    req = parse_spoke_request(
+        _sns_record({"event_type": "game-discovered", "appid": 999}, arn=arn),
+        review_limit=5000,
+    )
+    assert req is not None
+    assert req.task == "metadata"
+    assert req.appid == 999
+
+
+def test_parse_sns_review_crawl_infers_reviews() -> None:
+    arn = "arn:aws:sqs:us-east-1:123:steampulse-staging-review-crawl"
+    req = parse_spoke_request(
+        _sns_record(
+            {
+                "event_type": "game-metadata-ready",
+                "appid": 888,
+                "review_count": 500,
+                "is_eligible": True,
+            },
+            arn=arn,
+        ),
+        review_limit=5000,
+    )
+    assert req is not None
+    assert req.task == "reviews"
+
+
+def test_parse_unknown_arn_no_task_raises() -> None:
+    with pytest.raises(ValueError, match="Cannot determine task"):
+        parse_spoke_request(
+            _sqs_record({"appid": 440}, arn="arn:aws:sqs:us-east-1:123:unknown-queue"),
+            review_limit=5000,
+        )
+
+
+def test_parse_unknown_task_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown task"):
+        parse_spoke_request(
+            _sqs_record({"appid": 440, "task": "bogus"}),
+            review_limit=5000,
+        )

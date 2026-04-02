@@ -10,7 +10,6 @@ DB ingest from spoke results is handled by ingest_handler.py (primary region).
 
 import json
 import os
-from datetime import UTC, datetime
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
@@ -30,11 +29,8 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
-    CrawlTask,
     DirectRequest,
-    MetadataSpokeRequest,
-    ReviewSpokeRequest,
-    TagsSpokeRequest,
+    parse_spoke_request,
 )
 
 logger = Logger(service="crawler")
@@ -129,90 +125,30 @@ if not _spoke_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     )
 
 
-def _extract_payload(record_body: str) -> dict:
-    """Unwrap SNS envelope if present, otherwise return plain SQS body."""
-    body = json.loads(record_body)
-    if "Type" in body and body["Type"] == "Notification":
-        return json.loads(body["Message"])
-    return body
-
-
 def _dispatch_to_spoke(record: dict) -> None:
     """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
-
     if not _spoke_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
 
-    body = _extract_payload(record["body"])
-    appid = int(body["appid"])
+    req = parse_spoke_request(record, review_limit=_crawler_config.REVIEW_LIMIT)
+    if req is None:
+        logger.info("Skipping dispatch (budget exhausted)", extra={"record": record["messageId"]})
+        return
 
-    # Explicit task field is authoritative. SNS-routed domain events (game-discovered,
-    # game-metadata-ready, etc.) don't carry task — infer from which queue delivered them.
-    if "task" in body:
-        task: CrawlTask = body["task"]
-    else:
-        source_arn = record.get("eventSourceARN", "")
-        task = "reviews" if "review-crawl" in source_arn else "metadata"
-    logger.append_keys(appid=appid, task=task)
-
-    match task:
-        case "tags":
-            req = TagsSpokeRequest(appid=appid)
-        case "reviews":
-            # Cursor and target travel in the SQS message body — no DB reads needed.
-            # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
-            # Normalize cursor: treat missing, null, and empty string all as fresh start.
-            cursor: str = body.get("cursor") or "*"
-            started_at: str | datetime = body.get("started_at") or datetime.now(tz=UTC)
-
-            target_raw: int | None = body.get("target")
-            if target_raw is None:
-                target: int = _crawler_config.REVIEW_LIMIT
-            elif target_raw <= 0:
-                logger.info(
-                    "review crawl budget exhausted — skipping dispatch", extra={"appid": appid}
-                )
-                return
-            else:
-                target = target_raw
-
-            if cursor == "*":
-                logger.info("reviews fresh start", extra={"appid": appid, "target": target})
-            else:
-                logger.info(
-                    "reviews continuing",
-                    extra={"appid": appid, "cursor": cursor, "target": target},
-                )
-
-            req = ReviewSpokeRequest(
-                appid=appid,
-                cursor=cursor,
-                target=target,
-                started_at=started_at,
-            )
-        case _:
-            req = MetadataSpokeRequest(appid=appid)
-
-    # Deterministic: same appid always hits the same spoke, spreading load
-    # evenly and ensuring retries go to the same region.
-    idx = appid % len(_spoke_targets)
+    logger.append_keys(appid=req.appid, task=req.task)
+    idx = req.appid % len(_spoke_targets)
     fn_name, client = _spoke_targets[idx]
+    logger.info("Dispatching to spoke", extra={"fn_name": fn_name})
 
-    logger.info("Dispatching to spoke", extra={"appid": appid, "task": task, "fn_name": fn_name})
-
-    # Async invoke — returns 202 immediately, spoke runs independently.
-    # Spoke results flow back via S3 + spoke_results_queue → ingest_handler.
-    # Spoke failures: Lambda auto-retries async invocations (2 attempts),
-    # then routes to the spoke's DLQ (SpokeCrawlerDlq in CrawlSpokeStack).
-    # Spoke also sends success=False on Steam API errors so ingest_handler logs the skip.
     response = client.invoke(
         FunctionName=fn_name,
         InvocationType="Event",
         Payload=req.model_dump_json().encode(),
     )
-    status = response["StatusCode"]
-    if status != 202:
-        raise RuntimeError(f"Spoke async invoke failed for appid={appid}: HTTP {status}")
+    if response["StatusCode"] != 202:
+        raise RuntimeError(
+            f"Spoke invoke failed for appid={req.appid}: HTTP {response['StatusCode']}"
+        )
 
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
 

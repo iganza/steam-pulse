@@ -148,23 +148,24 @@ def _get_backfill_appids(limit: int | None) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
-def _dispatch_tags_to_spoke(appid: int) -> None:
-    """Send a TagsSpokeRequest to the deterministic spoke for this appid."""
-    if not _spoke_targets:
-        raise RuntimeError("No spoke targets configured — cannot dispatch tags")
-
-    req = TagsSpokeRequest(appid=appid)
-    idx = appid % len(_spoke_targets)
-    fn_name, client = _spoke_targets[idx]
-
-    response = client.invoke(
-        FunctionName=fn_name,
-        InvocationType="Event",
-        Payload=req.model_dump_json().encode(),
-    )
-    status = response["StatusCode"]
-    if status != 202:
-        raise RuntimeError(f"Spoke async invoke failed for tags appid={appid}: HTTP {status}")
+def _enqueue_tags_backfill(appids: list[int]) -> int:
+    """Send tag backfill messages to app-crawl-queue in batches of 10."""
+    sent = 0
+    for i in range(0, len(appids), 10):
+        batch = appids[i : i + 10]
+        entries = [
+            {
+                "Id": str(j),
+                "MessageBody": json.dumps({"appid": appid, "task": "tags"}),
+            }
+            for j, appid in enumerate(batch)
+        ]
+        resp = _sqs.send_message_batch(QueueUrl=_app_crawl_queue_url, Entries=entries)
+        failed = resp.get("Failed", [])
+        if failed:
+            logger.warning("SQS batch send failed", extra={"failed": len(failed), "offset": i})
+        sent += len(batch) - len(failed)
+    return sent
 
 
 def _dispatch_to_spoke(record: dict) -> None:
@@ -176,11 +177,20 @@ def _dispatch_to_spoke(record: dict) -> None:
     body = _extract_payload(record["body"])
     appid = int(body["appid"])
 
+    # Task routing: explicit "task" field in body takes priority (used by backfill),
+    # otherwise infer from which SQS queue the message came from.
     source_arn = record.get("eventSourceARN", "")
-    task: CrawlTask = "reviews" if "review-crawl" in source_arn else "metadata"
+    if "task" in body:
+        task: CrawlTask = body["task"]
+    elif "review-crawl" in source_arn:
+        task = "reviews"
+    else:
+        task = "metadata"
     logger.append_keys(appid=appid, task=task)
 
-    if task == "reviews":
+    if task == "tags":
+        req: MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest = TagsSpokeRequest(appid=appid)
+    elif task == "reviews":
         # Cursor and target travel in the SQS message body — no DB reads needed.
         # Fresh-start messages (from SNS/game-metadata-ready) have no cursor field; default to "*".
         # Re-queue messages from ingest carry cursor, target, and started_at explicitly.
@@ -204,7 +214,7 @@ def _dispatch_to_spoke(record: dict) -> None:
         else:
             logger.info("reviews continuing", extra={"appid": appid, "cursor": cursor, "target": target})
 
-        req: MetadataSpokeRequest | ReviewSpokeRequest = ReviewSpokeRequest(
+        req = ReviewSpokeRequest(
             appid=appid,
             cursor=cursor,
             target=target,
@@ -284,10 +294,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
             case BackfillTagsRequest():
                 appids = _get_backfill_appids(req.limit)
                 logger.info("Backfill tags starting", extra={"count": len(appids), "limit": req.limit})
-                for appid in appids:
-                    _dispatch_tags_to_spoke(appid)
-                metrics.add_metric(name="TagsBackfillDispatched", unit=MetricUnit.Count, value=len(appids))
-                return {"queued": len(appids)}
+                sent = _enqueue_tags_backfill(appids)
+                metrics.add_metric(name="TagsBackfillDispatched", unit=MetricUnit.Count, value=sent)
+                return {"queued": sent}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

@@ -41,7 +41,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
     async function fetchAll() {
       const results = await Promise.allSettled([
-        getAudienceOverlap(appid),
+        getAudienceOverlap(appid, isPro ? 20 : 5),
         getPlaytimeSentiment(appid),
         getEarlyAccessImpact(appid),
         getReviewVelocity(appid),

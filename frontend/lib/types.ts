@@ -226,9 +226,9 @@ export interface AudienceOverlapEntry {
   appid: number;
   name: string;
   slug: string;
-  header_image: string;
-  positive_pct: number;
-  review_count: number;
+  header_image: string | null;
+  positive_pct: number | null;
+  review_count: number | null;
   overlap_count: number;
   overlap_pct: number;
   shared_sentiment_pct: number;

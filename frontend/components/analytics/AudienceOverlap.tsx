@@ -36,14 +36,18 @@ export function AudienceOverlap({ data, gameName, showAll = false }: AudienceOve
         <div className="flex flex-col gap-3">
           {items.map((entry) => (
             <div key={entry.appid} className="flex items-center gap-3">
-              <img
-                src={entry.header_image}
-                alt={entry.name}
-                width={60}
-                height={28}
-                className="rounded object-cover flex-shrink-0"
-                style={{ width: 60, height: 28 }}
-              />
+              {entry.header_image ? (
+                <img
+                  src={entry.header_image}
+                  alt={entry.name}
+                  width={60}
+                  height={28}
+                  className="rounded object-cover flex-shrink-0"
+                  style={{ width: 60, height: 28 }}
+                />
+              ) : (
+                <div className="rounded flex-shrink-0 bg-secondary" style={{ width: 60, height: 28 }} />
+              )}
               <div className="flex-1 min-w-0">
                 <Link
                   href={`/games/${entry.appid}/${entry.slug}`}

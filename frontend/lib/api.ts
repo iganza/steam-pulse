@@ -171,7 +171,8 @@ export async function getBenchmarks(appid: number): Promise<Benchmarks> {
 // ---------------------------------------------------------------------------
 
 export async function getAudienceOverlap(appid: number, limit = 20): Promise<AudienceOverlap> {
-  return apiFetch<AudienceOverlap>(`/api/games/${appid}/audience-overlap?limit=${limit}`);
+  const clampedLimit = Math.max(1, Math.min(50, limit));
+  return apiFetch<AudienceOverlap>(`/api/games/${appid}/audience-overlap?limit=${clampedLimit}`);
 }
 
 export async function getPlaytimeSentiment(appid: number): Promise<PlaytimeSentiment> {

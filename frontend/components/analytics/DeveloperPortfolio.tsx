@@ -225,25 +225,27 @@ function GameCard({ game }: { game: DeveloperGame }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">
-            {formatCompact(game.review_count)} reviews
+            {formatCompact(game.review_count ?? 0)} reviews
           </span>
-          <div className="flex-1 flex items-center gap-1">
-            <div
-              className="h-2 flex-1 rounded-full overflow-hidden"
-              style={{ background: "var(--border)" }}
-            >
+          {game.positive_pct != null && (
+            <div className="flex-1 flex items-center gap-1">
               <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${game.positive_pct}%`,
-                  background: sentimentColor(game.positive_pct),
-                }}
-              />
+                className="h-2 flex-1 rounded-full overflow-hidden"
+                style={{ background: "var(--border)" }}
+              >
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${game.positive_pct}%`,
+                    background: sentimentColor(game.positive_pct),
+                  }}
+                />
+              </div>
+              <span className="font-mono" style={{ color: sentimentColor(game.positive_pct) }}>
+                {game.positive_pct}%
+              </span>
             </div>
-            <span className="font-mono" style={{ color: sentimentColor(game.positive_pct) }}>
-              {game.positive_pct}%
-            </span>
-          </div>
+          )}
         </div>
       </div>
     </div>

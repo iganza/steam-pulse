@@ -295,8 +295,10 @@ export interface VelocitySummary {
 }
 
 // Feature 6: Top Reviews
+export type TopReviewsSort = "helpful" | "funny";
+
 export interface TopReviewsResponse {
-  sort: string;
+  sort: TopReviewsSort;
   reviews: TopReview[];
 }
 

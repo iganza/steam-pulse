@@ -124,6 +124,8 @@ test.describe('Developer page — portfolio analytics', () => {
 })
 
 // Graceful degradation
+// NOTE: Only game page analytics use client-side fetching (interceptable by page.route).
+// Genre/tag/developer analytics are SSR-fetched, so failures are tested via mock-api-server.mjs.
 test.describe('Analytics — graceful degradation', () => {
   test('game page renders when analytics endpoints fail', async ({ page }) => {
     await mockAllApiRoutes(page)
@@ -134,16 +136,5 @@ test.describe('Analytics — graceful degradation', () => {
     }
     await page.goto('/games/440/team-fortress-2')
     await expect(page.getByRole('heading', { name: 'Team Fortress 2' })).toBeVisible()
-  })
-
-  test('genre page renders when analytics endpoints fail', async ({ page }) => {
-    await mockAllApiRoutes(page)
-    for (const ep of ['price-positioning', 'release-timing', 'platform-gaps']) {
-      await page.route(`**/api/analytics/${ep}*`, route =>
-        route.fulfill({ status: 500, body: 'error' })
-      )
-    }
-    await page.goto('/genre/action')
-    await expect(page.getByText(/action/i).first()).toBeVisible()
   })
 })

@@ -75,6 +75,7 @@ export function TopReviews({ data, onSortChange }: TopReviewsProps) {
       <CardContent>
         <div className="flex gap-2 mb-4">
           <button
+            type="button"
             onClick={() => onSortChange?.("helpful")}
             className="text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
             style={
@@ -86,6 +87,7 @@ export function TopReviews({ data, onSortChange }: TopReviewsProps) {
             Most Helpful
           </button>
           <button
+            type="button"
             onClick={() => onSortChange?.("funny")}
             className="text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
             style={

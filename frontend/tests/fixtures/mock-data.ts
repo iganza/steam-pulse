@@ -254,3 +254,201 @@ export const MOCK_CATEGORIES = {
     adoption: { 'VR Supported': 0.05, 'Co-op': 0.35, 'Full controller support': 0.60 },
   })),
 }
+
+// Per-entity analytics mock data
+
+export const MOCK_AUDIENCE_OVERLAP = {
+  total_reviewers: 5432,
+  overlaps: [
+    {
+      appid: 570, name: 'Dota 2', slug: 'dota-2-570',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+      positive_pct: 82, review_count: 1800000,
+      overlap_count: 342, overlap_pct: 6.3, shared_sentiment_pct: 78.5,
+    },
+    {
+      appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2-730',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+      positive_pct: 85, review_count: 8500000,
+      overlap_count: 289, overlap_pct: 5.3, shared_sentiment_pct: 71.2,
+    },
+    {
+      appid: 220, name: 'Half-Life 2', slug: 'half-life-2-220',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/220/header.jpg',
+      positive_pct: 97, review_count: 180000,
+      overlap_count: 156, overlap_pct: 2.9, shared_sentiment_pct: 95.1,
+    },
+  ],
+}
+
+export const MOCK_PLAYTIME_SENTIMENT = {
+  buckets: [
+    { bucket: '0h', total: 50, positive: 20, negative: 30, pct_positive: 40.0 },
+    { bucket: '<1h', total: 120, positive: 60, negative: 60, pct_positive: 50.0 },
+    { bucket: '1-2h', total: 200, positive: 140, negative: 60, pct_positive: 70.0 },
+    { bucket: '2-5h', total: 300, positive: 240, negative: 60, pct_positive: 80.0 },
+    { bucket: '5-10h', total: 250, positive: 210, negative: 40, pct_positive: 84.0 },
+    { bucket: '10-20h', total: 180, positive: 135, negative: 45, pct_positive: 75.0 },
+    { bucket: '20-50h', total: 100, positive: 60, negative: 40, pct_positive: 60.0 },
+  ],
+  churn_point: { bucket: '20-50h', drop_from: 75.0, drop_to: 60.0, delta: -15.0 },
+  median_playtime_hours: 8,
+  value_score: 1.6,
+}
+
+export const MOCK_EA_IMPACT = {
+  has_ea_reviews: true,
+  early_access: { total: 500, positive: 360, pct_positive: 72.0, avg_playtime: 8.5 },
+  post_launch: { total: 1200, positive: 1020, pct_positive: 85.0, avg_playtime: 24.3 },
+  impact_delta: 13.0,
+  verdict: 'improved' as const,
+}
+
+export const MOCK_REVIEW_VELOCITY = {
+  monthly: [
+    { month: '2025-01', total: 85, positive: 68, pct_positive: 80.0 },
+    { month: '2025-02', total: 92, positive: 76, pct_positive: 82.6 },
+    { month: '2025-03', total: 110, positive: 88, pct_positive: 80.0 },
+  ],
+  summary: {
+    avg_monthly: 85.5,
+    last_30_days: 110,
+    last_3_months_avg: 95.7,
+    peak_month: { month: '2025-03', total: 110 },
+    trend: 'accelerating' as const,
+  },
+}
+
+export const MOCK_TOP_REVIEWS = {
+  sort: 'helpful',
+  reviews: [
+    {
+      steam_review_id: '170501_440', voted_up: true, playtime_hours: 450,
+      body_preview: 'This game is an absolute masterpiece that changed how I think about multiplayer shooters.',
+      votes_helpful: 1523, votes_funny: 42,
+      posted_at: '2024-01-15T12:00:00Z',
+      written_during_early_access: false, received_for_free: false,
+    },
+    {
+      steam_review_id: '170502_440', voted_up: false, playtime_hours: 2,
+      body_preview: 'Constant crashes on startup. Refunded after 30 minutes of troubleshooting.',
+      votes_helpful: 892, votes_funny: 5,
+      posted_at: '2024-02-20T15:30:00Z',
+      written_during_early_access: false, received_for_free: false,
+    },
+  ],
+}
+
+export const MOCK_PRICE_POSITIONING = {
+  genre: 'Action',
+  genre_slug: 'action',
+  distribution: [
+    { price_range: 'Free', game_count: 45, avg_sentiment: 72.3, median_price: 0 },
+    { price_range: '$5-10', game_count: 120, avg_sentiment: 68.5, median_price: 7.99 },
+    { price_range: '$10-15', game_count: 95, avg_sentiment: 78.2, median_price: 12.99 },
+    { price_range: '$15-20', game_count: 68, avg_sentiment: 74.1, median_price: 17.49 },
+    { price_range: '$20-30', game_count: 42, avg_sentiment: 71.8, median_price: 24.99 },
+  ],
+  summary: {
+    avg_price: 14.99, median_price: 9.99,
+    free_count: 45, paid_count: 325, sweet_spot: '$10-15',
+  },
+}
+
+export const MOCK_RELEASE_TIMING = {
+  genre: 'Action',
+  monthly: [
+    { month: 1, month_name: 'January', releases: 28, avg_sentiment: 74.2, avg_reviews: 320 },
+    { month: 2, month_name: 'February', releases: 35, avg_sentiment: 78.3, avg_reviews: 410 },
+    { month: 3, month_name: 'March', releases: 42, avg_sentiment: 72.1, avg_reviews: 350 },
+    { month: 4, month_name: 'April', releases: 38, avg_sentiment: 71.0, avg_reviews: 300 },
+    { month: 5, month_name: 'May', releases: 40, avg_sentiment: 73.5, avg_reviews: 380 },
+    { month: 6, month_name: 'June', releases: 55, avg_sentiment: 70.2, avg_reviews: 450 },
+    { month: 7, month_name: 'July', releases: 30, avg_sentiment: 75.0, avg_reviews: 290 },
+    { month: 8, month_name: 'August', releases: 32, avg_sentiment: 74.8, avg_reviews: 310 },
+    { month: 9, month_name: 'September', releases: 60, avg_sentiment: 69.5, avg_reviews: 500 },
+    { month: 10, month_name: 'October', releases: 85, avg_sentiment: 67.3, avg_reviews: 550 },
+    { month: 11, month_name: 'November', releases: 50, avg_sentiment: 64.2, avg_reviews: 420 },
+    { month: 12, month_name: 'December', releases: 25, avg_sentiment: 76.1, avg_reviews: 270 },
+  ],
+  best_month: { month: 2, month_name: 'February', avg_sentiment: 78.3 },
+  worst_month: { month: 11, month_name: 'November', avg_sentiment: 64.2 },
+  quietest_month: { month: 12, month_name: 'December', releases: 25 },
+  busiest_month: { month: 10, month_name: 'October', releases: 85 },
+}
+
+export const MOCK_PLATFORM_GAPS = {
+  genre: 'Action',
+  total_games: 500,
+  platforms: {
+    windows: { count: 498, pct: 99.6, avg_sentiment: 71.2 },
+    mac: { count: 175, pct: 35.0, avg_sentiment: 73.5 },
+    linux: { count: 110, pct: 22.0, avg_sentiment: 75.1 },
+  },
+  underserved: 'linux',
+}
+
+export const MOCK_TAG_TREND = {
+  tag: 'Roguelike', tag_slug: 'roguelike',
+  yearly: [
+    { year: 2018, game_count: 45, avg_sentiment: 71.2 },
+    { year: 2019, game_count: 62, avg_sentiment: 69.8 },
+    { year: 2020, game_count: 78, avg_sentiment: 73.5 },
+    { year: 2021, game_count: 95, avg_sentiment: 74.1 },
+    { year: 2022, game_count: 110, avg_sentiment: 72.8 },
+    { year: 2023, game_count: 130, avg_sentiment: 75.2 },
+  ],
+  growth_rate: 1.89, peak_year: 2023, total_games: 520,
+}
+
+export const MOCK_DEVELOPER_PORTFOLIO = {
+  developer: 'Valve', developer_slug: 'valve',
+  summary: {
+    total_games: 3, total_reviews: 10500000, avg_sentiment: 88.5,
+    first_release: '2004-11-16', latest_release: '2023-09-27',
+    avg_price: 9.99, free_games: 2, well_received: 3, poorly_received: 0,
+    sentiment_trajectory: 'stable' as const,
+  },
+  games: [
+    {
+      appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2-730',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+      release_date: '2023-09-27', price_usd: null, is_free: true,
+      review_count: 8500000, positive_pct: 82, review_score_desc: 'Very Positive',
+      metacritic_score: null, achievements_total: 168,
+    },
+    {
+      appid: 440, name: 'Team Fortress 2', slug: 'team-fortress-2-440',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
+      release_date: '2007-10-10', price_usd: null, is_free: true,
+      review_count: 1000000, positive_pct: 92, review_score_desc: 'Overwhelmingly Positive',
+      metacritic_score: 92, achievements_total: 520,
+    },
+    {
+      appid: 570, name: 'Dota 2', slug: 'dota-2-570',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+      release_date: '2013-07-09', price_usd: null, is_free: true,
+      review_count: 2000000, positive_pct: 81, review_score_desc: 'Very Positive',
+      metacritic_score: 90, achievements_total: null,
+    },
+  ],
+}
+
+// Edge-case variants
+export const MOCK_EA_IMPACT_NO_EA = {
+  has_ea_reviews: false,
+  early_access: null,
+  post_launch: { total: 100, positive: 80, pct_positive: 80.0, avg_playtime: 15.0 },
+  impact_delta: null,
+  verdict: 'no_ea' as const,
+}
+
+export const MOCK_PLAYTIME_SENTIMENT_NO_CHURN = {
+  buckets: [
+    { bucket: '0h', total: 50, positive: 40, negative: 10, pct_positive: 80.0 },
+    { bucket: '<1h', total: 120, positive: 100, negative: 20, pct_positive: 83.3 },
+  ],
+  churn_point: null,
+  median_playtime_hours: 5,
+  value_score: null,
+}

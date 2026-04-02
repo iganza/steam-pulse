@@ -6,6 +6,10 @@ import {
   MOCK_RELEASE_VOLUME, MOCK_SENTIMENT_DIST, MOCK_GENRE_SHARE,
   MOCK_VELOCITY_DIST, MOCK_PRICING, MOCK_EARLY_ACCESS,
   MOCK_PLATFORMS, MOCK_ENGAGEMENT, MOCK_CATEGORIES,
+  MOCK_AUDIENCE_OVERLAP, MOCK_PLAYTIME_SENTIMENT, MOCK_EA_IMPACT,
+  MOCK_REVIEW_VELOCITY, MOCK_TOP_REVIEWS, MOCK_PRICE_POSITIONING,
+  MOCK_RELEASE_TIMING, MOCK_PLATFORM_GAPS, MOCK_TAG_TREND,
+  MOCK_DEVELOPER_PORTFOLIO,
 } from './mock-data'
 
 export async function mockAnalyticsRoutes(page: Page) {
@@ -35,6 +39,39 @@ export async function mockAnalyticsRoutes(page: Page) {
   )
   await page.route('**/api/analytics/trends/categories**', route =>
     route.fulfill({ json: MOCK_CATEGORIES })
+  )
+}
+
+export async function mockPerEntityAnalyticsRoutes(page: Page) {
+  await page.route('**/api/games/*/audience-overlap*', route =>
+    route.fulfill({ json: MOCK_AUDIENCE_OVERLAP })
+  )
+  await page.route('**/api/games/*/playtime-sentiment', route =>
+    route.fulfill({ json: MOCK_PLAYTIME_SENTIMENT })
+  )
+  await page.route('**/api/games/*/early-access-impact', route =>
+    route.fulfill({ json: MOCK_EA_IMPACT })
+  )
+  await page.route('**/api/games/*/review-velocity', route =>
+    route.fulfill({ json: MOCK_REVIEW_VELOCITY })
+  )
+  await page.route('**/api/games/*/top-reviews*', route =>
+    route.fulfill({ json: MOCK_TOP_REVIEWS })
+  )
+  await page.route('**/api/analytics/price-positioning*', route =>
+    route.fulfill({ json: MOCK_PRICE_POSITIONING })
+  )
+  await page.route('**/api/analytics/release-timing*', route =>
+    route.fulfill({ json: MOCK_RELEASE_TIMING })
+  )
+  await page.route('**/api/analytics/platform-gaps*', route =>
+    route.fulfill({ json: MOCK_PLATFORM_GAPS })
+  )
+  await page.route('**/api/tags/*/trend', route =>
+    route.fulfill({ json: MOCK_TAG_TREND })
+  )
+  await page.route('**/api/developers/*/analytics', route =>
+    route.fulfill({ json: MOCK_DEVELOPER_PORTFOLIO })
   )
 }
 
@@ -119,4 +156,5 @@ export async function mockAllApiRoutes(page: Page) {
   )
 
   await mockAnalyticsRoutes(page)
+  await mockPerEntityAnalyticsRoutes(page)
 }

@@ -39,6 +39,7 @@ import {
   computePlaytimeInsight,
 } from "@/components/game/PlaytimeChart";
 import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
+import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -750,6 +751,9 @@ export function GameReportClient({
             </div>
           </section>
         )}
+
+        {/* Deep Dive Analytics */}
+        <GameAnalyticsSection appid={appid} gameName={name} />
 
         {/* Footer */}
         <section className="pt-8 border-t border-border">

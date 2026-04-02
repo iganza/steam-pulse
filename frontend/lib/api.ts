@@ -2,6 +2,8 @@ import type {
   GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewStats, Benchmarks, DeckTestResult,
   Granularity, ReleaseVolumePeriod, SentimentDistPeriod, GenreSharePeriod, VelocityDistPeriod,
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
+  AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
+  PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -162,6 +164,56 @@ export async function getReviewStats(appid: number): Promise<ReviewStats> {
 /** GET /api/games/{appid}/benchmarks */
 export async function getBenchmarks(appid: number): Promise<Benchmarks> {
   return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-entity analytics (game report, genre, tag, developer pages)
+// ---------------------------------------------------------------------------
+
+export async function getAudienceOverlap(appid: number, limit = 20): Promise<AudienceOverlap> {
+  const clampedLimit = Math.max(1, Math.min(50, limit));
+  return apiFetch<AudienceOverlap>(`/api/games/${appid}/audience-overlap?limit=${clampedLimit}`);
+}
+
+export async function getPlaytimeSentiment(appid: number): Promise<PlaytimeSentiment> {
+  return apiFetch<PlaytimeSentiment>(`/api/games/${appid}/playtime-sentiment`);
+}
+
+export async function getEarlyAccessImpact(appid: number): Promise<EarlyAccessImpact> {
+  return apiFetch<EarlyAccessImpact>(`/api/games/${appid}/early-access-impact`);
+}
+
+export async function getReviewVelocity(appid: number): Promise<ReviewVelocity> {
+  return apiFetch<ReviewVelocity>(`/api/games/${appid}/review-velocity`);
+}
+
+export async function getTopReviews(
+  appid: number, sort: "helpful" | "funny" = "helpful", limit = 10
+): Promise<TopReviewsResponse> {
+  const clampedLimit = Math.max(1, Math.min(50, limit));
+  return apiFetch<TopReviewsResponse>(
+    `/api/games/${appid}/top-reviews?sort=${sort}&limit=${clampedLimit}`
+  );
+}
+
+export async function getPricePositioning(genre: string): Promise<PricePositioning> {
+  return apiFetch<PricePositioning>(`/api/analytics/price-positioning?genre=${encodeURIComponent(genre)}`);
+}
+
+export async function getReleaseTiming(genre: string): Promise<ReleaseTiming> {
+  return apiFetch<ReleaseTiming>(`/api/analytics/release-timing?genre=${encodeURIComponent(genre)}`);
+}
+
+export async function getPlatformGaps(genre: string): Promise<PlatformGaps> {
+  return apiFetch<PlatformGaps>(`/api/analytics/platform-gaps?genre=${encodeURIComponent(genre)}`);
+}
+
+export async function getTagTrend(slug: string): Promise<TagTrend> {
+  return apiFetch<TagTrend>(`/api/tags/${slug}/trend`);
+}
+
+export async function getDeveloperAnalytics(slug: string): Promise<DeveloperPortfolio> {
+  return apiFetch<DeveloperPortfolio>(`/api/developers/${slug}/analytics`);
 }
 
 // ---------------------------------------------------------------------------

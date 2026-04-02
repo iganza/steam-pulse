@@ -133,6 +133,101 @@ const MOCK_BENCHMARKS = {
   cohort_size: 312,
 }
 
+const MOCK_PRICE_POSITIONING = {
+  genre: 'Action',
+  genre_slug: 'action',
+  distribution: [
+    { price_range: 'Free', game_count: 45, avg_sentiment: 72.3, median_price: 0 },
+    { price_range: '$5-10', game_count: 120, avg_sentiment: 68.5, median_price: 7.99 },
+    { price_range: '$10-15', game_count: 95, avg_sentiment: 78.2, median_price: 12.99 },
+    { price_range: '$15-20', game_count: 68, avg_sentiment: 74.1, median_price: 17.49 },
+    { price_range: '$20-30', game_count: 42, avg_sentiment: 71.8, median_price: 24.99 },
+  ],
+  summary: {
+    avg_price: 14.99, median_price: 9.99,
+    free_count: 45, paid_count: 325, sweet_spot: '$10-15',
+  },
+}
+
+const MOCK_RELEASE_TIMING = {
+  genre: 'Action',
+  monthly: [
+    { month: 1, month_name: 'January', releases: 28, avg_sentiment: 74.2, avg_reviews: 320 },
+    { month: 2, month_name: 'February', releases: 35, avg_sentiment: 78.3, avg_reviews: 410 },
+    { month: 3, month_name: 'March', releases: 42, avg_sentiment: 72.1, avg_reviews: 350 },
+    { month: 4, month_name: 'April', releases: 38, avg_sentiment: 71.0, avg_reviews: 300 },
+    { month: 5, month_name: 'May', releases: 40, avg_sentiment: 73.5, avg_reviews: 380 },
+    { month: 6, month_name: 'June', releases: 55, avg_sentiment: 70.2, avg_reviews: 450 },
+    { month: 7, month_name: 'July', releases: 30, avg_sentiment: 75.0, avg_reviews: 290 },
+    { month: 8, month_name: 'August', releases: 32, avg_sentiment: 74.8, avg_reviews: 310 },
+    { month: 9, month_name: 'September', releases: 60, avg_sentiment: 69.5, avg_reviews: 500 },
+    { month: 10, month_name: 'October', releases: 85, avg_sentiment: 67.3, avg_reviews: 550 },
+    { month: 11, month_name: 'November', releases: 50, avg_sentiment: 64.2, avg_reviews: 420 },
+    { month: 12, month_name: 'December', releases: 25, avg_sentiment: 76.1, avg_reviews: 270 },
+  ],
+  best_month: { month: 2, month_name: 'February', avg_sentiment: 78.3 },
+  worst_month: { month: 11, month_name: 'November', avg_sentiment: 64.2 },
+  quietest_month: { month: 12, month_name: 'December', releases: 25 },
+  busiest_month: { month: 10, month_name: 'October', releases: 85 },
+}
+
+const MOCK_PLATFORM_GAPS = {
+  genre: 'Action',
+  total_games: 500,
+  platforms: {
+    windows: { count: 498, pct: 99.6, avg_sentiment: 71.2 },
+    mac: { count: 175, pct: 35.0, avg_sentiment: 73.5 },
+    linux: { count: 110, pct: 22.0, avg_sentiment: 75.1 },
+  },
+  underserved: 'linux',
+}
+
+const MOCK_TAG_TREND = {
+  tag: 'Roguelike', tag_slug: 'roguelike',
+  yearly: [
+    { year: 2018, game_count: 45, avg_sentiment: 71.2 },
+    { year: 2019, game_count: 62, avg_sentiment: 69.8 },
+    { year: 2020, game_count: 78, avg_sentiment: 73.5 },
+    { year: 2021, game_count: 95, avg_sentiment: 74.1 },
+    { year: 2022, game_count: 110, avg_sentiment: 72.8 },
+    { year: 2023, game_count: 130, avg_sentiment: 75.2 },
+  ],
+  growth_rate: 1.89, peak_year: 2023, total_games: 520,
+}
+
+const MOCK_DEVELOPER_PORTFOLIO = {
+  developer: 'Valve', developer_slug: 'valve',
+  summary: {
+    total_games: 3, total_reviews: 10500000, avg_sentiment: 88.5,
+    first_release: '2004-11-16', latest_release: '2023-09-27',
+    avg_price: 9.99, free_games: 2, well_received: 3, poorly_received: 0,
+    sentiment_trajectory: 'stable',
+  },
+  games: [
+    {
+      appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2-730',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+      release_date: '2023-09-27', price_usd: null, is_free: true,
+      review_count: 8500000, positive_pct: 82, review_score_desc: 'Very Positive',
+      metacritic_score: null, achievements_total: 168,
+    },
+    {
+      appid: 440, name: 'Team Fortress 2', slug: 'team-fortress-2-440',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
+      release_date: '2007-10-10', price_usd: null, is_free: true,
+      review_count: 1000000, positive_pct: 92, review_score_desc: 'Overwhelmingly Positive',
+      metacritic_score: 92, achievements_total: 520,
+    },
+    {
+      appid: 570, name: 'Dota 2', slug: 'dota-2-570',
+      header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+      release_date: '2013-07-09', price_usd: null, is_free: true,
+      review_count: 2000000, positive_pct: 81, review_score_desc: 'Very Positive',
+      metacritic_score: 90, achievements_total: null,
+    },
+  ],
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 function respond(res, statusCode, data) {
@@ -206,9 +301,30 @@ const server = createServer((req, res) => {
     })
   }
 
+  // Genre analytics
+  if (path === '/api/analytics/price-positioning') {
+    return respond(res, 200, MOCK_PRICE_POSITIONING)
+  }
+  if (path === '/api/analytics/release-timing') {
+    return respond(res, 200, MOCK_RELEASE_TIMING)
+  }
+  if (path === '/api/analytics/platform-gaps') {
+    return respond(res, 200, MOCK_PLATFORM_GAPS)
+  }
+
+  // Developer analytics
+  if (/^\/api\/developers\/[^/]+\/analytics$/.test(path)) {
+    return respond(res, 200, MOCK_DEVELOPER_PORTFOLIO)
+  }
+
   // Genres
   if (path.startsWith('/api/genres')) {
     return respond(res, 200, MOCK_GENRES)
+  }
+
+  // Tag trend (before wildcard tags route)
+  if (/^\/api\/tags\/[^/]+\/trend$/.test(path)) {
+    return respond(res, 200, MOCK_TAG_TREND)
   }
 
   // Tags

@@ -130,22 +130,22 @@ export interface ReviewSegment {
   avg_playtime: number;
 }
 
-// Feature 4: Review Integrity
-export interface ReviewIntegrity {
-  paid_reviews: ReviewIntegritySegment;
-  free_key_reviews: ReviewIntegritySegment | null;
-  bias_delta: number | null;
-  free_key_pct: number;
-  integrity_flag: "clean" | "notable" | "suspicious" | "insufficient_data";
-}
-
-export interface ReviewIntegritySegment {
-  total: number;
-  positive: number;
-  pct_positive: number;
-  avg_playtime: number;
-  avg_helpfulness: number;
-}
+// Feature 4: Review Integrity — DEFERRED (no backend endpoint yet, planned for a later phase)
+// export interface ReviewIntegrity {
+//   paid_reviews: ReviewIntegritySegment;
+//   free_key_reviews: ReviewIntegritySegment | null;
+//   bias_delta: number | null;
+//   free_key_pct: number;
+//   integrity_flag: "clean" | "notable" | "suspicious" | "insufficient_data";
+// }
+//
+// export interface ReviewIntegritySegment {
+//   total: number;
+//   positive: number;
+//   pct_positive: number;
+//   avg_playtime: number;
+//   avg_helpfulness: number;
+// }
 
 // Feature 5: Review Velocity
 export interface ReviewVelocity {

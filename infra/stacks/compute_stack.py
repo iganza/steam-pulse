@@ -449,7 +449,8 @@ class ComputeStack(cdk.Stack):
         ingest_fn.add_event_source(
             event_sources.SqsEventSource(
                 spoke_results_queue,
-                batch_size=5,
+                batch_size=10,
+                max_concurrency=2,
                 report_batch_item_failures=True,
             )
         )

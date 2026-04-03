@@ -141,7 +141,8 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
         return
 
     if not msg.s3_key:
-        logger.warning("No tag data available", extra={"appid": msg.appid})
+        logger.info("No tag data available", extra={"appid": msg.appid})
+        _catalog_repo.mark_tags_crawled(msg.appid)
         return
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)

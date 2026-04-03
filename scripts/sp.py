@@ -859,14 +859,25 @@ def cmd_logs_errors(env: str, minutes: int, pattern: str, region: str | None) ->
         client = boto3.client("logs", region_name=r)
         log_group = f"/steampulse/{env}/spoke/{r}"
         try:
-            resp = client.filter_log_events(
-                logGroupName=log_group,
-                startTime=start_ms,
-                endTime=end_ms,
-                filterPattern=pattern,
-                limit=100,
-            )
-            return [(r, e["message"]) for e in resp.get("events", [])]
+            rows: list[tuple[str, str]] = []
+            next_token: str | None = None
+            for _ in range(20):
+                kwargs: dict = {
+                    "logGroupName": log_group,
+                    "startTime": start_ms,
+                    "endTime": end_ms,
+                    "filterPattern": pattern,
+                    "limit": 100,
+                }
+                if next_token:
+                    kwargs["nextToken"] = next_token
+                resp = client.filter_log_events(**kwargs)
+                rows.extend((r, e["message"]) for e in resp.get("events", []))
+                prev_token = next_token
+                next_token = resp.get("nextToken")
+                if not next_token or next_token == prev_token:
+                    break
+            return rows
         except client.exceptions.ResourceNotFoundException:
             return []
         except Exception as exc:

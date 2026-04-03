@@ -594,9 +594,10 @@ def test_tags_failure_skips_processing(lambda_context: Any) -> None:
 
 @mock_aws
 def test_tags_success_no_s3_key_skips(lambda_context: Any) -> None:
-    """Tags success with no s3_key (no tag data) → skip, no crash."""
+    """Tags success with no s3_key (no tag data) → mark crawled, no crash."""
     ih = _get_module()
     ih._tag_repo = MagicMock()
+    ih._catalog_repo = MagicMock()
     ih._s3 = MagicMock()
 
     event = _sqs_event(
@@ -611,3 +612,4 @@ def test_tags_success_no_s3_key_skips(lambda_context: Any) -> None:
 
     ih._s3.get_object.assert_not_called()
     ih._tag_repo.upsert_tags.assert_not_called()
+    ih._catalog_repo.mark_tags_crawled.assert_called_once_with(440)

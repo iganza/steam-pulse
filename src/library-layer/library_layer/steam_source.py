@@ -16,7 +16,7 @@ APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
-STORE_PAGE_URL = "https://store.steampowered.com/app/{appid}/"
+STORE_PAGE_URL = "https://store.steampowered.com/app/{appid}/?l=english"
 
 _AGE_GATE_COOKIES = {
     "birthtime": "0",
@@ -458,8 +458,14 @@ def _extract_tags_from_html(html: str) -> list[dict]:
         logger.warning("Malformed JSON in InitAppTagModal")
         return []
 
-    return [
-        {"tagid": t["tagid"], "name": t["name"], "votes": t["count"]}
-        for t in parsed
-        if "tagid" in t and "name" in t and "count" in t
-    ]
+    tags = []
+    for t in parsed:
+        if "tagid" not in t or "name" not in t or "count" not in t:
+            continue
+        try:
+            votes = int(t["count"])
+        except (TypeError, ValueError):
+            logger.warning("Skipping tag with invalid count", extra={"tag": t.get("name")})
+            continue
+        tags.append({"tagid": t["tagid"], "name": t["name"], "votes": votes})
+    return tags

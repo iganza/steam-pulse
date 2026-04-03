@@ -61,8 +61,9 @@ class DataStack(cdk.Stack):
                 self, "DbSecret", secret_name,
             )
             # db.t4g.micro (Graviton2): ~$12/mo single-AZ, no cold-start latency.
-            # 100 GB gp3 (~$11.50/mo) — sized for full review catalog (~55-60 GB).
-            # To increase: update allocated_storage and redeploy (RDS scales up in-place).
+            # 50 GB gp3 (~$5.75/mo) — sized for full catalog at 10k reviews/game cap (~26 GB used).
+            # max_allocated_storage=500 enables RDS autoscaling if ever needed.
+            # To increase manually: update allocated_storage and redeploy (in-place, no downtime).
             db_instance = rds.DatabaseInstance(
                 self, "Db",
                 engine=rds.DatabaseInstanceEngine.postgres(
@@ -74,8 +75,8 @@ class DataStack(cdk.Stack):
                 vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
                 database_name=db_name,
-                allocated_storage=100,
-                max_allocated_storage=500,
+                allocated_storage=50,
+                max_allocated_storage=100,
                 deletion_protection=True,
                 backup_retention=cdk.Duration.days(7),
                 storage_encrypted=True,

@@ -17,6 +17,7 @@ from aws_cdk.aws_cloudwatch import Metric, Stats
 from cdk_monitoring_constructs import (
     AlarmFactoryDefaults,
     CustomMetricGroup,
+    DefaultDashboardFactory,
     MonitoringFacade,
     SnsAlarmActionStrategy,
 )
@@ -53,6 +54,10 @@ class MonitoringStack(cdk.Stack):
         # ── Monitoring facade ─────────────────────────────────────────────────
         monitoring = MonitoringFacade(
             self, "Facade",
+            dashboard_factory=DefaultDashboardFactory(
+                self, "DashboardFactory",
+                dashboard_name_prefix=f"SteamPulse-{env.capitalize()}",
+            ),
             alarm_factory_defaults=AlarmFactoryDefaults(
                 actions_enabled=True,
                 alarm_name_prefix=f"SteamPulse-{env.capitalize()}",

@@ -63,6 +63,8 @@ if [[ "$ENV" != "staging" && "$ENV" != "production" ]]; then
     exit 1
 fi
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [[ "$ENV" == "production" ]]; then
     CURRENT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     if [[ "$CURRENT_BRANCH" != "main" ]]; then
@@ -79,7 +81,6 @@ ENV_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${ENV:0:1}")${ENV:1}"  # "Staging" | 
 # Both patterns are required to deploy all stacks.
 STAGE_PATTERN="SteamPulse-${ENV_CAP}/*"
 STANDALONE_PATTERN="SteamPulse-${ENV_CAP}-Monitoring"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -788,3 +788,20 @@ When auth ships:
 - Same pattern for genre page market analytics (PricePositioning, ReleaseTiming are Pro-only)
 
 Backend auth is the real security boundary — client-side gating is UX only.
+
+** TODO ACM Cert
+
+ You're safe. Here's what's happening:
+
+   - Certificate stack — creates an ACM cert (us-east-1, required for CloudFront). It needs a DNS validation CNAME 
+  (_76abda29...steampulse.io), but this is just a validation record — it does not point traffic to your site.
+   - Route53 A record (the one that makes steampulse.io live) — gated by domain-live: false in delivery_stack.py and will NOT be 
+  created.
+
+  You need to add that CNAME validation record to your DNS registrar for the cert to complete:
+
+   Name:  _76abda29abfe5e6a85a03baf3d03c1df.steampulse.io
+   Type:  CNAME
+   Value: _050dc13c2fcca44f1e27465737e4a311.jkddzztszm.acm-validations.aws
+
+  Once added, ACM will validate it and the deploy will continue. The site won't go live until you set domain-live: true.

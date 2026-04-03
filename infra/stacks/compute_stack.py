@@ -94,12 +94,7 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        analysis_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn],
-            )
-        )
+        db_secret.grant_read(analysis_role)
         analysis_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
@@ -180,12 +175,7 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        api_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn],
-            )
-        )
+        db_secret.grant_read(api_role)
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
@@ -322,12 +312,7 @@ class ComputeStack(cdk.Stack):
                 ),  # IngestFn (shared role) consumes spoke_results_queue
             ],
         )
-        crawler_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn],
-            )
-        )
+        db_secret.grant_read(crawler_role)
         steam_secret.grant_read(crawler_role)
         crawler_role.add_to_policy(
             iam.PolicyStatement(
@@ -478,14 +463,6 @@ class ComputeStack(cdk.Stack):
                         "service-role/AWSLambdaVPCAccessExecutionRole",
                     ),
                 ],
-                inline_policies={
-                    "db": iam.PolicyDocument(statements=[
-                        iam.PolicyStatement(
-                            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                            resources=[db_secret.secret_arn],
-                        ),
-                    ]),
-                },
             ),
             vpc=vpc,
             vpc_subnets=private_subnets,
@@ -500,6 +477,7 @@ class ComputeStack(cdk.Stack):
             ),
             environment=config.to_lambda_env(),
         )
+        db_secret.grant_read(admin_fn)
 
         # ── Migration Lambda (applies pending yoyo migrations post-deployment) ───
         migration_fn = PythonFunction(
@@ -519,14 +497,6 @@ class ComputeStack(cdk.Stack):
                         "service-role/AWSLambdaVPCAccessExecutionRole",
                     ),
                 ],
-                inline_policies={
-                    "db": iam.PolicyDocument(statements=[
-                        iam.PolicyStatement(
-                            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                            resources=[db_secret.secret_arn],
-                        ),
-                    ]),
-                },
             ),
             vpc=vpc,
             vpc_subnets=private_subnets,
@@ -546,6 +516,7 @@ class ComputeStack(cdk.Stack):
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),
         )
+        db_secret.grant_read(migration_fn)
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
         # This Lambda drops and recreates the public schema. It must never exist
@@ -560,21 +531,16 @@ class ComputeStack(cdk.Stack):
                         "service-role/AWSLambdaVPCAccessExecutionRole",
                     ),
                 ],
-                inline_policies={
-                    "db": iam.PolicyDocument(statements=[
-                        iam.PolicyStatement(
-                            actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                            resources=[db_secret.secret_arn],
-                        ),
-                        iam.PolicyStatement(
-                            actions=["s3:GetObject"],
-                            resources=[
-                                assets_bucket.arn_for_objects("db-snapshots/*"),
-                                assets_bucket.arn_for_objects("db-dumps/*"),
-                            ],
-                        ),
-                    ]),
-                },
+            )
+            db_secret.grant_read(db_loader_role)
+            db_loader_role.add_to_policy(
+                iam.PolicyStatement(
+                    actions=["s3:GetObject"],
+                    resources=[
+                        assets_bucket.arn_for_objects("db-snapshots/*"),
+                        assets_bucket.arn_for_objects("db-dumps/*"),
+                    ],
+                ),
             )
 
             PythonFunction(
@@ -618,12 +584,7 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        email_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[resend_secret.secret_arn],
-            )
-        )
+        resend_secret.grant_read(email_role)
         email_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],

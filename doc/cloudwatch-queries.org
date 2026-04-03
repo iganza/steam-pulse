@@ -328,6 +328,65 @@ fields @timestamp, appid, reason, total
   Tip: When you kick off a run, grab the execution name from Step Functions console (format: UUID or whatever name you give it). Paste it into query 1 — that
    gives you the full chronological trace across all 5 Lambdas for that specific run.
 
+** 15. Tag Fetch Progress
+  ---
+  Log groups to select (all 12 spoke regions):
+  /steampulse/production/spoke/us-west-2
+  /steampulse/production/spoke/us-east-1
+  /steampulse/production/spoke/us-east-2
+  /steampulse/production/spoke/ca-central-1
+  /steampulse/production/spoke/eu-west-1
+  /steampulse/production/spoke/eu-central-1
+  /steampulse/production/spoke/eu-north-1
+  /steampulse/production/spoke/ap-south-1
+  /steampulse/production/spoke/ap-southeast-1
+  /steampulse/production/spoke/ap-northeast-1
+  /steampulse/production/spoke/ap-northeast-2
+  /steampulse/production/spoke/ap-southeast-2
+
+  ---
+  1. Overall progress — total games tagged and tags fetched
+
+  fields @timestamp, appid, tag_count
+  | filter message = "DONE tags"
+  | stats count() as games_tagged, sum(tag_count) as total_tags
+
+  ---
+  2. Live feed — per-game completions (newest first)
+
+  fields @timestamp, appid, tag_count
+  | filter message = "DONE tags"
+  | sort @timestamp desc
+  | limit 200
+
+  ---
+  3. Pipeline rate — started vs completed
+
+  fields @timestamp, message, appid
+  | filter message in ["START tags", "DONE tags"]
+  | stats count() as events by message
+
+  ---
+  4. Errors and warnings during tag fetch
+
+  fields @timestamp, appid, message, error
+  | filter task = "tags" and level in ["ERROR", "WARNING"]
+  | sort @timestamp desc
+  | limit 100
+
+  ---
+  5. DB upserts confirmed (ingest side)
+
+  Log group: /steampulse/production/ingest
+
+  fields @timestamp, appid, count
+  | filter message = "Tags upserted"
+  | stats count() as games_in_db, sum(count) as total_tag_rows
+
+  ---
+  Tip: Select all 12 spoke log groups at once in the Console — Log Insights supports up to 50 log groups per query.
+  For the DB upsert query (query 5), switch to /steampulse/production/ingest only.
+
 * CLI Shortcuts (copy-paste)
 
 #+begin_src bash

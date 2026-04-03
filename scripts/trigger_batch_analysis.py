@@ -2,14 +2,11 @@
 """Trigger a SteamPulse batch analysis execution.
 
 Usage:
-  # Analyze all eligible games (>= 50 reviews)
-  python scripts/trigger_batch_analysis.py --env staging
-
   # Analyze specific appids
   python scripts/trigger_batch_analysis.py --env staging --appids 440 730 570
 
   # Dry run — print what would be sent without starting execution
-  python scripts/trigger_batch_analysis.py --env staging --dry-run
+  python scripts/trigger_batch_analysis.py --env staging --appids 440 --dry-run
 """
 
 import argparse
@@ -23,7 +20,7 @@ import boto3
 def main() -> None:
     parser = argparse.ArgumentParser(description="Trigger SteamPulse batch analysis")
     parser.add_argument("--env", choices=["staging", "production"], default="staging")
-    parser.add_argument("--appids", type=int, nargs="+", help="Specific appids to analyze")
+    parser.add_argument("--appids", type=int, nargs="+", required=True, help="Appids to analyze")
     parser.add_argument("--dry-run", action="store_true", help="Print intent without executing")
     args = parser.parse_args()
 
@@ -36,8 +33,7 @@ def main() -> None:
         print(f"ERROR: SSM parameter {param_name} not found. Is BatchAnalysisStack deployed?", file=sys.stderr)
         sys.exit(1)
 
-    appids_input = args.appids if args.appids else "ALL_ELIGIBLE"
-    execution_input = json.dumps({"appids": appids_input})
+    execution_input = json.dumps({"appids": args.appids})
     execution_name = f"batch-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     if args.dry_run:
@@ -56,10 +52,7 @@ def main() -> None:
 
     print(f"Started execution: {resp['executionArn']}")
     print(f"Name: {execution_name}")
-    if isinstance(appids_input, list):
-        print(f"Appids: {appids_input}")
-    else:
-        print(f"Appids: {appids_input} (resolved at runtime)")
+    print(f"Appids: {args.appids}")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ import importlib
 import json
 from datetime import UTC, datetime
 from typing import Any
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 import boto3
@@ -364,31 +366,11 @@ def test_prepare_pass1_specific_appids_uploads_jsonl(lambda_context: Any) -> Non
     assert record["modelInput"]["anthropic_version"] == "bedrock-2023-05-31"
 
 
-@mock_aws
-def test_prepare_pass1_all_eligible_calls_eligible_query(lambda_context: Any) -> None:
-    s3 = boto3.client("s3", region_name=_REGION)
-    s3.create_bucket(Bucket=_BUCKET)
-
+def test_prepare_pass1_rejects_non_list_appids(lambda_context: Any) -> None:
     h = _load_prepare_pass1()
-    h._s3 = s3
-    h._BUCKET = _BUCKET
 
-    mock_eligible = MagicMock()
-    mock_eligible.appid = 570
-    mock_game_repo = MagicMock()
-    mock_game_repo.find_eligible_for_reviews.return_value = [mock_eligible]
-    mock_game_repo.find_by_appid.return_value = MagicMock(name="Dota 2")
-    mock_review_repo = MagicMock()
-    mock_review_repo.find_by_appid.return_value = [_make_review(appid=570)]
-
-    with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
-    ):
-        result = h.handler({"execution_id": _EXECUTION_ID, "appids": "ALL_ELIGIBLE"}, lambda_context)
-
-    mock_game_repo.find_eligible_for_reviews.assert_called_once_with(min_reviews=50)
-    assert result["total_records"] >= 1
+    with pytest.raises(ValueError, match="appids must be a list of integers"):
+        h.handler({"execution_id": _EXECUTION_ID, "appids": "ALL_ELIGIBLE"}, lambda_context)
 
 
 @mock_aws

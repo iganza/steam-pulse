@@ -1,6 +1,6 @@
 """PreparePass1 Lambda — read reviews from DB, write Pass 1 JSONL to S3.
 
-Input:  {execution_id: str, appids: list[int] | "ALL_ELIGIBLE"}
+Input:  {execution_id: str, appids: list[int]}
 Output: {input_s3_uri: str, output_s3_uri: str, total_records: int}
 """
 
@@ -49,6 +49,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     game_repo = GameRepository(_conn)
     review_repo = ReviewRepository(_conn)
 
+    if not isinstance(appids_input, list):
+        raise ValueError(f"appids must be a list of integers, got: {type(appids_input).__name__}")
     appids = [int(a) for a in appids_input]
 
     records: list[dict] = []
@@ -58,9 +60,6 @@ def handler(event: dict, context: LambdaContext) -> dict:
             logger.warning("game not found, skipping", extra={"appid": appid})
             continue
 
-        # TODO:  find_by_appid: ensure reviews are return in chronologically order, from newest to oldest
-        #                       we don't want to process old review when newer exist!
-        # TODO: limit should be passed in or use sensible default
         reviews = review_repo.find_by_appid(appid, limit=500)
         if not reviews:
             logger.info("no reviews, skipping", extra={"appid": appid})

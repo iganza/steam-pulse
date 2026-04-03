@@ -155,6 +155,7 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
             [{"appid": msg.appid, "name": t["name"], "votes": t["votes"]} for t in tags]
         )
         logger.info("Tags upserted", extra={"appid": msg.appid, "count": len(tags)})
+        _catalog_repo.mark_tags_crawled(msg.appid)
 
     steamspy = data.get("steamspy") or {}
     if steamspy:
@@ -216,6 +217,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # we have every review up to this moment).
         boundary = datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
         _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
+        _catalog_repo.mark_reviews_crawled(appid)
         if early_stop:
             logger.info(
                 "Reviews complete",
@@ -245,6 +247,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     elif target_hit:
         # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
         _catalog_repo.mark_reviews_complete(appid, completed_at=None)
+        _catalog_repo.mark_reviews_crawled(appid)
         logger.info(
             "Reviews complete",
             extra={

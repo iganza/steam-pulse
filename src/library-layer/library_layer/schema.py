@@ -156,6 +156,8 @@ TABLES: tuple[str, ...] = (
         -- phase 2: review crawl
         review_count      INTEGER,                          -- populated after meta crawl
         reviews_completed_at      TIMESTAMPTZ, -- NULL=never fully fetched; non-NULL=when last exhausted
+        tags_crawled_at           TIMESTAMPTZ, -- when tags were last fetched
+        review_crawled_at         TIMESTAMPTZ, -- when reviews were last fetched (any completion path)
         -- housekeeping
         discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )

@@ -101,6 +101,24 @@ class CatalogRepository(BaseRepository):
         )
         return row["reviews_completed_at"] if row else None
 
+    def mark_tags_crawled(self, appid: int) -> None:
+        """Set tags_crawled_at = NOW() for the given appid."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE app_catalog SET tags_crawled_at = NOW() WHERE appid = %s",
+                (appid,),
+            )
+        self.conn.commit()
+
+    def mark_reviews_crawled(self, appid: int) -> None:
+        """Set review_crawled_at = NOW() for the given appid."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE app_catalog SET review_crawled_at = NOW() WHERE appid = %s",
+                (appid,),
+            )
+        self.conn.commit()
+
     def status_summary(self) -> dict:
         """Return counts grouped by meta_status."""
         meta_rows = self._fetchall(

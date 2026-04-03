@@ -58,7 +58,7 @@ NAT_INSTANCE=$(aws ec2 describe-instances \
     "Name=instance-state-name,Values=running" \
     "Name=tag:aws:cloudformation:stack-name,Values=SteamPulse-${STAGE_CAP}-Network" \
   --query 'Reservations[].Instances[].InstanceId' \
-  --output text 2>/dev/null | head -n1)
+  --output text 2>/dev/null | awk '{print $1}')
 
 if [[ -z "$NAT_INSTANCE" || "$NAT_INSTANCE" == "None" ]]; then
   echo "ERROR: Could not find running NAT instance for $STAGE."

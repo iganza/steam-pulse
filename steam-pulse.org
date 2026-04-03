@@ -725,6 +725,17 @@ e.g. =/developer/valve=. Chart appears alongside the game list.
 
 - Developer Portfolio — sentiment and review trends across all games by that developer
 
+** TODO Wire SteamSpy tag fetching into the crawl pipeline
+
+The spoke handler (_process_tags in spoke_handler.py) and ingest handler (_handle_tags in
+ingest_handler.py) are fully implemented, and tag_repo.upsert_tags() works. But nothing
+triggers the tags task. CrawlService._ingest_app_data() upserts genres and categories but
+never queues a "tags" task to the spoke. The tags and game_tags tables remain empty.
+
+Fix: after metadata ingest completes for a game, queue a "tags" SQS message to the spoke
+so it fetches SteamSpy tag data and routes it back through ingest. Then backfill existing
+games.
+
 ** TODO Pro gating: backend auth + per-entity analytics fetch gating
 
 Currently all per-game analytics endpoints (playtime-sentiment, early-access-impact,

@@ -17,7 +17,7 @@ export default function ToolkitPage() {
           Add filters to explore the Steam catalog. Switch lenses to see
           different perspectives.
         </p>
-        <Suspense>
+        <Suspense fallback={<p className="text-sm text-muted-foreground font-mono py-8">Loading toolkit...</p>}>
           <ToolkitShell />
         </Suspense>
       </div>

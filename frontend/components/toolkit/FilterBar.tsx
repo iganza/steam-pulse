@@ -38,7 +38,7 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
   const [gameCount, setGameCount] = useState<number | null>(null);
   const [countLoading, setCountLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const countTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const countTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLocked = useCallback(
     (key: string) => lockedFilters && key in lockedFilters,
@@ -90,9 +90,13 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
     setCountLoading(true);
 
     countTimer.current = setTimeout(() => {
+      // Merge URL state with locked filters for accurate count
+      const genre = state.genre || (lockedFilters?.genre as string) || "";
+      const tag = state.tag || (lockedFilters?.tag as string) || "";
+
       const params = new URLSearchParams();
-      if (state.genre) params.set("genre", state.genre);
-      if (state.tag) params.set("tag", state.tag);
+      if (genre) params.set("genre", genre);
+      if (tag) params.set("tag", tag);
       if (state.q) params.set("q", state.q);
       if (state.developer) params.set("developer", state.developer);
       if (state.sentiment) params.set("sentiment", state.sentiment);
@@ -231,21 +235,23 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
   }
 
   function clearAll() {
+    // Reset all filter keys to null/defaults, preserving only locked filters
+    const lockedKeys = lockedFilters ? Object.keys(lockedFilters) : [];
     const reset: Partial<ToolkitState> = {};
-    for (const chip of chips) {
-      if (!chip.locked) {
-        if (chip.key === "year_range") {
-          reset.year_from = null;
-          reset.year_to = null;
-        } else {
-          (reset as Record<string, null>)[chip.key] = null;
-        }
+    const filterKeys = [
+      "genre", "tag", "q", "developer", "sentiment", "price_tier",
+      "min_reviews", "year_from", "year_to", "deck", "has_analysis",
+      "sort", "appids",
+    ] as const;
+    for (const key of filterKeys) {
+      if (!lockedKeys.includes(key)) {
+        (reset as Record<string, null>)[key] = null;
       }
     }
     setState(reset);
   }
 
-  function selectFilter(key: string, value: string | number | boolean) {
+  function selectFilter(key: string, value: string | number | boolean | null) {
     setState({ [key]: value } as Partial<ToolkitState>);
     setPopoverOpen(false);
   }
@@ -416,7 +422,7 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
             <FilterSection title="Analysis">
               <button
                 onClick={() =>
-                  selectFilter("has_analysis", !state.has_analysis)
+                  selectFilter("has_analysis", state.has_analysis ? null : true)
                 }
                 className={`px-2 py-0.5 rounded text-xs font-mono transition-colors ${
                   state.has_analysis

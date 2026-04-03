@@ -161,7 +161,7 @@ export default async function GameReportPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <main>
-        <Suspense>
+        <Suspense fallback={null}>
           <ToolkitShell
             lockedFilters={{ appids: [numericAppid] }}
             defaultLens="sentiment"

@@ -22,7 +22,7 @@ const SENTIMENT_VALUES = ["positive", "mixed", "negative"] as const;
 const PRICE_TIER_VALUES = ["free", "under_10", "10_to_20", "over_20"] as const;
 
 export const toolkitParsers = {
-  lens: parseAsStringLiteral(LENS_IDS).withDefault("sentiment"),
+  lens: parseAsStringLiteral(LENS_IDS),
   genre: parseAsString.withDefault(""),
   tag: parseAsString.withDefault(""),
   q: parseAsString.withDefault(""),

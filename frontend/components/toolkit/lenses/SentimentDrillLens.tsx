@@ -19,7 +19,7 @@ export function SentimentDrillLens(_props: LensProps) {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced search
   useEffect(() => {

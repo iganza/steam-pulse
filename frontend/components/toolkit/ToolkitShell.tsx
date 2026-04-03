@@ -36,8 +36,17 @@ export function ToolkitShell({
   const [state, setState] = useToolkitState();
   const [proCtaLens, setProCtaLens] = useState<LensId | null>(null);
 
-  const activeLens = state.lens ?? defaultLens;
   const visible = visibleLenses ?? LENS_IDS.map((id) => id);
+
+  // Resolve active lens: URL param > defaultLens > first visible lens
+  const rawLens = state.lens ?? defaultLens;
+  const activeLens = visible.includes(rawLens) ? rawLens : visible[0] ?? defaultLens;
+
+  // Merge locked filters into the filter state for downstream consumers
+  const { lens: _lens, ...urlFilters } = state;
+  const effectiveFilters = lockedFilters
+    ? { ...urlFilters, ...lockedFilters }
+    : urlFilters;
 
   function handleLensChange(lens: LensId) {
     setProCtaLens(null);
@@ -47,9 +56,6 @@ export function ToolkitShell({
   function handleProLensClick(lens: LensId) {
     setProCtaLens(lens);
   }
-
-  // Extract filters (everything except lens)
-  const { lens: _lens, ...filters } = state;
 
   return (
     <div>
@@ -71,7 +77,7 @@ export function ToolkitShell({
       <div className="relative min-h-[200px] mt-4">
         <LensRenderer
           lens={activeLens}
-          filters={filters}
+          filters={effectiveFilters}
           isPro={isPro}
           override={lensContent?.[activeLens]}
         />

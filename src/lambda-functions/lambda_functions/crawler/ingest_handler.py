@@ -99,17 +99,21 @@ def _ingest_record(record: dict) -> None:
     logger.append_keys(appid=appid, task=task)
     logger.info("Received spoke result", extra={"success": success})
 
-    if task == "metadata":
-        msg = MetadataSpokeResult.model_validate(body)
-        _handle_metadata(msg)
-    elif task == "reviews":
-        msg = ReviewSpokeResult.model_validate(body)
-        _handle_reviews(msg)
-    elif task == "tags":
-        msg = TagsSpokeResult.model_validate(body)
-        _handle_tags(msg)
-    else:
-        raise ValueError(f"Unknown task: {task}")
+    try:
+        if task == "metadata":
+            msg = MetadataSpokeResult.model_validate(body)
+            _handle_metadata(msg)
+        elif task == "reviews":
+            msg = ReviewSpokeResult.model_validate(body)
+            _handle_reviews(msg)
+        elif task == "tags":
+            msg = TagsSpokeResult.model_validate(body)
+            _handle_tags(msg)
+        else:
+            raise ValueError(f"Unknown task: {task}")
+    except Exception:
+        _conn.rollback()
+        raise
 
 
 def _handle_metadata(msg: MetadataSpokeResult) -> None:

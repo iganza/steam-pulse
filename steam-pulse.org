@@ -819,6 +819,14 @@ When auth ships:
 
 Backend auth is the real security boundary — client-side gating is UX only.
 
+** TODO Fix CDK test fixture to use staging environment
+
+tests/infra/test_compute_stack.py uses ENVIRONMENT="production" while other infra tests
+use staging. Since ComputeStack uses ENVIRONMENT to build resource names, the synthesized
+template is not representative of staging. Changing to "staging" requires updating all CDK
+assertion matchers in the test since generated resource IDs change with the environment
+name. Low priority but worth cleaning up for consistency.
+
 ** TODO ACM Cert
 
  You're safe. Here's what's happening:

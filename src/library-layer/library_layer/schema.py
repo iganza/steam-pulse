@@ -63,7 +63,8 @@ TABLES: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL,
-        slug TEXT UNIQUE NOT NULL
+        slug TEXT UNIQUE NOT NULL,
+        steam_tag_id INTEGER              -- Steam's stable tag ID (0013)
     )
     """,
     """
@@ -186,6 +187,8 @@ TABLES: tuple[str, ...] = (
     )
     """,
     """
+    -- Retained for migration chain (0011) — no longer actively written to.
+    -- Player tags now come from Steam store page directly (see steam_source.py).
     CREATE TABLE IF NOT EXISTS steamspy_data (
         appid             INTEGER PRIMARY KEY REFERENCES games(appid),
         score_rank        TEXT,
@@ -229,6 +232,8 @@ TABLES: tuple[str, ...] = (
     # 0009_game_velocity_cache
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_velocity_lifetime NUMERIC(10,2)",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_velocity_computed_at TIMESTAMPTZ",
+    # 0013_add_steam_tag_id
+    "ALTER TABLE tags ADD COLUMN IF NOT EXISTS steam_tag_id INTEGER",
 )
 
 # Analytics engine indexes — kept for test suite use only.

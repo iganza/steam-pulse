@@ -14,9 +14,10 @@ class TagRepository(BaseRepository):
 
         Args:
             items: List of dicts with keys: appid, name (tag name), votes.
+                   Optional key: tagid (Steam's stable tag ID).
         """
         # Build deduplicated tag list and prepare data
-        tag_rows: list[tuple[str, str]] = []
+        tag_rows: list[tuple[str, str, int | None]] = []
         seen_names: set[str] = set()
         valid_items: list[tuple[int, str, int]] = []
 
@@ -26,11 +27,12 @@ class TagRepository(BaseRepository):
                 continue
             appid: int = item["appid"]
             votes: int = item.get("votes", 0)
+            steam_tag_id: int | None = item.get("tagid")
             tag_slug = slugify(tag_name) or tag_name.lower()[:50]
             valid_items.append((appid, tag_name, votes))
             if tag_name not in seen_names:
                 seen_names.add(tag_name)
-                tag_rows.append((tag_name, tag_slug))
+                tag_rows.append((tag_name, tag_slug, steam_tag_id))
 
         if not valid_items:
             return
@@ -39,7 +41,7 @@ class TagRepository(BaseRepository):
             from psycopg2.extras import execute_values
 
             # Prefetch existing slugs to avoid unique violations on slug column
-            candidate_slugs = [slug for _, slug in tag_rows]
+            candidate_slugs = [slug for _, slug, _ in tag_rows]
             cur.execute("SELECT slug FROM tags WHERE slug = ANY(%s)", (candidate_slugs,))
             existing_slugs: set[str] = {
                 row["slug"] if isinstance(row, dict) else row[0] for row in cur.fetchall()
@@ -47,24 +49,26 @@ class TagRepository(BaseRepository):
 
             # Deduplicate slugs against both existing DB rows and within the batch
             used_slugs: set[str] = set(existing_slugs)
-            deduped_rows: list[tuple[str, str]] = []
-            for name, slug in tag_rows:
+            deduped_rows: list[tuple[str, str, int | None]] = []
+            for name, slug, steam_tag_id in tag_rows:
                 final_slug = slug
                 counter = 1
                 while final_slug in used_slugs:
                     final_slug = f"{slug}-{counter}"
                     counter += 1
                 used_slugs.add(final_slug)
-                deduped_rows.append((name, final_slug))
+                deduped_rows.append((name, final_slug, steam_tag_id))
 
             execute_values(
                 cur,
-                "INSERT INTO tags (name, slug) VALUES %s ON CONFLICT (name) DO NOTHING",
+                """INSERT INTO tags (name, slug, steam_tag_id) VALUES %s
+                   ON CONFLICT (name) DO UPDATE
+                   SET steam_tag_id = COALESCE(EXCLUDED.steam_tag_id, tags.steam_tag_id)""",
                 deduped_rows,
             )
 
             # Fetch all tag IDs in one query
-            names = [name for name, _ in tag_rows]
+            names = [name for name, _, _ in tag_rows]
             cur.execute("SELECT id, name FROM tags WHERE name = ANY(%s)", (names,))
             name_to_id: dict[str, int] = {}
             for row in cur.fetchall():

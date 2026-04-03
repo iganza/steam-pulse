@@ -22,13 +22,15 @@ Usage:
   poetry run python scripts/sp.py queue metadata --all        # all pending from app_catalog
   poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
   poetry run python scripts/sp.py queue tags <appid...>      # publish tag backfill for specific games
-  poetry run python scripts/sp.py queue tags --all           # all games for SteamSpy tag backfill
+  poetry run python scripts/sp.py queue tags --all           # all games for Steam tag crawl
 
   poetry run python scripts/sp.py db init [--env staging|production]
   poetry run python scripts/sp.py db status [--env staging|production]
   poetry run python scripts/sp.py db query "SELECT * FROM games LIMIT 5" [--env staging|production]
 
   poetry run python scripts/sp.py spokes status [--env staging|production]
+
+  poetry run python scripts/sp.py logs errors [--env staging|production] [--minutes N] [--region REGION]
 
   poetry run python scripts/sp.py batch <appid...> [--env staging|production] [--watch] [--dry-run]
   poetry run python scripts/sp.py batch --all-eligible [--env staging|production] [--watch]
@@ -61,7 +63,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 # Commands that resolve config from .env.{environment} via for_environment().
 # Skipping load_dotenv for these prevents dummy .env values from overriding
 # real SSM paths that pydantic-settings would read from the env file.
-_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch"}
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "logs"}
 _cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
 if _cmd not in _DEPLOYED_COMMANDS:
@@ -836,6 +838,64 @@ def cmd_spokes_status(env: str) -> None:
 # ── CLI wiring ────────────────────────────────────────────────────────────────
 
 
+_SPOKE_REGIONS = [
+    "us-west-2", "us-east-1", "us-east-2", "ca-central-1",
+    "eu-west-1", "eu-central-1", "eu-north-1", "ap-south-1",
+    "ap-southeast-1", "ap-northeast-1", "ap-northeast-2", "ap-southeast-2",
+]
+
+
+def cmd_logs_errors(env: str, minutes: int, pattern: str, region: str | None) -> None:
+    """Query spoke log groups across all regions for errors/warnings."""
+    import boto3
+
+    regions = [region] if region else _SPOKE_REGIONS
+    end_ms = int(time.time() * 1000)
+    start_ms = end_ms - minutes * 60 * 1000
+
+    all_rows: list[tuple[str, str]] = []  # (region, message)
+
+    def _query_region(r: str) -> list[tuple[str, str]]:
+        client = boto3.client("logs", region_name=r)
+        log_group = f"/steampulse/{env}/spoke/{r}"
+        try:
+            resp = client.filter_log_events(
+                logGroupName=log_group,
+                startTime=start_ms,
+                endTime=end_ms,
+                filterPattern=pattern,
+                limit=100,
+            )
+            return [(r, e["message"]) for e in resp.get("events", [])]
+        except client.exceptions.ResourceNotFoundException:
+            return []
+        except Exception as exc:
+            return [(r, f"ERROR querying logs: {exc}")]
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(_query_region, r): r for r in regions}
+        for f in as_completed(futures):
+            all_rows.extend(f.result())
+
+    if not all_rows:
+        print(f"No matching events in the last {minutes} minutes across {len(regions)} region(s).")
+        return
+
+    all_rows.sort(key=lambda x: x[0])
+    for r, msg in all_rows:
+        try:
+            data = json.loads(msg)
+            ts = data.get("timestamp", "")
+            level = data.get("level", "")
+            message = data.get("message", msg)
+            appid = data.get("appid", "")
+            error = data.get("error", "")
+            parts = [p for p in [ts, r, level, f"appid={appid}" if appid else "", message, error] if p]
+            print("  ".join(parts))
+        except (json.JSONDecodeError, AttributeError):
+            print(f"[{r}] {msg.strip()}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="sp.py",
@@ -985,13 +1045,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     qr.add_argument("--dry-run", action="store_true")
 
-    qt = qu_sub.add_parser("tags", help="Publish to app-crawl queue for SteamSpy tag backfill")
+    qt = qu_sub.add_parser("tags", help="Publish to app-crawl queue for Steam tag crawl")
     qt.add_argument("appids", type=int, nargs="*", metavar="appid")
     qt.add_argument(
         "--all", dest="all_games", action="store_true", help="Queue all games for tag backfill"
     )
     qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qt.add_argument("--dry-run", action="store_true")
+
+    # ── logs (query spoke logs across regions)
+    lg = sub.add_parser("logs", help="Query spoke logs across all regions")
+    lg.add_argument(
+        "--env", default="staging", choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
+    lg_sub = lg.add_subparsers(dest="logs_cmd", required=True)
+    le = lg_sub.add_parser("errors", help="Show errors/warnings across all spoke regions")
+    le.add_argument("--minutes", type=int, default=60, metavar="N", help="Look back N minutes (default: 60)")
+    le.add_argument("--pattern", default="?ERROR ?WARNING ?\"Steam tag fetch error\" ?\"Steam reviews error\"", help="CloudWatch filter pattern")
+    le.add_argument("--region", default=None, help="Limit to one region")
 
     return p
 
@@ -1066,6 +1138,10 @@ def main() -> None:
             if args.all_games:
                 appids = _all_games(args.limit or 200_000)
             cmd_queue("tags", appids, args.dry_run, args.env)
+
+    elif args.cmd == "logs":
+        if args.logs_cmd == "errors":
+            cmd_logs_errors(args.env, args.minutes, args.pattern, args.region)
 
 
 if __name__ == "__main__":

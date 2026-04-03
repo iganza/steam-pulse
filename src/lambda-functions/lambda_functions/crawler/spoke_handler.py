@@ -32,7 +32,6 @@ from lambda_functions.crawler.events import (
     TagsSpokeResult,
 )
 from library_layer.config import SteamPulseConfig
-from library_layer.repositories.steamspy_repo import SteamspyRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
@@ -232,25 +231,20 @@ def _write_s3(key: str, data: dict | list) -> str:
 
 
 def _process_tags(appid: int) -> bool:
-    """Fetch SteamSpy data, upload to S3, notify ingest via SQS."""
+    """Fetch player tags from Steam store page, upload to S3, notify ingest via SQS."""
     try:
-        raw = _steam.get_steamspy_data(appid)
+        tags = _steam.get_player_tags(appid)
     except Exception as exc:
-        logger.warning("SteamSpy error", extra={"appid": appid, "error": str(exc)})
+        logger.warning("Steam tag fetch error", extra={"appid": appid, "error": str(exc)})
         _notify_tags(appid, success=False, error=str(exc))
         return False
 
-    if not raw:
-        logger.warning("Empty SteamSpy response", extra={"appid": appid})
+    if not tags:
+        logger.warning("No tags found on store page", extra={"appid": appid})
         _notify_tags(appid, success=True, count=0)
         return True
 
-    tags_dict: dict = raw.get("tags") or {}
-    tags = [{"name": k, "votes": int(v)} for k, v in tags_dict.items()]
-
-    steamspy_payload = {k: raw[k] for k in SteamspyRepository.STEAMSPY_FIELDS if k in raw}
-
-    result_data = {"tags": tags, "steamspy": steamspy_payload}
+    result_data = {"tags": tags}
     uid = uuid.uuid4().hex[:12]
     s3_key = _write_s3(f"spoke-results/tags/{appid}-{uid}.json.gz", result_data)
     _notify_tags(appid, success=True, s3_key=s3_key, count=len(tags))

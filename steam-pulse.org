@@ -774,6 +774,33 @@ Fix: after metadata ingest completes for a game, queue a "tags" SQS message to t
 so it fetches SteamSpy tag data and routes it back through ingest. Then backfill existing
 games.
 
+NOTE: SteamSpy returns HTTP 403 from AWS eu-west-1 (and likely all cloud IPs). Replace
+with Steam store page scraping — the store page embeds identical player tag data (name +
+vote count) in InitAppTagModal() JS. Requires age-gate bypass cookies. See conversation
+from 2026-04-03 for working approach.
+
+** TODO Leverage tag vote counts for deeper intelligence
+
+Player tag votes are a rich signal we currently only use for ordering. Each game has up to
+20 player-applied tags with community vote counts (e.g. Elden Ring: "Souls-like" 7,399,
+"Open World" 5,408). Ideas for utilizing this data in the platform:
+
+- Tag weight in LLM context: feed the analyzer top tags by vote weight instead of flat
+  lists, so the report reflects what the community actually considers defining vs marginal.
+- Weighted tag similarity: score game similarity using vote-weighted tag overlap rather
+  than boolean tag intersection. Powers better "similar games" and competitor discovery.
+- Tag-sentiment correlation: surface which tags correlate with high/low sentiment across
+  the catalog (e.g. do "Early Access" or "Pay to Win" tags predict lower scores?).
+- Tag trend tracking: re-crawl tags periodically and track vote count deltas over time.
+  Detect shifting player perception (game gains "Pay to Win" votes after monetization
+  update) and surface tag momentum charts in the Pro section.
+- Tag confidence thresholds: distinguish defining tags (high votes) from noise tags (low
+  votes) when filtering/searching. A game with 50 votes on "Roguelike" is barely one;
+  5,000 votes means it's a core identity.
+- Cross-tag analytics (Pro): "Which tag combinations correlate with highest hidden gem
+  scores?", "What's the average sentiment for games heavily tagged Multiplayer vs
+  Single-player?"
+
 ** TODO Pro gating: backend auth + per-entity analytics fetch gating
 
 Currently all per-game analytics endpoints (playtime-sentiment, early-access-impact,

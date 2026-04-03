@@ -536,16 +536,17 @@ def test_s3_not_deleted_when_failure(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_tags_task_upserts_tags_and_steamspy(lambda_context: Any) -> None:
-    """Successful tags result → upsert tags + steamspy data, emit metric, delete S3."""
+def test_tags_task_upserts_tags(lambda_context: Any) -> None:
+    """Successful tags result → upsert tags, emit metric, delete S3."""
     ih = _get_module()
     ih._tag_repo = MagicMock()
-    ih._steamspy_repo = MagicMock()
     ih._s3 = MagicMock()
 
     payload = {
-        "tags": [{"name": "FPS", "votes": 5000}, {"name": "Multiplayer", "votes": 3000}],
-        "steamspy": {"positive": 384000, "negative": 35000, "ccu": 68423},
+        "tags": [
+            {"name": "FPS", "votes": 5000, "tagid": 1663},
+            {"name": "Multiplayer", "votes": 3000, "tagid": 3859},
+        ],
     }
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped(payload))),
@@ -565,12 +566,7 @@ def test_tags_task_upserts_tags_and_steamspy(lambda_context: Any) -> None:
     ih._tag_repo.upsert_tags.assert_called_once()
     tag_args = ih._tag_repo.upsert_tags.call_args[0][0]
     assert len(tag_args) == 2
-    assert tag_args[0] == {"appid": 440, "name": "FPS", "votes": 5000}
-
-    ih._steamspy_repo.upsert.assert_called_once_with(
-        440,
-        {"positive": 384000, "negative": 35000, "ccu": 68423},
-    )
+    assert tag_args[0] == {"appid": 440, "name": "FPS", "votes": 5000, "tagid": 1663}
 
     ih._s3.delete_object.assert_called_once()
 
@@ -580,7 +576,6 @@ def test_tags_failure_skips_processing(lambda_context: Any) -> None:
     """Tags spoke failure → log warning, no S3 fetch, no upsert."""
     ih = _get_module()
     ih._tag_repo = MagicMock()
-    ih._steamspy_repo = MagicMock()
     ih._s3 = MagicMock()
 
     event = _sqs_event(
@@ -588,22 +583,20 @@ def test_tags_failure_skips_processing(lambda_context: Any) -> None:
             appid=440,
             success=False,
             spoke_region="us-east-1",
-            error="SteamSpy timeout",
+            error="Steam store page timeout",
         )
     )
     ih.handler(event, lambda_context)
 
     ih._s3.get_object.assert_not_called()
     ih._tag_repo.upsert_tags.assert_not_called()
-    ih._steamspy_repo.upsert.assert_not_called()
 
 
 @mock_aws
 def test_tags_success_no_s3_key_skips(lambda_context: Any) -> None:
-    """Tags success with no s3_key (no SteamSpy data) → skip, no crash."""
+    """Tags success with no s3_key (no tag data) → skip, no crash."""
     ih = _get_module()
     ih._tag_repo = MagicMock()
-    ih._steamspy_repo = MagicMock()
     ih._s3 = MagicMock()
 
     event = _sqs_event(

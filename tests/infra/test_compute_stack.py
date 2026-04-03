@@ -39,7 +39,7 @@ def template() -> assertions.Template:
     email_queue = sqs.Queue(stack, "EmailQueue")
 
     config = SteamPulseConfig(
-        ENVIRONMENT="staging",
+        ENVIRONMENT="production",
         DB_SECRET_NAME="steampulse/test/db-credentials",
         STEAM_API_KEY_SECRET_NAME="steampulse/test/steam-api-key",
         RESEND_API_KEY_SECRET_NAME="steampulse/test/resend-api-key",

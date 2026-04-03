@@ -72,9 +72,9 @@ PRO+ UPSELL  → "What's the biggest unmet need in my genre?"
 | 4 | `scripts/prompts/analytics-engine-frontend.md` | Done  | 11 chart components on game/genre/tag/developer pages |
 
 ### 3. Toolkit Shell — the shared UI foundation ⚡ write this before any remaining prompts
-| # | Prompt                             | Status            | Delivers                                                                                                                                                                             |
-|---|------------------------------------|-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 5 | `scripts/prompts/toolkit-shell.md` | **Needs writing** | Shared layout: filter bar, lens tab switcher, URL state (`?lens=&genre=&appids=`), `usePro()` integration, Pro lock pattern. All subsequent prompts plug a new lens into this shell. |
+| # | Prompt                             | Status | Delivers                                                                                                                                                                             |
+|---|------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 5 | `scripts/prompts/toolkit-shell.md` | Done   | Shared layout: filter bar, lens tab switcher, URL state (`?lens=&genre=&appids=`), `usePro()` integration, Pro lock pattern. All subsequent prompts plug a new lens into this shell. |
 
 ### 4. Lenses & Pages (plug into shell)
 | # | Prompt                                             | Status            | Delivers                                                                                  |

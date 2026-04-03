@@ -725,6 +725,44 @@ e.g. =/developer/valve=. Chart appears alongside the game list.
 
 - Developer Portfolio — sentiment and review trends across all games by that developer
 
+** TODO Post-launch: Split navigation into Browse vs Analyze
+
+The navbar currently mixes two fundamentally different modes:
+
+- *Casual browsing* — Browse, Hidden Gems, New Releases, Trending, game pages.
+  Discovery-oriented, SEO-driven, free tier. "Show me interesting stuff."
+- *Analytical toolkit* — Filters, lenses, compare, benchmark, market map.
+  Query-oriented, pro-driven. "Let me build a view into the data."
+
+The Toolkit link sits alongside Browse as if they are peers, but they are
+different experiences. The toolkit is a workspace; the browse pages are a
+storefront.
+
+*** Why wait until after launch
+- Not enough lenses yet to justify the split (stubs don't count)
+- Building Compare (item 8) and Pro gating (item 10) will reveal the right
+  boundary between "browsing" and "analysis"
+- The ToolkitShell architecture (visibleLenses, lockedFilters, lensContent)
+  already supports the split — no rewrite needed when the time comes
+- Launch needs content and reports indexed, not navigation polish
+
+*** Proposed post-launch nav structure
+#+begin_src
+Browse   → keeps: Hidden Gems, New Releases, Trending, search, game/genre/tag pages
+Analyze  → becomes: Toolkit (full workspace with all lenses, filters, compare)
+#+end_src
+
+Game pages stay in Browse but get an "Open in Toolkit" link that jumps to
+=/toolkit?appids=440&lens=sentiment=. Genre/tag pages get the same treatment.
+
+** TODO Wire toolkit filter bar into AnalyticsClient
+
+ROADMAP item #7 (analytics-dashboard-frontend.md) is mostly already done: the /analytics
+page has 9 charts with granularity toggle and genre filter via AnalyticsClient. The
+toolkit shell wraps it as the Trends lens. What remains is a small wiring task: connect
+the toolkit shell's genre/tag filter bar selections into AnalyticsClient's internal
+filter state so they stay in sync. Low priority — do after launch.
+
 ** TODO Wire SteamSpy tag fetching into the crawl pipeline
 
 The spoke handler (_process_tags in spoke_handler.py) and ingest handler (_handle_tags in

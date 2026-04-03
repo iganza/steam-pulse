@@ -138,12 +138,24 @@ class DirectSteamSource(SteamDataSource):
             except Exception:
                 logger.debug("Metrics callback failed", exc_info=True)
 
-    def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
+    def _get_with_retry(
+        self,
+        url: str,
+        *,
+        cookies: dict[str, str] | None = None,
+        follow_redirects: bool = False,
+        **params: object,
+    ) -> httpx.Response:
         endpoint = _endpoint_name(url)
         for attempt in range(6):
             t0 = time.monotonic()
             try:
-                resp = self._client.get(url, params=params or None)  # type: ignore[arg-type]
+                resp = self._client.get(
+                    url,
+                    params=params or None,  # type: ignore[arg-type]
+                    cookies=cookies,
+                    follow_redirects=follow_redirects,
+                )
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
@@ -374,68 +386,28 @@ class DirectSteamSource(SteamDataSource):
         """
         url = STORE_PAGE_URL.format(appid=appid)
         self._jitter()
-        resp = self._get_store_page(url)
-        return _extract_tags_from_html(resp.text)
-
-    def _get_store_page(self, url: str) -> httpx.Response:
-        """Fetch a Steam store page with age-gate cookies and retry logic."""
-        endpoint = _endpoint_name(url)
-        for attempt in range(6):
-            t0 = time.monotonic()
-            try:
-                resp = self._client.get(
-                    url,
-                    cookies=_AGE_GATE_COOKIES,
-                    follow_redirects=True,
-                )
-                latency_ms = (time.monotonic() - t0) * 1000
-                self._emit(endpoint, resp.status_code, latency_ms)
-                if resp.status_code in _RETRY_STATUSES:
-                    wait = min(2**attempt + random.uniform(1, 5), 120)
-                    logger.warning("HTTP retry", extra={
-                        "status": resp.status_code, "url": url,
-                        "wait_s": round(wait), "attempt": attempt + 1,
-                    })
-                    time.sleep(wait)
-                    continue
-                resp.raise_for_status()
-                return resp
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code not in _RETRY_STATUSES or attempt == 5:
-                    raise SteamAPIError(
-                        f"HTTP {exc.response.status_code} from {url}"
-                    ) from exc
-                wait = min(2**attempt + random.uniform(1, 5), 120)
-                time.sleep(wait)
-            except httpx.RequestError as exc:
-                latency_ms = (time.monotonic() - t0) * 1000
-                self._emit(endpoint, 0, latency_ms)
-                if attempt == 5:
-                    raise SteamAPIError(f"Network error fetching {url}: {exc}") from exc
-                wait = min(2**attempt + random.uniform(1, 5), 120)
-                logger.warning("Network error retry", extra={
-                    "url": url, "wait_s": round(wait),
-                    "attempt": attempt + 1, "error": str(exc),
-                })
-                time.sleep(wait)
-        raise SteamAPIError(f"Max retries exceeded for {url}")
+        resp = self._get_with_retry(
+            url, cookies=_AGE_GATE_COOKIES, follow_redirects=True,
+        )
+        return _extract_tags_from_html(resp.text, appid=appid)
 
 
-def _extract_tags_from_html(html: str) -> list[dict]:
+def _extract_tags_from_html(html: str, *, appid: int | None = None) -> list[dict]:
     """Extract player tags from InitAppTagModal() JS embedded in store page HTML.
 
     Returns [{"tagid": int, "name": str, "votes": int}] or [].
     """
+    ctx: dict = {"appid": appid} if appid else {}
     marker = "InitAppTagModal"
     idx = html.find(marker)
     if idx == -1:
-        logger.warning("No InitAppTagModal found in store page")
+        logger.warning("No InitAppTagModal found in store page", extra=ctx)
         return []
 
     try:
         bracket_start = html.index("[", idx)
     except ValueError:
-        logger.warning("No tag array found after InitAppTagModal")
+        logger.warning("No tag array found after InitAppTagModal", extra=ctx)
         return []
 
     # Walk forward counting bracket depth to find the matching ]
@@ -449,13 +421,13 @@ def _extract_tags_from_html(html: str) -> list[dict]:
             raw = html[bracket_start : i + 1]
             break
     else:
-        logger.warning("Unterminated tag array in store page")
+        logger.warning("Unterminated tag array in store page", extra=ctx)
         return []
 
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        logger.warning("Malformed JSON in InitAppTagModal")
+        logger.warning("Malformed JSON in InitAppTagModal", extra=ctx)
         return []
 
     tags = []
@@ -465,7 +437,7 @@ def _extract_tags_from_html(html: str) -> list[dict]:
         try:
             votes = int(t["count"])
         except (TypeError, ValueError):
-            logger.warning("Skipping tag with invalid count", extra={"tag": t.get("name")})
+            logger.warning("Skipping tag with invalid count", extra={**ctx, "tag": t.get("name")})
             continue
         tags.append({"tagid": t["tagid"], "name": t["name"], "votes": votes})
     return tags

@@ -774,10 +774,13 @@ Fix: after metadata ingest completes for a game, queue a "tags" SQS message to t
 so it fetches SteamSpy tag data and routes it back through ingest. Then backfill existing
 games.
 
-NOTE: SteamSpy returns HTTP 403 from AWS eu-west-1 (and likely all cloud IPs). Replace
-with Steam store page scraping — the store page embeds identical player tag data (name +
-vote count) in InitAppTagModal() JS. Requires age-gate bypass cookies. See conversation
-from 2026-04-03 for working approach.
+NOTE: SteamSpy returns HTTP 403 from AWS eu-west-1 (and likely all cloud IPs). Replaced
+with Steam store page scraping in PR #40. The store page embeds identical player tag data
+(name + vote count) in InitAppTagModal() JS. Implementation details:
+- URL: https://store.steampowered.com/app/{appid}/?l=english
+- Age-gate bypass cookies: birthtime=0, wants_mature_content=1, lastagecheckage=1-0-1990
+- Extract JSON array via bracket-depth matching after "InitAppTagModal" marker
+- See steam_source.py get_player_tags() and _extract_tags_from_html()
 
 ** TODO Leverage tag vote counts for deeper intelligence
 

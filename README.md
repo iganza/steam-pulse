@@ -78,7 +78,7 @@ Tests use `moto` to mock AWS and `pytest-httpx` to mock Steam API calls — no r
 ### Seed staging with games
 
 ```bash
-export APP_CRAWL_QUEUE_URL="https://sqs.us-west-2.amazonaws.com/052475889199/Staging-Crawler-AppCrawlQueueFC21D17E-lFh8y6MOopxO"
+export APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/staging/messaging/app-crawl-queue-url"
 poetry run python scripts/seed.py --limit 50
 ```
 

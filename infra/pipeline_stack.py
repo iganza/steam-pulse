@@ -49,7 +49,10 @@ class PipelineStack(cdk.Stack):
                 ],
                 role_policy_statements=[
                     iam.PolicyStatement(
-                        actions=["ec2:DescribeAvailabilityZones"],
+                        actions=[
+                            "ec2:DescribeAvailabilityZones",
+                            "ec2:DescribeImages",  # fck-nat AMI lookup at synth time
+                        ],
                         resources=["*"],
                     ),
                 ],
@@ -69,11 +72,68 @@ class PipelineStack(cdk.Stack):
             docker_enabled_for_synth=True,
         )
 
+        environment = deploy_stage.lower()
         pipeline.add_stage(
             ApplicationStage(
                 self,
-                deploy_stage,
-                stage=deploy_stage.lower(),
+                f"SteamPulse-{deploy_stage}",
+                environment=environment,
                 env=cdk.Environment(account=self.account, region=self.region),
-            )
+            ),
+            post=[
+                pipelines.CodeBuildStep(
+                    "ApplyMigrations",
+                    commands=[
+                        f"FN_ARN=$(aws ssm get-parameter --name /steampulse/{environment}/compute/migration-fn-arn --query Parameter.Value --output text)",
+                        # Capture both payload and response metadata (FunctionError, LogResult)
+                        "aws lambda invoke --function-name \"$FN_ARN\" --invocation-type RequestResponse --log-type Tail /tmp/migrate-out.json > /tmp/migrate-meta.json",
+                        "cat /tmp/migrate-out.json",
+                        # Decode Lambda logs and fail the build if FunctionError is present
+                        "python3 - << 'PYEOF'\n"
+                        "import base64, json, sys\n"
+                        "from pathlib import Path\n"
+                        "meta = json.loads(Path('/tmp/migrate-meta.json').read_text())\n"
+                        "log_b64 = meta.get('LogResult', '')\n"
+                        "if log_b64:\n"
+                        "    print('--- Lambda logs ---')\n"
+                        "    print(base64.b64decode(log_b64).decode('utf-8', errors='replace'))\n"
+                        "    print('--- end logs ---')\n"
+                        "err = meta.get('FunctionError')\n"
+                        "if err:\n"
+                        "    print(f'Migration Lambda failed: {err}', file=sys.stderr)\n"
+                        "    sys.exit(1)\n"
+                        "PYEOF",
+                    ],
+                    role_policy_statements=[
+                        iam.PolicyStatement(
+                            actions=["ssm:GetParameter"],
+                            resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{environment}/*"],
+                        ),
+                        iam.PolicyStatement(
+                            actions=["lambda:InvokeFunction"],
+                            # Scoped to functions in the Compute stack for this environment.
+                            # CDK generates names like SteamPulse-{Stage}-Compute-{LogicalId}{hash}.
+                            resources=[f"arn:aws:lambda:{self.region}:{self.account}:function:SteamPulse-{deploy_stage}-Compute-*"],
+                        ),
+                    ],
+                ),
+                pipelines.CodeBuildStep(
+                    "InvalidateCDN",
+                    commands=[
+                        # Read distribution ID from SSM then invalidate HTML paths
+                        f'DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/delivery/distribution-id --query Parameter.Value --output text)',
+                        'aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"',
+                    ],
+                    role_policy_statements=[
+                        iam.PolicyStatement(
+                            actions=["ssm:GetParameter"],
+                            resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{deploy_stage.lower()}/*"],
+                        ),
+                        iam.PolicyStatement(
+                            actions=["cloudfront:CreateInvalidation"],
+                            resources=["*"],
+                        ),
+                    ],
+                ),
+            ],
         )

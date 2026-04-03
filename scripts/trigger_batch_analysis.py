@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Trigger a SteamPulse batch analysis execution.
+
+Usage:
+  # Analyze specific appids
+  python scripts/trigger_batch_analysis.py --env staging --appids 440 730 570
+
+  # Dry run — print what would be sent without starting execution
+  python scripts/trigger_batch_analysis.py --env staging --appids 440 --dry-run
+"""
+
+import argparse
+import json
+import sys
+from datetime import datetime
+
+import boto3
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Trigger SteamPulse batch analysis")
+    parser.add_argument("--env", choices=["staging", "production"], default="staging")
+    parser.add_argument("--appids", type=int, nargs="+", required=True, help="Appids to analyze")
+    parser.add_argument("--dry-run", action="store_true", help="Print intent without executing")
+    args = parser.parse_args()
+
+    # Resolve state machine ARN from SSM
+    ssm = boto3.client("ssm")
+    param_name = f"/steampulse/{args.env}/batch/sfn-arn"
+    try:
+        sfn_arn = ssm.get_parameter(Name=param_name)["Parameter"]["Value"]
+    except ssm.exceptions.ParameterNotFound:
+        print(f"ERROR: SSM parameter {param_name} not found. Is BatchAnalysisStack deployed?", file=sys.stderr)
+        sys.exit(1)
+
+    execution_input = json.dumps({"appids": args.appids})
+    execution_name = f"batch-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+    if args.dry_run:
+        print("DRY RUN — would start execution:")
+        print(f"  State machine: {sfn_arn}")
+        print(f"  Name:          {execution_name}")
+        print(f"  Input:         {execution_input}")
+        return
+
+    sfn = boto3.client("stepfunctions")
+    resp = sfn.start_execution(
+        stateMachineArn=sfn_arn,
+        name=execution_name,
+        input=execution_input,
+    )
+
+    print(f"Started execution: {resp['executionArn']}")
+    print(f"Name: {execution_name}")
+    print(f"Appids: {args.appids}")
+
+
+if __name__ == "__main__":
+    main()

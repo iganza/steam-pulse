@@ -1,0 +1,46 @@
+name: Python Tests
+
+# Disabled — AWS CodePipeline runs the test suite on push.
+# Enable by adding push/pull_request triggers when migrating CI to GitHub Actions.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: steampulse
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: steampulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --without crawler
+
+      - name: Run tests
+        run: poetry run pytest --tb=short -q
+        env:
+          TEST_DATABASE_URL: postgresql://steampulse:dev@localhost:5432/steampulse_test
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing

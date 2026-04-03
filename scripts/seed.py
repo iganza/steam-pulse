@@ -106,7 +106,7 @@ async def seed_apps(limit: int | None, dry_run: bool) -> list[dict]:
         )
         sys.exit(1)
 
-    messages = [{"appid": a["appid"]} for a in apps]
+    messages = [{"appid": a["appid"], "task": "metadata"} for a in apps]
     sent = _send_batch(queue_url, messages)
     logger.info("Pushed %d appids to app-crawl-queue", sent)
     return apps
@@ -160,7 +160,7 @@ async def seed_reviews(limit: int, dry_run: bool) -> None:
         logger.error("%s is not set", REVIEW_QUEUE_ENV)
         sys.exit(1)
 
-    messages = [{"appid": row[0]} for row in rows]
+    messages = [{"appid": row[0], "task": "reviews"} for row in rows]
     sent = _send_batch(queue_url, messages)
     logger.info("Pushed %d appids to review-crawl-queue", sent)
 

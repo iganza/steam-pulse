@@ -99,33 +99,6 @@
 
 /* ─── Utility classes ─── */
 
-/* Frosted glass premium overlay */
-.premium-blur-content {
-  filter: blur(6px);
-  pointer-events: none;
-  user-select: none;
-  transition: filter 0.4s ease;
-}
-
-.premium-overlay {
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--radius);
-}
-
-.premium-overlay::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(12, 12, 15, 0.7) 40%,
-    rgba(12, 12, 15, 0.96) 100%
-  );
-  pointer-events: none;
-}
-
 /* Score bar shimmer */
 @keyframes score-fill {
   from { width: 0; }
@@ -163,4 +136,13 @@
 /* Teal glow for focus/hover states */
 .teal-glow {
   box-shadow: 0 0 0 1px var(--teal), 0 0 20px rgba(45, 185, 212, 0.15);
+}
+
+/* Hide scrollbar while keeping scroll behavior */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

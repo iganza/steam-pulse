@@ -1,0 +1,352 @@
+#+TITLE: CloudWatch Logs Insights Queries
+#+DATE: 2026-03-26
+
+All queries target staging by default. Swap =/steampulse/staging/= → =/steampulse/production/= for prod.
+
+* Running a Query on the CLI
+
+** One-shot (start + poll)
+
+#+begin_src bash
+# 1. Start query — prints a query-id
+aws logs start-query \
+  --region us-west-2 \
+  --log-group-names \
+    '/steampulse/staging/crawler' \
+    '/steampulse/staging/spoke/us-west-2' \
+    '/steampulse/staging/ingest' \
+  --start-time $(date -v-1H +%s) \
+  --end-time   $(date +%s) \
+  --query-string 'fields @timestamp, message | filter appid = 934700 | sort @timestamp asc'
+
+# 2. Poll results (re-run until status = "Complete")
+aws logs get-query-results --region us-west-2 --query-id <query-id>
+#+end_src
+
+** Wrapper script (start + poll automatically)
+
+#+begin_src bash
+query_logs() {
+  local query="$1"
+  local groups="${2:---log-group-names /steampulse/staging/crawler /steampulse/staging/spoke/us-west-2 /steampulse/staging/ingest}"
+  local since="${3:-1h}"
+
+  case "$since" in
+    *m) start=$(date -v-${since}M +%s) ;;
+    *h) start=$(date -v-${since%h}H +%s) ;;
+    *d) start=$(date -v-${since%d}d +%s) ;;
+    *)  start=$(date -v-1H +%s) ;;
+  esac
+
+  qid=$(aws logs start-query --region us-west-2 $groups \
+    --start-time $start --end-time $(date +%s) \
+    --query-string "$query" \
+    --query 'queryId' --output text)
+
+  echo "Query ID: $qid — polling..."
+  while true; do
+    result=$(aws logs get-query-results --region us-west-2 --query-id "$qid")
+    status=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
+    if [ "$status" = "Complete" ]; then
+      echo "$result" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for row in d['results']:
+    print('  '.join(f['value'] for f in row if f['field'] != '@ptr'))
+"
+      break
+    fi
+    sleep 2
+  done
+}
+
+# Example:
+query_logs 'fields @timestamp, message, appid | filter appid = 934700 | sort @timestamp asc' '' '30m'
+#+end_src
+
+** Live tail (streaming — not Insights, but best for active monitoring)
+
+~aws logs tail~ streams new events as they arrive. Use ~--filter-pattern~ (CloudWatch filter syntax, not Insights).
+
+#+begin_src bash
+# Tail all crawl services live, filter to one appid
+aws logs tail \
+  --region us-west-2 \
+  --follow \
+  --format short \
+  --filter-pattern '{ $.appid = 934700 }' \
+  '/steampulse/staging/crawler'
+
+# aws logs tail only accepts ONE log group — run in parallel for multi-group:
+aws logs tail --region us-west-2 --follow --format short \
+  --filter-pattern '{ $.appid = 934700 }' \
+  '/steampulse/staging/crawler' &
+aws logs tail --region us-west-2 --follow --format short \
+  --filter-pattern '{ $.appid = 934700 }' \
+  '/steampulse/staging/spoke/us-west-2' &
+aws logs tail --region us-west-2 --follow --format short \
+  --filter-pattern '{ $.appid = 934700 }' \
+  '/steampulse/staging/ingest' &
+wait
+#+end_src
+
+Or use the repo's tail script (colour-coded, multi-group):
+#+begin_src bash
+poetry run python scripts/tail.py all --env staging
+#+end_src
+
+* Query Library
+
+All queries: adjust the ~--start-time~ window as needed (last 1h, 6h, 1d, etc.).
+Log groups to include are noted per query.
+
+** 1. Follow a single game through the full crawl pipeline
+
+Log groups: crawler + spoke + ingest
+
+#+begin_src
+fields @timestamp, @log, appid, message, task, count, reason,
+       cursor, target, remaining, upserted, error
+| filter appid = 934700
+| sort @timestamp asc
+#+end_src
+
+Shows: message dispatch → spoke fetch → ingest upsert → re-queue or completion.
+Set ~@log~ to see which service each line came from.
+
+** 2. Crawl completion events (exhausted / early_stop / target_hit)
+
+Log groups: ingest
+
+#+begin_src
+fields @timestamp, appid, message, reason, total
+| filter message = "Reviews complete"
+| sort @timestamp desc
+| limit 100
+#+end_src
+
+~reason~ is one of: ~exhausted~, ~early_stop~, ~target_hit~.
+
+** 3. Spoke fetch results — catch premature exhaustion
+
+Log groups: spoke
+
+#+begin_src
+fields @timestamp, appid, count, exhausted, next_cursor
+| filter message = "Fetched reviews"
+| sort @timestamp desc
+| limit 100
+#+end_src
+
+Flag: if ~exhausted = 1~ and ~count~ is suspiciously low (< 500), the cursor chain died early.
+
+** 4. Review ingest volume by game (last N hours)
+
+Log groups: ingest
+
+#+begin_src
+stats sum(upserted) as total_upserted by appid
+| filter ispresent(upserted)
+| sort total_upserted desc
+| limit 50
+#+end_src
+
+** 5. All errors across the crawl pipeline
+
+Log groups: crawler + spoke + ingest
+
+#+begin_src
+fields @timestamp, @log, appid, level, message, error
+| filter level = "ERROR" or level = "WARNING"
+| sort @timestamp desc
+| limit 200
+#+end_src
+
+** 6. Steam API errors (rate-limits, failures)
+
+Log groups: spoke
+
+#+begin_src
+fields @timestamp, appid, message, error
+| filter message like "Steam"
+| filter level = "ERROR" or level = "WARNING"
+| sort @timestamp desc
+| limit 100
+#+end_src
+
+** 7. Games crawled in the last window (activity summary)
+
+Log groups: ingest
+
+#+begin_src
+stats count() as batches,
+      sum(upserted) as reviews_upserted,
+      max(@timestamp) as last_seen
+by appid
+| filter ispresent(upserted)
+| sort last_seen desc
+| limit 50
+#+end_src
+
+** 8. Re-queue hops for a game (shows cursor chain progress)
+
+Log groups: ingest
+
+#+begin_src
+fields @timestamp, appid, message, remaining, total_so_far
+| filter appid = 934700
+| filter message = "Re-queued for next batch"
+| sort @timestamp asc
+#+end_src
+
+Watch ~remaining~ count down toward zero.
+
+** 9. Analysis pipeline for a game
+
+Log groups: analysis
+
+#+begin_src bash
+# Change log group for this query:
+aws logs start-query \
+  --log-group-names '/steampulse/staging/analysis' \
+  ...
+#+end_src
+
+#+begin_src
+fields @timestamp, appid, message, model, chunks, pass, error
+| filter appid = 934700
+| sort @timestamp asc
+#+end_src
+
+** 10. Lambda cold starts (all services)
+
+Log groups: crawler + spoke + ingest + api + analysis
+
+#+begin_src
+fields @timestamp, @log, function_name, message
+| filter message like "Cold start" or @initDuration > 0
+| sort @timestamp desc
+| limit 50
+#+end_src
+
+** 11. API errors and slow requests
+
+Log groups: api
+
+#+begin_src bash
+aws logs start-query \
+  --log-group-names '/steampulse/staging/api' \
+  ...
+#+end_src
+
+#+begin_src
+fields @timestamp, message, path, status_code, error, level
+| filter level = "ERROR" or status_code >= 400
+| sort @timestamp desc
+| limit 100
+#+end_src
+
+** 12. Hourly review ingest rate (throughput over time)
+
+Log groups: ingest
+
+#+begin_src
+stats sum(upserted) as reviews_per_hour
+by bin(1h)
+| sort @timestamp asc
+#+end_src
+
+** 13. Find all games that hit early-stop in the last 24h
+
+Log groups: ingest
+
+#+begin_src
+fields @timestamp, appid, reason, total
+| filter message = "Reviews complete" and reason = "early_stop"
+| sort @timestamp desc
+| limit 100
+#+end_src
+
+
+
+** 14. Batched Analysis run
+  ---
+  Log groups to select (all batch Lambdas + SFN):
+  /steampulse/staging/batch-prepare-pass1
+  /steampulse/staging/batch-submit-job
+  /steampulse/staging/batch-check-status
+  /steampulse/staging/batch-prepare-pass2
+  /steampulse/staging/batch-process-results
+  /steampulse/staging/batch-sfn
+
+  ---
+  1. Full flow trace for one execution
+
+  Paste the Step Functions execution name (visible in the console) as the filter value:
+
+  fields @timestamp, service, level, message, pass, job_id, appid, processed, failed
+  | filter execution_id = "YOUR-EXECUTION-ID-HERE"
+  | sort @timestamp asc
+
+  ---
+  2. Live progress — all batch activity, last N minutes
+
+  Good for watching a running job:
+
+  fields @timestamp, service, level, message, pass, job_id, job_status, appid, processed, failed
+  | sort @timestamp asc
+  | limit 200
+
+  ---
+  3. Status poll summary — see how many times it polled and when it completed
+
+  fields @timestamp, message, job_status, job_id
+  | filter service = "batch-check-status"
+  | stats count(*) as polls,
+          min(@timestamp) as first_check,
+          max(@timestamp) as last_check
+    by job_id, job_status
+  | sort last_check desc
+
+  ---
+  4. Find failed or errored runs
+
+  fields @timestamp, service, level, message, job_id, appid, error
+  | filter level in ["ERROR", "WARNING"]
+  | sort @timestamp desc
+  | limit 50
+
+  ---
+  5. Batch complete summary — processed/failed counts per run
+
+  fields @timestamp, execution_id, processed, failed, total_games
+  | filter message = "batch analysis complete"
+  | sort @timestamp desc
+  | limit 20
+
+  ---
+  Tip: When you kick off a run, grab the execution name from Step Functions console (format: UUID or whatever name you give it). Paste it into query 1 — that
+   gives you the full chronological trace across all 5 Lambdas for that specific run.
+
+* CLI Shortcuts (copy-paste)
+
+#+begin_src bash
+# Tail all crawl services (colour-coded)
+poetry run python scripts/tail.py all --env staging
+
+# Tail analysis only
+poetry run python scripts/tail.py analysis --env staging
+
+# Live filter to one appid across all crawl logs (3 panes)
+APPID=934700; for g in crawler spoke/us-west-2 ingest; do
+  aws logs tail --region us-west-2 --follow --format short \
+    --filter-pattern "{ \$.appid = $APPID }" \
+    "/steampulse/staging/$g" &
+done; wait
+
+# One-shot Insights: full crawl flow for an appid, last 2h
+aws logs start-query --region us-west-2 \
+  --log-group-names /steampulse/staging/crawler /steampulse/staging/spoke/us-west-2 /steampulse/staging/ingest \
+  --start-time $(date -v-2H +%s) --end-time $(date +%s) \
+  --query-string 'fields @timestamp, @log, appid, message, count, reason, upserted, error | filter appid = 934700 | sort @timestamp asc'
+#+end_src

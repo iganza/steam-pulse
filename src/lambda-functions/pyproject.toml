@@ -1,0 +1,12 @@
+[tool.poetry]
+name = "lambda-functions"
+version = "0.1.0"
+description = "SteamPulse Lambda function handlers"
+packages = [{ include = "lambda_functions" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

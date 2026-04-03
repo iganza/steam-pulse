@@ -1,0 +1,228 @@
+#+TITLE: SteamPulse — Launch Checklist
+#+DATE: 2026-03-14
+#+OPTIONS: toc:2
+#+TODO: TODO IN-PROGRESS DONE
+
+* Phase 1 — Infrastructure secrets & config
+:PROPERTIES:
+:DESCRIPTION: Everything the Lambda functions need to run. Do this before any smoke tests.
+:END:
+
+** TODO Store Lemon Squeezy API key in AWS Secrets Manager
+Create a secret at path =/steampulse/staging/lemonsqueezy-api-key= with value from
+https://app.lemonsqueezy.com/settings/api
+
+#+BEGIN_SRC sh
+aws secretsmanager create-secret \
+  --name /steampulse/staging/lemonsqueezy-api-key \
+  --secret-string '{"api_key": "YOUR_KEY_HERE"}'
+#+END_SRC
+
+Then verify =LEMONSQUEEZY_API_KEY= is wired into the API Lambda env in =app_stack.py=.
+
+** TODO Store Resend API key in AWS Secrets Manager
+#+BEGIN_SRC sh
+aws secretsmanager create-secret \
+  --name /steampulse/staging/resend-api-key \
+  --secret-string '{"api_key": "YOUR_KEY_HERE"}'
+#+END_SRC
+
+** TODO Set up Lemon Squeezy products
+In https://app.lemonsqueezy.com:
+- [ ] Create product: "SteamPulse Single Game Report" — $7
+- [ ] Create product: "SteamPulse 5-Pack" — $15
+- [ ] Note the Store URL for the =#pricing= anchor in the frontend CTA
+
+** TODO Verify all Lambda env vars are wired in CDK
+Check =app_stack.py= and =lambda_stack.py= — confirm these env vars reach the functions:
+- =LEMONSQUEEZY_API_KEY= (from Secrets Manager)
+- =RESEND_API_KEY= (from Secrets Manager)
+- =STEP_FUNCTIONS_ARN= (from SSM =/steampulse/staging/analysis/state-machine-arn=)
+- =DB_SECRET_ARN= (from SSM =/steampulse/staging/data/db-secret-arn=)
+- =REVIEW_QUEUE_URL= (from SSM =/steampulse/staging/sqs/review-crawl-queue-url=)
+
+* Phase 2 — Backend smoke test (single game)
+:PROPERTIES:
+:DESCRIPTION: Verify the full analysis pipeline works end-to-end before spending on seed crawl.
+:END:
+
+** TODO Verify DB schema initialises on cold start
+Hit the =/health= endpoint and confirm it returns =storage_backend: postgres=.
+If it errors, check Lambda VPC config and DB security group ingress rules.
+
+#+BEGIN_SRC sh
+curl https://<staging-function-url>/health
+# expect: {"storage_backend": "postgres", "pro_enabled": false}
+#+END_SRC
+
+** TODO Trigger analysis for one test game (TF2 appid=440)
+#+BEGIN_SRC sh
+# 1. Call preview — should trigger analysis job
+curl -X POST https://<staging-function-url>/preview \
+  -H "Content-Type: application/json" \
+  -d '{"appid": 440}'
+
+# 2. Poll status with the returned job_id
+curl https://<staging-function-url>/api/status/<job_id>
+#+END_SRC
+
+Expected: within 3–5 minutes, status → SUCCEEDED with full report JSON.
+
+** TODO Verify report stored in DB
+#+BEGIN_SRC sh
+# Connect to Aurora via AWS console query editor or bastion
+SELECT game_name, sentiment_score, one_liner FROM reports WHERE appid = 440;
+#+END_SRC
+
+** TODO Test license key purchase + unlock flow end-to-end
+- Buy a real $7 key from the Lemon Squeezy storefront
+- Call =/validate-key= with the key and appid=440
+- Verify full report returned and confirmation email sent via Resend
+
+#+BEGIN_SRC sh
+curl -X POST https://<staging-function-url>/validate-key \
+  -H "Content-Type: application/json" \
+  -d '{"license_key": "YOUR-TEST-KEY", "appid": 440, "email": "you@example.com"}'
+#+END_SRC
+
+* Phase 3 — Frontend refactor (Claude Code)
+:PROPERTIES:
+:DESCRIPTION: Run the Claude Code prompt to update the UI freemium design.
+:END:
+
+** TODO Run Claude Code frontend refactor prompt
+#+BEGIN_SRC sh
+cat scripts/prompts/frontend-freemium-refactor.md
+# Paste output into Claude Code
+#+END_SRC
+
+Changes it will make:
+- Move Competitive Context into Pro gate
+- Add =useUserTier()= hook in =lib/auth.ts=
+- Add inline teaser after Gameplay Friction
+- Realistic placeholder content in blurred sections
+- Remove rate_limiter.py and rate limiter call from =/preview=
+- Update CTA copy
+
+** TODO Verify build passes after refactor
+#+BEGIN_SRC sh
+cd frontend && npm run build
+#+END_SRC
+
+** TODO Add description to synthesis prompt (analyzer.py)
+In =src/library-layer/library_layer/analyzer.py=, update =_synthesize()= to accept
+=game_description: str= and include it in the Pass 2 Sonnet prompt as context.
+
+Strip HTML before passing:
+#+BEGIN_SRC python
+import re
+def _strip_html(text: str) -> str:
+    return re.sub(r'<[^>]+>', ' ', text).strip()
+
+# Cap at ~1000 tokens (~4000 chars)
+description_context = _strip_html(game_description)[:4000]
+#+END_SRC
+
+Add to synthesis system prompt:
+#+BEGIN_SRC
+Game store description (for context on developer intent and positioning):
+{description_context}
+#+END_SRC
+
+** TODO Commit and push to staging, verify pipeline deploys clean
+#+BEGIN_SRC sh
+git add -A && git commit -m "feature/frontend: freemium refactor + description context in synthesis"
+git push origin staging
+#+END_SRC
+
+* Phase 4 — Seed data (top 500 games)
+:PROPERTIES:
+:DESCRIPTION: ~$170 LLM cost. Run after smoke test confirms pipeline works.
+:END:
+
+** TODO Run app metadata crawler (all ~100k games)
+Triggers via SQS manually or EventBridge. Populates =games=, =tags=, =genres= tables.
+Expected duration: 15–20 hours. Monitor via CloudWatch Lambda logs.
+
+#+BEGIN_SRC sh
+# Send seed message to app-crawl queue
+aws sqs send-message \
+  --queue-url $(aws ssm get-parameter --name /steampulse/staging/sqs/app-crawl-queue-url --query Parameter.Value --output text) \
+  --message-body '{"action": "seed_all"}'
+#+END_SRC
+
+** TODO Monitor crawler progress
+#+BEGIN_SRC sh
+# Watch DLQ for failures
+aws sqs get-queue-attributes \
+  --queue-url $(aws ssm get-parameter --name /steampulse/staging/sqs/app-crawl-dlq-url --query Parameter.Value --output text) \
+  --attribute-names ApproximateNumberOfMessages
+#+END_SRC
+
+** TODO Trigger analysis for top 500 games by review count
+After app crawl completes, queue review crawl for all games with 500+ reviews,
+ordered by review count descending. This triggers the Step Functions analysis pipeline.
+
+Expected LLM cost: ~$170. Expected duration: 6–8 hours.
+
+** TODO Verify game listing pages have data
+#+BEGIN_SRC sh
+curl https://<staging-function-url>/api/games?limit=10&sort=review_count
+# Should return 10 games with reports
+#+END_SRC
+
+* Phase 5 — Launch prep
+:PROPERTIES:
+:DESCRIPTION: The last mile before real users.
+:END:
+
+** TODO Set up steampulse.io domain in Route53
+- Add A/CNAME record pointing to CloudFront distribution
+- SSL cert is in CDK (=app_stack.py= — production only); enable and deploy to prod
+
+** TODO Submit sitemap to Google Search Console
+- Verify =/sitemap.xml= returns all game URLs
+- Add property in Search Console, submit sitemap URL
+- Takes 2–4 weeks to index — start this early
+
+** TODO Add Plausible analytics
+In =frontend/app/layout.tsx=, add:
+#+BEGIN_SRC html
+<script defer data-domain="steampulse.io" src="https://plausible.io/js/script.js"></script>
+#+END_SRC
+Sign up at https://plausible.io ($9/mo). Privacy-friendly, no cookie banner needed.
+
+** TODO Set pricing CTA links in frontend
+Ensure the "Get one for $7" links in =PremiumUnlock.tsx= point to the real Lemon Squeezy
+storefront URL (not the placeholder =#pricing= anchor).
+
+** TODO Enable nightly recrawl EventBridge rule
+In =sqs_stack.py=, change =enabled=False= → =enabled=True= on the NightlyRecrawl rule.
+Push to staging first to verify, then production.
+
+** TODO Re-enable MonitoringStack
+In =application_stage.py=, uncomment the MonitoringStack instantiation.
+Gives CloudWatch alarms for Lambda errors, SFN failures, high latency.
+
+* Phase 6 — Soft launch
+:PROPERTIES:
+:DESCRIPTION: First real users. Keep it quiet, watch the metrics.
+:END:
+
+** TODO Post in 2–3 indie dev communities
+Good first targets:
+- r/gamedev (show-and-tell post with a real game report as example)
+- Indie Dev Discord servers
+- GameDiscoverCo newsletter / forums
+
+Frame it as: "I built an AI tool that synthesises Steam reviews into developer intelligence"
+Lead with a specific game example — show the actual report.
+
+** TODO Watch for errors in CloudWatch for first 48 hours
+#+BEGIN_SRC sh
+aws logs tail /aws/lambda/SteamPulse-Staging-API --follow
+#+END_SRC
+
+** TODO First revenue checkpoint
+After first week: did anyone buy? If yes, double down on SEO and content.
+If no, talk to 3 indie devs directly and ask what would make them pay.

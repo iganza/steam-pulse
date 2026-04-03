@@ -1,0 +1,699 @@
+#+TITLE: SteamPulse — System Architecture
+#+AUTHOR: SteamPulse
+#+DESCRIPTION: Canonical component registry and interaction flows. Code must match these diagrams.
+#+STARTUP: overview
+
+* Overview
+
+SteamPulse is an AI-powered Steam game intelligence platform. It crawls the
+Steam catalog, fetches reviews at scale using a multi-region spoke architecture,
+synthesises them with Claude via AWS Bedrock, and serves structured reports
+publicly via a Next.js frontend backed by a FastAPI Lambda.
+
+All implementation decisions must be consistent with the flows defined here.
+When a flow changes, update this file first. Use the drift checklist in each
+flow to validate code alignment.
+
+See also: =CLAUDE.md= for coding conventions, =steampulse-design.org= for
+original design rationale.
+
+* Component Registry
+
+** Lambda Functions
+
+*** Primary Region (us-west-2)
+
+| Name           | Handler                                     | Memory | Timeout | VPC | Layer        |
+|----------------+---------------------------------------------+--------+---------+-----+--------------|
+| CrawlerFn      | lambda_functions/crawler/handler.py         | 256 MB | 10 min  | Yes | LibraryLayer |
+| SpokeIngestFn  | lambda_functions/crawler/ingest_handler.py  | 256 MB | 15 min  | Yes | LibraryLayer |
+| AnalysisFn     | lambda_functions/analysis/handler.py        | 1024MB | 10 min  | Yes | LibraryLayer |
+| ApiFn          | lambda_functions/api/handler.py             | 512 MB | 30 sec  | Yes | LibraryLayer |
+| FrontendFn     | frontend/.open-next/server-functions/default| 512 MB | 30 sec  | No  | —            |
+| AdminFn        | lambda_functions/admin/handler.py           | 256 MB | 30 sec  | Yes | LibraryLayer |
+| MigrationFn    | lambda_functions/admin/migrate_handler.py   | 256 MB | 5 min   | Yes | LibraryLayer |
+| DbLoaderFn     | lambda_functions/db_loader/handler.py       | 512 MB | 15 min  | Yes | LibraryLayer |
+
+DbLoaderFn is staging-only. MigrationFn has reserved concurrency = 1.
+
+*** Spoke Regions (per config.SPOKE_REGIONS)
+
+| Name           | Handler                                     | Memory | Timeout | VPC | Reserved Concurrency |
+|----------------+---------------------------------------------+--------+---------+-----+----------------------|
+| SpokeCrawlerFn | lambda_functions/crawler/spoke_handler.py   | 256 MB | 10 min  | No  | 3                    |
+
+Deterministic name: =steampulse-spoke-crawler-{region}-{env}=
+Routing: =appid % len(spoke_targets)= — same appid always hits same spoke.
+
+** SQS Queues
+
+| Logical Name          | Physical Name Pattern              | DLQ | Visibility | Consumers        |
+|-----------------------+------------------------------------+-----+------------+------------------|
+| MetadataEnrichmentQ   | steampulse-app-crawl-{env}         | Yes | 10 min     | CrawlerFn (b=10) |
+| ReviewCrawlQ          | steampulse-review-crawl-{env}      | Yes | 10 min     | CrawlerFn (b=10) |
+| SpokeResultsQ         | steampulse-spoke-results-{env}     | Yes | 15 min     | SpokeIngestFn(b=5)|
+| BatchStagingQ         | (cdk-generated)                    | Yes | 10 min     | — (SNS sub only) |
+| CacheInvalidationQ    | (cdk-generated)                    | Yes | 5 min      | — (SNS sub only) |
+
+All DLQs: max_receive_count=3, retention=14 days.
+
+** SNS Topics
+
+| Topic              | Published by  | Subscriptions (filter)                                                          |
+|--------------------+---------------+---------------------------------------------------------------------------------|
+| GameEventsTopic    | CrawlerFn     | MetadataEnrichmentQ: event_type=["game-discovered"]                             |
+|                    |               | ReviewCrawlQ: event_type=["game-metadata-ready"] AND is_eligible=["true"]       |
+|                    |               | ReviewCrawlQ: event_type=["game-released","game-updated"]                       |
+| ContentEventsTopic | SpokeIngestFn | BatchStagingQ: event_type=["reviews-ready"]                                     |
+|                    |               | CacheInvalidationQ: event_type=["report-ready"]                                 |
+| SystemEventsTopic  | CrawlerFn     | (reserved — no active subscriptions)                                            |
+
+** S3 Buckets
+
+| Name        | Physical Name Pattern  | Contents                                                    |
+|-------------+------------------------+-------------------------------------------------------------|
+| AssetsBucket| steampulse-assets-{env}| Next.js build output, ISR cache, spoke results (gzip JSON) |
+
+Versioning enabled. Spoke results key pattern: =spoke-results/{task}/{appid}/{uuid}.json.gz=
+
+** Database
+
+| Config          | Production              | Staging                              |
+|-----------------+-------------------------+--------------------------------------|
+| Engine          | PostgreSQL 16 (RDS)     | Aurora PostgreSQL 16 (Serverless v2) |
+| Instance        | db.t3.micro             | 0–1 ACU (scales to zero)             |
+| Multi-AZ        | No                      | No                                   |
+| Secret name     | steampulse/prod/db-credentials | steampulse/staging/db-credentials|
+| Database name   | production_steampulse   | staging_steampulse                   |
+
+Key tables: =games=, =reviews=, =reports=, =app_catalog=, =tags=, =genres=,
+=game_tags=, =game_genres=, =game_categories=, =game_relations=,
+=index_insights=, =rate_limits=, =analysis_jobs=
+
+** Step Functions
+
+| Machine        | Type     | States       | Lambda      | Retries       |
+|----------------+----------+--------------+-------------+---------------|
+| AnalysisMachine| EXPRESS  | AnalyzeGame  | AnalysisFn  | 2 (10s, ×2)   |
+
+** CloudFront
+
+Single distribution per environment. Behaviours:
+- =/_next/static/*= and =/static/*= → AssetsBucket via OAC (1yr TTL)
+- =/api/*= → ApiFnUrl (no cache)
+- =/*= → FrontendFnUrl (24h TTL)
+
+Production aliases: =steampulse.io=, =www.steampulse.io=
+
+** External APIs (Steam)
+
+All calls via =DirectSteamSource= (=steam_source.py=).
+Jitter: 0.3–1.0s between requests. Retry: 6 attempts, exponential backoff.
+
+| Endpoint            | URL                                                    | Auth     |
+|---------------------+--------------------------------------------------------+----------|
+| App List            | api.steampowered.com/IStoreService/GetAppList/v1/      | API key  |
+| App Details         | store.steampowered.com/api/appdetails?appids={appid}   | None     |
+| Reviews             | store.steampowered.com/appreviews/{appid}              | None     |
+| Deck Compatibility  | store.steampowered.com/saleaction/ajaxgetdeckappcompat | None     |
+
+** Shared Layer
+
+=LibraryLayer= bundled at: =src/library-layer/=
+Contains: httpx, psycopg2-binary, boto3, anthropic, aws-lambda-powertools,
+yoyo-migrations, and all =library_layer/= framework code.
+
+* Flows
+
+** Flow-01: Game Discovery
+
+#+BEGIN_SRC
+Invariant: Every appid Steam returns that is not yet in app_catalog
+           gets a game-discovered event published to GameEventsTopic.
+           No appid is skipped. No appid is double-published.
+#+END_SRC
+
+#+BEGIN_SRC
+  EventBridge           CrawlerFn              Steam API         RDS
+  (weekly rule)         handler.py             IStoreService     app_catalog
+      │                     │                      │                 │
+      │  source=aws.events  │                      │                 │
+      │────────────────────>│                      │                 │
+      │                     │  GET GetAppList/v1   │                 │
+      │                     │  ?last_appid=0       │                 │
+      │                     │─────────────────────>│                 │
+      │                     │  [{appid,name}×50k]  │                 │
+      │                     │<─────────────────────│                 │
+      │                     │  (repeat while       │                 │
+      │                     │   has_more=true)     │                 │
+      │                     │─────────────────────>│                 │
+      │                     │<─────────────────────│                 │
+      │                     │                      │                 │
+      │                     │  INSERT … ON CONFLICT(appid) DO NOTHING│
+      │                     │  → returns new_rows count             │
+      │                     │───────────────────────────────────────>│
+      │                     │<───────────────────────────────────────│
+      │                     │  new_rows = N        │                 │
+      │                     │                      │                 │
+      │                     │  ┌─ for each new appid ─────────────┐ │
+      │                     │  │ publish GameDiscoveredEvent       │ │
+      │                     │  │ → GameEventsTopic                 │ │
+      │                     │  │ {"event_type":"game-discovered",  │ │
+      │                     │  │  "appid": N}                      │ │
+      │                     │  └───────────────────────────────────┘ │
+#+END_SRC
+
+*Drift checklist:*
+- =CatalogRepository.bulk_upsert()= uses =ON CONFLICT (appid) DO NOTHING= (not DO UPDATE)
+- =CatalogService._publish_refresh_events()= publishes to =GameEventsTopic=, not SystemEvents
+- =GameDiscoveredEvent= shape: ={event_type, appid}= only — no metadata in this event
+- =MessageAttributes= includes =event_type= string for SNS filter routing
+
+** Flow-02: Metadata Crawl
+
+1. After game-discovered, a game-discovered event should be published.
+2. The MetadataEnrichmentQ should receive this event
+3. The CrawlerFn should receive the event and process it, causing the game's metadata to be fetched and saved
+4. On successful fetch and save of metadata, the "game-metadata-ready" event should be published to GameEventsTopic
+
+#+BEGIN_SRC
+  GameEventsTopic          MetadataEnrichmentQ         CrawlerFn                  SpokeCrawlerFn              Steam API        AssetsBucket
+      │                           │                    handler.py                 spoke_handler.py                │                  │
+      │  game-discovered          │                        │                           │                          │                  │
+      │  {event_type, appid}      │                        │                           │                          │                  │
+      │──────────────────────────>│                        │                           │                          │                  │
+      │  (SNS filter: event_type=game-discovered)          │                           │                          │                  │
+      │                           │  SQS receive (b=10)    │                           │                          │                  │
+      │                           │───────────────────────>│                           │                          │                  │
+      │                           │                        │  async invoke (Event)     │                          │                  │
+      │                           │                        │  MetadataSpokeReq         │                          │                  │
+      │                           │                        │  {appid, task:"metadata"} │                          │                  │
+      │                           │                        │  appid % len(spokes)      │                          │                  │
+      │                           │                        │──────────────────────────>│                          │                  │
+      │                           │                        │                           │  GET appdetails          │                  │
+      │                           │                        │                           │  GET review_summary      │                  │
+      │                           │                        │                           │  GET deck compatibility  │                  │
+      │                           │                        │                           │─────────────────────────>│                  │
+      │                           │                        │                           │<─────────────────────────│                  │
+      │                           │                        │                           │                          │                  │
+      │                           │                        │                           │  gzip JSON               │                  │
+      │                           │                        │                           │  spoke-results/metadata/{appid}-{uid}.json.gz
+      │                           │                        │                           │──────────────────────────────────────────────>│
+      │                           │                        │                           │                          │                  │
+      │                           │                        │                           │  MetadataSpokeResult → SpokeResultsQ          │
+      │                           │                        │                           │  {appid, task, success, s3_key, spoke_region}  │
+
+  SpokeResultsQ          SpokeIngestFn                   RDS (games)           AssetsBucket          GameEventsTopic
+      │                  ingest_handler.py                     │                     │                      │
+      │  SQS receive (b=5)    │                                │                     │                      │
+      │──────────────────────>│                                │                     │                      │
+      │                       │  S3 get + gzip decompress      │                     │                      │
+      │                       │<────────────────────────────────────────────────────>│                      │
+      │                       │  CrawlService.ingest_spoke_metadata()                │                      │
+      │                       │  GameRepository.upsert()  ON CONFLICT DO UPDATE      │                      │
+      │                       │───────────────────────────────>│                     │                      │
+      │                       │<───────────────────────────────│                     │                      │
+      │                       │  upsert tags / genres / categories                   │                      │
+      │                       │  CatalogRepository.set_meta_status("done")           │                      │
+      │                       │───────────────────────────────>│                     │                      │
+      │                       │<───────────────────────────────│                     │                      │
+      │                       │  S3 delete object              │                     │                      │
+      │                       │────────────────────────────────────────────────────> │                       │
+      │                       │                                │                     │                      │
+      │                       │  publish GameMetadataReadyEvent                                             │
+      │                       │  {event_type:"game-metadata-ready", appid, review_count, version:1}         │
+      │                       │  MessageAttribute: is_eligible="true"|"false"                               │
+      │                       │──────────────────────────────────────────────────────────────────────────>  │
+#+END_SRC
+
+*Drift checklist:*
+- Spoke invocation is =InvocationType="Event"= (async — fire and forget)
+- =appid % len(spoke_targets)= determines which spoke — deterministic routing
+- =is_eligible= is a SNS MessageAttribute string ="true"= or ="false"= (not bool); event body also carries =review_count= and =version=1=
+- =GameRepository.upsert()= uses =ON CONFLICT DO UPDATE= (full metadata overwrite is correct here)
+- S3 object is deleted after successful ingest (no orphaned objects)
+
+** Flow-03: Review Crawl
+
+#+BEGIN_SRC
+Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
+           fetched and stored. Workflow state (cursor, remaining budget,
+           start timestamp) is carried entirely in SQS message bodies —
+           no DB reads during dispatch. The chain terminates when:
+             (a) Steam returns next_cursor=None (exhaustion), OR
+             (b) min(batch.timestamp_created) < reviews_completed_at (early-stop
+                 on re-crawl — avoids re-fetching the entire review history), OR
+             (c) remaining budget (target) ≤ batch count (target_hit).
+           All three paths call mark_reviews_complete(), which sets
+           reviews_completed_at and enables early-stop on the next re-crawl.
+           Duplicate review_ids are upserted (not duplicated) in DB.
+           Overshoot prevention: spoke uses limit=min(target, BATCH_SIZE)
+           so the final batch never fetches more than the remaining budget.
+#+END_SRC
+
+*Steps:*
+
+1. =GameEventsTopic= emits =game-metadata-ready= (=is_eligible=true=) → SNS filter
+   routes to =ReviewCrawlQ=. Fresh-start message body: ={appid}= only.
+2. =CrawlerFn= receives SQS record. Unwraps SNS envelope if present.
+   Reads =cursor=, =target=, =started_at= from message body (no DB reads):
+   - =cursor=: missing/null/"" → normalize to ="*"= (fresh start)
+   - =target=: missing → =REVIEW_LIMIT=; =0= → skip dispatch (budget exhausted); positive → use as-is
+   - =started_at=: missing → =datetime.now(UTC)=
+3. =CrawlerFn= async-invokes =SpokeCrawlerFn= (fire-and-forget, =InvocationType="Event"=).
+   Routing: =appid % len(spoke_targets)= — deterministic, same appid always hits same spoke.
+   Payload: =ReviewSpokeRequest{appid, task:"reviews", cursor, target, started_at}=.
+4. =SpokeCrawlerFn= calls Steam =GET /appreviews/{appid}?filter=recent&cursor={cursor}&num_per_page=min(target,BATCH_SIZE)=.
+   Overshoot prevention: =limit = min(target, BATCH_SIZE)= caps the final partial batch.
+5. =SpokeCrawlerFn= gzips the review batch, writes to S3:
+   =spoke-results/reviews/{appid}-{uuid}.json.gz=
+6. =SpokeCrawlerFn= sends =ReviewSpokeResult{appid, task, success, s3_key, count, next_cursor, target, started_at, spoke_region}=
+   to =SpokeResultsQ=. =target= and =started_at= are passed through unchanged for the ingest hop.
+7. =SpokeIngestFn= receives result from =SpokeResultsQ=. Fetches S3 object, decompresses.
+   Calls =ReviewRepository.bulk_upsert()= — =ON CONFLICT(steam_review_id) DO UPDATE=.
+8. =SpokeIngestFn= evaluates termination (precedence: exhausted → early_stop → target_hit → re-queue):
+   - =exhausted=: =msg.next_cursor is None=
+   - =early_stop=: =reviews_completed_at IS NOT NULL= AND =min(batch.timestamp_created) < reviews_completed_at=
+   - =target_hit=: =msg.target is not None= AND =msg.target ≤ msg.count=
+   - else: re-queue with =new_remaining = msg.target - msg.count=
+9. On exhausted/early_stop/target_hit: =CatalogRepository.mark_reviews_complete(appid, completed_at)=
+   sets =reviews_completed_at= — the only DB write in the whole chain.
+   =completed_at=: batch boundary timestamp on early_stop; =NOW()= on exhausted/target_hit.
+10. On re-queue: =SQS.send_message= to =ReviewCrawlQ= with
+    ={appid, cursor:next_cursor, target:new_remaining, started_at}=. Loop returns to step 2.
+11. S3 object deleted after all DB/SQS work succeeds (safe to retry on failure — object still present).
+
+#+BEGIN_SRC
+  GameEventsTopic      ReviewCrawlQ         CrawlerFn           SpokeCrawlerFn      Steam API       AssetsBucket
+      │                    │              handler.py           spoke_handler.py          │                │
+      │ game-metadata-ready │                  │                      │                  │                │
+      │ {appid}             │                  │                      │                  │                │
+      │ is_eligible=true    │                  │                      │                  │                │
+      │────────────────────>│                  │                      │                  │                │
+      │ (SNS filter)        │  SQS receive     │                      │                  │                │
+      │                     │ (b=10)           │                      │                  │                │
+      │                     │─────────────────>│                      │                  │                │
+      │                     │                  │ normalize from body: │                  │                │
+      │                     │                  │ cursor  = * (fresh)  │                  │                │
+      │                     │                  │ target  = REVIEW_LIMIT                 │                │
+      │                     │                  │ started_at = now()   │                  │                │
+      │                     │                  │                      │                  │                │
+      │                     │                  │ async invoke (Event)  │                  │                │
+      │                     │                  │ appid % len(spokes)   │                  │                │
+      │                     │                  │ ReviewSpokeRequest    │                  │                │
+      │                     │                  │ {appid, task:reviews, │                  │                │
+      │                     │                  │  cursor, target,      │                  │                │
+      │                     │                  │  started_at}          │                  │                │
+      │                     │                  │──────────────────────>│                  │                │
+      │                     │                  │                       │ GET /appreviews  │                │
+      │                     │                  │                       │ filter=recent    │                │
+      │                     │                  │                       │ cursor=*         │                │
+      │                     │                  │                       │ num_per_page=    │                │
+      │                     │                  │                       │ min(target,BATCH)│                │
+      │                     │                  │                       │─────────────────>│                │
+      │                     │                  │                       │ [{review}×N]     │                │
+      │                     │                  │                       │ next_cursor      │                │
+      │                     │                  │                       │<─────────────────│                │
+      │                     │                  │                       │                  │                │
+      │                     │                  │                       │ gzip reviews     │                │
+      │                     │                  │                       │ spoke-results/reviews/{appid}-{uuid}.json.gz
+      │                     │                  │                       │─────────────────────────────────>│
+      │                     │                  │                       │                  │                │
+      │                     │                  │    ReviewSpokeResult → SpokeResultsQ    │                │
+      │                     │                  │    {appid, task, success, s3_key, count,│                │
+      │                     │                  │     next_cursor, target, started_at,    │                │
+      │                     │                  │     spoke_region}                       │                │
+
+  SpokeResultsQ        SpokeIngestFn            RDS (reviews       AssetsBucket      ReviewCrawlQ
+      │                ingest_handler.py         + app_catalog)         │                  │
+      │  SQS receive        │                         │                 │                  │
+      │  (b=5)              │                         │                 │                  │
+      │────────────────────>│                         │                 │                  │
+      │                     │  S3 get + decompress    │                 │                  │
+      │                     │<────────────────────────────────────────>│                  │
+      │                     │  ReviewRepository.bulk_upsert()          │                  │
+      │                     │  ON CONFLICT(steam_review_id) DO UPDATE  │                  │
+      │                     │────────────────────────>│                 │                  │
+      │                     │<────────────────────────│                 │                  │
+      │                     │                         │                 │                  │
+      │                     │  early_stop check:      │                 │                  │
+      │                     │  get reviews_completed_at                │                  │
+      │                     │────────────────────────>│                 │                  │
+      │                     │<────────────────────────│                 │                  │
+      │                     │                         │                 │                  │
+      │                     │  ┌─ exhausted (next_cursor=None)                             │
+      │                     │  │  OR early_stop (min_batch_ts < reviews_completed_at)      │
+      │                     │  │  OR target_hit (msg.target ≤ msg.count) ───────────────┐ │
+      │                     │  │  mark_reviews_complete(appid,                          │ │
+      │                     │  │    completed_at=batch_boundary|NOW())                  │ │
+      │                     │  │────────────────────>│                                  │ │
+      │                     │  └───────────────────────────────────────────────────────── │
+      │                     │                         │                 │                  │
+      │                     │  ┌─ else: more pages ──────────────────────────────────────┐│
+      │                     │  │  new_remaining = msg.target - msg.count                 ││
+      │                     │  │  SQS send {appid, cursor:next_cursor,                   ││
+      │                     │  │            target:new_remaining, started_at}            ││
+      │                     │  │────────────────────────────────────────────────────────>││
+      │                     │  └──────────────────────────────────────────────────────── ┘│
+      │                     │                         │                 │                  │
+      │                     │  S3 delete object (after all DB/SQS work)│                  │
+      │                     │────────────────────────────────────────>│                   │
+#+END_SRC
+
+*Drift checklist:*
+- =filter="recent"= in =steam_source.get_reviews()= (NOT =filter="all"=)
+- =ReviewRepository.bulk_upsert()= uses =ON CONFLICT (steam_review_id) DO UPDATE= (update, not skip)
+- Cursor, target, and started_at are read from the SQS message body — no DB reads during dispatch
+- Fresh-start message body contains only ={appid}=; cursor/target/started_at are normalized by CrawlerFn
+- =cursor= normalization: missing/null/"" → ="*"= (fresh start)
+- =target= normalization: missing → =REVIEW_LIMIT=; =0= → skip dispatch; positive → use as-is
+- Re-queue sends ={appid, cursor, target:remaining, started_at}= — =target= decremented by =msg.count= each hop
+- =target_hit= check: =msg.target ≤ msg.count= (remaining budget ≤ this batch — NOT total DB count vs original total)
+- Overshoot prevention: spoke computes =limit = min(target, BATCH_SIZE)= before calling Steam
+- Ingest is data-only: no SNS events, no Step Functions trigger from this flow
+- =mark_reviews_complete()= sets only =reviews_completed_at= — no cursor column (dropped in migration 0008)
+- Early-stop boundary: =completed_at = min(batch.timestamp_created)= on early_stop; =NOW()= on exhausted/target_hit
+- S3 object deleted AFTER all DB writes and SQS re-queue succeed (safe for retry on failure)
+- =reviews_completed_at= is the sole termination signal — no =review_cursor= or =reviews_target= columns
+
+** Flow-04: LLM Analysis (Batch Mode)
+
+TODO:  We need to re-write this section.  What we should be doing is:
+
+*** Batched Map-Reduce (batched analysis + on-demand RAG) (NEW)
+(Step functions)
+
+**** Phase One
+
+1. Pull batches of reviews from RDS (50-100 at a time)
+2. Send each batch to LLM and generate summaries (batched 50 summary at a time or so)
+3. Store the output back in RDS
+4. Repeat for Every Game
+
+*End result:  Rich summary information stored permanently in our database.*
+
+
+**** Phase Two
+
+1. Feed summaries back into LLM for the actual Analysis phase
+2. Generate insight/analysis summary for each game based on previously stored summaries
+3. Store summaries back in RDS
+4. Embed summaries into a vector store (for eventual use with Bedrock knowledge base) or use [[https://github.com/VectifyAI/PageIndex][pageindex]] instead?
+5. Now we have a small, relatively cheap vector-index (vector-index on summaries/insights instead of full reviews)
+6. Use Bedrock knowledge base for natural language queries against summaries
+
+*End Result: LLM generated review analysis and insights stored in database*
+            *Rich query-able database of extract insights/analysis per game*
+
+**** Open Questions
+- how practical and hard would it be to store/have a history?  so sentiment changing over time can be measured?
+
+*** Original (Deprecated, to be removed after above section fleshed out)
+
+#+BEGIN_SRC
+Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Functions
+           workflow orchestrates two-pass LLM analysis via Bedrock Batch Inference:
+             Pass 1 (Haiku): 50-review chunks → extract 11 signal types
+             Pass 2 (Sonnet): aggregated chunk signals → structured GameReport JSON
+           sentiment_score, hidden_gem_score, and sentiment_trend are computed in
+           Python (PreparePass2 Lambda) — never LLM-guessed.
+           The pipeline is idempotent: re-analyzing an appid overwrites its report.
+           Intermediate JSONL artifacts in S3 are auto-deleted after 7 days.
+#+END_SRC
+
+#+BEGIN_SRC
+  Admin (CLI)        Step Functions         PreparePass1Fn        S3 Batch Bucket
+      │              (STANDARD)             lambda_functions/     steampulse-batch-{env}
+      │                    │                batch_analysis/               │
+      │  start_execution   │                      │                       │
+      │  {appids:[int]|    │                      │                       │
+      │   "ALL_ELIGIBLE"}  │                      │                       │
+      │───────────────────>│                      │                       │
+      │                    │  PreparePass1        │                       │
+      │                    │─────────────────────>│                       │
+      │                    │                      │  ReviewRepository     │
+      │                    │                      │  .find_by_appid()     │
+      │                    │                      │  (limit=2000)         │
+      │                    │                      │────────────────> RDS  │
+      │                    │                      │<──────────────── RDS  │
+      │                    │                      │  chunk by 50, sort    │
+      │                    │                      │  chronologically      │
+      │                    │                      │  format JSONL records │
+      │                    │                      │  recordId={appid}-    │
+      │                    │                      │  chunk-{n}            │
+      │                    │                      │──────────────────────>│
+      │                    │                      │  PUT pass1/input.jsonl│
+      │                    │<─────────────────────│                       │
+      │                    │  {input_s3_uri,       │                       │
+      │                    │   output_s3_uri}      │                       │
+      │                    │                       │                       │
+      │                    │  SubmitBatchJobFn     │                       │
+      │                    │─────────────────────────────────> Bedrock    │
+      │                    │  create_model_invocation_job()   (Haiku)     │
+      │                    │<───────────────────────────────── {job_id}   │
+      │                    │                                               │
+      │                    │  ┌─ Poll Pass 1 (Wait 300s → CheckStatus) ──┐│
+      │                    │  │  until status = Completed | Failed        ││
+      │                    │  │  Bedrock reads pass1/input.jsonl          ││
+      │                    │  │  writes pass1/output/{job-id}.jsonl.out   ││
+      │                    │  └──────────────────────────────────────────┘│
+
+  Step Functions         PreparePass2Fn        S3 Batch Bucket     RDS
+  (STANDARD)             batch_analysis/       steampulse-batch    reviews
+      │                       │                      │               │
+      │  PreparePass2          │                      │               │
+      │──────────────────────>│                      │               │
+      │                       │  GET pass1/output/   │               │
+      │                       │<─────────────────────│               │
+      │                       │  parse ChunkSummary per record        │
+      │                       │  group by appid, aggregate signals    │
+      │                       │  compute sentiment_score (Python)     │
+      │                       │  compute hidden_gem_score (Python)    │
+      │                       │  ReviewRepository.find_by_appid()     │
+      │                       │──────────────────────────────────────>│
+      │                       │<──────────────────────────────────────│
+      │                       │  compute sentiment_trend (Python)     │
+      │                       │  PUT pass2/scores.json                │
+      │                       │─────────────────────>│               │
+      │                       │  PUT pass2/input.jsonl                │
+      │                       │  recordId={appid}-synthesis           │
+      │                       │─────────────────────>│               │
+      │<──────────────────────│                      │               │
+      │  {input_s3_uri,        │                      │               │
+      │   output_s3_uri}       │                      │               │
+      │                        │                      │               │
+      │  SubmitBatchJobFn (Sonnet) ──────────> Bedrock               │
+      │  create_model_invocation_job()         (Sonnet)              │
+      │<─────────────────────────────────────── {job_id}            │
+      │                                                               │
+      │  ┌─ Poll Pass 2 (Wait 300s → CheckStatus) ──────────────────┐│
+      │  │  Bedrock reads pass2/input.jsonl                          ││
+      │  │  writes pass2/output/{job-id}.jsonl.out                   ││
+      │  └──────────────────────────────────────────────────────────┘│
+
+  Step Functions         ProcessResultsFn      RDS            SNS Topics
+  (STANDARD)             batch_analysis/       reports        content/system
+      │                       │                  │               │
+      │  ProcessResults        │                  │               │
+      │──────────────────────>│                  │               │
+      │                       │  GET pass2/output/ + scores.json │
+      │                       │  parse GameReport per record     │
+      │                       │  override scores from scores.json │
+      │                       │  ReportRepository.upsert()        │
+      │                       │──────────────────────────────────>│
+      │                       │  publish report-ready per game    │
+      │                       │──────────────────────────────────────────>│
+      │                       │  publish batch-complete (once)             │
+      │                       │──────────────────────────────────────────>│
+      │<──────────────────────│                  │               │
+      │  {processed, failed}  │                  │               │
+      │                       │                  │               │
+      │  execution complete   │                  │               │
+#+END_SRC
+
+*Drift checklist:*
+- Step Functions type: STANDARD (not EXPRESS) — batch jobs run for hours, Wait states > 5 min
+- Bedrock Batch Inference API: =create_model_invocation_job()= (not Converse) — no prompt caching in batch
+- =recordId= format: ={appid}-chunk-{n}= (Pass 1), ={appid}-synthesis= (Pass 2)
+- =sentiment_score=, =hidden_gem_score= computed from =total_stats= (aggregated =batch_stats=) in PreparePass2
+- =sentiment_trend= computed via =compute_sentiment_trend(reviews)= with DB query in PreparePass2
+- Pre-computed scores saved to =pass2/scores.json=; ProcessResults reads and overrides LLM output
+- =ReportRepository.upsert()= overwrites on conflict — re-analysis is always a full replace
+- =report-ready= event published per game; =batch-complete= published once at end by ProcessResults
+- S3 bucket =steampulse-batch-{env}=: 7-day lifecycle auto-deletes intermediate JSONL artifacts
+- Bedrock batch role assumed by =bedrock.amazonaws.com= (NOT the Lambda execution role)
+- Lambda role requires =iam:PassRole= to pass the Bedrock batch role to =create_model_invocation_job=
+- =BATCH_BUCKET_NAME= is a literal env var (set by CDK) — no SSM resolution needed
+- =BEDROCK_BATCH_ROLE_ARN= is a literal ARN env var (set by CDK) — no SSM resolution needed
+- Pass 1 uses =LLM_MODEL__CHUNKING= env var (Haiku), Pass 2 uses =LLM_MODEL__SUMMARIZER= (Sonnet)
+- Both prompts use XML tags: =<rules>=, =<signal_definitions>=, =<aggregated_signals>=, =<section_definitions>=
+- Scoring functions in =library_layer/utils/scores.py= — shared by real-time path and batch path
+- =_aggregate_chunk_summaries()= in =analyzer.py= — shared by =analyze_reviews()= and PreparePass2
+- Real-time single-game path (Express SFN → AnalysisFn) kept unchanged for =/api/preview= (Flow-05)
+
+** Flow-05: API Preview
+
+#+BEGIN_SRC
+Invariant: Any caller can request a preview for any appid. If no report
+           exists, a 404 is returned. Rate limit: 1 free preview per IP
+           (tracked in rate_limits table). Returns public fields only.
+#+END_SRC
+
+#+BEGIN_SRC
+  Browser/Client        CloudFront            ApiFn                RDS
+      │                     │               handler.py             DB
+      │  POST /api/preview   │                   │                   │
+      │  {appid: N}         │                   │                   │
+      │────────────────────>│                   │                   │
+      │                     │  forward (no cache)│                   │
+      │                     │───────────────────>│                   │
+      │                     │                   │  RateLimitRepo    │
+      │                     │                   │  .check_and_inc() │
+      │                     │                   │  ip_hash, window  │
+      │                     │                   │──────────────────>│
+      │                     │                   │<──────────────────│
+      │                     │                   │                   │
+      │                     │         ┌─ if limit reached ────────┐ │
+      │                     │         │  return 402               │ │
+      │                     │         │  {"error":"free_limit_    │ │
+      │                     │         │   reached"}               │ │
+      │                     │         └───────────────────────────┘ │
+      │                     │                   │                   │
+      │                     │                   │  ReportRepository │
+      │                     │                   │  .get(appid)      │
+      │                     │                   │──────────────────>│
+      │                     │                   │<──────────────────│
+      │                     │                   │                   │
+      │                     │         ┌─ if no report ────────────┐ │
+      │                     │         │  return 404               │ │
+      │                     │         └───────────────────────────┘ │
+      │                     │                   │                   │
+      │                     │  {game_name,      │                   │
+      │                     │   overall_sentiment,                  │
+      │                     │   sentiment_score,                    │
+      │                     │   one_liner}                          │
+      │<───────────────────────────────────────│                   │
+#+END_SRC
+
+*Drift checklist:*
+- Rate limit uses IP hash (not raw IP) stored in =rate_limits= table
+- =POST /api/preview= returns 402 (not 429) on limit reached
+- Response includes only: =game_name=, =overall_sentiment=, =sentiment_score=, =one_liner=
+- CloudFront behaviour for =/api/*= has caching DISABLED
+
+** Flow-06: Pipeline Deploy
+
+#+BEGIN_SRC
+Invariant: Every push to the main branch deploys to staging automatically.
+           Production deploy requires a manual approval step.
+           Migrations run before traffic is served in each environment.
+#+END_SRC
+
+#+BEGIN_SRC
+  GitHub (main)    CodePipeline        CDK Self-Mutate    Staging Stack
+      │                │                    │                   │
+      │  git push      │                    │                   │
+      │───────────────>│                    │                   │
+      │                │  Source stage      │                   │
+      │                │  (CodeStar conn)   │                   │
+      │                │                   │                   │
+      │                │  UpdatePipeline    │                   │
+      │                │───────────────────>│                   │
+      │                │  (self-mutate)     │                   │
+      │                │<───────────────────│                   │
+      │                │                   │                   │
+      │                │  Deploy staging ───────────────────────>
+      │                │  all stacks        │                   │
+      │                │<───────────────────────────────────────│
+      │                │                   │                   │
+      │                │  ApplyMigrations   │                   │
+      │                │  (ShellStep)       │                   │
+      │                │  → invoke MigrationFn                  │
+      │                │  → yoyo apply ./migrations             │
+      │                │                   │                   │
+
+  ManualApproval   Production Stack
+      │                │
+      │  approve        │
+      │───────────────>│
+      │                │  Deploy production │
+      │                │  all stacks        │
+      │                │──────────────────>│
+      │                │<──────────────────│
+      │                │  ApplyMigrations  │
+      │                │  → invoke MigrationFn (prod)           │
+#+END_SRC
+
+*Drift checklist:*
+- Pipeline uses =CodePipelineSource.connection()= (CodeStar) — NOT a PAT token
+- Staging has no custom domain, no ACM cert, no Route53 records
+- Production has =ManualApprovalStep= between staging and production stages
+- =MigrationFn= has reserved concurrency = 1 (no concurrent migration runs)
+- All EventBridge schedules deploy with =enabled=False= (enable manually post-seed)
+
+** Flow-07: DB Migration
+
+#+BEGIN_SRC
+Invariant: yoyo tracks which migrations have been applied in _yoyo_migration
+           table. Running yoyo apply is always safe to repeat (idempotent).
+           New columns → new migration file in migrations/ with next sequence
+           number. Never modify schema.py TABLES/INDEXES tuples for new
+           changes — those are reference only after migration system is live.
+#+END_SRC
+
+#+BEGIN_SRC
+  MigrationFn           yoyo                  RDS
+  migrate_handler.py    (library)             _yoyo_migration + tables
+      │                     │                      │
+      │  invoked (pipeline   │                      │
+      │  ShellStep or manual)│                      │
+      │                      │                      │
+      │  build DATABASE_URL  │                      │
+      │  from DB_SECRET_NAME │                      │
+      │                      │                      │
+      │  yoyo.connect(url)   │                      │
+      │─────────────────────>│                      │
+      │                      │  SELECT from          │
+      │                      │  _yoyo_migration      │
+      │                      │──────────────────────>│
+      │                      │<──────────────────────│
+      │                      │  [applied migration ids]
+      │                      │                      │
+      │  ┌─ for each pending migration ───────────┐ │
+      │  │  read migrations/{id}.sql              │ │
+      │  │  execute SQL                           │ │
+      │  │──────────────────────────────────────> │ │
+      │  │  INSERT into _yoyo_migration           │ │
+      │  │──────────────────────────────────────> │ │
+      │  └────────────────────────────────────────┘ │
+      │                      │                      │
+      │  return {applied: N, │                      │
+      │          skipped: M} │                      │
+#+END_SRC
+
+*Drift checklist:*
+- Migration files live in =migrations/= at repo root, numbered =0001_=, =0002_=, …
+- Each file has =-- depends: {prev_id}= header
+- =schema.py= is kept as reference but =create_all()= is NOT called at Lambda cold start
+- =scripts/dev/migrate.sh= applies migrations locally using =DATABASE_URL= from =.env=
+
+* Adding a New Flow
+
+When adding a new interaction to the system:
+
+1. Draw the sequence diagram in this file (ASCII, following the style above)
+2. Write the invariant statement
+3. Write 3-5 drift checklist items
+4. Implement the code
+5. Verify each drift checklist item passes
+
+* Glossary
+
+| Term            | Meaning                                                        |
+|-----------------+----------------------------------------------------------------|
+| Spoke           | A SpokeCrawlerFn Lambda deployed to a remote AWS region        |
+| Primary         | The primary region Lambda (CrawlerFn) that dispatches to spokes|
+| Cursor          | Steam's opaque pagination token for review pages               |
+| Eligible game   | A game with >= 500 English reviews (qualifies for analysis)    |
+| LibraryLayer    | Shared Lambda layer containing all framework code + deps       |
+| is_eligible     | SNS MessageAttribute string "true"/"false" (not boolean)       |

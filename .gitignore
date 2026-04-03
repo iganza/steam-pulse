@@ -28,6 +28,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.staging
+!.env.production
 venv/
 .venv/
 
@@ -89,9 +91,19 @@ secrets/
 .aws-sam/
 
 # =============================================================================
+# Playwright
+# =============================================================================
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/blob-report/
+/frontend/.playwright/
+
+# =============================================================================
 # Misc
 # =============================================================================
 *.log
 .terraform/
 .terraform.lock.hcl
 terraform.tfstate*
+backups/
+/frontend/.open-next/

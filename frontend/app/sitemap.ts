@@ -8,36 +8,45 @@ const BASE_URL = "https://steampulse.io";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const routes: MetadataRoute.Sitemap = [
-    {
-      url: BASE_URL,
-      lastModified: new Date(),
-      changeFrequency: "daily",
-      priority: 1,
-    },
+    { url: BASE_URL, lastModified: new Date(), changeFrequency: "daily", priority: 1 },
+    { url: `${BASE_URL}/search`, lastModified: new Date(), changeFrequency: "daily", priority: 0.8 },
+    { url: `${BASE_URL}/trending`, lastModified: new Date(), changeFrequency: "daily", priority: 0.7 },
+    { url: `${BASE_URL}/new-releases`, lastModified: new Date(), changeFrequency: "daily", priority: 0.7 },
+    { url: `${BASE_URL}/pro`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
   ];
 
-  // Games (up to 50k for sitemap; split into sitemap index in production)
+  // Games — paginate through all games (up to 49k for single sitemap)
   try {
-    const games = await getGames({ sort: "review_count", limit: 5000 });
-    for (const game of games) {
-      routes.push({
-        url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
-        lastModified: new Date(),
-        changeFrequency: "weekly",
-        priority: 0.8,
-      });
-      if (game.developer) {
-        const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    let offset = 0;
+    const limit = 1000;
+    const devSlugs = new Set<string>();
+    while (offset < 49000) {
+      const result = await getGames({ sort: "review_count", limit, offset });
+      const games = result.games ?? [];
+      if (games.length === 0) break;
+      for (const game of games) {
         routes.push({
-          url: `${BASE_URL}/developer/${devSlug}`,
-          lastModified: new Date(),
-          changeFrequency: "weekly",
-          priority: 0.5,
+          url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
+          changeFrequency: "monthly",
+          priority: 0.6,
         });
+        if (game.developer) {
+          const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+          if (!devSlugs.has(devSlug)) {
+            devSlugs.add(devSlug);
+            routes.push({
+              url: `${BASE_URL}/developer/${devSlug}`,
+              changeFrequency: "weekly",
+              priority: 0.5,
+            });
+          }
+        }
       }
+      if (games.length < limit) break;
+      offset += limit;
     }
   } catch {
-    // API may not be available at build time — skip
+    // API may not be available at build time
   }
 
   // Genres
@@ -70,11 +79,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // skip
   }
 
-  // Deduplicate by URL
-  const seen = new Set<string>();
-  return routes.filter((r) => {
-    if (seen.has(r.url)) return false;
-    seen.add(r.url);
-    return true;
-  });
+  return routes;
 }

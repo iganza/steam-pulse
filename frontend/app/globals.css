@@ -137,3 +137,12 @@
 .teal-glow {
   box-shadow: 0 0 0 1px var(--teal), 0 0 20px rgba(45, 185, 212, 0.15);
 }
+
+/* Hide scrollbar while keeping scroll behavior */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

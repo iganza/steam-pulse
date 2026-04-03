@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Playfair_Display, Syne, JetBrains_Mono } from "next/font/google";
 import { Navbar } from "@/components/layout/Navbar";
 import { ProProvider } from "@/lib/pro";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 
 const websiteJsonLd = {
@@ -87,8 +88,10 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
         <ProProvider isPro={isPro}>
-          <Navbar />
-          {children}
+          <NuqsAdapter>
+            <Navbar />
+            {children}
+          </NuqsAdapter>
         </ProProvider>
       </body>
     </html>

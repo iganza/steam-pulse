@@ -4,6 +4,7 @@ import { getTopTags, getTagTrend } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
+import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { TagTrendChart } from "@/components/analytics/TagTrendChart";
 import type { Tag } from "@/lib/types";
 
@@ -113,12 +114,21 @@ export default async function TagPage({ params }: Props) {
           </section>
         )}
 
-        {/* Full catalog with filters */}
+        {/* Toolkit shell — catalog with filters */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
-          <SearchClient
-            initialParams={{}}
-            initialFilters={{ tag: slug }}
-            hideTagFilter
+          <ToolkitShell
+            lockedFilters={{ tag: slug }}
+            defaultLens="explorer"
+            visibleLenses={["explorer", "market-map", "trends"]}
+            lensContent={{
+              explorer: (
+                <SearchClient
+                  initialParams={{}}
+                  initialFilters={{ tag: slug }}
+                  hideTagFilter
+                />
+              ),
+            }}
           />
         </Suspense>
       </div>

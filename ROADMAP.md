@@ -69,7 +69,7 @@ PRO+ UPSELL  → "What's the biggest unmet need in my genre?"
 ### 2. Per-Game Frontend (Free tier — existing pages)
 | # | Prompt                                         | Status | Delivers                                              |
 |---|------------------------------------------------|--------|-------------------------------------------------------|
-| 4 | `scripts/prompts/analytics-engine-frontend.md` | Ready  | 11 chart components on game/genre/tag/developer pages |
+| 4 | `scripts/prompts/analytics-engine-frontend.md` | Done  | 11 chart components on game/genre/tag/developer pages |
 
 ### 3. Toolkit Shell — the shared UI foundation ⚡ write this before any remaining prompts
 | # | Prompt                             | Status            | Delivers                                                                                                                                                                             |

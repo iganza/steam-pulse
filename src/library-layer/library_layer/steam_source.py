@@ -1,5 +1,6 @@
 """SteamDataSource abstraction — all Steam data access goes through here."""
 
+import json
 import os
 import random
 import time
@@ -15,7 +16,13 @@ APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 DECK_COMPAT_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport"
-STEAMSPY_API_URL = "https://steamspy.com/api.php"
+STORE_PAGE_URL = "https://store.steampowered.com/app/{appid}/?l=english"
+
+_AGE_GATE_COOKIES = {
+    "birthtime": "0",
+    "wants_mature_content": "1",
+    "lastagecheckage": "1-0-1990",
+}
 
 _RETRY_STATUSES = frozenset({429, 503})
 _EMPTY_BATCH_RETRIES = 3
@@ -35,8 +42,8 @@ def _endpoint_name(url: str) -> str:
         return "deck_compat"
     if "GetAppList" in url:
         return "app_list"
-    if "steamspy.com" in url:
-        return "steamspy"
+    if "store.steampowered.com/app/" in url:
+        return "store_page"
     return "unknown"
 
 
@@ -83,9 +90,11 @@ class SteamDataSource(ABC):
         """Returns {resolved_category, resolved_items} or {} if unavailable."""
 
     @abstractmethod
-    def get_steamspy_data(self, appid: int) -> dict:
-        """Returns full SteamSpy response dict, or {} if no data available.
+    def get_player_tags(self, appid: int) -> list[dict]:
+        """Returns player-applied tags from the Steam store page.
 
+        Each tag is {"tagid": int, "name": str, "votes": int}.
+        Returns [] if the game has no tags or the page cannot be parsed.
         Raises SteamAPIError on HTTP failure.
         """
 
@@ -129,12 +138,24 @@ class DirectSteamSource(SteamDataSource):
             except Exception:
                 logger.debug("Metrics callback failed", exc_info=True)
 
-    def _get_with_retry(self, url: str, **params: object) -> httpx.Response:
+    def _get_with_retry(
+        self,
+        url: str,
+        *,
+        cookies: dict[str, str] | None = None,
+        follow_redirects: bool = False,
+        **params: object,
+    ) -> httpx.Response:
         endpoint = _endpoint_name(url)
         for attempt in range(6):
             t0 = time.monotonic()
             try:
-                resp = self._client.get(url, params=params or None)  # type: ignore[arg-type]
+                resp = self._client.get(
+                    url,
+                    params=params or None,  # type: ignore[arg-type]
+                    cookies=cookies,
+                    follow_redirects=follow_redirects,
+                )
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
@@ -354,25 +375,69 @@ class DirectSteamSource(SteamDataSource):
             "resolved_items": results.get("resolved_items", []),
         }
 
-    def get_steamspy_data(self, appid: int) -> dict:
-        """Fetch full SteamSpy data for a game.
+    def get_player_tags(self, appid: int) -> list[dict]:
+        """Fetch player-applied tags from the Steam store page.
 
-        Returns the raw SteamSpy response dict, or {} if SteamSpy has no usable
-        data for the appid.
-
-        SteamSpy rate limit: ~4 req/sec. Caller must handle pacing.
+        Parses the InitAppTagModal() JS call embedded in the store page HTML.
+        Returns [{"tagid": int, "name": str, "votes": int}] or [] if no tags.
 
         Raises:
-            SteamAPIError: on HTTP failure from SteamSpy.
+            SteamAPIError: on HTTP failure from Steam.
         """
+        url = STORE_PAGE_URL.format(appid=appid)
         self._jitter()
         resp = self._get_with_retry(
-            STEAMSPY_API_URL,
-            request="appdetails",
-            appid=str(appid),
+            url, cookies=_AGE_GATE_COOKIES, follow_redirects=True,
         )
-        data = resp.json()
-        # SteamSpy returns partial data for invalid appids — valid responses have "tags"
-        if "tags" not in data:
-            return {}
-        return data
+        return _extract_tags_from_html(resp.text, appid=appid)
+
+
+def _extract_tags_from_html(html: str, *, appid: int | None = None) -> list[dict]:
+    """Extract player tags from InitAppTagModal() JS embedded in store page HTML.
+
+    Returns [{"tagid": int, "name": str, "votes": int}] or [].
+    """
+    ctx: dict = {"appid": appid} if appid else {}
+    marker = "InitAppTagModal"
+    idx = html.find(marker)
+    if idx == -1:
+        logger.warning("No InitAppTagModal found in store page", extra=ctx)
+        return []
+
+    try:
+        bracket_start = html.index("[", idx)
+    except ValueError:
+        logger.warning("No tag array found after InitAppTagModal", extra=ctx)
+        return []
+
+    # Walk forward counting bracket depth to find the matching ]
+    depth = 0
+    for i in range(bracket_start, min(bracket_start + 10000, len(html))):
+        if html[i] == "[":
+            depth += 1
+        elif html[i] == "]":
+            depth -= 1
+        if depth == 0:
+            raw = html[bracket_start : i + 1]
+            break
+    else:
+        logger.warning("Unterminated tag array in store page", extra=ctx)
+        return []
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Malformed JSON in InitAppTagModal", extra=ctx)
+        return []
+
+    tags = []
+    for t in parsed:
+        if "tagid" not in t or "name" not in t or "count" not in t:
+            continue
+        try:
+            votes = int(t["count"])
+        except (TypeError, ValueError):
+            logger.warning("Skipping tag with invalid count", extra={**ctx, "tag": t.get("name")})
+            continue
+        tags.append({"tagid": t["tagid"], "name": t["name"], "votes": votes})
+    return tags

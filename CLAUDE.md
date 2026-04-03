@@ -244,7 +244,9 @@ match body.get("message_type"):
 ### SteamDataSource abstraction (steam_source.py)
 
 All Steam data access goes through `SteamDataSource`. Currently only `DirectSteamSource`
-(calls Steam API directly). SteamSpy is NOT used — Steam's own API provides all required fields.
+(calls Steam API directly). SteamSpy is NOT used. Player tags come from parsing the Steam
+store page HTML — the `InitAppTagModal()` JS call embeds up to 20 tags per game with vote
+counts. Age-gated games require bypass cookies (handled in `_get_store_page()`).
 
 ### LLM Two-Pass Analysis (analyzer.py)
 

@@ -31,7 +31,6 @@ from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.repositories.steamspy_repo import SteamspyRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
@@ -63,7 +62,6 @@ _content_events_topic_arn = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAM
 _catalog_repo = CatalogRepository(_conn)
 _review_repo = ReviewRepository(_conn)
 _tag_repo = TagRepository(_conn)
-_steamspy_repo = SteamspyRepository(_conn)
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -143,7 +141,8 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
         return
 
     if not msg.s3_key:
-        logger.warning("No SteamSpy data available", extra={"appid": msg.appid})
+        logger.info("No tag data available", extra={"appid": msg.appid})
+        _catalog_repo.mark_tags_crawled(msg.appid)
         return
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
@@ -152,15 +151,13 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
     tags = data.get("tags") or []
     if tags:
         _tag_repo.upsert_tags(
-            [{"appid": msg.appid, "name": t["name"], "votes": t["votes"]} for t in tags]
+            [
+                {"appid": msg.appid, "name": t["name"], "votes": t["votes"], "tagid": t.get("tagid")}
+                for t in tags
+            ]
         )
         logger.info("Tags upserted", extra={"appid": msg.appid, "count": len(tags)})
         _catalog_repo.mark_tags_crawled(msg.appid)
-
-    steamspy = data.get("steamspy") or {}
-    if steamspy:
-        _steamspy_repo.upsert(msg.appid, steamspy)
-        logger.info("SteamSpy data upserted", extra={"appid": msg.appid})
 
     metrics.add_metric(name="TagsIngested", unit=MetricUnit.Count, value=len(tags))
     _s3.delete_object(Bucket=_assets_bucket_name, Key=msg.s3_key)

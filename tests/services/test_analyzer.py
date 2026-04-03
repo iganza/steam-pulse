@@ -366,11 +366,22 @@ def test_chunk_reviews_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _trend_dates() -> tuple[str, str]:
+    """Return (prior_date, recent_date) relative to today so tests don't rot."""
+    from datetime import datetime, timedelta, UTC
+
+    now = datetime.now(UTC)
+    recent = (now - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00")
+    prior = (now - timedelta(days=120)).strftime("%Y-%m-%dT00:00:00")
+    return prior, recent
+
+
 def test_sentiment_trend_improving() -> None:
     """Recent reviews more positive → 'improving'."""
+    prior, recent = _trend_dates()
     reviews = (
-        [{"voted_up": i < 5, "posted_at": "2025-10-01T00:00:00"} for i in range(10)]
-        + [{"voted_up": True, "posted_at": "2026-02-01T00:00:00"} for _ in range(10)]
+        [{"voted_up": i < 5, "posted_at": prior} for i in range(10)]
+        + [{"voted_up": True, "posted_at": recent} for _ in range(10)]
     )
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "improving"
@@ -379,9 +390,10 @@ def test_sentiment_trend_improving() -> None:
 
 def test_sentiment_trend_declining() -> None:
     """Recent reviews less positive → 'declining'."""
+    prior, recent = _trend_dates()
     reviews = (
-        [{"voted_up": True, "posted_at": "2025-10-01T00:00:00"} for _ in range(10)]
-        + [{"voted_up": i < 3, "posted_at": "2026-02-01T00:00:00"} for i in range(10)]
+        [{"voted_up": True, "posted_at": prior} for _ in range(10)]
+        + [{"voted_up": i < 3, "posted_at": recent} for i in range(10)]
     )
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "declining"
@@ -390,9 +402,10 @@ def test_sentiment_trend_declining() -> None:
 
 def test_sentiment_trend_stable() -> None:
     """Similar sentiment → 'stable'."""
+    prior, recent = _trend_dates()
     reviews = (
-        [{"voted_up": True, "posted_at": "2025-10-01T00:00:00"} for _ in range(10)]
-        + [{"voted_up": True, "posted_at": "2026-02-01T00:00:00"} for _ in range(10)]
+        [{"voted_up": True, "posted_at": prior} for _ in range(10)]
+        + [{"voted_up": True, "posted_at": recent} for _ in range(10)]
     )
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "stable"

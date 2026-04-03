@@ -161,7 +161,26 @@ export default async function GameReportPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <main>
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <GameReportClient
+              report={report}
+              appid={numericAppid}
+              gameName={gameData.gameName}
+              headerImage={headerImage}
+              releaseDate={gameData.releaseDate}
+              developer={gameData.developer}
+              priceUsd={gameData.priceUsd}
+              isFree={gameData.isFree ?? false}
+              genres={gameData.genres ?? []}
+              tags={gameData.tags ?? []}
+              shortDesc={gameData.shortDesc}
+              reviewCount={gameData.reviewCount}
+              deckCompatibility={gameData.deckCompatibility}
+              deckTestResults={gameData.deckTestResults}
+            />
+          }
+        >
           <ToolkitShell
             lockedFilters={{ appids: [numericAppid] }}
             defaultLens="sentiment"

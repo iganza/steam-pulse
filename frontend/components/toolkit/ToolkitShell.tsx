@@ -42,6 +42,10 @@ export function ToolkitShell({
   const rawLens = state.lens ?? defaultLens;
   const activeLens = visible.includes(rawLens) ? rawLens : visible[0] ?? defaultLens;
 
+  // If a free user navigates directly to a pro lens via URL, show the CTA overlay
+  const activeLensDef = getLens(activeLens);
+  const showProGate = !isPro && activeLensDef.pro;
+
   // Merge locked filters into the filter state for downstream consumers
   const { lens: _lens, ...urlFilters } = state;
   const effectiveFilters = lockedFilters
@@ -82,9 +86,9 @@ export function ToolkitShell({
           override={lensContent?.[activeLens]}
         />
 
-        {proCtaLens && (
+        {(proCtaLens || showProGate) && (
           <ProLockOverlay
-            lens={getLens(proCtaLens)}
+            lens={proCtaLens ? getLens(proCtaLens) : activeLensDef}
             onDismiss={() => setProCtaLens(null)}
           />
         )}

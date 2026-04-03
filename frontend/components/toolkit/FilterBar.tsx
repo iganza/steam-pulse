@@ -45,19 +45,22 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
     [lockedFilters],
   );
 
-  // Fetch genres/tags on first popover open
+  // Fetch genres/tags on first popover open (independently so one failure doesn't block the other)
   useEffect(() => {
-    if (popoverOpen && genres.length === 0) {
+    if (!popoverOpen) return;
+    if (genres.length === 0) {
       fetch("/api/genres")
         .then((r) => r.json())
         .then((data) => setGenres(Array.isArray(data) ? data : []))
         .catch(() => {});
+    }
+    if (tags.length === 0) {
       fetch("/api/tags/top?limit=20")
         .then((r) => r.json())
         .then((data) => setTags(Array.isArray(data) ? data : []))
         .catch(() => {});
     }
-  }, [popoverOpen, genres.length]);
+  }, [popoverOpen, genres.length, tags.length]);
 
   // Close popover on outside click
   useEffect(() => {
@@ -83,6 +86,7 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
       lockedFilters.appids.length > 0
     ) {
       setGameCount(lockedFilters.appids.length);
+      setCountLoading(false);
       return;
     }
 
@@ -137,15 +141,22 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
     state.appids,
   ]);
 
-  // Build active chips
+  // Build active chips from effective values (URL state + locked filters)
   const chips: { key: string; label: string; value: string; locked: boolean }[] = [];
 
-  // Don't show appids as a chip — the game page URL already identifies the game,
-  // and raw app IDs (e.g., "440") are meaningless to users.
+  // Helper: get effective value for a filter key (locked takes precedence)
+  function effective<K extends keyof typeof state>(key: K) {
+    if (isLocked(key) && lockedFilters![key] !== undefined && lockedFilters![key] !== "") {
+      return lockedFilters![key];
+    }
+    return state[key];
+  }
 
-  if (state.genre) {
-    const genreName =
-      genres.find((g) => g.slug === state.genre)?.name ?? state.genre;
+  // Don't show appids as a chip — the game page URL already identifies the game
+
+  const effGenre = effective("genre") as string;
+  if (effGenre) {
+    const genreName = genres.find((g) => g.slug === effGenre)?.name ?? effGenre;
     chips.push({
       key: "genre",
       label: "Genre",
@@ -153,8 +164,9 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
       locked: !!isLocked("genre"),
     });
   }
-  if (state.tag) {
-    const tagName = tags.find((t) => t.slug === state.tag)?.name ?? state.tag;
+  const effTag = effective("tag") as string;
+  if (effTag) {
+    const tagName = tags.find((t) => t.slug === effTag)?.name ?? effTag;
     chips.push({
       key: "tag",
       label: "Tag",
@@ -165,11 +177,12 @@ export function FilterBar({ state, setState, lockedFilters }: FilterBarProps) {
   if (state.q) {
     chips.push({ key: "q", label: "Search", value: state.q, locked: false });
   }
-  if (state.developer) {
+  const effDeveloper = effective("developer") as string;
+  if (effDeveloper) {
     chips.push({
       key: "developer",
       label: "Developer",
-      value: state.developer,
+      value: effDeveloper,
       locked: !!isLocked("developer"),
     });
   }

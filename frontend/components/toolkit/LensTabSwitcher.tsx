@@ -21,9 +21,10 @@ export function LensTabSwitcher({
 }: LensTabSwitcherProps) {
   const isPro = usePro();
 
-  const visibleDefs = LENS_REGISTRY.filter((l) =>
-    visibleLenses.includes(l.id),
-  );
+  // Preserve the caller's ordering from visibleLenses
+  const visibleDefs = visibleLenses
+    .map((id) => LENS_REGISTRY.find((l) => l.id === id))
+    .filter((def): def is (typeof LENS_REGISTRY)[number] => Boolean(def));
 
   function handleClick(lensId: LensId, isProLens: boolean) {
     if (isProLens && !isPro) {

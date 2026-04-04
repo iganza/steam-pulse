@@ -45,7 +45,7 @@ export function TagBrowser({ groups }: { groups: TagGroup[] }) {
   }
 
   return (
-    <section>
+    <section id="browse-by-tag">
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-serif text-xl font-semibold">Browse by Tag</h2>
         <div className="relative">

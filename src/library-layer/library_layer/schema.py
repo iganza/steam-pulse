@@ -64,7 +64,8 @@ TABLES: tuple[str, ...] = (
         id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL,
         slug TEXT UNIQUE NOT NULL,
-        steam_tag_id INTEGER              -- Steam's stable tag ID (0013)
+        steam_tag_id INTEGER,             -- Steam's stable tag ID (0013)
+        category TEXT DEFAULT 'Other'     -- Tag category (0014)
     )
     """,
     """
@@ -234,6 +235,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_velocity_computed_at TIMESTAMPTZ",
     # 0013_add_steam_tag_id
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS steam_tag_id INTEGER",
+    # 0014_add_tag_category
+    "ALTER TABLE tags ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Other'",
 )
 
 # Analytics engine indexes — kept for test suite use only.

@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
 import { HeroSearch } from "@/components/layout/HeroSearch";
-import { getGames, getGenres, getTopTags } from "@/lib/api";
+import { getGames, getGenres, getTagsGrouped } from "@/lib/api";
+import { TagBrowser } from "@/components/home/TagBrowser";
 import { GameCard } from "@/components/game/GameCard";
-import type { Game } from "@/lib/types";
+import type { Game, TagGroup } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "SteamPulse: Steam Game Intelligence",
@@ -36,7 +37,7 @@ export default async function HomePage() {
       getGames({ sort: "release_date", limit: 8 }),
       getGames({ sort: "last_analyzed", limit: 6 }),
       getGenres(),
-      getTopTags(50),
+      getTagsGrouped(20),
     ]);
 
   const popularGames: Game[] =
@@ -50,7 +51,7 @@ export default async function HomePage() {
   const analyzedGames: Game[] =
     justAnalyzed.status === "fulfilled" ? justAnalyzed.value.games ?? [] : [];
   const genreList = genres.status === "fulfilled" ? genres.value : [];
-  const tagList = tags.status === "fulfilled" ? tags.value : [];
+  const tagGroups: TagGroup[] = tags.status === "fulfilled" ? tags.value : [];
 
   const rows: {
     label: string;
@@ -185,32 +186,7 @@ export default async function HomePage() {
         )}
 
         {/* Browse by Tag */}
-        {tagList.length > 0 && (
-          <section>
-            <h2 className="font-serif text-xl font-semibold mb-6">Browse by Tag</h2>
-            <div className="flex flex-wrap gap-2">
-              {tagList.map((tag) => (
-                <Link
-                  key={tag.id}
-                  href={`/tag/${tag.slug}`}
-                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
-                  style={{
-                    background: "rgba(45,185,212,0.06)",
-                    border: "1px solid rgba(45,185,212,0.15)",
-                    color: "var(--teal)",
-                  }}
-                >
-                  {tag.name}
-                  {tag.game_count != null && (
-                    <span className="text-muted-foreground ml-1">
-                      {tag.game_count.toLocaleString()}
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
+        {tagGroups.length > 0 && <TagBrowser groups={tagGroups} />}
 
         {/* Empty state */}
         {!hasAnyGames && (

@@ -383,6 +383,12 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
     return _game_repo.list_tags(limit=limit)
 
 
+@app.get("/api/tags/grouped")
+async def list_tags_grouped(limit_per_category: int = 20) -> list[dict]:
+    limit_per_category = min(limit_per_category, 50)
+    return _game_repo.list_tags_grouped(limit_per_category=limit_per_category)
+
+
 @app.get("/api/games/{appid}/audience-overlap")
 async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
     logger.append_keys(appid=appid)

@@ -38,6 +38,9 @@ class _MemGameRepo:
     def list_tags(self, limit: int = 100) -> list[dict]:
         return []
 
+    def list_tags_grouped(self, limit_per_category: int = 20) -> list[dict]:
+        return []
+
 
 class _MemJobRepo:
     def __init__(self) -> None:

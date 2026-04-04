@@ -1,5 +1,5 @@
 import type {
-  GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, ReviewStats, Benchmarks, DeckTestResult,
+  GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, TagGroup, ReviewStats, Benchmarks, DeckTestResult,
   Granularity, ReleaseVolumePeriod, SentimentDistPeriod, GenreSharePeriod, VelocityDistPeriod,
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
@@ -158,6 +158,18 @@ export async function getTopTags(limit = 24): Promise<Tag[]> {
   return apiFetch<Tag[]>(`/api/tags/top?limit=${limit}`, {
     next: { revalidate: 86400 },
   });
+}
+
+/** GET /api/tags/grouped */
+export async function getTagsGrouped(
+  limitPerCategory = 20,
+): Promise<TagGroup[]> {
+  return apiFetch<TagGroup[]>(
+    `/api/tags/grouped?limit_per_category=${limitPerCategory}`,
+    {
+      next: { revalidate: 86400 },
+    },
+  );
 }
 
 /** GET /api/games/{appid}/review-stats */

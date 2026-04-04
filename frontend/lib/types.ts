@@ -132,6 +132,13 @@ export interface Tag {
   slug: string;
   game_count?: number;
   analyzed_count?: number;
+  category?: string;
+}
+
+export interface TagGroup {
+  category: string;
+  tags: Tag[];
+  total_count: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -82,10 +82,18 @@ export const MOCK_GENRES = [
 ]
 
 export const MOCK_TAGS = [
-  { id: 1, name: 'Multiplayer', slug: 'multiplayer', game_count: 8900 },
-  { id: 2, name: 'Singleplayer', slug: 'singleplayer', game_count: 42000 },
-  { id: 3, name: 'Roguelike', slug: 'roguelike', game_count: 3100 },
-  { id: 4, name: 'Open World', slug: 'open-world', game_count: 2200 },
+  { id: 1, name: 'Multiplayer', slug: 'multiplayer', game_count: 8900, category: 'Player Mode' },
+  { id: 2, name: 'Singleplayer', slug: 'singleplayer', game_count: 42000, category: 'Player Mode' },
+  { id: 3, name: 'Roguelike', slug: 'roguelike', game_count: 3100, category: 'Sub-Genre' },
+  { id: 4, name: 'Open World', slug: 'open-world', game_count: 2200, category: 'Gameplay' },
+]
+
+export const MOCK_TAG_GROUPS = [
+  { category: 'Genre', tags: [{ id: 10, name: 'Action', slug: 'action', game_count: 12000, category: 'Genre' }], total_count: 1 },
+  { category: 'Sub-Genre', tags: [{ id: 3, name: 'Roguelike', slug: 'roguelike', game_count: 3100, category: 'Sub-Genre' }], total_count: 1 },
+  { category: 'Theme & Setting', tags: [{ id: 11, name: 'Fantasy', slug: 'fantasy', game_count: 6100, category: 'Theme & Setting' }], total_count: 1 },
+  { category: 'Gameplay', tags: [{ id: 4, name: 'Open World', slug: 'open-world', game_count: 2200, category: 'Gameplay' }], total_count: 1 },
+  { category: 'Player Mode', tags: [{ id: 2, name: 'Singleplayer', slug: 'singleplayer', game_count: 42000, category: 'Player Mode' }], total_count: 1 },
 ]
 
 export const MOCK_GAMES_LIST = {

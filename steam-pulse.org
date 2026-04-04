@@ -874,3 +874,5 @@ Curated sources for frontend design decisions. Consult these when planning UI ch
    Value: _050dc13c2fcca44f1e27465737e4a311.jkddzztszm.acm-validations.aws
 
   Once added, ACM will validate it and the deploy will continue. The site won't go live until you set domain-live: true.
+
+** TODO BUG:  When looking at "Recently Released", I see games "released" in 2027, but that is in the future

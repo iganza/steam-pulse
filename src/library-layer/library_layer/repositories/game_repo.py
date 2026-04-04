@@ -356,16 +356,47 @@ class GameRepository(BaseRepository):
         """Return tags with game counts, ordered by game_count DESC."""
         rows = self._fetchall(
             """
-            SELECT t.id, t.name, t.slug, COUNT(gt.appid) AS game_count
+            SELECT t.id, t.name, t.slug, t.category, COUNT(gt.appid) AS game_count
             FROM tags t
             LEFT JOIN game_tags gt ON gt.tag_id = t.id
-            GROUP BY t.id, t.name, t.slug
+            GROUP BY t.id, t.name, t.slug, t.category
             ORDER BY game_count DESC, t.name
             LIMIT %s
             """,
             (limit,),
         )
         return [dict(r) for r in rows]
+
+    def list_tags_grouped(self, limit_per_category: int = 20) -> list[dict]:
+        """Return tags grouped by category, ordered by game_count within each group."""
+        from itertools import groupby
+
+        rows = self._fetchall(
+            """
+            SELECT t.category, t.id, t.name, t.slug, COUNT(gt.appid) AS game_count
+            FROM tags t
+            LEFT JOIN game_tags gt ON gt.tag_id = t.id
+            GROUP BY t.category, t.id, t.name, t.slug
+            HAVING COUNT(gt.appid) > 0
+            ORDER BY t.category, game_count DESC, t.name
+            """,
+        )
+        order = [
+            "Genre", "Sub-Genre", "Theme & Setting", "Gameplay",
+            "Player Mode", "Visuals & Viewpoint", "Mood & Tone", "Other",
+        ]
+        grouped = []
+        for category, group_rows in groupby(rows, key=lambda r: r["category"]):
+            all_tags = [dict(r) for r in group_rows]
+            grouped.append({
+                "category": category,
+                "tags": all_tags[:limit_per_category],
+                "total_count": len(all_tags),
+            })
+        grouped.sort(
+            key=lambda g: order.index(g["category"]) if g["category"] in order else 99,
+        )
+        return grouped
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""

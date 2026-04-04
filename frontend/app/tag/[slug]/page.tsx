@@ -39,14 +39,26 @@ export default async function TagPage({ params }: Props) {
 
   // Fetch related tags and tag trend in parallel
   const [tagsResult, trendResult] = await Promise.allSettled([
-    getTopTags(50),
+    getTopTags(200),
     getTagTrend(slug),
   ]);
 
   const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
-  const relatedTags = (tags as Tag[])
-    .filter((t) => t.slug !== slug)
-    .slice(0, 8);
+  const currentTag = (tags as Tag[]).find((t) => t.slug === slug);
+  const currentCategory = currentTag?.category;
+  const otherTags = (tags as Tag[]).filter((t) => t.slug !== slug);
+  const sameCategoryTags = currentCategory
+    ? otherTags.filter((t) => t.category === currentCategory)
+    : [];
+  const relatedTags =
+    sameCategoryTags.length >= 8
+      ? sameCategoryTags.slice(0, 8)
+      : [
+          ...sameCategoryTags,
+          ...otherTags
+            .filter((t) => !sameCategoryTags.includes(t))
+            .slice(0, 8 - sameCategoryTags.length),
+        ];
   const trend = trendResult.status === "fulfilled" ? trendResult.value : null;
 
   return (
@@ -85,7 +97,7 @@ export default async function TagPage({ params }: Props) {
         {relatedTags.length > 0 && (
           <div className="mb-10">
             <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
-              Related Tags
+              {currentCategory ? `More ${currentCategory} Tags` : "Related Tags"}
             </p>
             <div className="flex flex-wrap gap-2">
               {relatedTags.map((t) => (

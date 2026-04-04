@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Gem, TrendingUp, Sparkles, BarChart3, SlidersHorizontal, X, Menu } from "lucide-react";
-import type { Genre, Tag } from "@/lib/types";
+import type { Genre, Tag, TagGroup } from "@/lib/types";
 import { SearchAutocomplete } from "./SearchAutocomplete";
 
 export function Navbar() {
@@ -32,9 +32,18 @@ export function Navbar() {
         .then((r) => r.json())
         .then((data) => setGenres(Array.isArray(data) ? data.slice(0, 10) : []))
         .catch(() => {});
-      fetch("/api/tags/top?limit=10")
+      fetch("/api/tags/grouped?limit_per_category=3")
         .then((r) => r.json())
-        .then((data) => setTags(Array.isArray(data) ? data : []))
+        .then((data: TagGroup[]) => {
+          if (!Array.isArray(data)) return;
+          const pick = ["Genre", "Theme & Setting", "Gameplay"];
+          const mixed: Tag[] = [];
+          for (const cat of pick) {
+            const group = data.find((g) => g.category === cat);
+            if (group) mixed.push(...group.tags.slice(0, 3));
+          }
+          setTags(mixed.slice(0, 10));
+        })
         .catch(() => {});
     }
   }, [browseOpen, genres.length]);

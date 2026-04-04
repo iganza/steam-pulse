@@ -25,6 +25,7 @@ import {
 import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
 import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { ScoreBar } from "@/components/game/ScoreBar";
+import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
 import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
 import { DeckCompatibilityBadge } from "@/components/game/DeckCompatibilityBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
@@ -56,6 +57,7 @@ interface GameReportClientProps {
   reviewCount?: number;
   deckCompatibility?: number | null;
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
+  isEarlyAccess?: boolean;
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -103,6 +105,7 @@ export function GameReportClient({
   reviewCount,
   deckCompatibility,
   deckTestResults,
+  isEarlyAccess,
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -183,6 +186,7 @@ export function GameReportClient({
               {name}
             </h1>
             <div className="flex flex-wrap items-center gap-3">
+              {isEarlyAccess && <EarlyAccessBadge />}
               <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             </div>
           </div>
@@ -394,6 +398,7 @@ export function GameReportClient({
             {name}
           </h1>
           <div className="flex flex-wrap items-center gap-3">
+            {isEarlyAccess && <EarlyAccessBadge />}
             <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
             <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             <span

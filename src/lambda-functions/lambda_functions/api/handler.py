@@ -13,7 +13,7 @@ from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.analytics_repo import AnalyticsRepository
-from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -308,7 +308,8 @@ async def get_game_report(appid: int) -> dict:
     game = _game_repo.find_by_appid(appid)
     game_meta: dict = {}
     if game:
-        genres = [g["name"] for g in _tag_repo.find_genres_for_game(appid)]
+        genre_rows = _tag_repo.find_genres_for_game(appid)
+        genres = [g["name"] for g in genre_rows]
         tags = [t["name"] for t in _tag_repo.find_tags_for_game(appid)]
         game_meta = {
             "short_desc": game.short_desc,
@@ -316,6 +317,7 @@ async def get_game_report(appid: int) -> dict:
             "release_date": game.release_date,
             "price_usd": float(game.price_usd) if game.price_usd else None,
             "is_free": game.is_free,
+            "is_early_access": any(g["id"] == EARLY_ACCESS_GENRE_ID for g in genre_rows),
             "genres": genres,
             "tags": tags,
             "deck_compatibility": game.deck_compatibility,

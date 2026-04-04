@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
+import { MOCK_GAME_ANALYZED } from './fixtures/mock-data'
 
 test.describe('Search page', () => {
   test.beforeEach(async ({ page }) => {
@@ -98,5 +99,20 @@ test.describe('Search page', () => {
     await expect(page).toHaveURL(/\/games\/440\//)
     await page.goBack()
     await expect(page).toHaveURL(/genre=action/)
+  })
+
+  test('shows Early Access badge on game card when is_early_access is true', async ({ page }) => {
+    await page.route('**/api/games**', route =>
+      route.fulfill({
+        json: {
+          total: 1,
+          games: [{ ...MOCK_GAME_ANALYZED, is_early_access: true }],
+        },
+      })
+    )
+    await page.goto('/search')
+    const badge = page.getByTestId('early-access-badge')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Early Access')
   })
 })

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Gem } from "lucide-react";
+import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
 import type { Game } from "@/lib/types";
 
 interface GameCardProps {
@@ -28,6 +29,11 @@ export function GameCard({ game }: GameCardProps) {
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
             className="object-cover transition-transform duration-500 group-hover:scale-105"
           />
+        )}
+        {game.is_early_access && (
+          <div className="absolute top-2 left-2">
+            <EarlyAccessBadge />
+          </div>
         )}
         {(game.hidden_gem_score ?? 0) >= 70 && (
           <div

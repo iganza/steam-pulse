@@ -65,6 +65,7 @@ export async function getGameReport(appid: number): Promise<{
     release_date?: string;
     price_usd?: number | null;
     is_free?: boolean;
+    is_early_access?: boolean;
     genres?: string[];
     tags?: string[];
     deck_compatibility?: number | null;

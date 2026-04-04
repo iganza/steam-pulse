@@ -1,6 +1,6 @@
 import { Page } from '@playwright/test'
 import {
-  MOCK_GAMES_LIST, MOCK_GENRES, MOCK_TAGS,
+  MOCK_GAMES_LIST, MOCK_GENRES, MOCK_TAGS, MOCK_TAG_GROUPS,
   MOCK_REPORT, MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED,
   MOCK_REVIEW_STATS, MOCK_BENCHMARKS,
   MOCK_RELEASE_VOLUME, MOCK_SENTIMENT_DIST, MOCK_GENRE_SHARE,
@@ -93,6 +93,11 @@ export async function mockAllApiRoutes(page: Page) {
   // Tags
   await page.route('**/api/tags/**', route =>
     route.fulfill({ json: MOCK_TAGS })
+  )
+
+  // Tags grouped (LIFO — registered after wildcard so it wins for /api/tags/grouped)
+  await page.route('**/api/tags/grouped**', route =>
+    route.fulfill({ json: MOCK_TAG_GROUPS })
   )
 
   // Preview (fallback)

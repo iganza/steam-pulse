@@ -38,6 +38,9 @@ class _MemGameRepo:
     def list_tags(self, limit: int = 100) -> list[dict]:
         return []
 
+    def list_tags_grouped(self, limit_per_category: int = 20) -> list[dict]:
+        return []
+
 
 class _MemJobRepo:
     def __init__(self) -> None:
@@ -94,6 +97,19 @@ def test_health_endpoint(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert "storage" in data
+
+
+def test_tags_grouped_endpoint(client: TestClient) -> None:
+    """GET /api/tags/grouped returns 200 with list of category groups."""
+    resp = client.get("/api/tags/grouped")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_tags_grouped_rejects_invalid_limit(client: TestClient) -> None:
+    """GET /api/tags/grouped with limit_per_category=0 returns 422."""
+    resp = client.get("/api/tags/grouped?limit_per_category=0")
+    assert resp.status_code == 422
 
 
 def test_preview_requires_appid(client: TestClient) -> None:

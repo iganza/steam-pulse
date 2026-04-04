@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getTopTags, getTagTrend } from "@/lib/api";
+import { getTagsGrouped, getTagTrend } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
 import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { TagTrendChart } from "@/components/analytics/TagTrendChart";
-import type { Tag } from "@/lib/types";
+import type { TagGroup } from "@/lib/types";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -37,16 +37,30 @@ export default async function TagPage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  // Fetch related tags and tag trend in parallel
-  const [tagsResult, trendResult] = await Promise.allSettled([
-    getTopTags(50),
+  // Fetch grouped tags and tag trend in parallel
+  const [groupsResult, trendResult] = await Promise.allSettled([
+    getTagsGrouped(200),
     getTagTrend(slug),
   ]);
 
-  const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
-  const relatedTags = (tags as Tag[])
-    .filter((t) => t.slug !== slug)
-    .slice(0, 8);
+  const groups: TagGroup[] =
+    groupsResult.status === "fulfilled" ? groupsResult.value : [];
+  const allTags = groups.flatMap((g) => g.tags);
+  const currentTag = allTags.find((t) => t.slug === slug);
+  const currentCategory = currentTag?.category;
+  const otherTags = allTags.filter((t) => t.slug !== slug);
+  const sameCategoryTags = currentCategory
+    ? otherTags.filter((t) => t.category === currentCategory)
+    : [];
+  const relatedTags =
+    sameCategoryTags.length >= 8
+      ? sameCategoryTags.slice(0, 8)
+      : [
+          ...sameCategoryTags,
+          ...otherTags
+            .filter((t) => !sameCategoryTags.includes(t))
+            .slice(0, 8 - sameCategoryTags.length),
+        ];
   const trend = trendResult.status === "fulfilled" ? trendResult.value : null;
 
   return (
@@ -85,7 +99,7 @@ export default async function TagPage({ params }: Props) {
         {relatedTags.length > 0 && (
           <div className="mb-10">
             <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
-              Related Tags
+              {currentCategory ? `More ${currentCategory} Tags` : "Related Tags"}
             </p>
             <div className="flex flex-wrap gap-2">
               {relatedTags.map((t) => (

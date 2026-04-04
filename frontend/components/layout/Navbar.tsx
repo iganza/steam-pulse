@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Gem, TrendingUp, Sparkles, BarChart3, SlidersHorizontal, X, Menu } from "lucide-react";
-import type { Genre, Tag } from "@/lib/types";
+import type { Genre, TagGroup } from "@/lib/types";
 import { SearchAutocomplete } from "./SearchAutocomplete";
 
 export function Navbar() {
@@ -13,7 +13,7 @@ export function Navbar() {
   const [browseOpen, setBrowseOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [genres, setGenres] = useState<Genre[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagGroups, setTagGroups] = useState<TagGroup[]>([]);
   const browseRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,17 +27,24 @@ export function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (browseOpen && genres.length === 0) {
+    if (!browseOpen) return;
+    if (genres.length === 0) {
       fetch("/api/genres")
         .then((r) => r.json())
         .then((data) => setGenres(Array.isArray(data) ? data.slice(0, 10) : []))
         .catch(() => {});
-      fetch("/api/tags/top?limit=10")
+    }
+    if (tagGroups.length === 0) {
+      fetch("/api/tags/grouped?limit_per_category=5")
         .then((r) => r.json())
-        .then((data) => setTags(Array.isArray(data) ? data : []))
+        .then((data: TagGroup[]) => {
+          if (!Array.isArray(data)) return;
+          const show = ["Sub-Genre", "Theme & Setting", "Gameplay"];
+          setTagGroups(data.filter((g) => show.includes(g.category)));
+        })
         .catch(() => {});
     }
-  }, [browseOpen, genres.length]);
+  }, [browseOpen, genres.length, tagGroups.length]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -80,13 +87,13 @@ export function Navbar() {
             </button>
             {browseOpen && (
               <div
-                className="absolute top-full left-0 mt-1 w-80 rounded-xl p-4 shadow-xl"
+                className="absolute top-full left-0 mt-1 w-[600px] rounded-xl p-4 shadow-xl"
                 style={{
                   background: "var(--popover)",
                   border: "1px solid var(--border)",
                 }}
               >
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div>
                     <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
                       Genres
@@ -109,23 +116,35 @@ export function Navbar() {
                       ))}
                     </div>
                   </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
-                      Tags
-                    </p>
-                    <div className="space-y-1">
-                      {tags.map((t) => (
-                        <Link
-                          key={t.id}
-                          href={`/tag/${t.slug}`}
-                          onClick={() => setBrowseOpen(false)}
-                          className="block text-sm text-foreground/70 hover:text-foreground py-0.5 transition-colors"
-                        >
-                          {t.name}
-                        </Link>
-                      ))}
+                  {tagGroups.map((group) => (
+                    <div key={group.category}>
+                      <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                        {group.category}
+                      </p>
+                      <div className="space-y-1">
+                        {group.tags.map((t) => (
+                          <Link
+                            key={t.id}
+                            href={`/tag/${t.slug}`}
+                            onClick={() => setBrowseOpen(false)}
+                            className="block text-sm text-foreground/70 hover:text-foreground py-0.5 transition-colors"
+                          >
+                            {t.name}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ))}
+                </div>
+                <div className="mt-3 pt-3 border-t border-border">
+                  <Link
+                    href="/#browse-by-tag"
+                    onClick={() => setBrowseOpen(false)}
+                    className="text-xs font-mono transition-colors"
+                    style={{ color: "var(--teal)" }}
+                  >
+                    See all tags &rarr;
+                  </Link>
                 </div>
               </div>
             )}

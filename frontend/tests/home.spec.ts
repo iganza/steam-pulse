@@ -46,4 +46,17 @@ test.describe('Home page', () => {
     await expect(page.getByText(/\$7/)).not.toBeVisible()
     await expect(page.getByText(/\$15/)).not.toBeVisible()
   })
+
+  test('Browse by Tag section shows grouped categories', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /browse by tag/i })).toBeVisible()
+    // At least one category header should be visible (Genre is expanded by default)
+    await expect(page.getByText('Genre')).toBeVisible()
+  })
+
+  test('Browse by Tag search filters tags', async ({ page }) => {
+    const search = page.getByPlaceholder(/search tags/i)
+    await expect(search).toBeVisible()
+    await search.fill('Action')
+    await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
+  })
 })

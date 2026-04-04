@@ -273,10 +273,14 @@ Add `t.category` to the SELECT in:
 Add new endpoint:
 ```python
 @app.get("/api/tags/grouped")
-async def list_tags_grouped(limit_per_category: int = 20) -> list[dict]:
-    limit_per_category = min(limit_per_category, 50)
+async def list_tags_grouped(
+    limit_per_category: int = Query(default=20, ge=1, le=200),
+) -> list[dict]:
     return _game_repo.list_tags_grouped(limit_per_category=limit_per_category)
 ```
+
+Max is 200 (not 50) because the largest category (Gameplay) has ~101 tags and
+the home page / tag page need all tags for search and "Show all" to work.
 
 Existing `GET /api/tags/top` automatically gains `category` field — no change needed.
 
@@ -349,17 +353,15 @@ The "Related Tags" section currently shows arbitrary top-8. Instead, show tags f
 the **same category** as the current tag. The `category` field is now on each tag
 from the API response.
 
-### 11. Navbar — Mixed-Category Top Tags
+### 11. Navbar — Grouped Category Columns
 
 **File:** `frontend/components/layout/Navbar.tsx`
 
-Currently fetches top-10 by raw game_count, which skews heavily toward Genre tags.
-**Mix categories**: show 2-3 from Genre, 2-3 from Theme, 2-3 from Gameplay for better
-discovery surface. Can either:
-- Use `GET /api/tags/grouped?limit_per_category=3` and flatten client-side
-- Or add a `GET /api/tags/top?diverse=true` mode that picks top N across categories
-
-Keep the flat pill layout — no hierarchy in the navbar.
+Previously fetched top-10 by raw game_count, which skewed heavily toward Genre tags.
+Now uses `GET /api/tags/grouped?limit_per_category=5` and displays 4 columns in the
+Browse dropdown: **Genres** (from `/api/genres`), **Sub-Genre**, **Theme & Setting**,
+**Gameplay** — each with its own category header and top-5 tags. A "See all tags →"
+link at the bottom navigates to the home page Browse by Tag section for full search.
 
 ### 12. FilterBar / Search — Unchanged + Optional Search
 

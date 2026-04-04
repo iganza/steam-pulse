@@ -356,16 +356,70 @@ class GameRepository(BaseRepository):
         """Return tags with game counts, ordered by game_count DESC."""
         rows = self._fetchall(
             """
-            SELECT t.id, t.name, t.slug, COUNT(gt.appid) AS game_count
+            SELECT t.id, t.name, t.slug, t.category, COUNT(gt.appid) AS game_count
             FROM tags t
             LEFT JOIN game_tags gt ON gt.tag_id = t.id
-            GROUP BY t.id, t.name, t.slug
+            GROUP BY t.id, t.name, t.slug, t.category
             ORDER BY game_count DESC, t.name
             LIMIT %s
             """,
             (limit,),
         )
         return [dict(r) for r in rows]
+
+    def list_tags_grouped(self, limit_per_category: int = 20) -> list[dict]:
+        """Return tags grouped by category, ordered by game_count within each group."""
+        rows = self._fetchall(
+            """
+            SELECT ranked.category, ranked.id, ranked.name, ranked.slug,
+                   ranked.game_count, ranked.total_count
+            FROM (
+                SELECT
+                    agg.category, agg.id, agg.name, agg.slug, agg.game_count,
+                    COUNT(*) OVER (PARTITION BY agg.category) AS total_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY agg.category
+                        ORDER BY agg.game_count DESC, agg.name
+                    ) AS rn
+                FROM (
+                    SELECT t.category, t.id, t.name, t.slug,
+                           COUNT(gt.appid) AS game_count
+                    FROM tags t
+                    LEFT JOIN game_tags gt ON gt.tag_id = t.id
+                    GROUP BY t.category, t.id, t.name, t.slug
+                    HAVING COUNT(gt.appid) > 0
+                ) AS agg
+            ) AS ranked
+            WHERE ranked.rn <= %s
+            ORDER BY ranked.category, ranked.game_count DESC, ranked.name
+            """,
+            (limit_per_category,),
+        )
+        order = [
+            "Genre", "Sub-Genre", "Theme & Setting", "Gameplay",
+            "Player Mode", "Visuals & Viewpoint", "Mood & Tone", "Other",
+        ]
+        grouped_by_category: dict[str, dict] = {}
+        for row in rows:
+            category = row["category"]
+            if category not in grouped_by_category:
+                grouped_by_category[category] = {
+                    "category": category,
+                    "tags": [],
+                    "total_count": row["total_count"],
+                }
+            grouped_by_category[category]["tags"].append({
+                "id": row["id"],
+                "name": row["name"],
+                "slug": row["slug"],
+                "category": row["category"],
+                "game_count": row["game_count"],
+            })
+        grouped = list(grouped_by_category.values())
+        grouped.sort(
+            key=lambda g: order.index(g["category"]) if g["category"] in order else 99,
+        )
+        return grouped
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""

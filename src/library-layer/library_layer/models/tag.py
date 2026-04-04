@@ -10,6 +10,7 @@ class Tag(BaseModel):
     name: str
     slug: str
     votes: int = 0
+    category: str = "Other"
 
 
 class Genre(BaseModel):

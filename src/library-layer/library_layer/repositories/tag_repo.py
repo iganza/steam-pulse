@@ -148,7 +148,7 @@ class TagRepository(BaseRepository):
     def find_tags_for_game(self, appid: int) -> list[dict]:
         rows = self._fetchall(
             """
-            SELECT t.id, t.name, t.slug, gt.votes
+            SELECT t.id, t.name, t.slug, t.category, gt.votes
             FROM tags t
             JOIN game_tags gt ON gt.tag_id = t.id
             WHERE gt.appid = %s
@@ -176,7 +176,7 @@ class TagRepository(BaseRepository):
             return {}
         rows = self._fetchall(
             """
-            SELECT gt.appid, t.id, t.name, t.slug, gt.votes
+            SELECT gt.appid, t.id, t.name, t.slug, t.category, gt.votes
             FROM tags t
             JOIN game_tags gt ON gt.tag_id = t.id
             WHERE gt.appid = ANY(%s)

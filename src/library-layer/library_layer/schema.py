@@ -236,7 +236,7 @@ TABLES: tuple[str, ...] = (
     # 0013_add_steam_tag_id
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS steam_tag_id INTEGER",
     # 0014_add_tag_category
-    "ALTER TABLE tags ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Other'",
+    "ALTER TABLE tags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'Other'",
 )
 
 # Analytics engine indexes — kept for test suite use only.

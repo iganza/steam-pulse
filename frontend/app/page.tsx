@@ -37,7 +37,7 @@ export default async function HomePage() {
       getGames({ sort: "release_date", limit: 8 }),
       getGames({ sort: "last_analyzed", limit: 6 }),
       getGenres(),
-      getTagsGrouped(50),
+      getTagsGrouped(200),
     ]);
 
   const popularGames: Game[] =

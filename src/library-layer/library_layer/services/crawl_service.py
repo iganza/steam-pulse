@@ -51,8 +51,15 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
                 pass
         playtime_minutes = int(r.get("playtime_at_review") or 0)
         # Steam returns 0xFFFFFFFF (4294967295) as a sentinel for unknown vote counts.
-        # Clamp all integer fields to PostgreSQL INT_MAX to prevent overflow on insert.
+        # Map sentinel and any out-of-range values to 0 instead of clamping to INT_MAX,
+        # which would skew vote-based ordering.
+        _STEAM_SENTINEL = 4_294_967_295
         _INT_MAX = 2_147_483_647
+
+        def _safe_votes(val: object) -> int:
+            n = int(val or 0)
+            return 0 if n < 0 or n >= _STEAM_SENTINEL else min(n, _INT_MAX)
+
         result.append(
             {
                 "appid": appid,
@@ -63,8 +70,8 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
                 "body": r.get("review_text", ""),
                 "posted_at": posted_at,
                 "language": r.get("language") or None,
-                "votes_helpful": min(int(r.get("votes_helpful") or 0), _INT_MAX),
-                "votes_funny": min(int(r.get("votes_funny") or 0), _INT_MAX),
+                "votes_helpful": _safe_votes(r.get("votes_helpful")),
+                "votes_funny": _safe_votes(r.get("votes_funny")),
                 "written_during_early_access": bool(r.get("written_during_early_access", False)),
                 "received_for_free": bool(r.get("received_for_free", False)),
             }

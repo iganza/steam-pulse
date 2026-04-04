@@ -5,6 +5,8 @@ from __future__ import annotations
 from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
 
+EARLY_ACCESS_GENRE_ID = 70
+
 
 class GameNotFound(Exception):
     """Raised when a game cannot be found by appid."""
@@ -282,7 +284,7 @@ class GameRepository(BaseRepository):
                    g.release_date, g.deck_compatibility,
                    r.report_json->>'hidden_gem_score' AS hidden_gem_score,
                    r.report_json->>'sentiment_score'  AS sentiment_score,
-                   EXISTS(SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
+                   EXISTS(SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
             FROM games g
             LEFT JOIN reports r ON r.appid = g.appid
             WHERE {where}

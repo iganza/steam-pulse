@@ -25,6 +25,7 @@ import {
 import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
 import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { ScoreBar } from "@/components/game/ScoreBar";
+import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
 import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
 import { DeckCompatibilityBadge } from "@/components/game/DeckCompatibilityBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
@@ -185,14 +186,7 @@ export function GameReportClient({
               {name}
             </h1>
             <div className="flex flex-wrap items-center gap-3">
-              {isEarlyAccess && (
-                <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
-                  style={{ background: "rgba(56,152,236,0.15)", border: "1px solid rgba(56,152,236,0.4)", color: "#3898ec" }}
-                >
-                  Early Access
-                </span>
-              )}
+              {isEarlyAccess && <EarlyAccessBadge />}
               <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             </div>
           </div>
@@ -404,14 +398,7 @@ export function GameReportClient({
             {name}
           </h1>
           <div className="flex flex-wrap items-center gap-3">
-            {isEarlyAccess && (
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
-                style={{ background: "rgba(56,152,236,0.15)", border: "1px solid rgba(56,152,236,0.4)", color: "#3898ec" }}
-              >
-                Early Access
-              </span>
-            )}
+            {isEarlyAccess && <EarlyAccessBadge />}
             <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
             <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             <span

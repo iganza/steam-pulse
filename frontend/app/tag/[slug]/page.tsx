@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getTopTags, getTagTrend } from "@/lib/api";
+import { getTagsGrouped, getTagTrend } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
 import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { TagTrendChart } from "@/components/analytics/TagTrendChart";
-import type { Tag } from "@/lib/types";
+import type { Tag, TagGroup } from "@/lib/types";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -37,16 +37,18 @@ export default async function TagPage({ params }: Props) {
   const { slug } = await params;
   const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  // Fetch related tags and tag trend in parallel
-  const [tagsResult, trendResult] = await Promise.allSettled([
-    getTopTags(200),
+  // Fetch grouped tags and tag trend in parallel
+  const [groupsResult, trendResult] = await Promise.allSettled([
+    getTagsGrouped(50),
     getTagTrend(slug),
   ]);
 
-  const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
-  const currentTag = (tags as Tag[]).find((t) => t.slug === slug);
+  const groups: TagGroup[] =
+    groupsResult.status === "fulfilled" ? groupsResult.value : [];
+  const allTags = groups.flatMap((g) => g.tags);
+  const currentTag = allTags.find((t) => t.slug === slug);
   const currentCategory = currentTag?.category;
-  const otherTags = (tags as Tag[]).filter((t) => t.slug !== slug);
+  const otherTags = allTags.filter((t) => t.slug !== slug);
   const sameCategoryTags = currentCategory
     ? otherTags.filter((t) => t.category === currentCategory)
     : [];

@@ -65,7 +65,7 @@ TABLES: tuple[str, ...] = (
         name TEXT UNIQUE NOT NULL,
         slug TEXT UNIQUE NOT NULL,
         steam_tag_id INTEGER,             -- Steam's stable tag ID (0013)
-        category TEXT DEFAULT 'Other'     -- Tag category (0014)
+        category TEXT NOT NULL DEFAULT 'Other'  -- Tag category (0014)
     )
     """,
     """

@@ -96,4 +96,8 @@ UPDATE tags SET category = 'Mood & Tone' WHERE name IN (
 
 -- 'Other' is the column default — no UPDATE needed for that category.
 
+-- Ensure no NULLs then enforce NOT NULL
+UPDATE tags SET category = 'Other' WHERE category IS NULL;
+ALTER TABLE tags ALTER COLUMN category SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category);

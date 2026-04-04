@@ -6,7 +6,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
 import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { TagTrendChart } from "@/components/analytics/TagTrendChart";
-import type { Tag, TagGroup } from "@/lib/types";
+import type { TagGroup } from "@/lib/types";
 
 interface Props {
   params: Promise<{ slug: string }>;

@@ -27,11 +27,14 @@ export function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (browseOpen && genres.length === 0) {
+    if (!browseOpen) return;
+    if (genres.length === 0) {
       fetch("/api/genres")
         .then((r) => r.json())
         .then((data) => setGenres(Array.isArray(data) ? data.slice(0, 10) : []))
         .catch(() => {});
+    }
+    if (tagGroups.length === 0) {
       fetch("/api/tags/grouped?limit_per_category=5")
         .then((r) => r.json())
         .then((data: TagGroup[]) => {
@@ -41,7 +44,7 @@ export function Navbar() {
         })
         .catch(() => {});
     }
-  }, [browseOpen, genres.length]);
+  }, [browseOpen, genres.length, tagGroups.length]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();

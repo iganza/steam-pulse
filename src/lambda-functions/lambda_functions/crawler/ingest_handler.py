@@ -112,6 +112,7 @@ def _ingest_record(record: dict) -> None:
         else:
             raise ValueError(f"Unknown task: {task}")
     except Exception:
+        logger.exception("Record processing failed", extra={"appid": appid, "task": task})
         _conn.rollback()
         raise
 

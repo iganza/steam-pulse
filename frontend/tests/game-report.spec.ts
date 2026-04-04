@@ -238,3 +238,39 @@ test.describe('Game report page — unanalyzed game', () => {
     await expect(page.getByTestId('deck-badge')).not.toBeAttached()
   })
 })
+
+test.describe('Early Access badge', () => {
+  test('displays Early Access badge when is_early_access is true', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: MOCK_REPORT,
+          game: {
+            short_desc: MOCK_GAME_ANALYZED.short_desc,
+            developer: MOCK_GAME_ANALYZED.developer,
+            release_date: MOCK_GAME_ANALYZED.release_date,
+            price_usd: null,
+            is_free: true,
+            is_early_access: true,
+            genres: MOCK_GAME_ANALYZED.genres,
+            tags: MOCK_GAME_ANALYZED.tags,
+            deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
+            deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+          },
+        },
+      })
+    )
+    await page.goto('/games/440/team-fortress-2')
+    const badge = page.getByTestId('early-access-badge')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Early Access')
+  })
+
+  test('hides Early Access badge when is_early_access is false', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByTestId('early-access-badge')).not.toBeAttached()
+  })
+})

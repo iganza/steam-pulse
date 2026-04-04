@@ -56,6 +56,7 @@ interface GameReportClientProps {
   reviewCount?: number;
   deckCompatibility?: number | null;
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
+  isEarlyAccess?: boolean;
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -103,6 +104,7 @@ export function GameReportClient({
   reviewCount,
   deckCompatibility,
   deckTestResults,
+  isEarlyAccess,
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -183,6 +185,14 @@ export function GameReportClient({
               {name}
             </h1>
             <div className="flex flex-wrap items-center gap-3">
+              {isEarlyAccess && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
+                  style={{ background: "rgba(56,152,236,0.15)", border: "1px solid rgba(56,152,236,0.4)", color: "#3898ec" }}
+                >
+                  Early Access
+                </span>
+              )}
               <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             </div>
           </div>
@@ -394,6 +404,14 @@ export function GameReportClient({
             {name}
           </h1>
           <div className="flex flex-wrap items-center gap-3">
+            {isEarlyAccess && (
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
+                style={{ background: "rgba(56,152,236,0.15)", border: "1px solid rgba(56,152,236,0.4)", color: "#3898ec" }}
+              >
+                Early Access
+              </span>
+            )}
             <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
             <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             <span

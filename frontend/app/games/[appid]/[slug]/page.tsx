@@ -95,6 +95,7 @@ export default async function GameReportPage({ params }: Props) {
     reviewCount?: number;
     deckCompatibility?: number | null;
     deckTestResults?: Array<{ display_type: number; loc_token: string }>;
+    isEarlyAccess?: boolean;
   } = {};
 
   try {
@@ -116,6 +117,7 @@ export default async function GameReportPage({ params }: Props) {
       if (g.tags?.length) gameData.tags = g.tags;
       if (g.deck_compatibility != null) gameData.deckCompatibility = g.deck_compatibility;
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
+      if (g.is_early_access != null) gameData.isEarlyAccess = g.is_early_access;
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
@@ -178,6 +180,7 @@ export default async function GameReportPage({ params }: Props) {
               reviewCount={gameData.reviewCount}
               deckCompatibility={gameData.deckCompatibility}
               deckTestResults={gameData.deckTestResults}
+              isEarlyAccess={gameData.isEarlyAccess}
             />
           }
         >
@@ -202,6 +205,7 @@ export default async function GameReportPage({ params }: Props) {
                   reviewCount={gameData.reviewCount}
                   deckCompatibility={gameData.deckCompatibility}
                   deckTestResults={gameData.deckTestResults}
+                  isEarlyAccess={gameData.isEarlyAccess}
                 />
               ),
             }}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Gem } from "lucide-react";
+import { Gem, FlaskConical } from "lucide-react";
 import type { Game } from "@/lib/types";
 
 interface GameCardProps {
@@ -28,6 +28,15 @@ export function GameCard({ game }: GameCardProps) {
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
             className="object-cover transition-transform duration-500 group-hover:scale-105"
           />
+        )}
+        {game.is_early_access && (
+          <div
+            className="absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono uppercase tracking-widest"
+            style={{ background: "rgba(56,152,236,0.9)", color: "#fff" }}
+          >
+            <FlaskConical className="w-2.5 h-2.5" />
+            Early Access
+          </div>
         )}
         {(game.hidden_gem_score ?? 0) >= 70 && (
           <div

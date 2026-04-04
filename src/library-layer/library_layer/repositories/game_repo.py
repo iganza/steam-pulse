@@ -281,7 +281,8 @@ class GameRepository(BaseRepository):
                    g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
                    r.report_json->>'hidden_gem_score' AS hidden_gem_score,
-                   r.report_json->>'sentiment_score'  AS sentiment_score
+                   r.report_json->>'sentiment_score'  AS sentiment_score,
+                   EXISTS(SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
             FROM games g
             LEFT JOIN reports r ON r.appid = g.appid
             WHERE {where}

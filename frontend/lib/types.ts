@@ -82,6 +82,7 @@ export interface Game {
   sentiment_score?: number;
   price_usd?: number;
   is_free?: boolean;
+  is_early_access?: boolean;
   genres?: string[];
   tags?: string[];
   release_date?: string;

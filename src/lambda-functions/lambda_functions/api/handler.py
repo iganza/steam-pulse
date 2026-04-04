@@ -385,7 +385,7 @@ async def list_top_tags(limit: int = 24) -> list[dict]:
 
 @app.get("/api/tags/grouped")
 async def list_tags_grouped(
-    limit_per_category: int = Query(default=20, ge=1, le=50),
+    limit_per_category: int = Query(default=20, ge=1, le=200),
 ) -> list[dict]:
     return _game_repo.list_tags_grouped(limit_per_category=limit_per_category)
 

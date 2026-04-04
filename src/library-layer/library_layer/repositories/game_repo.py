@@ -408,7 +408,13 @@ class GameRepository(BaseRepository):
                     "tags": [],
                     "total_count": row["total_count"],
                 }
-            grouped_by_category[category]["tags"].append(dict(row))
+            grouped_by_category[category]["tags"].append({
+                "id": row["id"],
+                "name": row["name"],
+                "slug": row["slug"],
+                "category": row["category"],
+                "game_count": row["game_count"],
+            })
         grouped = list(grouped_by_category.values())
         grouped.sort(
             key=lambda g: order.index(g["category"]) if g["category"] in order else 99,

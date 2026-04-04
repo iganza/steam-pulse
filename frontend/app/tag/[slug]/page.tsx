@@ -39,7 +39,7 @@ export default async function TagPage({ params }: Props) {
 
   // Fetch grouped tags and tag trend in parallel
   const [groupsResult, trendResult] = await Promise.allSettled([
-    getTagsGrouped(50),
+    getTagsGrouped(200),
     getTagTrend(slug),
   ]);
 

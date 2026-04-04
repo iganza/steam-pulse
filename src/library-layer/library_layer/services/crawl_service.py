@@ -50,18 +50,21 @@ def _normalize_reviews(appid: int, raw_reviews: list[dict]) -> list[dict]:
             except (ValueError, OSError):
                 pass
         playtime_minutes = int(r.get("playtime_at_review") or 0)
+        # Steam returns 0xFFFFFFFF (4294967295) as a sentinel for unknown vote counts.
+        # Clamp all integer fields to PostgreSQL INT_MAX to prevent overflow on insert.
+        _INT_MAX = 2_147_483_647
         result.append(
             {
                 "appid": appid,
                 "steam_review_id": steam_id,
                 "author_steamid": r.get("author_steamid") or None,
                 "voted_up": bool(r.get("voted_up", False)),
-                "playtime_hours": playtime_minutes // 60,
+                "playtime_hours": min(playtime_minutes // 60, _INT_MAX),
                 "body": r.get("review_text", ""),
                 "posted_at": posted_at,
                 "language": r.get("language") or None,
-                "votes_helpful": int(r.get("votes_helpful") or 0),
-                "votes_funny": int(r.get("votes_funny") or 0),
+                "votes_helpful": min(int(r.get("votes_helpful") or 0), _INT_MAX),
+                "votes_funny": min(int(r.get("votes_funny") or 0), _INT_MAX),
                 "written_during_early_access": bool(r.get("written_during_early_access", False)),
                 "received_for_free": bool(r.get("received_for_free", False)),
             }

@@ -36,8 +36,8 @@ test.describe('Tag page', () => {
   })
 
   test('shows related tags section', async ({ page }) => {
-    // Related Tags section heading is always rendered
-    await expect(page.getByText(/related tags/i)).toBeVisible()
+    // Heading is "More {category} Tags" when category is known, or "Related Tags" as fallback
+    await expect(page.getByText(/(related tags|more .+ tags)/i)).toBeVisible()
   })
 })
 

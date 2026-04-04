@@ -114,8 +114,8 @@ class CrawlSpokeStack(cdk.Stack):
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
-        # Deterministic function name — primary handler constructs ARN from
-        # config.spoke_region_list + this naming convention for cross-region invoke.
+        # Deterministic function name — primary handler constructs the queue URL
+        # from config.spoke_region_list + this naming convention.
         fn_name = f"steampulse-spoke-crawler-{spoke_region}-{environment}"
 
         spoke_fn = PythonFunction(

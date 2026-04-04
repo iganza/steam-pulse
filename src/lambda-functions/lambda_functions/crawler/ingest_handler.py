@@ -69,11 +69,15 @@ _tag_repo = TagRepository(_conn)
 # Per-spoke SQS targets — for direct re-queue of review pagination.
 # Eliminates the round-trip through the primary crawler dispatcher.
 _spoke_sqs_targets: list[tuple[str, object]] = []
-for _region, _queue_url in zip(
-    _config.spoke_region_list,
-    _config.spoke_crawl_queue_url_list,
-    strict=True,
-):
+_regions = _config.spoke_region_list
+_queue_urls = _config.spoke_crawl_queue_url_list
+if len(_regions) != len(_queue_urls):
+    raise RuntimeError(
+        f"SPOKE_REGIONS has {len(_regions)} entries but SPOKE_CRAWL_QUEUE_URLS has "
+        f"{len(_queue_urls)} — they must match 1:1. "
+        f"regions={_regions}, queue_urls={_queue_urls}"
+    )
+for _region, _queue_url in zip(_regions, _queue_urls, strict=True):
     _spoke_sqs_targets.append((_queue_url, boto3.client("sqs", region_name=_region)))
 
 _crawl_service = CrawlService(

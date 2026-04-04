@@ -9,8 +9,6 @@ Routes on message["task"]:
   "reviews"  → crawl_service.ingest_spoke_reviews() + cursor persistence + re-queue
 """
 
-from __future__ import annotations
-
 import gzip
 import json
 from datetime import datetime, timezone
@@ -26,7 +24,12 @@ from aws_lambda_powertools.utilities.batch import (
 )
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from lambda_functions.crawler.events import MetadataSpokeResult, ReviewSpokeResult, TagsSpokeResult
+from lambda_functions.crawler.events import (
+    MetadataSpokeResult,
+    ReviewSpokeRequest,
+    ReviewSpokeResult,
+    TagsSpokeResult,
+)
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -62,6 +65,16 @@ _content_events_topic_arn = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAM
 _catalog_repo = CatalogRepository(_conn)
 _review_repo = ReviewRepository(_conn)
 _tag_repo = TagRepository(_conn)
+
+# Per-spoke SQS targets — for direct re-queue of review pagination.
+# Eliminates the round-trip through the primary crawler dispatcher.
+_spoke_sqs_targets: list[tuple[str, object]] = []
+for _region, _queue_url in zip(
+    _config.spoke_region_list,
+    _config.spoke_crawl_queue_url_list,
+    strict=True,
+):
+    _spoke_sqs_targets.append((_queue_url, boto3.client("sqs", region_name=_region)))
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(_conn),
@@ -157,7 +170,12 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
     if tags:
         _tag_repo.upsert_tags(
             [
-                {"appid": msg.appid, "name": t["name"], "votes": t["votes"], "tagid": t.get("tagid")}
+                {
+                    "appid": msg.appid,
+                    "name": t["name"],
+                    "votes": t["votes"],
+                    "tagid": t.get("tagid"),
+                }
                 for t in tags
             ]
         )
@@ -260,20 +278,18 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             },
         )
     else:
-        # More to fetch — re-queue with cursor and decremented remaining budget.
+        # More to fetch — re-queue directly to the spoke's SQS queue,
+        # bypassing the primary crawler dispatcher entirely.
         new_remaining = msg.target - msg.count if msg.target is not None else None
-        _sqs.send_message(
-            QueueUrl=_review_crawl_queue_url,
-            MessageBody=json.dumps(
-                {
-                    "appid": appid,
-                    "task": "reviews",
-                    "cursor": msg.next_cursor,
-                    "target": new_remaining,
-                    "started_at": msg.started_at.isoformat() if msg.started_at else None,
-                }
-            ),
+        idx = appid % len(_spoke_sqs_targets)
+        queue_url, spoke_sqs = _spoke_sqs_targets[idx]
+        req = ReviewSpokeRequest(
+            appid=appid,
+            cursor=msg.next_cursor,
+            target=new_remaining,
+            started_at=msg.started_at,
         )
+        spoke_sqs.send_message(QueueUrl=queue_url, MessageBody=req.model_dump_json())
         logger.info(
             "Re-queued for next batch",
             extra={
@@ -281,6 +297,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
                 "total_so_far": total_fetched,
                 "remaining": new_remaining,
                 "cursor": msg.next_cursor,
+                "queue_url": queue_url,
             },
         )
 

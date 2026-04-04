@@ -272,12 +272,19 @@ def _build_synthesis_user_message(
 
     temporal_lines = ""
     if temporal is not None:
-
         ea_line = "No"
         if temporal.has_early_access:
-            fraction_str = f"{temporal.ea_fraction:.0%}" if temporal.ea_fraction is not None else "unknown"
-            delta_str = f"{temporal.ea_sentiment_delta:+.1f}pp" if temporal.ea_sentiment_delta is not None else "unknown"
-            ea_line = f"Yes — {fraction_str} of reviews from EA period, sentiment delta: {delta_str}"
+            fraction_str = (
+                f"{temporal.ea_fraction:.0%}" if temporal.ea_fraction is not None else "unknown"
+            )
+            delta_str = (
+                f"{temporal.ea_sentiment_delta:+.1f}pp"
+                if temporal.ea_sentiment_delta is not None
+                else "unknown"
+            )
+            ea_line = (
+                f"Yes — {fraction_str} of reviews from EA period, sentiment delta: {delta_str}"
+            )
         vel_lifetime = (
             f"{temporal.review_velocity_lifetime:.1f}"
             if temporal.review_velocity_lifetime is not None
@@ -298,7 +305,9 @@ def _build_synthesis_user_message(
             price_str = f"${metadata.price_usd}"
         else:
             price_str = "N/A"
-        metacritic_str = str(metadata.metacritic_score) if metadata.metacritic_score is not None else "N/A"
+        metacritic_str = (
+            str(metadata.metacritic_score) if metadata.metacritic_score is not None else "N/A"
+        )
         metadata_lines = f"""
   Price: {price_str}
   Platforms: {", ".join(metadata.platforms)}

@@ -24,7 +24,9 @@ _BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _CHUNKING_MODEL = os.environ["LLM_MODEL__CHUNKING"]
 
 
-def _format_chunk_record(appid: int, chunk: list[dict], chunk_index: int, total_chunks: int, game_name: str) -> dict:
+def _format_chunk_record(
+    appid: int, chunk: list[dict], chunk_index: int, total_chunks: int, game_name: str
+) -> dict:
     return {
         "recordId": f"{appid}-chunk-{chunk_index}",
         "modelInput": {
@@ -34,7 +36,9 @@ def _format_chunk_record(appid: int, chunk: list[dict], chunk_index: int, total_
             "messages": [
                 {
                     "role": "user",
-                    "content": _build_chunk_user_message(chunk, chunk_index, total_chunks, game_name),
+                    "content": _build_chunk_user_message(
+                        chunk, chunk_index, total_chunks, game_name
+                    ),
                 }
             ],
         },
@@ -85,8 +89,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
         )
 
         chunks = [
-            reviews_sorted[i : i + CHUNK_SIZE]
-            for i in range(0, len(reviews_sorted), CHUNK_SIZE)
+            reviews_sorted[i : i + CHUNK_SIZE] for i in range(0, len(reviews_sorted), CHUNK_SIZE)
         ]
         total_chunks = len(chunks)
 
@@ -98,10 +101,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # Upload JSONL to S3
     input_key = f"jobs/{execution_id}/pass1/input.jsonl"
     body = "\n".join(json.dumps(r) for r in records)
-    _s3.put_object(Bucket=_BUCKET, Key=input_key, Body=body.encode(), ContentType="application/x-ndjson")
+    _s3.put_object(
+        Bucket=_BUCKET, Key=input_key, Body=body.encode(), ContentType="application/x-ndjson"
+    )
 
     input_s3_uri = f"s3://{_BUCKET}/{input_key}"
     output_s3_uri = f"s3://{_BUCKET}/jobs/{execution_id}/pass1/output/"
 
     logger.info("pass1 input uploaded", extra={"uri": input_s3_uri, "records": len(records)})
-    return {"input_s3_uri": input_s3_uri, "output_s3_uri": output_s3_uri, "total_records": len(records)}
+    return {
+        "input_s3_uri": input_s3_uri,
+        "output_s3_uri": output_s3_uri,
+        "total_records": len(records),
+    }

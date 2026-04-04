@@ -20,9 +20,12 @@ def mock_context():
 
 @pytest.fixture(autouse=True)
 def patch_db_url():
-    with patch("library_layer.utils.db.get_db_url", return_value="postgresql://test:test@localhost/test"):
+    with patch(
+        "library_layer.utils.db.get_db_url", return_value="postgresql://test:test@localhost/test"
+    ):
         import importlib
         import lambda_functions.admin.migrate_handler as mh
+
         importlib.reload(mh)
         yield mh
 
@@ -34,7 +37,9 @@ def test_apply_migrations_receives_migration_list_not_plain_list(patch_db_url, m
 
     migration_list = MagicMock()
     migration_list.__len__ = lambda s: 2
-    migration_list.__iter__ = lambda s: iter([MagicMock(id="0001_initial"), MagicMock(id="0002_second")])
+    migration_list.__iter__ = lambda s: iter(
+        [MagicMock(id="0001_initial"), MagicMock(id="0002_second")]
+    )
 
     mock_backend = MagicMock()
     mock_backend.to_apply.return_value = migration_list

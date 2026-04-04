@@ -23,6 +23,7 @@ def get_db_url() -> str:
     secret_name = os.getenv("DB_SECRET_NAME")
     if secret_name:
         import boto3  # type: ignore[import-untyped]
+
         sm = boto3.client("secretsmanager")
         secret = json.loads(sm.get_secret_value(SecretId=secret_name)["SecretString"])
         return (

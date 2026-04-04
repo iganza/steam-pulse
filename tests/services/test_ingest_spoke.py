@@ -44,7 +44,9 @@ def test_ingest_spoke_metadata_delegates() -> None:
     """ingest_spoke_metadata delegates to _ingest_app_data and publishes events."""
     svc = _make_crawl_service()
     svc._game_repo.find_by_appid = MagicMock(return_value=None)
-    svc._ingest_app_data = MagicMock(return_value={"appid": 440, "name": "TF2", "review_count": 100})
+    svc._ingest_app_data = MagicMock(
+        return_value={"appid": 440, "name": "TF2", "review_count": 100}
+    )
     raw = {"details": {"name": "TF2", "type": "game"}, "summary": {}, "deck_compat": None}
     result = svc.ingest_spoke_metadata(440, raw)
     assert result is True
@@ -70,18 +72,20 @@ def test_ingest_spoke_reviews_returns_count() -> None:
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=1)
 
-    reviews = [{
-        "review_text": "good game",
-        "voted_up": True,
-        "playtime_at_review": 120,
-        "timestamp_created": 1700000001,
-        "language": "english",
-        "author_steamid": "u1",
-        "votes_helpful": 5,
-        "votes_funny": 0,
-        "written_during_early_access": False,
-        "received_for_free": False,
-    }]
+    reviews = [
+        {
+            "review_text": "good game",
+            "voted_up": True,
+            "playtime_at_review": 120,
+            "timestamp_created": 1700000001,
+            "language": "english",
+            "author_steamid": "u1",
+            "votes_helpful": 5,
+            "votes_funny": 0,
+            "written_during_early_access": False,
+            "received_for_free": False,
+        }
+    ]
     result = svc.ingest_spoke_reviews(440, reviews)
     assert result == 1
     svc._review_repo.bulk_upsert.assert_called_once()

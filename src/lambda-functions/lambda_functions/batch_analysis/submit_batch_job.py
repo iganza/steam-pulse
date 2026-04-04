@@ -30,12 +30,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
     uid = hashlib.sha256(f"{execution_id}-{pass_name}".encode()).hexdigest()[:12]
     job_name = f"sp-{pass_name}-{uid}"
 
-    logger.info("submitting batch job", extra={
-        "pass": pass_name,
-        "model_id": model_id,
-        "input_s3_uri": input_s3_uri,
-        "job_name": job_name,
-    })
+    logger.info(
+        "submitting batch job",
+        extra={
+            "pass": pass_name,
+            "model_id": model_id,
+            "input_s3_uri": input_s3_uri,
+            "job_name": job_name,
+        },
+    )
 
     resp = _bedrock.create_model_invocation_job(
         jobName=job_name,

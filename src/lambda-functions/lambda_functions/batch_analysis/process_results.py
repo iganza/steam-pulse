@@ -136,13 +136,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # Publish batch-complete event
     _sns.publish(
         TopicArn=_system_events_topic_arn,
-        Message=json.dumps({
-            "event": "batch-complete",
-            "execution_id": execution_id,
-            "processed": processed,
-            "failed": failed,
-            "failed_appids": failed_appids,
-        }),
+        Message=json.dumps(
+            {
+                "event": "batch-complete",
+                "execution_id": execution_id,
+                "processed": processed,
+                "failed": failed,
+                "failed_appids": failed_appids,
+            }
+        ),
         Subject="batch-complete",
     )
 

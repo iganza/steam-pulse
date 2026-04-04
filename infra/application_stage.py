@@ -83,6 +83,14 @@ class ApplicationStage(cdk.Stage):
             env=cdk_env,
         )
 
+        # ── Per-spoke crawl queue URLs (deterministic, for cross-region SQS send)
+        acct = self.account
+        spoke_crawl_queue_urls = ",".join(
+            f"https://sqs.{region}.amazonaws.com/{acct}"
+            f"/steampulse-spoke-crawl-{region}-{environment}"
+            for region in config.spoke_region_list
+        )
+
         # ── Compute ───────────────────────────────────────────────────────────
         compute = ComputeStack(
             self,
@@ -99,6 +107,7 @@ class ApplicationStage(cdk.Stage):
             system_events_topic=messaging.system_events_topic,
             spoke_results_queue=messaging.spoke_results_queue,
             email_queue=messaging.email_queue,
+            spoke_crawl_queue_urls=spoke_crawl_queue_urls,
             env=cdk_env,
         )
         compute.add_dependency(data)
@@ -175,13 +184,13 @@ class ApplicationStage(cdk.Stage):
         # have deterministic physical names for this reason.
         steam_secret_name = f"steampulse/{environment}/steam-api-key"
         primary_region = self.region
-        acct = self.account
         results_q_name = f"steampulse-spoke-results-{environment}"
         bucket_name = f"steampulse-assets-{environment}"
 
         for region in config.spoke_region_list:
             spoke = CrawlSpokeStack(
-                self, f"Spoke-{region}",
+                self,
+                f"Spoke-{region}",
                 stack_name=f"SteamPulse-{env_name}-Spoke-{region}",
                 config=config,
                 primary_region=primary_region,

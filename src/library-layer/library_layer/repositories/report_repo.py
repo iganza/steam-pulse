@@ -30,9 +30,7 @@ class ReportRepository(BaseRepository):
         self.conn.commit()
 
     def find_by_appid(self, appid: int) -> Report | None:
-        row = self._fetchone(
-            "SELECT * FROM reports WHERE appid = %s", (appid,)
-        )
+        row = self._fetchone("SELECT * FROM reports WHERE appid = %s", (appid,))
         if row is None:
             return None
         return Report.model_validate(dict(row))

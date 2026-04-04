@@ -197,7 +197,6 @@ def _find_sns_calls_by_attr(sns: MagicMock, event_type: str) -> list:
 # ── 27. crawl_app publishes metadata-ready ──────────────────────────────────
 
 
-
 def test_crawl_app_publishes_metadata_ready(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -241,7 +240,6 @@ def test_crawl_app_publishes_metadata_ready(
 
 
 # ── 28. eligible game sets is_eligible=true ─────────────────────────────────
-
 
 
 def test_crawl_app_eligible_sets_is_eligible_true(
@@ -292,7 +290,6 @@ def test_crawl_app_eligible_sets_is_eligible_true(
 # ── 29. ineligible game sets is_eligible=false ──────────────────────────────
 
 
-
 def test_crawl_app_ineligible_sets_is_eligible_false(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -339,7 +336,6 @@ def test_crawl_app_ineligible_sets_is_eligible_false(
 
 
 # ── 30. configurable threshold ──────────────────────────────────────────────
-
 
 
 def test_crawl_app_uses_configurable_threshold(
@@ -442,7 +438,6 @@ def test_get_eligibility_threshold_caches() -> None:
 # ── 34. detects game-released ────────────────────────────────────────────────
 
 
-
 def test_crawl_app_detects_game_released(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -500,7 +495,6 @@ def test_crawl_app_detects_game_released(
 # ── 35. no release if already released ───────────────────────────────────────
 
 
-
 def test_crawl_app_no_release_if_already_released(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -546,7 +540,6 @@ def test_crawl_app_no_release_if_already_released(
 
 
 # ── 36. detects price change ────────────────────────────────────────────────
-
 
 
 def test_crawl_app_detects_price_change(
@@ -596,7 +589,6 @@ def test_crawl_app_detects_price_change(
 # ── 37. no price event if same ──────────────────────────────────────────────
 
 
-
 def test_crawl_app_no_price_event_if_same(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -643,7 +635,6 @@ def test_crawl_app_no_price_event_if_same(
 
 
 # ── 38. detects review milestone ────────────────────────────────────────────
-
 
 
 def test_crawl_app_detects_review_milestone(
@@ -695,7 +686,6 @@ def test_crawl_app_detects_review_milestone(
 # ── 39. publishes ALL crossed milestones ────────────────────────────────────
 
 
-
 def test_crawl_app_publishes_all_crossed_milestones(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -745,7 +735,6 @@ def test_crawl_app_publishes_all_crossed_milestones(
 # ── 40. no milestone if already past ────────────────────────────────────────
 
 
-
 def test_crawl_app_no_milestone_if_already_past(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -793,7 +782,6 @@ def test_crawl_app_no_milestone_if_already_past(
 
 
 # ── 41. crawl_reviews publishes reviews-ready ────────────────────────────────
-
 
 
 def test_crawl_reviews_publishes_reviews_ready(

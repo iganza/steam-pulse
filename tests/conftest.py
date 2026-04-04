@@ -74,6 +74,7 @@ _TEST_ENV_DEFAULTS = {
     "PRIMARY_REGION": "us-east-1",
     "SPOKE_RESULTS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/spoke-results",
     "SPOKE_REGIONS": "us-east-1",
+    "SPOKE_CRAWL_QUEUE_URLS": "https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-test",
 }
 for _k, _v in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_k, _v)
@@ -230,15 +231,23 @@ def mock_deck_compat(request: pytest.FixtureRequest) -> None:
 
     httpx_mock = request.getfixturevalue("httpx_mock")
     httpx_mock.add_response(
-        url=_re.compile(r"https://store\.steampowered\.com/saleaction/ajaxgetdeckappcompatibilityreport"),
+        url=_re.compile(
+            r"https://store\.steampowered\.com/saleaction/ajaxgetdeckappcompatibilityreport"
+        ),
         json={
             "success": 1,
             "results": {
                 "appid": 440,
                 "resolved_category": 2,
                 "resolved_items": [
-                    {"display_type": 3, "loc_token": "#SteamDeckVerified_TestResult_DefaultControllerConfigNotFullyFunctional"},
-                    {"display_type": 4, "loc_token": "#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant"},
+                    {
+                        "display_type": 3,
+                        "loc_token": "#SteamDeckVerified_TestResult_DefaultControllerConfigNotFullyFunctional",
+                    },
+                    {
+                        "display_type": 4,
+                        "loc_token": "#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant",
+                    },
                 ],
             },
         },

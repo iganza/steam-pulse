@@ -30,7 +30,9 @@ class ResendEmailSender:
         resend.Emails.send({"from": from_addr, "to": [to], "subject": subject, "html": html})
 
 
-def send_email_safe(sender: EmailSender, *, to: str, subject: str, html: str, from_addr: str) -> None:
+def send_email_safe(
+    sender: EmailSender, *, to: str, subject: str, html: str, from_addr: str
+) -> None:
     """Fire-and-forget wrapper — logs warning on failure, never raises."""
     try:
         sender.send(to=to, subject=subject, html=html, from_addr=from_addr)

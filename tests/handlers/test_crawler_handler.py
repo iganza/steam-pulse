@@ -116,7 +116,7 @@ def test_handler_direct_crawl_apps(lambda_context: Any) -> None:
 
 @mock_aws
 def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
-    """SQS app-crawl event → dispatches to a spoke Lambda."""
+    """SQS app-crawl event → dispatches to a spoke SQS queue."""
     mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
@@ -124,9 +124,10 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     import lambda_functions.crawler.handler as hm
 
     # Inject mock spoke targets so dispatch has targets
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -141,26 +142,27 @@ def test_handler_dispatches_sqs_to_spoke(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    mock_lambda_client.invoke.assert_called_once()
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    assert call_kwargs["InvocationType"] == "Event"
-    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    mock_sqs_client.send_message.assert_called_once()
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    assert call_kwargs["QueueUrl"] == "https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue"
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 440
     assert payload.task == "metadata"
 
 
 @mock_aws
 def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
-    """SQS review-crawl event → dispatches to spoke with task=reviews."""
+    """SQS review-crawl event → dispatches to spoke queue with task=reviews."""
     mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -175,10 +177,9 @@ def test_handler_dispatches_review_crawl_to_spoke(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    mock_lambda_client.invoke.assert_called_once()
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    assert call_kwargs["InvocationType"] == "Event"
-    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    mock_sqs_client.send_message.assert_called_once()
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 730
     assert payload.task == "reviews"
     assert payload.cursor == "*"
@@ -194,9 +195,10 @@ def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -218,9 +220,9 @@ def test_handler_dispatches_sns_wrapped_body(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    mock_lambda_client.invoke.assert_called_once()
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    mock_sqs_client.send_message.assert_called_once()
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 570
     assert payload.task == "metadata"
 
@@ -234,9 +236,10 @@ def test_review_dispatch_normalizes_null_cursor_to_fresh_start(lambda_context: A
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -253,8 +256,8 @@ def test_review_dispatch_normalizes_null_cursor_to_fresh_start(lambda_context: A
     }
     handler(event, lambda_context)
 
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.cursor == "*"
     assert payload.target == 5000
 
@@ -268,9 +271,10 @@ def test_review_dispatch_defaults_target_when_missing(lambda_context: Any) -> No
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -286,24 +290,25 @@ def test_review_dispatch_defaults_target_when_missing(lambda_context: Any) -> No
     }
     handler(event, lambda_context)
 
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.cursor == "AoJ4sometoken"
     assert payload.target == hm._crawler_config.REVIEW_LIMIT
 
 
 @mock_aws
 def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
-    """Message with target=0 → budget exhausted, no spoke invoked."""
+    """Message with target=0 → budget exhausted, no message sent to spoke."""
     mock_crawl = _make_crawl_service()
     mock_catalog = _make_catalog_service()
     _inject_services(mock_crawl, mock_catalog)
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -320,7 +325,7 @@ def test_review_dispatch_skips_zero_target(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    mock_lambda_client.invoke.assert_not_called()
+    mock_sqs_client.send_message.assert_not_called()
 
 
 @mock_aws
@@ -332,9 +337,10 @@ def test_handler_dispatches_tags_to_spoke(lambda_context: Any) -> None:
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -349,10 +355,9 @@ def test_handler_dispatches_tags_to_spoke(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    mock_lambda_client.invoke.assert_called_once()
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    assert call_kwargs["InvocationType"] == "Event"
-    payload = TagsSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    mock_sqs_client.send_message.assert_called_once()
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = TagsSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 440
     assert payload.task == "tags"
 
@@ -366,9 +371,10 @@ def test_handler_infers_task_from_arn_when_missing(lambda_context: Any) -> None:
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -391,8 +397,8 @@ def test_handler_infers_task_from_arn_when_missing(lambda_context: Any) -> None:
     }
     handler(event, lambda_context)
 
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = MetadataSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 999
     assert payload.task == "metadata"
 
@@ -406,9 +412,10 @@ def test_handler_infers_reviews_from_review_crawl_arn(lambda_context: Any) -> No
 
     import lambda_functions.crawler.handler as hm
 
-    mock_lambda_client = MagicMock()
-    mock_lambda_client.invoke.return_value = {"StatusCode": 202}
-    hm._spoke_targets = [("test-spoke", mock_lambda_client)]
+    mock_sqs_client = MagicMock()
+    hm._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/test-spoke-queue", mock_sqs_client)
+    ]
 
     from lambda_functions.crawler.handler import handler
 
@@ -438,8 +445,8 @@ def test_handler_infers_reviews_from_review_crawl_arn(lambda_context: Any) -> No
     }
     handler(event, lambda_context)
 
-    call_kwargs = mock_lambda_client.invoke.call_args[1]
-    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["Payload"])
+    call_kwargs = mock_sqs_client.send_message.call_args[1]
+    payload = ReviewSpokeRequest.model_validate_json(call_kwargs["MessageBody"])
     assert payload.appid == 888
     assert payload.task == "reviews"
 

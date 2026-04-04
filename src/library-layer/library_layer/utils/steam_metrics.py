@@ -21,13 +21,17 @@ def make_steam_metrics_callback(
             is called directly and the flush is handled by @log_metrics.
     """
     if metrics is not None:
+
         def _callback(endpoint: str, region: str, status_code: int, latency_ms: float) -> None:
             metrics.add_metric(name="SteamApiRequests", unit=MetricUnit.Count, value=1)
-            metrics.add_metric(name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms)
+            metrics.add_metric(
+                name="SteamApiLatency", unit=MetricUnit.Milliseconds, value=latency_ms
+            )
             if status_code in (429, 503):
                 metrics.add_metric(name="SteamApiRetries", unit=MetricUnit.Count, value=1)
             if status_code >= 400:
                 metrics.add_metric(name="SteamApiErrors", unit=MetricUnit.Count, value=1)
+
         return _callback
 
     # Fallback: no Metrics instance (e.g. local dev, tests without moto).

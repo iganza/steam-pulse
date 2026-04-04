@@ -34,6 +34,7 @@ def patch_get_conn(mock_conn):
     with patch("library_layer.utils.db.get_conn", return_value=conn):
         import importlib
         import lambda_functions.admin.handler as h
+
         importlib.reload(h)
         yield h
 

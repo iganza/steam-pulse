@@ -839,9 +839,18 @@ def cmd_spokes_status(env: str) -> None:
 
 
 _SPOKE_REGIONS = [
-    "us-west-2", "us-east-1", "us-east-2", "ca-central-1",
-    "eu-west-1", "eu-central-1", "eu-north-1", "ap-south-1",
-    "ap-southeast-1", "ap-northeast-1", "ap-northeast-2", "ap-southeast-2",
+    "us-west-2",
+    "us-east-1",
+    "us-east-2",
+    "ca-central-1",
+    "eu-west-1",
+    "eu-central-1",
+    "eu-north-1",
+    "ap-south-1",
+    "ap-southeast-1",
+    "ap-northeast-1",
+    "ap-northeast-2",
+    "ap-southeast-2",
 ]
 
 
@@ -901,7 +910,9 @@ def cmd_logs_errors(env: str, minutes: int, pattern: str, region: str | None) ->
             message = data.get("message", msg)
             appid = data.get("appid", "")
             error = data.get("error", "")
-            parts = [p for p in [ts, r, level, f"appid={appid}" if appid else "", message, error] if p]
+            parts = [
+                p for p in [ts, r, level, f"appid={appid}" if appid else "", message, error] if p
+            ]
             print("  ".join(parts))
         except (json.JSONDecodeError, AttributeError):
             print(f"[{r}] {msg.strip()}")
@@ -1067,13 +1078,21 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── logs (query spoke logs across regions)
     lg = sub.add_parser("logs", help="Query spoke logs across all regions")
     lg.add_argument(
-        "--env", default="staging", choices=["staging", "production"],
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
         help="Environment (default: staging)",
     )
     lg_sub = lg.add_subparsers(dest="logs_cmd", required=True)
     le = lg_sub.add_parser("errors", help="Show errors/warnings across all spoke regions")
-    le.add_argument("--minutes", type=int, default=60, metavar="N", help="Look back N minutes (default: 60)")
-    le.add_argument("--pattern", default="?ERROR ?WARNING ?\"Steam tag fetch error\" ?\"Steam reviews error\"", help="CloudWatch filter pattern")
+    le.add_argument(
+        "--minutes", type=int, default=60, metavar="N", help="Look back N minutes (default: 60)"
+    )
+    le.add_argument(
+        "--pattern",
+        default='?ERROR ?WARNING ?"Steam tag fetch error" ?"Steam reviews error"',
+        help="CloudWatch filter pattern",
+    )
     le.add_argument("--region", default=None, help="Limit to one region")
 
     return p

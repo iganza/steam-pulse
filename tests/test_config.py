@@ -24,8 +24,14 @@ def test_config_accepts_all_required_fields() -> None:
     """SteamPulseConfig constructs successfully when all required fields are present."""
     config = SteamPulseConfig(**_ALL_REQUIRED)
     assert config.GAME_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/game-events-topic-arn"
-    assert config.CONTENT_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/content-events-topic-arn"
-    assert config.SYSTEM_EVENTS_TOPIC_PARAM_NAME == "/steampulse/test/messaging/system-events-topic-arn"
+    assert (
+        config.CONTENT_EVENTS_TOPIC_PARAM_NAME
+        == "/steampulse/test/messaging/content-events-topic-arn"
+    )
+    assert (
+        config.SYSTEM_EVENTS_TOPIC_PARAM_NAME
+        == "/steampulse/test/messaging/system-events-topic-arn"
+    )
     assert config.REVIEW_ELIGIBILITY_THRESHOLD == 50
 
 
@@ -63,8 +69,9 @@ def test_config_raises_when_llm_model_missing(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.delenv("LLM_MODEL__CHUNKING", raising=False)
     monkeypatch.delenv("LLM_MODEL__SUMMARIZER", raising=False)
     with pytest.raises(ValidationError):
-        SteamPulseConfig(**{k: v for k, v in _ALL_REQUIRED.items()
-                            if not k.startswith("LLM_MODEL")})
+        SteamPulseConfig(
+            **{k: v for k, v in _ALL_REQUIRED.items() if not k.startswith("LLM_MODEL")}
+        )
 
 
 def test_to_lambda_env_includes_all_fields() -> None:

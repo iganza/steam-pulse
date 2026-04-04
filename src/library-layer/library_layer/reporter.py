@@ -94,8 +94,6 @@ def print_rich_report(result: dict, console: Console | None = None) -> None:
     # Competitive Mentions
     competitors = result.get("competitive_mentions", [])
     if competitors:
-        console.print(
-            f"\n[dim]Competitive mentions: {', '.join(competitors)}[/dim]"
-        )
+        console.print(f"\n[dim]Competitive mentions: {', '.join(competitors)}[/dim]")
 
     console.print()

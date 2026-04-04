@@ -18,6 +18,7 @@ Options:
   --since 5m|1h|2h|1d       how far back to start  default: 5m
   --region us-west-2         AWS region             default: us-west-2
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,14 +31,14 @@ import boto3
 # ── Colour palette ───────────────────────────────────────────────────────────
 
 _COLOURS = {
-    "crawler":  "\033[36m",   # cyan
-    "spoke":    "\033[33m",   # yellow
-    "ingest":   "\033[32m",   # green
-    "api":      "\033[35m",   # magenta
-    "analysis": "\033[34m",   # blue
+    "crawler": "\033[36m",  # cyan
+    "spoke": "\033[33m",  # yellow
+    "ingest": "\033[32m",  # green
+    "api": "\033[35m",  # magenta
+    "analysis": "\033[34m",  # blue
 }
 _RESET = "\033[0m"
-_RED   = "\033[31m"
+_RED = "\033[31m"
 
 # ── Log group discovery ──────────────────────────────────────────────────────
 # Each key maps to a substring that uniquely identifies the log group.
@@ -45,10 +46,10 @@ _RED   = "\033[31m"
 
 # Each key maps to the suffix after /steampulse/{env}/ in the log group name.
 _SUFFIXES: dict[str, str] = {
-    "crawler":  "crawler",
-    "ingest":   "ingest",
-    "spoke":    "spoke",
-    "api":      "api",
+    "crawler": "crawler",
+    "ingest": "ingest",
+    "spoke": "spoke",
+    "api": "api",
     "analysis": "analysis",
 }
 
@@ -97,11 +98,17 @@ def _spoke_region(group_name: str) -> str:
 def _tail_stream(label: str, group: str, since: str, region: str, colour: str) -> None:
     """Run `aws logs tail` in a subprocess and prefix each line."""
     cmd = [
-        "aws", "logs", "tail", group,
+        "aws",
+        "logs",
+        "tail",
+        group,
         "--follow",
-        "--format", "short",
-        "--since", since,
-        "--region", region,
+        "--format",
+        "short",
+        "--since",
+        since,
+        "--region",
+        region,
     ]
     try:
         proc = subprocess.Popen(
@@ -112,7 +119,10 @@ def _tail_stream(label: str, group: str, since: str, region: str, colour: str) -
             bufsize=1,
         )
     except FileNotFoundError:
-        print(f"{_RED}aws CLI not found — install it and configure credentials{_RESET}", file=sys.stderr)
+        print(
+            f"{_RED}aws CLI not found — install it and configure credentials{_RESET}",
+            file=sys.stderr,
+        )
         return
 
     prefix = f"{colour}[{label}]{_RESET} "
@@ -135,8 +145,12 @@ def main() -> None:
         help=f"one or more of: {', '.join([*_SUFFIXES, *_ALIASES])}",
     )
     p.add_argument("--env", default="staging", choices=["staging", "production"])
-    p.add_argument("--since", default="5m", metavar="DURATION",
-                   help="how far back to start, e.g. 5m 1h 2h 1d (default: 5m)")
+    p.add_argument(
+        "--since",
+        default="5m",
+        metavar="DURATION",
+        help="how far back to start, e.g. 5m 1h 2h 1d (default: 5m)",
+    )
     p.add_argument("--region", default="us-west-2")
     args = p.parse_args()
 
@@ -156,7 +170,9 @@ def main() -> None:
 
     print(f"Tailing {len(targets)} stream(s) — Ctrl-C to stop\n", file=sys.stderr)
     for label, group in targets:
-        print(f"  {_COLOURS.get(label.split('(')[0], '')}[{label}]{_RESET}  {group}", file=sys.stderr)
+        print(
+            f"  {_COLOURS.get(label.split('(')[0], '')}[{label}]{_RESET}  {group}", file=sys.stderr
+        )
     print(file=sys.stderr)
 
     threads = [

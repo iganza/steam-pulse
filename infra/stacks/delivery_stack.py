@@ -37,7 +37,8 @@ class DeliveryStack(cdk.Stack):
         **kwargs: object,
     ) -> None:
         super().__init__(
-            scope, construct_id,
+            scope,
+            construct_id,
             cross_region_references=config.is_production,
             **kwargs,
         )
@@ -49,7 +50,9 @@ class DeliveryStack(cdk.Stack):
         # references that would create a Data ↔ Delivery cycle.
         # OAC bucket policy lives in DataStack (account-scoped).
         self.assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"steampulse-assets-{env}",
+            self,
+            "AssetsBucket",
+            f"steampulse-assets-{env}",
         )
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
@@ -60,7 +63,8 @@ class DeliveryStack(cdk.Stack):
 
         # ── Cache Policies ────────────────────────────────────────────────────
         html_cache_policy = cloudfront.CachePolicy(
-            self, "HtmlCachePolicy",
+            self,
+            "HtmlCachePolicy",
             default_ttl=cdk.Duration.seconds(86_400),
             max_ttl=cdk.Duration.seconds(86_400 * 2),
             min_ttl=cdk.Duration.seconds(0),
@@ -70,7 +74,8 @@ class DeliveryStack(cdk.Stack):
             query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
         )
         static_cache_policy = cloudfront.CachePolicy(
-            self, "StaticCachePolicy",
+            self,
+            "StaticCachePolicy",
             default_ttl=cdk.Duration.seconds(31_536_000),
             max_ttl=cdk.Duration.seconds(31_536_000),
             min_ttl=cdk.Duration.seconds(31_536_000),
@@ -79,7 +84,8 @@ class DeliveryStack(cdk.Stack):
 
         # ── CloudFront ────────────────────────────────────────────────────────
         distribution = cloudfront.Distribution(
-            self, "Distribution",
+            self,
+            "Distribution",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.FunctionUrlOrigin(frontend_fn_url),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -117,19 +123,22 @@ class DeliveryStack(cdk.Stack):
         if config.is_production and domain_live:
             zone_id: str = self.node.try_get_context("hosted-zone-id") or ""
             hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
-                self, "HostedZone",
+                self,
+                "HostedZone",
                 hosted_zone_id=zone_id,
                 zone_name=DOMAIN,
             )
             route53.ARecord(
-                self, "ARecord",
+                self,
+                "ARecord",
                 zone=hosted_zone,
                 target=route53.RecordTarget.from_alias(
                     route53_targets.CloudFrontTarget(distribution),
                 ),
             )
             route53.ARecord(
-                self, "WwwRecord",
+                self,
+                "WwwRecord",
                 record_name="www",
                 zone=hosted_zone,
                 target=route53.RecordTarget.from_alias(
@@ -142,12 +151,14 @@ class DeliveryStack(cdk.Stack):
 
         # ── SSM outputs — ops tooling + pipeline CDN invalidation step ────────
         ssm.StringParameter(
-            self, "DistributionIdParam",
+            self,
+            "DistributionIdParam",
             parameter_name=f"/steampulse/{env}/delivery/distribution-id",
             string_value=distribution.distribution_id,
         )
         ssm.StringParameter(
-            self, "AssetsBucketNameParam",
+            self,
+            "AssetsBucketNameParam",
             parameter_name=f"/steampulse/{env}/delivery/assets-bucket-name",
             string_value=self.assets_bucket.bucket_name,
         )

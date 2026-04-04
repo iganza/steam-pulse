@@ -160,12 +160,15 @@ class DirectSteamSource(SteamDataSource):
                 self._emit(endpoint, resp.status_code, latency_ms)
                 if resp.status_code in _RETRY_STATUSES:
                     wait = min(2**attempt + random.uniform(1, 5), 120)
-                    logger.warning("HTTP retry", extra={
-                        "status": resp.status_code,
-                        "url": url,
-                        "wait_s": round(wait),
-                        "attempt": attempt + 1,
-                    })
+                    logger.warning(
+                        "HTTP retry",
+                        extra={
+                            "status": resp.status_code,
+                            "url": url,
+                            "wait_s": round(wait),
+                            "attempt": attempt + 1,
+                        },
+                    )
                     time.sleep(wait)
                     continue
                 resp.raise_for_status()
@@ -173,9 +176,7 @@ class DirectSteamSource(SteamDataSource):
             except httpx.HTTPStatusError as exc:
                 # Callback already fired above for the response — no duplicate emit.
                 if exc.response.status_code not in _RETRY_STATUSES or attempt == 5:
-                    raise SteamAPIError(
-                        f"HTTP {exc.response.status_code} from {url}"
-                    ) from exc
+                    raise SteamAPIError(f"HTTP {exc.response.status_code} from {url}") from exc
                 wait = min(2**attempt + random.uniform(1, 5), 120)
                 time.sleep(wait)
             except httpx.RequestError as exc:
@@ -184,12 +185,15 @@ class DirectSteamSource(SteamDataSource):
                 if attempt == 5:
                     raise SteamAPIError(f"Network error fetching {url}: {exc}") from exc
                 wait = min(2**attempt + random.uniform(1, 5), 120)
-                logger.warning("Network error retry", extra={
-                    "url": url,
-                    "wait_s": round(wait),
-                    "attempt": attempt + 1,
-                    "error": str(exc),
-                })
+                logger.warning(
+                    "Network error retry",
+                    extra={
+                        "url": url,
+                        "wait_s": round(wait),
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                    },
+                )
                 time.sleep(wait)
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
@@ -226,9 +230,7 @@ class DirectSteamSource(SteamDataSource):
 
     def get_app_details(self, appid: int) -> dict:
         self._jitter()
-        resp = self._get_with_retry(
-            APP_DETAILS_URL, appids=str(appid), l="english"
-        )
+        resp = self._get_with_retry(APP_DETAILS_URL, appids=str(appid), l="english")
         data = resp.json()
         key = str(appid)
         if key not in data or not data[key].get("success"):
@@ -294,19 +296,21 @@ class DirectSteamSource(SteamDataSource):
                     return reviews if max_reviews is None else reviews[:max_reviews], None
 
             for r in batch:
-                reviews.append({
-                    "recommendationid": r.get("recommendationid", ""),
-                    "review_text": r.get("review", ""),
-                    "voted_up": r.get("voted_up", False),
-                    "playtime_at_review": r.get("author", {}).get("playtime_at_review", 0),
-                    "timestamp_created": r.get("timestamp_created", 0),
-                    "language": r.get("language") or None,
-                    "author_steamid": r.get("author", {}).get("steamid") or None,
-                    "votes_helpful": r.get("votes_up", 0),
-                    "votes_funny": r.get("votes_funny", 0),
-                    "written_during_early_access": r.get("written_during_early_access", False),
-                    "received_for_free": r.get("received_for_free", False),
-                })
+                reviews.append(
+                    {
+                        "recommendationid": r.get("recommendationid", ""),
+                        "review_text": r.get("review", ""),
+                        "voted_up": r.get("voted_up", False),
+                        "playtime_at_review": r.get("author", {}).get("playtime_at_review", 0),
+                        "timestamp_created": r.get("timestamp_created", 0),
+                        "language": r.get("language") or None,
+                        "author_steamid": r.get("author", {}).get("steamid") or None,
+                        "votes_helpful": r.get("votes_up", 0),
+                        "votes_funny": r.get("votes_funny", 0),
+                        "written_during_early_access": r.get("written_during_early_access", False),
+                        "received_for_free": r.get("received_for_free", False),
+                    }
+                )
 
             next_cursor = data.get("cursor", "")
             if not next_cursor or next_cursor == cursor:
@@ -387,7 +391,9 @@ class DirectSteamSource(SteamDataSource):
         url = STORE_PAGE_URL.format(appid=appid)
         self._jitter()
         resp = self._get_with_retry(
-            url, cookies=_AGE_GATE_COOKIES, follow_redirects=True,
+            url,
+            cookies=_AGE_GATE_COOKIES,
+            follow_redirects=True,
         )
         return _extract_tags_from_html(resp.text, appid=appid)
 

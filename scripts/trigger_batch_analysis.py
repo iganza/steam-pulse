@@ -30,7 +30,10 @@ def main() -> None:
     try:
         sfn_arn = ssm.get_parameter(Name=param_name)["Parameter"]["Value"]
     except ssm.exceptions.ParameterNotFound:
-        print(f"ERROR: SSM parameter {param_name} not found. Is BatchAnalysisStack deployed?", file=sys.stderr)
+        print(
+            f"ERROR: SSM parameter {param_name} not found. Is BatchAnalysisStack deployed?",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     execution_input = json.dumps({"appids": args.appids})

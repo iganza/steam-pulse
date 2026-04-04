@@ -1,46 +1,47 @@
 """Tests for TagRepository."""
 
-
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.tag_repo import TagRepository
 
 
 def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
-    game_repo.upsert({
-        "appid": appid,
-        "name": f"App {appid}",
-        "slug": f"app-{appid}",
-        "type": "game",
-        "developer": None,
-        "developer_slug": None,
-        "publisher": None,
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": None,
-        "coming_soon": False,
-        "price_usd": None,
-        "is_free": False,
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": 1000,
-        "review_count_english": 1000,
-        "total_positive": 900,
-        "total_negative": 100,
-        "positive_pct": 90,
-        "review_score_desc": "Very Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": "{}",
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+    game_repo.upsert(
+        {
+            "appid": appid,
+            "name": f"App {appid}",
+            "slug": f"app-{appid}",
+            "type": "game",
+            "developer": None,
+            "developer_slug": None,
+            "publisher": None,
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": None,
+            "coming_soon": False,
+            "price_usd": None,
+            "is_free": False,
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": 1000,
+            "review_count_english": 1000,
+            "total_positive": 900,
+            "total_negative": 100,
+            "positive_pct": 90,
+            "review_score_desc": "Very Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": "{}",
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
 
 
 def test_upsert_genres(game_repo: GameRepository, tag_repo: TagRepository) -> None:

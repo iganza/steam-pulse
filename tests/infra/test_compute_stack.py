@@ -52,6 +52,7 @@ def template() -> assertions.Template:
         CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
         EMAIL_QUEUE_PARAM_NAME="/steampulse/test/messaging/email-queue-url",
+        SPOKE_CRAWL_QUEUE_URLS="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
     )
     compute = ComputeStack(
         app,
@@ -67,6 +68,7 @@ def template() -> assertions.Template:
         system_events_topic=system_events_topic,
         spoke_results_queue=spoke_results_queue,
         email_queue=email_queue,
+        spoke_crawl_queue_urls="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
     )
     return assertions.Template.from_stack(compute)
 

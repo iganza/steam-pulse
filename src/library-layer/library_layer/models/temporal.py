@@ -35,7 +35,9 @@ def classify_age_bucket(days: int | None) -> str | None:
     return "legacy"
 
 
-def classify_velocity_trend(existing_trend: str, last_30d: int, days_since_release: int | None) -> str:
+def classify_velocity_trend(
+    existing_trend: str, last_30d: int, days_since_release: int | None
+) -> str:
     if last_30d == 0 and days_since_release is not None and days_since_release > 180:
         return "dead"
     return existing_trend
@@ -133,5 +135,7 @@ def build_temporal_context(game: Game, velocity_data: dict, ea_data: dict) -> Ga
         review_velocity_last_30d=last_30d,
         velocity_trend=classify_velocity_trend(existing_trend, last_30d, days_since_release),
         is_evergreen=check_evergreen(days_since_release, last_30d),
-        launch_trajectory=classify_trajectory(review_velocity_lifetime, last_30d, days_since_release),
+        launch_trajectory=classify_trajectory(
+            review_velocity_lifetime, last_30d, days_since_release
+        ),
     )

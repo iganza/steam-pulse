@@ -9,12 +9,14 @@ from fastapi.testclient import TestClient
 # Lightweight in-memory repo mocks — injected at module level before each test
 # ---------------------------------------------------------------------------
 
+
 class _MemReportRepo:
     def __init__(self) -> None:
         self._store: dict[int, dict] = {}
 
     def find_by_appid(self, appid: int) -> object | None:
         from library_layer.models.report import Report
+
         data = self._store.get(appid)
         return Report(appid=appid, report_json=data) if data else None
 
@@ -76,6 +78,7 @@ class _StubSqsClient:
 def reset_api_state() -> None:
     """Inject fresh in-memory mock repos before each test."""
     import lambda_functions.api.handler as api_module
+
     api_module._report_repo = _MemReportRepo()  # type: ignore[assignment]
     api_module._game_repo = _MemGameRepo()  # type: ignore[assignment]
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
@@ -88,6 +91,7 @@ def reset_api_state() -> None:
 @pytest.fixture
 def client() -> TestClient:
     from lambda_functions.api.handler import app
+
     return TestClient(app)
 
 
@@ -169,7 +173,6 @@ def test_preview_unconditional(client: TestClient) -> None:
     for _ in range(3):
         resp = client.post("/api/preview", json={"appid": 440})
         assert resp.status_code == 200
-
 
 
 # ---------------------------------------------------------------------------

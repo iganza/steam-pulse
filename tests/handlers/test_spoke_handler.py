@@ -1,4 +1,4 @@
-"""Tests for spoke_handler — direct invocation, S3 write, SQS notify, error paths."""
+"""Tests for spoke_handler — SQS-triggered, S3 write, SQS notify, error paths."""
 
 import gzip
 import json
@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import boto3
 import pytest
+from aws_lambda_powertools.utilities.batch.exceptions import BatchProcessingError
 from lambda_functions.crawler.events import (
     MetadataSpokeRequest,
     MetadataSpokeResult,
     ReviewSpokeRequest,
     ReviewSpokeResult,
-    SpokeResponse,
 )
 from library_layer.steam_source import SteamAPIError
 from moto import mock_aws
@@ -29,7 +29,27 @@ def _seed_secrets() -> None:
 def _get_handler_module() -> Any:
     _seed_secrets()
     import lambda_functions.crawler.spoke_handler as sh
+
     return sh
+
+
+def _sqs_event(payload: dict) -> dict:
+    """Wrap a payload dict in an SQS event envelope (single record)."""
+    return {
+        "Records": [
+            {
+                "messageId": "test-msg-1",
+                "receiptHandle": "test-handle",
+                "body": json.dumps(payload),
+                "attributes": {},
+                "messageAttributes": {},
+                "md5OfBody": "",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:test-queue",
+                "awsRegion": "us-west-2",
+            }
+        ]
+    }
 
 
 # ── Routing ─────────────────────────────────────────────────────────────────
@@ -45,13 +65,10 @@ def test_metadata_task_calls_get_app_details(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    event = _sqs_event(MetadataSpokeRequest(appid=440).model_dump())
+    result = sh.handler(event, lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.appid == 440
-    assert resp.task == "metadata"
-    assert resp.success is True
-    assert resp.count == 1
+    assert result["batchItemFailures"] == []
     sh._steam.get_app_details.assert_called_once_with(440)
 
 
@@ -59,28 +76,24 @@ def test_metadata_task_calls_get_app_details(lambda_context: Any) -> None:
 def test_reviews_task_calls_get_reviews(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
-    sh._steam.get_reviews = MagicMock(return_value=(
-        [{"review_text": "great"}], None
-    ))
+    sh._steam.get_reviews = MagicMock(return_value=([{"review_text": "great"}], None))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(ReviewSpokeRequest(appid=440).model_dump(), lambda_context)
+    event = _sqs_event(ReviewSpokeRequest(appid=440).model_dump())
+    result = sh.handler(event, lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.appid == 440
-    assert resp.task == "reviews"
-    assert resp.success is True
-    assert resp.count == 1
+    assert result["batchItemFailures"] == []
     sh._steam.get_reviews.assert_called_once_with(440, max_reviews=sh.BATCH_SIZE, start_cursor="*")
 
 
 @mock_aws
-def test_unknown_task_raises(lambda_context: Any) -> None:
+def test_unknown_task_reports_batch_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
 
-    with pytest.raises(ValueError, match="Unknown task"):
-        sh.handler({"appid": 440, "task": "bogus"}, lambda_context)
+    event = _sqs_event({"appid": 440, "task": "bogus"})
+    with pytest.raises(BatchProcessingError):
+        sh.handler(event, lambda_context)
 
 
 # ── S3 write + SQS notify ──────────────────────────────────────────────────
@@ -97,7 +110,7 @@ def test_metadata_writes_gzipped_json_to_s3(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
     put_call = sh._s3.put_object.call_args
     assert put_call[1]["Key"].startswith("spoke-results/metadata/440-")
@@ -118,7 +131,7 @@ def test_metadata_sends_sqs_notification_with_s3_key(lambda_context: Any) -> Non
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
     sqs_call = sh._sqs.send_message.call_args
     msg = MetadataSpokeResult.model_validate_json(sqs_call[1]["MessageBody"])
@@ -139,7 +152,7 @@ def test_reviews_writes_to_s3_and_notifies(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(ReviewSpokeRequest(appid=440).model_dump(), lambda_context)
+    sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
 
     put_call = sh._s3.put_object.call_args
     assert put_call[1]["Key"].startswith("spoke-results/reviews/440-")
@@ -163,7 +176,7 @@ def test_reviews_exhausted_sends_none_cursor(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(ReviewSpokeRequest(appid=440).model_dump(), lambda_context)
+    sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
 
     sqs_call = sh._sqs.send_message.call_args
     msg = ReviewSpokeResult.model_validate_json(sqs_call[1]["MessageBody"])
@@ -178,29 +191,33 @@ def test_reviews_with_cursor_and_max_reviews(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(ReviewSpokeRequest(appid=440, cursor="saved_cursor", max_reviews=2000).model_dump(), lambda_context)
+    sh.handler(
+        _sqs_event(
+            ReviewSpokeRequest(appid=440, cursor="saved_cursor", max_reviews=2000).model_dump()
+        ),
+        lambda_context,
+    )
 
-    sh._steam.get_reviews.assert_called_once_with(440, max_reviews=min(2000, sh.BATCH_SIZE), start_cursor="saved_cursor")
+    sh._steam.get_reviews.assert_called_once_with(
+        440, max_reviews=min(2000, sh.BATCH_SIZE), start_cursor="saved_cursor"
+    )
 
 
 # ── Error paths ─────────────────────────────────────────────────────────────
 
 
 @mock_aws
-def test_metadata_steam_api_error_returns_failure(lambda_context: Any) -> None:
+def test_metadata_steam_api_error_notifies_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_app_details = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    result = sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.success is False
-    assert resp.count == 0
+    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
-    # Still notifies with success=False and error reason
     msg = MetadataSpokeResult.model_validate_json(sh._sqs.send_message.call_args[1]["MessageBody"])
     assert msg.success is False
     assert msg.s3_key is None
@@ -208,49 +225,44 @@ def test_metadata_steam_api_error_returns_failure(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_metadata_empty_details_returns_failure(lambda_context: Any) -> None:
+def test_metadata_empty_details_notifies_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_app_details = MagicMock(return_value=None)
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    result = sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.success is False
+    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
 
 
 @mock_aws
-def test_reviews_steam_api_error_returns_zero(lambda_context: Any) -> None:
+def test_reviews_steam_api_error_notifies_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_reviews = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(ReviewSpokeRequest(appid=440).model_dump(), lambda_context)
+    result = sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.success is False
-    assert resp.count == 0
+    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
 
 
 @mock_aws
-def test_reviews_empty_list_returns_zero(lambda_context: Any) -> None:
+def test_reviews_empty_list_notifies_failure(lambda_context: Any) -> None:
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_reviews = MagicMock(return_value=([], None))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(ReviewSpokeRequest(appid=440).model_dump(), lambda_context)
+    result = sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    resp = SpokeResponse.model_validate(result)
-    assert resp.success is False
-    assert resp.count == 0
+    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
 
 
@@ -267,8 +279,8 @@ def test_s3_keys_are_unique_across_invocations(lambda_context: Any) -> None:
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
-    sh.handler(MetadataSpokeRequest(appid=440).model_dump(), lambda_context)
+    sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
+    sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
     keys = [call[1]["Key"] for call in sh._s3.put_object.call_args_list]
     assert len(keys) == 2

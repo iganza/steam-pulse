@@ -379,10 +379,9 @@ def _trend_dates() -> tuple[str, str]:
 def test_sentiment_trend_improving() -> None:
     """Recent reviews more positive → 'improving'."""
     prior, recent = _trend_dates()
-    reviews = (
-        [{"voted_up": i < 5, "posted_at": prior} for i in range(10)]
-        + [{"voted_up": True, "posted_at": recent} for _ in range(10)]
-    )
+    reviews = [{"voted_up": i < 5, "posted_at": prior} for i in range(10)] + [
+        {"voted_up": True, "posted_at": recent} for _ in range(10)
+    ]
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "improving"
     assert "rose" in note.lower()
@@ -391,10 +390,9 @@ def test_sentiment_trend_improving() -> None:
 def test_sentiment_trend_declining() -> None:
     """Recent reviews less positive → 'declining'."""
     prior, recent = _trend_dates()
-    reviews = (
-        [{"voted_up": True, "posted_at": prior} for _ in range(10)]
-        + [{"voted_up": i < 3, "posted_at": recent} for i in range(10)]
-    )
+    reviews = [{"voted_up": True, "posted_at": prior} for _ in range(10)] + [
+        {"voted_up": i < 3, "posted_at": recent} for i in range(10)
+    ]
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "declining"
     assert "dropped" in note.lower()
@@ -403,10 +401,9 @@ def test_sentiment_trend_declining() -> None:
 def test_sentiment_trend_stable() -> None:
     """Similar sentiment → 'stable'."""
     prior, recent = _trend_dates()
-    reviews = (
-        [{"voted_up": True, "posted_at": prior} for _ in range(10)]
-        + [{"voted_up": True, "posted_at": recent} for _ in range(10)]
-    )
+    reviews = [{"voted_up": True, "posted_at": prior} for _ in range(10)] + [
+        {"voted_up": True, "posted_at": recent} for _ in range(10)
+    ]
     trend, note = _compute_sentiment_trend(reviews)
     assert trend == "stable"
     assert "steady" in note.lower()
@@ -501,9 +498,16 @@ def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("library_layer.analyzer._synthesize", lambda *_args, **_kw: fake_report)
 
     reviews = [
-        {"voted_up": True, "playtime_hours": 60, "review_text": "Great game!",
-         "votes_helpful": 10, "votes_funny": 0, "posted_at": "2026-01-15T00:00:00",
-         "written_during_early_access": False, "received_for_free": False}
+        {
+            "voted_up": True,
+            "playtime_hours": 60,
+            "review_text": "Great game!",
+            "votes_helpful": 10,
+            "votes_funny": 0,
+            "posted_at": "2026-01-15T00:00:00",
+            "written_during_early_access": False,
+            "received_for_free": False,
+        }
         for _ in range(10)
     ]
     result = analyze_reviews(reviews, "Test Game")
@@ -544,9 +548,16 @@ def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("library_layer.analyzer._synthesize", lambda *_args, **_kw: fake_report)
 
     reviews = [
-        {"voted_up": True, "playtime_hours": 30, "review_text": "Fun!",
-         "votes_helpful": 0, "votes_funny": 0, "posted_at": "2026-01-15T00:00:00",
-         "written_during_early_access": False, "received_for_free": False}
+        {
+            "voted_up": True,
+            "playtime_hours": 30,
+            "review_text": "Fun!",
+            "votes_helpful": 0,
+            "votes_funny": 0,
+            "posted_at": "2026-01-15T00:00:00",
+            "written_during_early_access": False,
+            "received_for_free": False,
+        }
         for _ in range(5)
     ]
     result = analyze_reviews(reviews, "Test Game", appid=440)

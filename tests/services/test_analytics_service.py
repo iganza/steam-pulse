@@ -47,7 +47,9 @@ def test_validate_granularity_invalid(svc: AnalyticsService) -> None:
         (datetime(2024, 1, 8), "week", "2024-W02"),
     ],
 )
-def test_format_period(svc: AnalyticsService, dt: datetime, granularity: str, expected: str) -> None:
+def test_format_period(
+    svc: AnalyticsService, dt: datetime, granularity: str, expected: str
+) -> None:
     assert svc._format_period(dt, granularity) == expected
 
 
@@ -82,8 +84,20 @@ def test_trend_too_few(svc: AnalyticsService) -> None:
 
 def test_get_release_volume(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_release_volume_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "releases": 100, "avg_sentiment": 71.5, "avg_reviews": 400, "free_count": 20},
-        {"period": datetime(2024, 2, 1), "releases": 120, "avg_sentiment": 68.0, "avg_reviews": 350, "free_count": 25},
+        {
+            "period": datetime(2024, 1, 1),
+            "releases": 100,
+            "avg_sentiment": 71.5,
+            "avg_reviews": 400,
+            "free_count": 20,
+        },
+        {
+            "period": datetime(2024, 2, 1),
+            "releases": 120,
+            "avg_sentiment": 68.0,
+            "avg_reviews": 350,
+            "free_count": 25,
+        },
     ]
     result = svc.get_release_volume(granularity="month", genre_slug="action")
     assert result["granularity"] == "month"
@@ -100,8 +114,15 @@ def test_get_release_volume(svc: AnalyticsService, mock_repo: MagicMock) -> None
 
 def test_get_sentiment_distribution(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_sentiment_distribution_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "total": 100, "positive_count": 60, "mixed_count": 30,
-         "negative_count": 10, "avg_sentiment": 70.0, "avg_metacritic": 72.0},
+        {
+            "period": datetime(2024, 1, 1),
+            "total": 100,
+            "positive_count": 60,
+            "mixed_count": 30,
+            "negative_count": 10,
+            "avg_sentiment": 70.0,
+            "avg_metacritic": 72.0,
+        },
     ]
     result = svc.get_sentiment_distribution(granularity="month")
     p = result["periods"][0]
@@ -135,8 +156,13 @@ def test_get_genre_share_buckets_other(svc: AnalyticsService, mock_repo: MagicMo
 
 def test_get_price_trend_free_pct(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_price_trend_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "total": 200, "avg_paid_price": 18.50,
-         "avg_price_incl_free": 14.00, "free_count": 40},
+        {
+            "period": datetime(2024, 1, 1),
+            "total": 200,
+            "avg_paid_price": 18.50,
+            "avg_price_incl_free": 14.00,
+            "free_count": 40,
+        },
     ]
     result = svc.get_price_trend(granularity="year")
     assert result["periods"][0]["free_pct"] == 20.0
@@ -149,8 +175,13 @@ def test_get_price_trend_free_pct(svc: AnalyticsService, mock_repo: MagicMock) -
 
 def test_get_ea_trend_ea_pct(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_ea_trend_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "total_releases": 100, "ea_count": 25,
-         "ea_avg_sentiment": 74.0, "non_ea_avg_sentiment": 68.0},
+        {
+            "period": datetime(2024, 1, 1),
+            "total_releases": 100,
+            "ea_count": 25,
+            "ea_avg_sentiment": 74.0,
+            "non_ea_avg_sentiment": 68.0,
+        },
     ]
     result = svc.get_ea_trend(granularity="year")
     assert result["periods"][0]["ea_pct"] == 25.0
@@ -163,9 +194,16 @@ def test_get_ea_trend_ea_pct(svc: AnalyticsService, mock_repo: MagicMock) -> Non
 
 def test_get_platform_trend_pcts(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_platform_trend_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "total": 200, "windows_count": 200,
-         "mac_count": 60, "linux_count": 40, "deck_verified": 50,
-         "deck_playable": 30, "deck_unsupported": 20},
+        {
+            "period": datetime(2024, 1, 1),
+            "total": 200,
+            "windows_count": 200,
+            "mac_count": 60,
+            "linux_count": 40,
+            "deck_verified": 50,
+            "deck_playable": 30,
+            "deck_unsupported": 20,
+        },
     ]
     result = svc.get_platform_trend(granularity="year")
     p = result["periods"][0]
@@ -188,9 +226,15 @@ def test_get_engagement_depth_no_data(svc: AnalyticsService, mock_repo: MagicMoc
 
 def test_get_engagement_depth_with_data(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_engagement_depth_rows.return_value = [
-        {"period": "2024-01-01", "total_reviews": 1000, "playtime_under_2h": 150,
-         "playtime_2_10h": 350, "playtime_10_50h": 300, "playtime_50_200h": 150,
-         "playtime_200h_plus": 50},
+        {
+            "period": "2024-01-01",
+            "total_reviews": 1000,
+            "playtime_under_2h": 150,
+            "playtime_2_10h": 350,
+            "playtime_10_50h": 300,
+            "playtime_50_200h": 150,
+            "playtime_200h_plus": 50,
+        },
     ]
     result = svc.get_engagement_depth(granularity="year")
     assert result["data_available"] is True
@@ -206,11 +250,25 @@ def test_get_engagement_depth_with_data(svc: AnalyticsService, mock_repo: MagicM
 
 def test_get_category_trend_adoption(svc: AnalyticsService, mock_repo: MagicMock) -> None:
     mock_repo.find_category_trend_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "category_name": "Single-player", "games_with_category": 180},
-        {"period": datetime(2024, 1, 1), "category_name": "Multi-player", "games_with_category": 60},
+        {
+            "period": datetime(2024, 1, 1),
+            "category_name": "Single-player",
+            "games_with_category": 180,
+        },
+        {
+            "period": datetime(2024, 1, 1),
+            "category_name": "Multi-player",
+            "games_with_category": 60,
+        },
     ]
     mock_repo.find_release_volume_rows.return_value = [
-        {"period": datetime(2024, 1, 1), "releases": 200, "avg_sentiment": None, "avg_reviews": None, "free_count": 0},
+        {
+            "period": datetime(2024, 1, 1),
+            "releases": 200,
+            "avg_sentiment": None,
+            "avg_reviews": None,
+            "free_count": 0,
+        },
     ]
     result = svc.get_category_trend(granularity="year", top_n=4)
     p = result["periods"][0]

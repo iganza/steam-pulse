@@ -202,6 +202,7 @@ def test_price_positioning_distribution(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Each price bucket is counted correctly."""
     genre_id = _seed_genre(db_conn, "Action", "action")
@@ -209,6 +210,7 @@ def test_price_positioning_distribution(
     for i in range(12):
         _seed_game(game_repo, 1000 + i, price_usd=7.99, review_count=20, positive_pct=70)
         _link_genre(db_conn, 1000 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_price_positioning("action")
     bucket_names = [d["price_range"] for d in result["distribution"]]
@@ -221,6 +223,7 @@ def test_price_positioning_sweet_spot(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """sweet_spot is the price_range with highest avg_sentiment (>= 10 games)."""
     genre_id = _seed_genre(db_conn, "RPG", "rpg")
@@ -232,6 +235,7 @@ def test_price_positioning_sweet_spot(
     for i in range(12):
         _seed_game(game_repo, 2100 + i, price_usd=12.99, review_count=20, positive_pct=90)
         _link_genre(db_conn, 2100 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_price_positioning("rpg")
     assert result["summary"]["sweet_spot"] == "$10-15"
@@ -241,12 +245,14 @@ def test_price_positioning_free_games(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Free games appear in distribution and summary free_count is accurate."""
     genre_id = _seed_genre(db_conn, "FPS", "fps")
     for i in range(3):
         _seed_game(game_repo, 3000 + i, is_free=True, price_usd=None, review_count=20)
         _link_genre(db_conn, 3000 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_price_positioning("fps")
     free_bucket = next((d for d in result["distribution"] if d["price_range"] == "Free"), None)
@@ -264,12 +270,14 @@ def test_release_timing_aggregation(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Monthly grouping is correct — games in the same month aggregate together."""
     genre_id = _seed_genre(db_conn, "Strategy", "strategy")
     for i in range(3):
         _seed_game(game_repo, 4000 + i, release_date="2023-03-10", review_count=20, positive_pct=70)
         _link_genre(db_conn, 4000 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_release_timing("strategy")
     march = next((m for m in result["monthly"] if m["month"] == 3), None)
@@ -282,6 +290,7 @@ def test_release_timing_best_worst_month(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """best_month has highest avg_sentiment, worst_month has lowest."""
     genre_id = _seed_genre(db_conn, "Puzzle", "puzzle")
@@ -293,6 +302,7 @@ def test_release_timing_best_worst_month(
     for i in range(2):
         _seed_game(game_repo, 5100 + i, release_date="2023-06-10", review_count=20, positive_pct=50)
         _link_genre(db_conn, 5100 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_release_timing("puzzle")
     assert result["best_month"]["month"] == 1
@@ -303,6 +313,7 @@ def test_release_timing_quietest_busiest_month(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """quietest_month has fewest releases, busiest_month has most."""
     genre_id = _seed_genre(db_conn, "Horror", "horror")
@@ -312,6 +323,7 @@ def test_release_timing_quietest_busiest_month(
     for i in range(4):
         _seed_game(game_repo, 6100 + i, release_date="2023-10-01", review_count=20)
         _link_genre(db_conn, 6100 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_release_timing("horror")
     assert result["quietest_month"]["month"] == 2
@@ -327,6 +339,7 @@ def test_platform_distribution_counts(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Platform counts and percentages are correct."""
     genre_id = _seed_genre(db_conn, "Platformer", "platformer")
@@ -335,6 +348,7 @@ def test_platform_distribution_counts(
         plat = json.dumps({"windows": True, "mac": i < 2, "linux": False})
         _seed_game(game_repo, 7000 + i, platforms=plat, review_count=20)
         _link_genre(db_conn, 7000 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_platform_distribution("platformer")
     assert result["total_games"] == 4
@@ -348,6 +362,7 @@ def test_platform_distribution_underserved(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Underserved is the supported platform with lowest percentage."""
     genre_id = _seed_genre(db_conn, "Sports", "sports")
@@ -355,6 +370,7 @@ def test_platform_distribution_underserved(
         plat = json.dumps({"windows": True, "mac": True, "linux": i == 0})
         _seed_game(game_repo, 8000 + i, platforms=plat, review_count=20)
         _link_genre(db_conn, 8000 + i, genre_id)
+    refresh_matviews()
 
     result = analytics_repo.find_platform_distribution("sports")
     # linux only has 1/4 = 25%, mac has 4/4 = 100%, so linux is underserved
@@ -370,6 +386,7 @@ def test_tag_trend_yearly(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """Year grouping and game count are correct."""
     tag_id = _seed_tag(db_conn, "Roguelike", "roguelike")
@@ -379,6 +396,7 @@ def test_tag_trend_yearly(
     for i in range(2):
         _seed_game(game_repo, 9100 + i, release_date="2023-05-01")
         _link_tag(db_conn, 9100 + i, tag_id)
+    refresh_matviews()
 
     result = analytics_repo.find_tag_trend("roguelike")
     year_map = {y["year"]: y["game_count"] for y in result["yearly"]}
@@ -391,6 +409,7 @@ def test_tag_trend_growth_rate(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """growth_rate is computed correctly and is None when first_year_count == 0."""
     tag_id = _seed_tag(db_conn, "Deckbuilder", "deckbuilder")
@@ -401,6 +420,7 @@ def test_tag_trend_growth_rate(
     for i in range(4):
         _seed_game(game_repo, 10100 + i, release_date="2022-01-01")
         _link_tag(db_conn, 10100 + i, tag_id)
+    refresh_matviews()
 
     result = analytics_repo.find_tag_trend("deckbuilder")
     assert result["growth_rate"] == pytest.approx(1.0, abs=0.01)
@@ -408,8 +428,10 @@ def test_tag_trend_growth_rate(
 
 def test_tag_trend_growth_rate_null_when_no_first_year(
     analytics_repo: AnalyticsRepository,
+    refresh_matviews: Any,
 ) -> None:
     """growth_rate is None for a tag with no games (first_year_count == 0)."""
+    refresh_matviews()
     result = analytics_repo.find_tag_trend("nonexistent-tag-xyz")
     assert result["growth_rate"] is None
     assert result["total_games"] == 0
@@ -419,6 +441,7 @@ def test_tag_trend_peak_year(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
+    refresh_matviews: Any,
 ) -> None:
     """peak_year is the year with the highest game count."""
     tag_id = _seed_tag(db_conn, "CRPG", "crpg")
@@ -431,6 +454,7 @@ def test_tag_trend_peak_year(
     for i in range(2):
         _seed_game(game_repo, 11200 + i, release_date="2023-01-01")
         _link_tag(db_conn, 11200 + i, tag_id)
+    refresh_matviews()
 
     result = analytics_repo.find_tag_trend("crpg")
     assert result["peak_year"] == 2022

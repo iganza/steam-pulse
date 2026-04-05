@@ -24,6 +24,16 @@ _MONTH_NAMES = [
 class AnalyticsRepository(BaseRepository):
     """Cross-cutting analytics queries spanning games, reviews, genres, and tags."""
 
+    def _resolve_genre_name(self, genre_slug: str) -> str:
+        """Look up the display name for a genre slug from the base table."""
+        row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
+        return row["name"] if row else genre_slug
+
+    def _resolve_tag_name(self, tag_slug: str) -> str:
+        """Look up the display name for a tag slug from the base table."""
+        row = self._fetchone("SELECT name FROM tags WHERE slug = %s", (tag_slug,))
+        return row["name"] if row else tag_slug
+
     def find_audience_overlap(self, appid: int, limit: int = 20) -> dict:
         """Find games with the most shared reviewers via author_steamid.
 
@@ -101,58 +111,19 @@ class AnalyticsRepository(BaseRepository):
         }
 
     def find_price_positioning(self, genre_slug: str) -> dict:
-        """Price distribution + sentiment correlation within a genre."""
-        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
-        genre_name = genre_row["name"] if genre_row else genre_slug
-
+        """Price distribution + sentiment correlation within a genre (from matview)."""
         dist_rows = self._fetchall(
             """
-            SELECT
-                CASE
-                    WHEN g.is_free THEN 'Free'
-                    WHEN g.price_usd < 5 THEN 'Under $5'
-                    WHEN g.price_usd < 10 THEN '$5-10'
-                    WHEN g.price_usd < 15 THEN '$10-15'
-                    WHEN g.price_usd < 20 THEN '$15-20'
-                    WHEN g.price_usd < 30 THEN '$20-30'
-                    WHEN g.price_usd < 50 THEN '$30-50'
-                    ELSE '$50+'
-                END AS price_range,
-                COUNT(*) AS game_count,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
-                ROUND(
-                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY COALESCE(g.price_usd, 0))::numeric,
-                    2
-                ) AS median_price
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s
-              AND g.review_count >= 10
-              AND (g.price_usd IS NOT NULL OR g.is_free)
-            GROUP BY 1
-            ORDER BY MIN(COALESCE(g.price_usd, 0))
+            SELECT genre_name, price_range, game_count, avg_sentiment, median_price
+            FROM mv_price_positioning
+            WHERE genre_slug = %s
+            ORDER BY median_price
             """,
             (genre_slug,),
         )
 
-        summary_row = self._fetchone(
-            """
-            SELECT
-                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
-                ROUND(
-                    (PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY g.price_usd)
-                     FILTER (WHERE NOT g.is_free))::numeric,
-                    2
-                ) AS median_price,
-                COUNT(*) FILTER (WHERE g.is_free) AS free_count,
-                COUNT(*) FILTER (WHERE NOT g.is_free) AS paid_count
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s AND g.review_count >= 10
-            """,
-            (genre_slug,),
+        genre_name = (
+            dist_rows[0]["genre_name"] if dist_rows else self._resolve_genre_name(genre_slug)
         )
 
         distribution = [
@@ -174,6 +145,28 @@ class AnalyticsRepository(BaseRepository):
             max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
         )
 
+        # Summary stats need exact avg/median over individual game prices,
+        # not bucket-level medians (median-of-medians is inaccurate).
+        # This lightweight query hits base tables but is cheap (single genre filter).
+        summary_row = self._fetchone(
+            """
+            SELECT
+                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
+                ROUND(
+                    (PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY g.price_usd)
+                     FILTER (WHERE NOT g.is_free))::numeric,
+                    2
+                ) AS median_price,
+                COUNT(*) FILTER (WHERE g.is_free) AS free_count,
+                COUNT(*) FILTER (WHERE NOT g.is_free) AS paid_count
+            FROM games g
+            JOIN game_genres gg ON gg.appid = g.appid
+            JOIN genres gn ON gg.genre_id = gn.id
+            WHERE gn.slug = %s AND g.review_count >= 10
+            """,
+            (genre_slug,),
+        )
+
         return {
             "genre": genre_name,
             "genre_slug": genre_slug,
@@ -192,28 +185,18 @@ class AnalyticsRepository(BaseRepository):
         }
 
     def find_release_timing(self, genre_slug: str) -> dict:
-        """Monthly release density and avg sentiment by month, last 5 years."""
-        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
-        genre_name = genre_row["name"] if genre_row else genre_slug
-
+        """Monthly release density and avg sentiment by month (from matview)."""
         rows = self._fetchall(
             """
-            SELECT
-                EXTRACT(MONTH FROM g.release_date)::int AS month,
-                COUNT(*) AS releases,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
-                ROUND(AVG(g.review_count), 0) AS avg_reviews
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s
-              AND g.release_date IS NOT NULL
-              AND g.release_date >= NOW() - INTERVAL '5 years'
-              AND g.review_count >= 10
-            GROUP BY 1
-            ORDER BY 1
+            SELECT genre_name, month, releases, avg_sentiment, avg_reviews
+            FROM mv_release_timing
+            WHERE genre_slug = %s
+            ORDER BY month
             """,
             (genre_slug,),
+        )
+        genre_name = (
+            rows[0]["genre_name"] if rows else self._resolve_genre_name(genre_slug)
         )
 
         monthly = [
@@ -267,32 +250,17 @@ class AnalyticsRepository(BaseRepository):
         }
 
     def find_platform_distribution(self, genre_slug: str) -> dict:
-        """Platform support breakdown and sentiment by platform within a genre."""
-        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
-        genre_name = genre_row["name"] if genre_row else genre_slug
-
+        """Platform support breakdown and sentiment by platform (from matview)."""
         row = self._fetchone(
             """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE (g.platforms->>'windows')::boolean) AS windows,
-                COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac,
-                COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux,
-                ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'windows')::boolean), 1)
-                    AS windows_avg_sentiment,
-                ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'mac')::boolean), 1)
-                    AS mac_avg_sentiment,
-                ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'linux')::boolean), 1)
-                    AS linux_avg_sentiment
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s
-              AND g.platforms IS NOT NULL
-              AND g.review_count >= 10
+            SELECT genre_name, total, windows, mac, linux,
+                   windows_avg_sentiment, mac_avg_sentiment, linux_avg_sentiment
+            FROM mv_platform_distribution
+            WHERE genre_slug = %s
             """,
             (genre_slug,),
         )
+        genre_name = row["genre_name"] if row else self._resolve_genre_name(genre_slug)
 
         if not row or not row["total"]:
             return {"genre": genre_name, "total_games": 0, "platforms": {}, "underserved": None}
@@ -337,27 +305,17 @@ class AnalyticsRepository(BaseRepository):
         }
 
     def find_tag_trend(self, tag_slug: str) -> dict:
-        """Game count per year for a specific tag, showing growth over time."""
-        tag_row = self._fetchone("SELECT name FROM tags WHERE slug = %s", (tag_slug,))
-        tag_name = tag_row["name"] if tag_row else tag_slug
-
+        """Game count per year for a specific tag (from matview)."""
         rows = self._fetchall(
             """
-            SELECT
-                EXTRACT(YEAR FROM g.release_date)::int AS year,
-                COUNT(*) AS game_count,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment
-            FROM games g
-            JOIN game_tags gt ON gt.appid = g.appid
-            JOIN tags t ON gt.tag_id = t.id
-            WHERE t.slug = %s
-              AND g.release_date IS NOT NULL
-              AND EXTRACT(YEAR FROM g.release_date) >= 2015
-            GROUP BY 1
-            ORDER BY 1
+            SELECT tag_name, year, game_count, avg_sentiment
+            FROM mv_tag_trend
+            WHERE tag_slug = %s
+            ORDER BY year
             """,
             (tag_slug,),
         )
+        tag_name = rows[0]["tag_name"] if rows else self._resolve_tag_name(tag_slug)
 
         yearly = [
             {

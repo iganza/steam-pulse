@@ -15,6 +15,7 @@ from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
 from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.matview_repo import MatviewRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
@@ -71,6 +72,7 @@ _review_repo = ReviewRepository(_conn)
 _job_repo = JobRepository(_conn)
 _tag_repo = TagRepository(_conn)
 _waitlist_repo = WaitlistRepository(_conn)
+_matview_repo = MatviewRepository(_conn)
 _analytics_service = AnalyticsService(_analytics_repo)
 
 
@@ -388,20 +390,20 @@ async def get_benchmarks(appid: int) -> dict:
 
 @app.get("/api/genres")
 async def list_genres() -> list[dict]:
-    return _game_repo.list_genres()
+    return _matview_repo.list_genre_counts()
 
 
 @app.get("/api/tags/top")
 async def list_top_tags(limit: int = 24) -> list[dict]:
     limit = min(limit, 100)
-    return _game_repo.list_tags(limit=limit)
+    return _matview_repo.list_tag_counts(limit=limit)
 
 
 @app.get("/api/tags/grouped")
 async def list_tags_grouped(
     limit_per_category: int = Query(default=20, ge=1, le=200),
 ) -> list[dict]:
-    return _game_repo.list_tags_grouped(limit_per_category=limit_per_category)
+    return _matview_repo.list_tags_grouped(limit_per_category=limit_per_category)
 
 
 @app.get("/api/games/{appid}/audience-overlap")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
+from library_layer.repositories.tag_repo import TAG_CATEGORY_ORDER
 
 EARLY_ACCESS_GENRE_ID = 70
 
@@ -265,24 +266,15 @@ class GameRepository(BaseRepository):
 
         where = " AND ".join(conditions)
 
-        # Count query
-        count_sql = f"""
-            SELECT COUNT(*) AS cnt
-            FROM games g
-            LEFT JOIN reports r ON r.appid = g.appid
-            WHERE {where}
-        """
-        count_row = self._fetchone(count_sql, tuple(params))
-        total = int(count_row["cnt"]) if count_row else 0
-
-        # Data query
+        # Single query with COUNT(*) OVER() to avoid a separate count round-trip.
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
                    g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
                    r.report_json->>'hidden_gem_score' AS hidden_gem_score,
                    r.report_json->>'sentiment_score'  AS sentiment_score,
-                   EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
+                   EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access,
+                   COUNT(*) OVER() AS total_count
             FROM games g
             LEFT JOIN reports r ON r.appid = g.appid
             WHERE {where}
@@ -291,9 +283,26 @@ class GameRepository(BaseRepository):
         """
         data_params = list(params) + [limit, offset]
         rows = self._fetchall(sql, tuple(data_params))
+
+        if rows:
+            total = int(rows[0]["total_count"])
+        elif offset > 0:
+            # Paged past results — still need total for the paginator.
+            count_sql = f"""
+                SELECT COUNT(*) AS cnt
+                FROM games g
+                LEFT JOIN reports r ON r.appid = g.appid
+                WHERE {where}
+            """
+            count_row = self._fetchone(count_sql, tuple(params))
+            total = int(count_row["cnt"]) if count_row else 0
+        else:
+            total = 0
+
         result = []
         for row in rows:
             d = dict(row)
+            d.pop("total_count", None)
             if d.get("release_date"):
                 d["release_date"] = str(d["release_date"])
             result.append(d)
@@ -397,16 +406,6 @@ class GameRepository(BaseRepository):
             """,
             (limit_per_category,),
         )
-        order = [
-            "Genre",
-            "Sub-Genre",
-            "Theme & Setting",
-            "Gameplay",
-            "Player Mode",
-            "Visuals & Viewpoint",
-            "Mood & Tone",
-            "Other",
-        ]
         grouped_by_category: dict[str, dict] = {}
         for row in rows:
             category = row["category"]
@@ -427,7 +426,11 @@ class GameRepository(BaseRepository):
             )
         grouped = list(grouped_by_category.values())
         grouped.sort(
-            key=lambda g: order.index(g["category"]) if g["category"] in order else 99,
+            key=lambda g: (
+                TAG_CATEGORY_ORDER.index(g["category"])
+                if g["category"] in TAG_CATEGORY_ORDER
+                else 99
+            ),
         )
         return grouped
 

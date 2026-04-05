@@ -5,6 +5,19 @@ from __future__ import annotations
 from library_layer.repositories.base import BaseRepository
 from library_layer.utils.slugify import slugify
 
+# Canonical display order for tag categories. Used by any code that groups
+# tags by category (GameRepository, MatviewRepository, etc.).
+TAG_CATEGORY_ORDER: tuple[str, ...] = (
+    "Genre",
+    "Sub-Genre",
+    "Theme & Setting",
+    "Gameplay",
+    "Player Mode",
+    "Visuals & Viewpoint",
+    "Mood & Tone",
+    "Other",
+)
+
 
 class TagRepository(BaseRepository):
     """CRUD operations for tags, game_tags, genres, game_genres, game_categories."""

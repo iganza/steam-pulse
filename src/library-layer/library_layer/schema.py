@@ -244,6 +244,9 @@ TABLES: tuple[str, ...] = (
         duration_ms INTEGER,
         views_refreshed TEXT[]
     )""",
+    # 0017_denormalize_scores
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS sentiment_score REAL",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS hidden_gem_score REAL",
 )
 
 # Analytics engine indexes — kept for test suite use only.
@@ -263,6 +266,9 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_genres_slug ON genres(slug)",
     "CREATE INDEX IF NOT EXISTS idx_tags_slug ON tags(slug)",
     "CREATE INDEX IF NOT EXISTS idx_games_review_count ON games(review_count DESC NULLS LAST)",
+    # 0018_score_indexes
+    "CREATE INDEX IF NOT EXISTS idx_games_sentiment_score ON games(sentiment_score DESC NULLS LAST)",
+    "CREATE INDEX IF NOT EXISTS idx_games_hidden_gem_score ON games(hidden_gem_score DESC NULLS LAST)",
 )
 
 

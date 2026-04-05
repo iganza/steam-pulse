@@ -12,7 +12,11 @@ class ReportRepository(BaseRepository):
     """CRUD operations for the reports table."""
 
     def upsert(self, report: dict) -> None:
-        """Insert or update a report by appid."""
+        """Insert or update a report by appid.
+
+        Also syncs denormalized sentiment_score and hidden_gem_score onto the
+        games table so catalog queries avoid the JSONB LEFT JOIN.
+        """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)
         with self.conn.cursor() as cur:
@@ -27,6 +31,18 @@ class ReportRepository(BaseRepository):
                 """,
                 (appid, json.dumps(report), reviews_analyzed),
             )
+            # Sync denormalized scores to games table.
+            sentiment = report.get("sentiment_score")
+            hidden_gem = report.get("hidden_gem_score")
+            if sentiment is not None or hidden_gem is not None:
+                cur.execute(
+                    """
+                    UPDATE games
+                    SET sentiment_score = %s, hidden_gem_score = %s
+                    WHERE appid = %s
+                    """,
+                    (sentiment, hidden_gem, appid),
+                )
         self.conn.commit()
 
     def find_by_appid(self, appid: int) -> Report | None:

@@ -23,6 +23,13 @@ class MatviewRepository(BaseRepository):
     # Read methods — simple SELECTs against pre-computed matviews
     # ------------------------------------------------------------------
 
+    def get_total_games_count(self) -> int:
+        """Return estimated total games count from pg_class (instant, no scan)."""
+        row = self._fetchone(
+            "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname = 'games'"
+        )
+        return int(row["estimate"]) if row and row["estimate"] else 0
+
     def get_genre_count(self, genre_slug: str) -> int | None:
         """Return pre-computed game count for a single genre, or None."""
         row = self._fetchone(

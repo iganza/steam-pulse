@@ -191,7 +191,8 @@ class GameRepository(BaseRepository):
     ) -> dict:
         """Parameterised query with optional WHERE clauses.
 
-        Returns dict with 'total' count and 'games' list.
+        Returns dict with 'total' (always None — callers provide the count
+        from matviews or estimates) and 'games' list.
         """
         _sort_cols = {
             "review_count": "g.review_count DESC NULLS LAST",

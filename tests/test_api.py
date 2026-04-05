@@ -45,11 +45,14 @@ class _MemGameRepo:
 
 
 class _MemMatviewRepo:
+    def get_total_games_count(self) -> int:
+        return 100
+
     def get_genre_count(self, genre_slug: str) -> int | None:
-        return None
+        return {"indie": 5000, "action": 3000}.get(genre_slug)
 
     def get_tag_count(self, tag_slug: str) -> int | None:
-        return None
+        return {"roguelike": 800}.get(tag_slug)
 
     def list_genre_counts(self) -> list[dict]:
         return []
@@ -342,6 +345,40 @@ def test_waitlist_normalizes_email(client: TestClient) -> None:
     # A second request with the normalized form should deduplicate
     resp2 = client.post("/api/waitlist", json={"email": "dev@example.com"})
     assert resp2.json()["status"] == "already_registered"
+
+
+# ---------------------------------------------------------------------------
+# /api/games total count logic
+# ---------------------------------------------------------------------------
+
+
+def test_games_genre_only_returns_matview_total(client: TestClient) -> None:
+    """Genre-only filter uses pre-computed count from mv_genre_counts."""
+    resp = client.get("/api/games?genre=indie")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 5000
+
+
+def test_games_tag_only_returns_matview_total(client: TestClient) -> None:
+    """Tag-only filter uses pre-computed count from mv_tag_counts."""
+    resp = client.get("/api/games?tag=roguelike")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 800
+
+
+def test_games_unfiltered_returns_estimated_total(client: TestClient) -> None:
+    """Unfiltered browse uses pg_class estimate."""
+    resp = client.get("/api/games")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 100
+
+
+def test_games_complex_filter_infers_total(client: TestClient) -> None:
+    """Complex filters infer total from result set size."""
+    resp = client.get("/api/games?genre=indie&sentiment=positive")
+    assert resp.status_code == 200
+    # Empty result (mock returns []) with limit=24: offset(0) + len(0) = 0
+    assert resp.json()["total"] == 0
 
 
 def test_waitlist_rejects_invalid_email(client: TestClient) -> None:

@@ -196,11 +196,11 @@ class GameRepository(BaseRepository):
         """
         _sort_cols = {
             "review_count": "g.review_count DESC NULLS LAST",
-            "hidden_gem_score": "r.report_json->>'hidden_gem_score' DESC NULLS LAST",
-            "sentiment_score": "r.report_json->>'sentiment_score' DESC NULLS LAST",
+            "hidden_gem_score": "g.hidden_gem_score DESC NULLS LAST",
+            "sentiment_score": "g.sentiment_score DESC NULLS LAST",
             "positive_pct": "g.positive_pct DESC NULLS LAST",
             "release_date": "g.release_date DESC NULLS LAST",
-            "last_analyzed": "r.last_analyzed DESC NULLS LAST",
+            "last_analyzed": "g.last_analyzed DESC NULLS LAST",
             "name": "g.name ASC",
         }
         order = _sort_cols.get(sort, _sort_cols["review_count"])
@@ -238,17 +238,14 @@ class GameRepository(BaseRepository):
             conditions.append("g.review_count >= %s")
             params.append(min_reviews)
         if has_analysis:
-            conditions.append("r.appid IS NOT NULL")
+            conditions.append("g.last_analyzed IS NOT NULL")
         if sentiment:
             if sentiment == "positive":
-                conditions.append("(r.report_json->>'sentiment_score')::float >= 0.65")
+                conditions.append("g.sentiment_score >= 0.65")
             elif sentiment == "mixed":
-                conditions.append(
-                    "(r.report_json->>'sentiment_score')::float >= 0.45 "
-                    "AND (r.report_json->>'sentiment_score')::float < 0.65"
-                )
+                conditions.append("g.sentiment_score >= 0.45 AND g.sentiment_score < 0.65")
             elif sentiment == "negative":
-                conditions.append("(r.report_json->>'sentiment_score')::float < 0.45")
+                conditions.append("g.sentiment_score < 0.45")
         if price_tier:
             if price_tier == "free":
                 conditions.append("g.is_free = TRUE")
@@ -267,16 +264,14 @@ class GameRepository(BaseRepository):
 
         where = " AND ".join(conditions)
 
-        # Data-only query — total count comes from matviews at the handler level.
+        # Data-only query — no JOIN to reports. Scores are denormalized on games.
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
                    g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
-                   r.report_json->>'hidden_gem_score' AS hidden_gem_score,
-                   r.report_json->>'sentiment_score'  AS sentiment_score,
+                   g.hidden_gem_score, g.sentiment_score,
                    EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
             FROM games g
-            LEFT JOIN reports r ON r.appid = g.appid
             WHERE {where}
             ORDER BY {order}
             LIMIT %s OFFSET %s

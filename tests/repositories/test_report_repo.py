@@ -1,5 +1,6 @@
 """Tests for ReportRepository."""
 
+import pytest
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 
@@ -94,3 +95,29 @@ def test_find_by_appid_returns_none_for_missing(
     report_repo: ReportRepository,
 ) -> None:
     assert report_repo.find_by_appid(9999999) is None
+
+
+def test_upsert_syncs_scores_to_games(
+    game_repo: GameRepository, report_repo: ReportRepository
+) -> None:
+    """upsert() denormalizes sentiment_score and hidden_gem_score onto games."""
+    _seed_game(game_repo)
+    report_repo.upsert({**_report(), "sentiment_score": 0.85, "hidden_gem_score": 0.42})
+    game = game_repo.find_by_appid(440)
+    assert game is not None
+    assert float(game.sentiment_score) == pytest.approx(0.85, abs=0.01)
+    assert float(game.hidden_gem_score) == pytest.approx(0.42, abs=0.01)
+
+
+def test_upsert_updated_scores_sync_to_games(
+    game_repo: GameRepository, report_repo: ReportRepository
+) -> None:
+    """A second full upsert with changed scores updates the games row."""
+    _seed_game(game_repo)
+    report_repo.upsert({**_report(), "sentiment_score": 0.85, "hidden_gem_score": 0.42})
+    # Second upsert — full report with updated sentiment, same hidden_gem.
+    report_repo.upsert({**_report(), "sentiment_score": 0.90, "hidden_gem_score": 0.42})
+    game = game_repo.find_by_appid(440)
+    assert game is not None
+    assert float(game.sentiment_score) == pytest.approx(0.90, abs=0.01)
+    assert float(game.hidden_gem_score) == pytest.approx(0.42, abs=0.01)

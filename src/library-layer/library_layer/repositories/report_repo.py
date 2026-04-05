@@ -12,7 +12,17 @@ class ReportRepository(BaseRepository):
     """CRUD operations for the reports table."""
 
     def upsert(self, report: dict) -> None:
-        """Insert or update a report by appid."""
+        """Insert or update a report by appid.
+
+        Callers must pass a complete GameReport dict — report_json is
+        overwritten wholesale on conflict (no merge). Partial dicts will
+        discard previously stored keys from report_json.
+
+        Also syncs denormalized sentiment_score, hidden_gem_score, and
+        last_analyzed onto the games table so catalog queries avoid the
+        JSONB LEFT JOIN. The games sync only updates keys present in the
+        dict as a defensive measure.
+        """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)
         with self.conn.cursor() as cur:
@@ -26,6 +36,22 @@ class ReportRepository(BaseRepository):
                     last_analyzed    = NOW()
                 """,
                 (appid, json.dumps(report), reviews_analyzed),
+            )
+            # Sync denormalized fields to games table — only update columns present
+            # in the report dict to avoid nulling omitted fields on partial payloads.
+            # last_analyzed is always set to NOW() on every upsert.
+            score_sets: list[str] = ["last_analyzed = NOW()"]
+            score_vals: list[object] = []
+            if "sentiment_score" in report:
+                score_sets.append("sentiment_score = %s")
+                score_vals.append(report["sentiment_score"])
+            if "hidden_gem_score" in report:
+                score_sets.append("hidden_gem_score = %s")
+                score_vals.append(report["hidden_gem_score"])
+            score_vals.append(appid)
+            cur.execute(
+                f"UPDATE games SET {', '.join(score_sets)} WHERE appid = %s",
+                score_vals,
             )
         self.conn.commit()
 

@@ -17,6 +17,7 @@ import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
 from cdk_monitoring_constructs import (
     AlarmFactoryDefaults,
+    DefaultDashboardFactory,
     ErrorCountThreshold,
     MaxMessageAgeThreshold,
     MaxMessageCountThreshold,
@@ -206,6 +207,11 @@ class CrawlSpokeStack(cdk.Stack):
         spoke_monitoring = MonitoringFacade(
             self,
             "SpokeMonitoring",
+            dashboard_factory=DefaultDashboardFactory(
+                self, "NoDashboard",
+                dashboard_name_prefix=f"SteamPulse-Spoke-{spoke_region}",
+                create_dashboard=False,
+            ),
             alarm_factory_defaults=AlarmFactoryDefaults(
                 actions_enabled=True,
                 alarm_name_prefix=f"SteamPulse-{environment.capitalize()}-Spoke-{spoke_region}",

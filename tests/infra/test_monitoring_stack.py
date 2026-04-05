@@ -50,3 +50,21 @@ def test_dashboard_created(template: Template) -> None:
 def test_cfn_output_alarm_topic_arn(template: Template) -> None:
     """CfnOutput for the alarm topic ARN."""
     template.has_output("AlarmTopicArn", {})
+
+
+def test_ssm_discovery_no_cross_stack_refs(template: Template) -> None:
+    """Resources are discovered via SSM parameter references, never Fn::ImportValue."""
+    import json
+
+    body = template.to_json()
+    raw = json.dumps(body)
+    # CDK resolves value_for_string_parameter() as CloudFormation template parameters
+    # with Default pointing to the SSM path — check those exist.
+    params = body.get("Parameters", {})
+    ssm_params = [
+        k for k, v in params.items()
+        if v.get("Type") == "AWS::SSM::Parameter::Value<String>"
+        and v.get("Default", "").startswith("/steampulse/")
+    ]
+    assert len(ssm_params) > 0, "Expected SSM parameter references in template"
+    assert "Fn::ImportValue" not in raw, "Cross-stack Fn::ImportValue must not be used"

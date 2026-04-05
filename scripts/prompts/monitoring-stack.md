@@ -12,7 +12,7 @@ A single CloudWatch dashboard showing full system health, with alarms on every f
 
 - **Must use `cdk-monitoring-constructs`** — never write raw CloudWatch alarms or dashboards by hand
 - **No CDK cross-stack references** — monitoring stack must NOT import Lambda/Queue/Topic CDK objects from other stacks
-- **Discovery via SSM parameters** — resolve resource ARNs from SSM at synth time using `ssm.StringParameter.value_for_string_parameter()`. This produces `{{resolve:ssm:...}}` CloudFormation dynamic references (no `Fn::ImportValue`, no cross-stack dependency). Then use `from_function_arn()` / `from_queue_arn()` to get `IFunction` / `IQueue` references for the monitoring library.
+- **Discovery via SSM parameters** — use `ssm.StringParameter.value_for_string_parameter()` to encode resource ARN lookups as `{{resolve:ssm:...}}` CloudFormation dynamic references at synth time; the actual SSM values are resolved by CloudFormation at deploy/runtime. This avoids `Fn::ImportValue` and CDK cross-stack dependencies. Then use `from_function_arn()` / `from_queue_arn()` to get `IFunction` / `IQueue` references for the monitoring library.
 - **Cross-region alarms live in spoke_stack.py** — CloudWatch alarms cannot span regions. Each spoke gets a local SNS alarm topic with alarms in the same region as the metric.
 - **Cross-region dashboard IS possible** — CloudWatch dashboards can show metrics from any region by specifying `region` on `Metric` objects.
 - **Tags are for cost allocation and operational identification** — not the primary discovery mechanism for `cdk-monitoring-constructs`.

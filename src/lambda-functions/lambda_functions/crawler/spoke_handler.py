@@ -1,10 +1,7 @@
 """Spoke crawler — fetch from Steam, hand off to primary via S3 + SQS.
 
-Invoked directly by the primary handler (cross-region lambda:Invoke).
-No event source mappings — work is dispatched from the primary region.
-
-Input payload: MetadataSpokeRequest | ReviewSpokeRequest
-Returns:       {"appid": int, "task": str, "success": bool, "count": int}
+Consumes from a per-spoke SQS queue (event source mapping, max_concurrency=3).
+The primary crawler sends SpokeRequest messages to this queue.
 
 All payloads written to S3 (consistent, handles large metadata HTML).
 Reviews are fetched one batch (BATCH_SIZE) at a time. The ingest handler
@@ -20,6 +17,11 @@ import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools.utilities.batch import (
+    BatchProcessor,
+    EventType,
+    process_partial_response,
+)
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from lambda_functions.crawler.events import (
     CrawlTask,
@@ -27,7 +29,6 @@ from lambda_functions.crawler.events import (
     MetadataSpokeResult,
     ReviewSpokeRequest,
     ReviewSpokeResult,
-    SpokeResponse,
     TagsSpokeRequest,
     TagsSpokeResult,
 )
@@ -65,46 +66,52 @@ _s3 = boto3.client("s3", region_name=_PRIMARY_REGION)
 # value directly. See spoke_stack.py and CLAUDE.md "Spoke exception".
 _assets_bucket_name: str = _config.ASSETS_BUCKET_PARAM_NAME
 
+_sqs_processor = BatchProcessor(event_type=EventType.SQS)
+
 
 # ── Main handler ────────────────────────────────────────────────────────────
+
+
+def _process_record(record: dict) -> None:
+    """Process a single SQS record containing a SpokeRequest."""
+    body = json.loads(record["body"])
+    task: CrawlTask = body.get("task", "metadata")
+
+    match task:
+        case "metadata":
+            req = MetadataSpokeRequest.model_validate(body)
+            logger.append_keys(appid=req.appid, task=task)
+            logger.info("START metadata")
+            ok = _process_metadata(req.appid)
+            metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
+
+        case "reviews":
+            req = ReviewSpokeRequest.model_validate(body)
+            logger.append_keys(appid=req.appid, task=task)
+            logger.info("START reviews", extra={"cursor": req.cursor, "target": req.target})
+            count, _ = _process_reviews(req.appid, req.cursor, req.target, req.started_at)
+            metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
+
+        case "tags":
+            req = TagsSpokeRequest.model_validate(body)
+            logger.append_keys(appid=req.appid, task=task)
+            logger.info("START tags")
+            ok = _process_tags(req.appid)
+            metrics.add_metric(name="TagsFetched", unit=MetricUnit.Count, value=1 if ok else 0)
+
+        case _:
+            raise ValueError(f"Unknown task: {task}")
 
 
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
-    task: CrawlTask = event.get("task", "metadata")
-
-    if task == "metadata":
-        req = MetadataSpokeRequest.model_validate(event)
-        logger.append_keys(appid=req.appid, task=task)
-        logger.info("START metadata")
-        ok = _process_metadata(req.appid)
-        metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
-        return SpokeResponse(
-            appid=req.appid, task=task, success=ok, count=1 if ok else 0
-        ).model_dump()
-
-    if task == "reviews":
-        req = ReviewSpokeRequest.model_validate(event)
-        logger.append_keys(appid=req.appid, task=task)
-        logger.info("START reviews", extra={"cursor": req.cursor, "target": req.target})
-        count, _ = _process_reviews(req.appid, req.cursor, req.target, req.started_at)
-        metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
-        return SpokeResponse(
-            appid=req.appid, task=task, success=count > 0, count=count
-        ).model_dump()
-
-    if task == "tags":
-        req = TagsSpokeRequest.model_validate(event)
-        logger.append_keys(appid=req.appid, task=task)
-        logger.info("START tags")
-        ok = _process_tags(req.appid)
-        metrics.add_metric(name="TagsFetched", unit=MetricUnit.Count, value=1 if ok else 0)
-        return SpokeResponse(
-            appid=req.appid, task=task, success=ok, count=1 if ok else 0
-        ).model_dump()
-
-    raise ValueError(f"Unknown task: {task}")
+    return process_partial_response(
+        event=event,
+        record_handler=_process_record,
+        processor=_sqs_processor,
+        context=context,
+    )
 
 
 # ── Steam fetch + S3 handoff ─────────────────────────────────────────────────

@@ -149,7 +149,9 @@ class CrawlService:
         try:
             deck_compat = self._steam.get_deck_compatibility(appid)
         except SteamAPIError as exc:
-            logger.warning("Steam deck_compat unavailable", extra={"appid": appid, "error": str(exc)})
+            logger.warning(
+                "Steam deck_compat unavailable", extra={"appid": appid, "error": str(exc)}
+            )
             deck_compat = {}
 
         name: str = details.get("name") or f"App {appid}"
@@ -364,7 +366,9 @@ class CrawlService:
             "achievements_total": achievements_total,
             "metacritic_score": metacritic_score,
             "deck_compatibility": deck_compat.get("resolved_category") if deck_compat else None,
-            "deck_test_results": json.dumps(deck_compat.get("resolved_items", [])) if deck_compat else None,
+            "deck_test_results": json.dumps(deck_compat.get("resolved_items", []))
+            if deck_compat
+            else None,
             "data_source": "steam_direct",
         }
 
@@ -495,7 +499,9 @@ class CrawlService:
             input=json.dumps({"appid": appid, "game_name": game_name}),
         )
         arn: str = resp["executionArn"]
-        logger.info("Step Functions execution started", extra={"appid": appid, "execution_arn": arn})
+        logger.info(
+            "Step Functions execution started", extra={"appid": appid, "execution_arn": arn}
+        )
         return arn
 
 

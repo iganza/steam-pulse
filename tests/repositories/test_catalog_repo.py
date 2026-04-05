@@ -1,6 +1,5 @@
 """Tests for CatalogRepository."""
 
-
 from library_layer.repositories.catalog_repo import CatalogRepository
 
 
@@ -67,7 +66,9 @@ def test_mark_reviews_complete_sets_timestamp(catalog_repo: CatalogRepository) -
     assert entry.reviews_completed_at is not None
 
 
-def test_mark_reviews_complete_overwrites_previous_timestamp(catalog_repo: CatalogRepository) -> None:
+def test_mark_reviews_complete_overwrites_previous_timestamp(
+    catalog_repo: CatalogRepository,
+) -> None:
     catalog_repo.bulk_upsert([{"appid": 101, "name": "G"}])
     catalog_repo.mark_reviews_complete(101)
     t1 = catalog_repo.find_by_appid(101).reviews_completed_at
@@ -81,7 +82,9 @@ def test_get_reviews_completed_at_none_before_any_crawl(catalog_repo: CatalogRep
     assert catalog_repo.get_reviews_completed_at(200) is None
 
 
-def test_get_reviews_completed_at_returns_timestamp_after_complete(catalog_repo: CatalogRepository) -> None:
+def test_get_reviews_completed_at_returns_timestamp_after_complete(
+    catalog_repo: CatalogRepository,
+) -> None:
     catalog_repo.bulk_upsert([{"appid": 201, "name": "G"}])
     catalog_repo.mark_reviews_complete(201)
     assert catalog_repo.get_reviews_completed_at(201) is not None

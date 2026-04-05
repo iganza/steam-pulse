@@ -4,6 +4,7 @@ Usage:
     poetry run python scripts/migrate_slugs.py
     poetry run python scripts/migrate_slugs.py --dry-run
 """
+
 import argparse
 import os
 import re
@@ -45,7 +46,9 @@ def main() -> None:
     print(f"{len(updates)} slugs need updating")
     if args.dry_run:
         for new_slug, appid in updates[:20]:
-            print(f"  appid={appid}: {next((r['slug'] for r in rows if r['appid'] == appid), '?')} → {new_slug}")
+            print(
+                f"  appid={appid}: {next((r['slug'] for r in rows if r['appid'] == appid), '?')} → {new_slug}"
+            )
         if len(updates) > 20:
             print(f"  ... and {len(updates) - 20} more")
         print("Dry run — no changes made")

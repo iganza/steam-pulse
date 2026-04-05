@@ -111,9 +111,7 @@ class GameRepository(BaseRepository):
 
     def get_review_count(self, appid: int) -> int:
         """Return the current review_count stored for an appid (0 if missing)."""
-        row = self._fetchone(
-            "SELECT review_count FROM games WHERE appid = %s", (appid,)
-        )
+        row = self._fetchone("SELECT review_count FROM games WHERE appid = %s", (appid,))
         if row is None or row["review_count"] is None:
             return 0
         return int(row["review_count"])
@@ -195,13 +193,13 @@ class GameRepository(BaseRepository):
         Returns dict with 'total' count and 'games' list.
         """
         _sort_cols = {
-            "review_count":     "g.review_count DESC NULLS LAST",
+            "review_count": "g.review_count DESC NULLS LAST",
             "hidden_gem_score": "r.report_json->>'hidden_gem_score' DESC NULLS LAST",
-            "sentiment_score":  "r.report_json->>'sentiment_score' DESC NULLS LAST",
-            "positive_pct":     "g.positive_pct DESC NULLS LAST",
-            "release_date":     "g.release_date DESC NULLS LAST",
-            "last_analyzed":    "r.last_analyzed DESC NULLS LAST",
-            "name":             "g.name ASC",
+            "sentiment_score": "r.report_json->>'sentiment_score' DESC NULLS LAST",
+            "positive_pct": "g.positive_pct DESC NULLS LAST",
+            "release_date": "g.release_date DESC NULLS LAST",
+            "last_analyzed": "r.last_analyzed DESC NULLS LAST",
+            "name": "g.name ASC",
         }
         order = _sort_cols.get(sort, _sort_cols["review_count"])
         conditions: list[str] = ["1=1"]
@@ -336,8 +334,12 @@ class GameRepository(BaseRepository):
             return {"sentiment_rank": None, "popularity_rank": None, "cohort_size": 0}
         r = rows[0]
         return {
-            "sentiment_rank": float(r["sentiment_rank"]) if r["sentiment_rank"] is not None else None,
-            "popularity_rank": float(r["popularity_rank"]) if r["popularity_rank"] is not None else None,
+            "sentiment_rank": float(r["sentiment_rank"])
+            if r["sentiment_rank"] is not None
+            else None,
+            "popularity_rank": float(r["popularity_rank"])
+            if r["popularity_rank"] is not None
+            else None,
             "cohort_size": int(r["cohort_size"]),
         }
 
@@ -396,8 +398,14 @@ class GameRepository(BaseRepository):
             (limit_per_category,),
         )
         order = [
-            "Genre", "Sub-Genre", "Theme & Setting", "Gameplay",
-            "Player Mode", "Visuals & Viewpoint", "Mood & Tone", "Other",
+            "Genre",
+            "Sub-Genre",
+            "Theme & Setting",
+            "Gameplay",
+            "Player Mode",
+            "Visuals & Viewpoint",
+            "Mood & Tone",
+            "Other",
         ]
         grouped_by_category: dict[str, dict] = {}
         for row in rows:
@@ -408,13 +416,15 @@ class GameRepository(BaseRepository):
                     "tags": [],
                     "total_count": row["total_count"],
                 }
-            grouped_by_category[category]["tags"].append({
-                "id": row["id"],
-                "name": row["name"],
-                "slug": row["slug"],
-                "category": row["category"],
-                "game_count": row["game_count"],
-            })
+            grouped_by_category[category]["tags"].append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "slug": row["slug"],
+                    "category": row["category"],
+                    "game_count": row["game_count"],
+                }
+            )
         grouped = list(grouped_by_category.values())
         grouped.sort(
             key=lambda g: order.index(g["category"]) if g["category"] in order else 99,

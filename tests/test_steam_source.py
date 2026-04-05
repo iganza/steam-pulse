@@ -46,7 +46,8 @@ def metrics_log() -> list[tuple[str, str, int, float]]:
 
 @pytest.fixture()
 def steam(
-    metrics_log: list, monkeypatch: pytest.MonkeyPatch,
+    metrics_log: list,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[DirectSteamSource]:
     monkeypatch.setenv("AWS_REGION", "us-west-2")
     monkeypatch.setattr("library_layer.steam_source.time.sleep", lambda _: None)

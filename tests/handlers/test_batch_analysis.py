@@ -82,11 +82,26 @@ def _minimal_game_report_json(appid: int = 440, sentiment_score: float = 0.6) ->
         player_wishlist=["More content"],
         churn_triggers=["Tutorial is too long"],
         technical_issues=[],
-        refund_risk=RefundRisk(refund_language_frequency="none", primary_refund_drivers=[], risk_level="low"),
-        community_health=CommunityHealth(overall="not_applicable", signals=[], multiplayer_population="not_applicable"),
-        monetization_sentiment=MonetizationSentiment(overall="not_applicable", signals=[], dlc_sentiment="not_applicable"),
-        content_depth=ContentDepth(perceived_length="medium", replayability="medium", value_perception="good", signals=[]),
-        dev_priorities=[DevPriority(action="Fix pacing", why_it_matters="Drives churn", frequency="common", effort="medium")],
+        refund_risk=RefundRisk(
+            refund_language_frequency="none", primary_refund_drivers=[], risk_level="low"
+        ),
+        community_health=CommunityHealth(
+            overall="not_applicable", signals=[], multiplayer_population="not_applicable"
+        ),
+        monetization_sentiment=MonetizationSentiment(
+            overall="not_applicable", signals=[], dlc_sentiment="not_applicable"
+        ),
+        content_depth=ContentDepth(
+            perceived_length="medium", replayability="medium", value_perception="good", signals=[]
+        ),
+        dev_priorities=[
+            DevPriority(
+                action="Fix pacing",
+                why_it_matters="Drives churn",
+                frequency="common",
+                effort="medium",
+            )
+        ],
         competitive_context=[],
         genre_context="Average for the genre.",
         hidden_gem_score=0.2,
@@ -96,10 +111,12 @@ def _minimal_game_report_json(appid: int = 440, sentiment_score: float = 0.6) ->
 
 def _write_pass2_output(s3_client: Any, game_report_json: str, appid: int = 440) -> str:
     """Write a simulated Bedrock batch output JSONL file to moto S3. Returns the output S3 URI."""
-    record = json.dumps({
-        "recordId": f"{appid}-synthesis",
-        "modelOutput": {"content": [{"text": game_report_json}]},
-    })
+    record = json.dumps(
+        {
+            "recordId": f"{appid}-synthesis",
+            "modelOutput": {"content": [{"text": game_report_json}]},
+        }
+    )
     key = f"jobs/{_EXECUTION_ID}/pass2/output/output.jsonl.out"
     s3_client.put_object(Bucket=_BUCKET, Key=key, Body=record.encode())
     return f"s3://{_BUCKET}/jobs/{_EXECUTION_ID}/pass2/output/"
@@ -131,7 +148,6 @@ def test_parse_s3_uri_no_key() -> None:
     assert _parse_s3_uri("s3://my-bucket/") == ("my-bucket", "")
 
 
-
 # ---------------------------------------------------------------------------
 # 2. _format_chunk_record — pure function (no AWS)
 # ---------------------------------------------------------------------------
@@ -152,7 +168,9 @@ def test_format_chunk_record_structure() -> None:
             "received_for_free": False,
         }
     ]
-    record = _format_chunk_record(appid=440, chunk=chunk, chunk_index=0, total_chunks=3, game_name="TF2")
+    record = _format_chunk_record(
+        appid=440, chunk=chunk, chunk_index=0, total_chunks=3, game_name="TF2"
+    )
 
     assert record["recordId"] == "440-chunk-0"
     mi = record["modelInput"]
@@ -352,8 +370,14 @@ def test_prepare_pass1_specific_appids_uploads_jsonl(lambda_context: Any) -> Non
     mock_review_repo.find_by_appid.return_value = [_make_review(appid=440)]
 
     with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.GameRepository",
+            return_value=mock_game_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.ReviewRepository",
+            return_value=mock_review_repo,
+        ),
     ):
         result = h.handler({"execution_id": _EXECUTION_ID, "appids": [440]}, lambda_context)
 
@@ -388,8 +412,14 @@ def test_prepare_pass1_skips_appid_with_no_reviews(lambda_context: Any) -> None:
     mock_review_repo.find_by_appid.return_value = []
 
     with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.GameRepository",
+            return_value=mock_game_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.ReviewRepository",
+            return_value=mock_review_repo,
+        ),
     ):
         result = h.handler({"execution_id": _EXECUTION_ID, "appids": [999]}, lambda_context)
 
@@ -413,8 +443,14 @@ def test_prepare_pass1_normalizes_body_to_review_text(lambda_context: Any) -> No
     mock_review_repo.find_by_appid.return_value = [review]
 
     with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.GameRepository",
+            return_value=mock_game_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.ReviewRepository",
+            return_value=mock_review_repo,
+        ),
     ):
         h.handler({"execution_id": _EXECUTION_ID, "appids": [440]}, lambda_context)
 
@@ -441,8 +477,14 @@ def test_prepare_pass1_normalizes_datetime_posted_at_to_iso_string(lambda_contex
     mock_review_repo.find_by_appid.return_value = [review]
 
     with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.GameRepository",
+            return_value=mock_game_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.ReviewRepository",
+            return_value=mock_review_repo,
+        ),
     ):
         h.handler({"execution_id": _EXECUTION_ID, "appids": [440]}, lambda_context)
 
@@ -461,7 +503,9 @@ def test_prepare_pass1_sorts_reviews_chronologically(lambda_context: Any) -> Non
     h._s3 = s3
     h._BUCKET = _BUCKET
 
-    newer = _make_review(appid=440, body="Newer review", posted_at=datetime(2024, 12, 1, tzinfo=UTC))
+    newer = _make_review(
+        appid=440, body="Newer review", posted_at=datetime(2024, 12, 1, tzinfo=UTC)
+    )
     older = _make_review(appid=440, body="Older review", posted_at=datetime(2024, 1, 1, tzinfo=UTC))
     mock_game_repo = MagicMock()
     mock_game_repo.find_by_appid.return_value = MagicMock(name="TF2")
@@ -470,8 +514,14 @@ def test_prepare_pass1_sorts_reviews_chronologically(lambda_context: Any) -> Non
     mock_review_repo.find_by_appid.return_value = [newer, older]
 
     with (
-        patch("lambda_functions.batch_analysis.prepare_pass1.GameRepository", return_value=mock_game_repo),
-        patch("lambda_functions.batch_analysis.prepare_pass1.ReviewRepository", return_value=mock_review_repo),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.GameRepository",
+            return_value=mock_game_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.prepare_pass1.ReviewRepository",
+            return_value=mock_review_repo,
+        ),
     ):
         h.handler({"execution_id": _EXECUTION_ID, "appids": [440]}, lambda_context)
 
@@ -531,19 +581,25 @@ def test_process_results_applies_precomputed_scores(lambda_context: Any) -> None
 
     # LLM output has sentiment_score=0.5 — precomputed overrides with 0.85
     _write_pass2_output(s3, _minimal_game_report_json(appid=440, sentiment_score=0.5), appid=440)
-    _write_scores_json(s3, 440, {
-        "sentiment_score": 0.85,
-        "hidden_gem_score": 0.3,
-        "sentiment_trend": "improving",
-        "sentiment_trend_note": "Sentiment rose.",
-        "overall_sentiment": "Very Positive",
-    })
+    _write_scores_json(
+        s3,
+        440,
+        {
+            "sentiment_score": 0.85,
+            "hidden_gem_score": 0.3,
+            "sentiment_trend": "improving",
+            "sentiment_trend_note": "Sentiment rose.",
+            "overall_sentiment": "Very Positive",
+        },
+    )
 
     h = _load_process_results()
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     assert result["processed"] == 1
@@ -569,7 +625,9 @@ def test_process_results_uses_llm_values_when_no_scores(lambda_context: Any) -> 
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     assert result["processed"] == 1
@@ -584,7 +642,9 @@ def test_process_results_skips_unrecognised_record_ids(lambda_context: Any) -> N
     s3.create_bucket(Bucket=_BUCKET)
     mock_sns = MagicMock()
 
-    bad_record = json.dumps({"recordId": "bad-format", "modelOutput": {"content": [{"text": "{}"}]}})
+    bad_record = json.dumps(
+        {"recordId": "bad-format", "modelOutput": {"content": [{"text": "{}"}]}}
+    )
     s3.put_object(
         Bucket=_BUCKET,
         Key=f"jobs/{_EXECUTION_ID}/pass2/output/output.jsonl.out",
@@ -595,7 +655,9 @@ def test_process_results_skips_unrecognised_record_ids(lambda_context: Any) -> N
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     assert result["processed"] == 0
@@ -610,10 +672,12 @@ def test_process_results_handles_failed_records(lambda_context: Any) -> None:
     s3.create_bucket(Bucket=_BUCKET)
     mock_sns = MagicMock()
 
-    broken_record = json.dumps({
-        "recordId": "440-synthesis",
-        "modelOutput": {"content": [{"text": "NOT_VALID_JSON{{{"}]},
-    })
+    broken_record = json.dumps(
+        {
+            "recordId": "440-synthesis",
+            "modelOutput": {"content": [{"text": "NOT_VALID_JSON{{{"}]},
+        }
+    )
     s3.put_object(
         Bucket=_BUCKET,
         Key=f"jobs/{_EXECUTION_ID}/pass2/output/output.jsonl.out",
@@ -624,7 +688,9 @@ def test_process_results_handles_failed_records(lambda_context: Any) -> None:
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     assert result["processed"] == 0
@@ -644,13 +710,14 @@ def test_process_results_publishes_report_ready_per_game(lambda_context: Any) ->
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         h.handler(_handler_event(), lambda_context)
 
     all_publishes = mock_sns.publish.call_args_list
     report_ready_calls = [
-        c for c in all_publishes
-        if json.loads(c.kwargs["Message"]).get("event") == "report-ready"
+        c for c in all_publishes if json.loads(c.kwargs["Message"]).get("event") == "report-ready"
     ]
     assert len(report_ready_calls) == 1
     assert json.loads(report_ready_calls[0].kwargs["Message"])["appid"] == 440
@@ -668,11 +735,14 @@ def test_process_results_publishes_batch_complete_summary(lambda_context: Any) -
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     batch_complete_calls = [
-        c for c in mock_sns.publish.call_args_list
+        c
+        for c in mock_sns.publish.call_args_list
         if json.loads(c.kwargs["Message"]).get("event") == "batch-complete"
     ]
     assert len(batch_complete_calls) == 1
@@ -693,7 +763,9 @@ def test_process_results_returns_processed_and_failed_counts(lambda_context: Any
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch("lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo):
+    with patch(
+        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    ):
         result = h.handler(_handler_event(), lambda_context)
 
     assert "processed" in result

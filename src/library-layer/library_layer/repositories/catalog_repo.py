@@ -28,10 +28,7 @@ class CatalogRepository(BaseRepository):
                 VALUES %s
                 ON CONFLICT (appid) DO NOTHING
                 """,
-                [
-                    (e["appid"], (e.get("name") or f"App {e['appid']}")[:500])
-                    for e in entries
-                ],
+                [(e["appid"], (e.get("name") or f"App {e['appid']}")[:500]) for e in entries],
                 page_size=1000,
             )
             new_rows = cur.rowcount
@@ -39,9 +36,7 @@ class CatalogRepository(BaseRepository):
         return new_rows
 
     def find_by_appid(self, appid: int) -> CatalogEntry | None:
-        row = self._fetchone(
-            "SELECT * FROM app_catalog WHERE appid = %s", (appid,)
-        )
+        row = self._fetchone("SELECT * FROM app_catalog WHERE appid = %s", (appid,))
         if row is None:
             return None
         return CatalogEntry.model_validate(dict(row))

@@ -98,7 +98,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 text = model_output["content"][0]["text"]
                 summary = ChunkSummary.model_validate_json(text)
             except Exception as exc:
-                logger.error("failed to parse chunk summary", extra={"record_id": record_id, "error": str(exc)})
+                logger.error(
+                    "failed to parse chunk summary",
+                    extra={"record_id": record_id, "error": str(exc)},
+                )
                 continue
 
             chunks_by_appid.setdefault(appid, []).append(summary)
@@ -120,7 +123,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
         # Compute Python scores
         sentiment_score = compute_sentiment_score(chunks)
-        total_reviews = aggregated["total_stats"]["positive_count"] + aggregated["total_stats"]["negative_count"]
+        total_reviews = (
+            aggregated["total_stats"]["positive_count"]
+            + aggregated["total_stats"]["negative_count"]
+        )
         hidden_gem_score = compute_hidden_gem_score(total_reviews, sentiment_score)
 
         # Compute sentiment trend from DB review timestamps
@@ -163,15 +169,17 @@ def handler(event: dict, context: LambdaContext) -> dict:
             temporal=temporal,
             metadata=metadata,
         )
-        pass2_records.append({
-            "recordId": f"{appid}-synthesis",
-            "modelInput": {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 5000,
-                "system": SYNTHESIS_SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": user_content}],
-            },
-        })
+        pass2_records.append(
+            {
+                "recordId": f"{appid}-synthesis",
+                "modelInput": {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 5000,
+                    "system": SYNTHESIS_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": user_content}],
+                },
+            }
+        )
 
     logger.info("prepared pass2 records", extra={"records": len(pass2_records)})
 
@@ -187,10 +195,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # Upload Pass 2 JSONL
     input_key = f"jobs/{execution_id}/pass2/input.jsonl"
     body = "\n".join(json.dumps(r) for r in pass2_records)
-    _s3.put_object(Bucket=_BUCKET, Key=input_key, Body=body.encode(), ContentType="application/x-ndjson")
+    _s3.put_object(
+        Bucket=_BUCKET, Key=input_key, Body=body.encode(), ContentType="application/x-ndjson"
+    )
 
     input_s3_uri = f"s3://{_BUCKET}/{input_key}"
     output_s3_uri = f"s3://{_BUCKET}/jobs/{execution_id}/pass2/output/"
 
     logger.info("pass2 input uploaded", extra={"uri": input_s3_uri})
-    return {"input_s3_uri": input_s3_uri, "output_s3_uri": output_s3_uri, "total_records": len(pass2_records)}
+    return {
+        "input_s3_uri": input_s3_uri,
+        "output_s3_uri": output_s3_uri,
+        "total_records": len(pass2_records),
+    }

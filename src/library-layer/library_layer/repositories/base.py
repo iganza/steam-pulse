@@ -18,17 +18,13 @@ class BaseRepository:
         cur.execute(sql, params)
         return cur
 
-    def _fetchone(
-        self, sql: str, params: tuple = ()
-    ) -> psycopg2.extras.RealDictRow | None:
+    def _fetchone(self, sql: str, params: tuple = ()) -> psycopg2.extras.RealDictRow | None:
         """Execute a SELECT and return the first row as a RealDictRow, or None."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             return cur.fetchone()  # type: ignore[return-value]
 
-    def _fetchall(
-        self, sql: str, params: tuple = ()
-    ) -> list[psycopg2.extras.RealDictRow]:
+    def _fetchall(self, sql: str, params: tuple = ()) -> list[psycopg2.extras.RealDictRow]:
         """Execute a SELECT and return all rows as RealDictRows."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)

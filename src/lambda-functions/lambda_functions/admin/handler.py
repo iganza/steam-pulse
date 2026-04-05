@@ -23,8 +23,13 @@ _conn = get_conn()
 _conn.autocommit = True
 
 _FORBIDDEN_CTE_KEYWORDS = (
-    " INSERT ", " UPDATE ", " DELETE ", " MERGE ",
-    " CREATE ", " ALTER ", " DROP ",
+    " INSERT ",
+    " UPDATE ",
+    " DELETE ",
+    " MERGE ",
+    " CREATE ",
+    " ALTER ",
+    " DROP ",
 )
 
 
@@ -40,6 +45,7 @@ def _check_sql_safe(sql: str) -> str | None:
         return "EXPLAIN ANALYZE is not allowed in read-only mode"
     # Normalize non-word chars to spaces so "(DELETE" is caught as "DELETE".
     import re
+
     sql_words = " " + re.sub(r"[^\w]", " ", sql_upper) + " "
     if first_word == "WITH" and any(kw in sql_words for kw in _FORBIDDEN_CTE_KEYWORDS):
         return "Only read-only WITH queries are allowed"
@@ -95,9 +101,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
             total = len(rows)
             # Convert to JSON-safe types (datetime, Decimal, UUID, etc.)
             import json
-            serialised = json.loads(
-                json.dumps([dict(row) for row in rows], default=str)
-            )
+
+            serialised = json.loads(json.dumps([dict(row) for row in rows], default=str))
         truncated = total == MAX_QUERY_ROWS
         return {
             "status": "ok",

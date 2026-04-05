@@ -132,7 +132,6 @@ def _make_service(
     )
 
 
-
 def test_crawl_app_stores_game(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -184,7 +183,6 @@ def test_crawl_app_stores_game(
     assert game.review_count_english == 155000  # English only
 
 
-
 def test_crawl_app_handles_steam_error(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -218,7 +216,6 @@ def test_crawl_app_handles_steam_error(
 
     assert result is False
     assert game_repo.find_by_appid(440) is None
-
 
 
 def test_crawl_reviews_stores_reviews(
@@ -256,7 +253,6 @@ def test_crawl_reviews_stores_reviews(
 
     assert count == 4
     assert review_repo.count_by_appid(440) == 4
-
 
 
 def test_crawl_reviews_deduplicates(
@@ -304,7 +300,6 @@ def test_crawl_reviews_deduplicates(
 # ---------------------------------------------------------------------------
 # Eligibility gates on review_count_english, not review_count
 # ---------------------------------------------------------------------------
-
 
 
 def test_crawl_app_eligibility_uses_english_count(
@@ -389,7 +384,6 @@ def test_crawl_app_eligibility_uses_english_count(
 # ---------------------------------------------------------------------------
 
 
-
 def test_crawl_app_archives_to_s3(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -449,7 +443,6 @@ def test_crawl_app_archives_to_s3(
     assert isinstance(data, dict)
 
 
-
 def test_crawl_app_skips_s3_when_unconfigured(
     game_repo: GameRepository,
     review_repo: ReviewRepository,
@@ -494,7 +487,6 @@ def test_crawl_app_skips_s3_when_unconfigured(
 
     # Should succeed without errors
     assert result is True
-
 
 
 def test_crawl_reviews_archives_to_s3(

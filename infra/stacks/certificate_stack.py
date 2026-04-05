@@ -33,13 +33,15 @@ class CertificateStack(cdk.Stack):
 
         zone_id: str = self.node.try_get_context("hosted-zone-id") or ""
         hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
-            self, "HostedZone",
+            self,
+            "HostedZone",
             hosted_zone_id=zone_id,
             zone_name=DOMAIN,
         )
 
         self.certificate = acm.Certificate(
-            self, "Cert",
+            self,
+            "Cert",
             domain_name=DOMAIN,
             subject_alternative_names=[f"*.{DOMAIN}"],
             validation=acm.CertificateValidation.from_dns(hosted_zone),

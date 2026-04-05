@@ -9,12 +9,12 @@ REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 
 REVIEWS_PER_PAGE = 100
-PAGE_DELAY_MIN = 0.5   # seconds — randomised between min/max to avoid detection
+PAGE_DELAY_MIN = 0.5  # seconds — randomised between min/max to avoid detection
 PAGE_DELAY_MAX = 2.0
 METADATA_DELAY_MIN = 0.3
 METADATA_DELAY_MAX = 1.2
 MAX_RETRIES = 5
-BACKOFF_BASE = 2.0     # exponential: 2, 4, 8, 16, 32 seconds
+BACKOFF_BASE = 2.0  # exponential: 2, 4, 8, 16, 32 seconds
 
 
 def _jitter(min_s: float, max_s: float) -> float:
@@ -28,12 +28,14 @@ def _get_with_retry(client: httpx.Client, url: str, params: dict) -> httpx.Respo
             resp = client.get(url, params=params)
         except httpx.RequestError as e:
             if attempt == MAX_RETRIES - 1:
-                raise RuntimeError(f"Steam API unreachable after {MAX_RETRIES} attempts: {e}") from e
-            time.sleep(BACKOFF_BASE ** attempt + _jitter(0, 1))
+                raise RuntimeError(
+                    f"Steam API unreachable after {MAX_RETRIES} attempts: {e}"
+                ) from e
+            time.sleep(BACKOFF_BASE**attempt + _jitter(0, 1))
             continue
 
         if resp.status_code in (429, 503):
-            wait = BACKOFF_BASE ** attempt + _jitter(1, 3)
+            wait = BACKOFF_BASE**attempt + _jitter(1, 3)
             time.sleep(wait)
             continue
 
@@ -82,9 +84,7 @@ def fetch_reviews(appid: int, max_reviews: int | None = 500) -> list[dict]:
                     {
                         "review_text": r.get("review", ""),
                         "voted_up": r.get("voted_up", False),
-                        "playtime_at_review": r.get("author", {}).get(
-                            "playtime_at_review", 0
-                        ),
+                        "playtime_at_review": r.get("author", {}).get("playtime_at_review", 0),
                         "timestamp_created": r.get("timestamp_created", 0),
                     }
                 )

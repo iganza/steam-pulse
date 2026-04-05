@@ -36,5 +36,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     mapped_status = _STATUS_MAP.get(raw_status, "Failed")
     message = resp.get("message", raw_status)
 
-    logger.info("batch job status", extra={"job_id": job_id, "raw": raw_status, "mapped": mapped_status})
+    logger.info(
+        "batch job status", extra={"job_id": job_id, "raw": raw_status, "mapped": mapped_status}
+    )
     return {"status": mapped_status, "message": message}

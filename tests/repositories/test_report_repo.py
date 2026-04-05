@@ -1,46 +1,47 @@
 """Tests for ReportRepository."""
 
-
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 
 
 def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
-    game_repo.upsert({
-        "appid": appid,
-        "name": "Team Fortress 2",
-        "slug": f"team-fortress-2-{appid}",
-        "type": "game",
-        "developer": "Valve",
-        "developer_slug": "valve",
-        "publisher": "Valve",
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": None,
-        "coming_soon": False,
-        "price_usd": None,
-        "is_free": True,
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": 188000,
-        "review_count_english": 188000,
-        "total_positive": 182000,
-        "total_negative": 6000,
-        "positive_pct": 96,
-        "review_score_desc": "Overwhelmingly Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": "{}",
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+    game_repo.upsert(
+        {
+            "appid": appid,
+            "name": "Team Fortress 2",
+            "slug": f"team-fortress-2-{appid}",
+            "type": "game",
+            "developer": "Valve",
+            "developer_slug": "valve",
+            "publisher": "Valve",
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": None,
+            "coming_soon": False,
+            "price_usd": None,
+            "is_free": True,
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": 188000,
+            "review_count_english": 188000,
+            "total_positive": 182000,
+            "total_negative": 6000,
+            "positive_pct": 96,
+            "review_score_desc": "Overwhelmingly Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": "{}",
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
 
 
 def _report(appid: int = 440) -> dict:
@@ -56,9 +57,7 @@ def _report(appid: int = 440) -> dict:
     }
 
 
-def test_upsert_and_find(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
+def test_upsert_and_find(game_repo: GameRepository, report_repo: ReportRepository) -> None:
     _seed_game(game_repo)
     report_repo.upsert(_report())
     result = report_repo.find_by_appid(440)
@@ -68,9 +67,7 @@ def test_upsert_and_find(
     assert result.report_json["game_name"] == "Team Fortress 2"
 
 
-def test_upsert_updates_existing(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
+def test_upsert_updates_existing(game_repo: GameRepository, report_repo: ReportRepository) -> None:
     _seed_game(game_repo)
     report_repo.upsert(_report())
     updated = _report()
@@ -81,9 +78,7 @@ def test_upsert_updates_existing(
     assert result.reviews_analyzed == 3000
 
 
-def test_find_public(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
+def test_find_public(game_repo: GameRepository, report_repo: ReportRepository) -> None:
     _seed_game(game_repo, 440)
     _seed_game(game_repo, 441)
     report_repo.upsert({**_report(440)})

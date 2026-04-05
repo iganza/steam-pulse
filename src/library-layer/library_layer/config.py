@@ -79,16 +79,22 @@ class SteamPulseConfig(BaseSettings):
 
     # ── Spoke regions (comma-separated, e.g. "us-west-2,us-east-1") ───────────
     SPOKE_REGIONS: str = ""
+    SPOKE_CRAWL_QUEUE_URLS: str = ""
 
     @property
     def spoke_region_list(self) -> list[str]:
         """Return list of spoke regions, filtering out empty strings."""
         return [r.strip() for r in self.SPOKE_REGIONS.split(",") if r.strip()]
 
+    @property
+    def spoke_crawl_queue_url_list(self) -> list[str]:
+        """Return list of per-spoke SQS crawl queue URLs, filtering out empty strings."""
+        return [u.strip() for u in self.SPOKE_CRAWL_QUEUE_URLS.split(",") if u.strip()]
+
     # ── Review crawl limits — overridable via env var ───────────────────────────
     REVIEW_ELIGIBILITY_THRESHOLD: int = 50
     REVIEW_LIMIT: int = 10_000  # Default cap for automated (SQS-driven) crawls.
-                                 # Operators can override per-invocation via direct invoke.
+    # Operators can override per-invocation via direct invoke.
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

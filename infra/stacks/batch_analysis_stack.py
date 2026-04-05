@@ -8,7 +8,6 @@ Resources:
   - EventBridge rule (disabled by default — for future scheduled re-analysis)
 """
 
-
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_events as events
@@ -50,9 +49,7 @@ class BatchAnalysisStack(cdk.Stack):
         library_layer = lambda_.LayerVersion.from_layer_version_arn(
             self,
             "LibraryLayer",
-            ssm.StringParameter.value_for_string_parameter(
-                self, config.library_layer_ssm_path
-            ),
+            ssm.StringParameter.value_for_string_parameter(self, config.library_layer_ssm_path),
         )
 
         # ── S3 batch bucket ───────────────────────────────────────────────────
@@ -63,9 +60,7 @@ class BatchAnalysisStack(cdk.Stack):
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
-            lifecycle_rules=[
-                s3.LifecycleRule(expiration=cdk.Duration.days(7))
-            ],
+            lifecycle_rules=[s3.LifecycleRule(expiration=cdk.Duration.days(7))],
             removal_policy=cdk.RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
@@ -144,7 +139,9 @@ class BatchAnalysisStack(cdk.Stack):
             BEDROCK_BATCH_ROLE_ARN=batch_role.role_arn,
         )
 
-        def _make_batch_fn(construct_id: str, index: str, powertools_service: str) -> PythonFunction:
+        def _make_batch_fn(
+            construct_id: str, index: str, powertools_service: str
+        ) -> PythonFunction:
             return PythonFunction(
                 self,
                 construct_id,
@@ -204,42 +201,55 @@ class BatchAnalysisStack(cdk.Stack):
         # ── Step Functions: STANDARD workflow ─────────────────────────────────
         # STANDARD (not EXPRESS) — batch jobs run for hours, Wait states > 5 min require STANDARD.
 
-        fail_state = sfn.Fail(self, "JobFailed",
+        fail_state = sfn.Fail(
+            self,
+            "JobFailed",
             error="BedrockBatchJobFailed",
             cause="Bedrock batch inference job failed",
         )
 
         # Pass 1 chain
         prepare_pass1_task = tasks.LambdaInvoke(
-            self, "PreparePass1",
+            self,
+            "PreparePass1",
             lambda_function=prepare_pass1_fn,
-            payload=sfn.TaskInput.from_object({
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "appids": sfn.JsonPath.object_at("$.appids"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    "appids": sfn.JsonPath.object_at("$.appids"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass1",
         )
         submit_pass1_task = tasks.LambdaInvoke(
-            self, "SubmitPass1Job",
+            self,
+            "SubmitPass1Job",
             lambda_function=submit_job_fn,
-            payload=sfn.TaskInput.from_object({
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "pass": "pass1",
-                "model_id": config.model_for("chunking"),
-                "input_s3_uri": sfn.JsonPath.string_at("$.pass1.input_s3_uri"),
-                "output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    "pass": "pass1",
+                    "model_id": config.model_for("chunking"),
+                    "input_s3_uri": sfn.JsonPath.string_at("$.pass1.input_s3_uri"),
+                    "output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass1.job",
         )
-        wait_pass1 = sfn.Wait(self, "WaitPass1", time=sfn.WaitTime.duration(cdk.Duration.seconds(300)))
+        wait_pass1 = sfn.Wait(
+            self, "WaitPass1", time=sfn.WaitTime.duration(cdk.Duration.seconds(300))
+        )
         check_pass1_task = tasks.LambdaInvoke(
-            self, "CheckPass1Status",
+            self,
+            "CheckPass1Status",
             lambda_function=check_status_fn,
-            payload=sfn.TaskInput.from_object({
-                "job_id": sfn.JsonPath.string_at("$.pass1.job.job_id"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "job_id": sfn.JsonPath.string_at("$.pass1.job.job_id"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass1.job.status_result",
         )
@@ -247,47 +257,61 @@ class BatchAnalysisStack(cdk.Stack):
 
         # Pass 2 chain
         prepare_pass2_task = tasks.LambdaInvoke(
-            self, "PreparePass2",
+            self,
+            "PreparePass2",
             lambda_function=prepare_pass2_fn,
-            payload=sfn.TaskInput.from_object({
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "pass1_output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    "pass1_output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass2",
         )
         submit_pass2_task = tasks.LambdaInvoke(
-            self, "SubmitPass2Job",
+            self,
+            "SubmitPass2Job",
             lambda_function=submit_job_fn,
-            payload=sfn.TaskInput.from_object({
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "pass": "pass2",
-                "model_id": config.model_for("summarizer"),
-                "input_s3_uri": sfn.JsonPath.string_at("$.pass2.input_s3_uri"),
-                "output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    "pass": "pass2",
+                    "model_id": config.model_for("summarizer"),
+                    "input_s3_uri": sfn.JsonPath.string_at("$.pass2.input_s3_uri"),
+                    "output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass2.job",
         )
-        wait_pass2 = sfn.Wait(self, "WaitPass2", time=sfn.WaitTime.duration(cdk.Duration.seconds(300)))
+        wait_pass2 = sfn.Wait(
+            self, "WaitPass2", time=sfn.WaitTime.duration(cdk.Duration.seconds(300))
+        )
         check_pass2_task = tasks.LambdaInvoke(
-            self, "CheckPass2Status",
+            self,
+            "CheckPass2Status",
             lambda_function=check_status_fn,
-            payload=sfn.TaskInput.from_object({
-                "job_id": sfn.JsonPath.string_at("$.pass2.job.job_id"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "job_id": sfn.JsonPath.string_at("$.pass2.job.job_id"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.pass2.job.status_result",
         )
         pass2_complete = sfn.Choice(self, "Pass2Complete?")
 
         process_results_task = tasks.LambdaInvoke(
-            self, "ProcessResults",
+            self,
+            "ProcessResults",
             lambda_function=process_results_fn,
-            payload=sfn.TaskInput.from_object({
-                "pass2_output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "pass2_output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                }
+            ),
             payload_response_only=True,
         )
 
@@ -311,13 +335,14 @@ class BatchAnalysisStack(cdk.Stack):
 
         # Full chain
         definition = (
-            prepare_pass1_task
-            .next(submit_pass1_task)
+            prepare_pass1_task.next(submit_pass1_task)
             .next(wait_pass1)
             .next(check_pass1_task)
             .next(pass1_complete)
         )
-        prepare_pass2_task.next(submit_pass2_task).next(wait_pass2).next(check_pass2_task).next(pass2_complete)
+        prepare_pass2_task.next(submit_pass2_task).next(wait_pass2).next(check_pass2_task).next(
+            pass2_complete
+        )
 
         state_machine = sfn.StateMachine(
             self,

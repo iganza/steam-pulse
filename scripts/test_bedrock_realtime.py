@@ -18,7 +18,9 @@ import anthropic
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test Bedrock real-time Converse API")
-    parser.add_argument("--model", default="us.anthropic.claude-sonnet-4-6", help="Bedrock model ID")
+    parser.add_argument(
+        "--model", default="us.anthropic.claude-sonnet-4-6", help="Bedrock model ID"
+    )
     parser.add_argument("--region", default="us-west-2", help="AWS region")
     args = parser.parse_args()
 
@@ -50,15 +52,17 @@ def main() -> None:
         model=args.model,
         max_tokens=256,
         system="You extract structured data. Return ONLY valid JSON. No prose.",
-        messages=[{
-            "role": "user",
-            "content": (
-                "Extract the sentiment from this review:\n\n"
-                '"I love the combat but the matchmaking is terrible. 200 hours played."\n\n'
-                "Return JSON: {\"topics\": [{\"name\": str, \"sentiment\": \"positive\"|\"negative\", "
-                "\"mention_count\": int}], \"overall\": \"positive\"|\"negative\"|\"mixed\"}"
-            ),
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Extract the sentiment from this review:\n\n"
+                    '"I love the combat but the matchmaking is terrible. 200 hours played."\n\n'
+                    'Return JSON: {"topics": [{"name": str, "sentiment": "positive"|"negative", '
+                    '"mention_count": int}], "overall": "positive"|"negative"|"mixed"}'
+                ),
+            }
+        ],
     )
     elapsed = round((time.monotonic() - t0) * 1000)
     text = resp.content[0].text.strip()

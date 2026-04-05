@@ -60,6 +60,15 @@ def _mock_catalog_and_review_repos(ih: Any, reviews_completed_at: datetime | Non
     ih._review_repo.count_by_appid = MagicMock(return_value=0)
 
 
+def _mock_spoke_sqs(ih: Any) -> MagicMock:
+    """Inject a single mock spoke SQS target and return the mock SQS client."""
+    mock_spoke_sqs = MagicMock()
+    ih._spoke_sqs_targets = [
+        ("https://sqs.us-east-1.amazonaws.com/123/spoke-crawl-queue", mock_spoke_sqs),
+    ]
+    return mock_spoke_sqs
+
+
 # ── Routing ─────────────────────────────────────────────────────────────────
 
 
@@ -156,7 +165,7 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     _mock_catalog_and_review_repos(ih)
 
     event = _sqs_event(
@@ -172,7 +181,7 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
-    ih._sqs.send_message.assert_not_called()
+    mock_spoke_sqs.send_message.assert_not_called()
 
 
 @mock_aws
@@ -186,7 +195,7 @@ def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_con
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     _mock_catalog_and_review_repos(
         ih,
         reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -209,7 +218,7 @@ def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_con
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(
         440, completed_at=expected_boundary
     )
-    ih._sqs.send_message.assert_not_called()
+    mock_spoke_sqs.send_message.assert_not_called()
 
 
 @mock_aws
@@ -224,7 +233,7 @@ def test_no_early_stop_on_first_crawl(lambda_context: Any) -> None:
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     _mock_catalog_and_review_repos(ih, reviews_completed_at=None)
 
     event = _sqs_event(
@@ -240,7 +249,7 @@ def test_no_early_stop_on_first_crawl(lambda_context: Any) -> None:
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
-    ih._sqs.send_message.assert_called_once()
+    mock_spoke_sqs.send_message.assert_called_once()
 
 
 @mock_aws
@@ -255,7 +264,7 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped(reviews))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     _mock_catalog_and_review_repos(
         ih,
         reviews_completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -274,7 +283,7 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
-    ih._sqs.send_message.assert_called_once()
+    mock_spoke_sqs.send_message.assert_called_once()
 
 
 @mock_aws
@@ -287,7 +296,7 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     _mock_catalog_and_review_repos(ih)
 
     # target=1000 equals batch count=1000 → this batch exhausts the budget
@@ -305,7 +314,7 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     ih.handler(event, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
-    ih._sqs.send_message.assert_not_called()
+    mock_spoke_sqs.send_message.assert_not_called()
 
 
 @mock_aws
@@ -321,6 +330,7 @@ def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any)
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
     ih._review_repo.count_by_appid = MagicMock(return_value=1000)
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
 
     event = _sqs_event(
         ReviewSpokeResult(
@@ -336,17 +346,17 @@ def test_reviews_more_pages_requeues_with_cursor_in_message(lambda_context: Any)
     )
     ih.handler(event, lambda_context)
 
-    ih._sqs.send_message.assert_called_once()
-    sent_body = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
+    mock_spoke_sqs.send_message.assert_called_once()
+    call_kwargs = mock_spoke_sqs.send_message.call_args[1]
+    assert call_kwargs["QueueUrl"] == "https://sqs.us-east-1.amazonaws.com/123/spoke-crawl-queue"
+    sent_body = json.loads(call_kwargs["MessageBody"])
     # target becomes remaining = 10000 - 1000 = 9000 to prevent overshoot on the final batch
-    assert sent_body == {
-        "appid": 440,
-        "task": "reviews",
-        "cursor": "cursor_abc",
-        "target": 9000,
-        "started_at": "2026-03-26T12:00:00+00:00",
-    }
-    ih._catalog_repo.save_review_cursor.assert_not_called()
+    assert sent_body["appid"] == 440
+    assert sent_body["task"] == "reviews"
+    assert sent_body["cursor"] == "cursor_abc"
+    assert sent_body["target"] == 9000
+    # Pydantic serializes UTC datetime with Z suffix
+    assert sent_body["started_at"] == "2026-03-26T12:00:00Z"
 
 
 @mock_aws
@@ -359,7 +369,7 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     ih._s3.get_object.return_value = {
         "Body": MagicMock(read=MagicMock(return_value=_gzipped([]))),
     }
-    ih._sqs = MagicMock()
+    mock_spoke_sqs = _mock_spoke_sqs(ih)
     ih._catalog_repo = MagicMock()
     ih._catalog_repo.get_reviews_completed_at = MagicMock(return_value=None)
     ih._review_repo = MagicMock()
@@ -383,11 +393,11 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     ih.handler(hop1, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_not_called()
-    ih._sqs.send_message.assert_called_once()
-    sent = json.loads(ih._sqs.send_message.call_args[1]["MessageBody"])
+    mock_spoke_sqs.send_message.assert_called_once()
+    sent = json.loads(mock_spoke_sqs.send_message.call_args[1]["MessageBody"])
     assert sent["target"] == 1000  # 2000 - 1000
     assert sent["cursor"] == "cursor_hop2"
-    ih._sqs.reset_mock()
+    mock_spoke_sqs.reset_mock()
 
     # Hop 2: target=1000, count=1000 → budget exactly exhausted → mark complete
     hop2 = _sqs_event(
@@ -405,7 +415,7 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     ih.handler(hop2, lambda_context)
 
     ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
-    ih._sqs.send_message.assert_not_called()
+    mock_spoke_sqs.send_message.assert_not_called()
 
 
 # ── count==0 / no s3_key — skip processing ─────────────────────────────────

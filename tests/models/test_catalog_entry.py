@@ -34,8 +34,8 @@ def test_complete_when_timestamp_set() -> None:
 
 def test_exactly_one_state_true_per_entry() -> None:
     cases = [
-        _entry(reviews_completed_at=None),   # not_started
-        _entry(reviews_completed_at=NOW),    # complete
+        _entry(reviews_completed_at=None),  # not_started
+        _entry(reviews_completed_at=NOW),  # complete
     ]
     for entry in cases:
         assert entry.review_not_started != entry.review_complete, (

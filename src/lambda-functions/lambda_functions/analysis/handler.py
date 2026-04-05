@@ -83,7 +83,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
         raise ValueError(f"No non-empty review bodies for appid={req.appid}")
 
     name = req.game_name or game.name
-    logger.info("Analyzing game", extra={"appid": req.appid, "game_name": name, "review_count": len(reviews_for_llm)})
+    logger.info(
+        "Analyzing game",
+        extra={"appid": req.appid, "game_name": name, "review_count": len(reviews_for_llm)},
+    )
 
     # Build temporal context from existing repo data
     velocity_data = _review_repo.find_review_velocity(req.appid)

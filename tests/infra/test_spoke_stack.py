@@ -25,6 +25,7 @@ _TEST_CONFIG = SteamPulseConfig(
     GAME_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/game-events-topic-arn",
     CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
     SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
+    SPOKE_CRAWL_QUEUE_URLS="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-staging",
 )
 
 
@@ -34,7 +35,8 @@ def template() -> Template:
     # are still fully synthesized, only the asset Code is a placeholder.
     app = cdk.App(context={"aws:cdk:bundling-stacks": []})
     stack = CrawlSpokeStack(
-        app, "TestSpoke",
+        app,
+        "TestSpoke",
         config=_TEST_CONFIG,
         primary_region="us-west-2",
         environment="staging",
@@ -51,27 +53,47 @@ def test_one_lambda_function(template: Template) -> None:
     template.resource_count_is("AWS::Lambda::Function", 1)
 
 
-def test_reserved_concurrency_three(template: Template) -> None:
-    template.has_resource_properties("AWS::Lambda::Function", {
-        "ReservedConcurrentExecutions": 3,
-    })
+def test_no_reserved_concurrency(template: Template) -> None:
+    """Concurrency is controlled by SQS ESM max_concurrency, not reserved concurrency."""
+    from aws_cdk.assertions import Match
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "ReservedConcurrentExecutions": Match.absent(),
+        },
+    )
 
 
 def test_deterministic_function_name(template: Template) -> None:
     """Spoke Lambda has a deterministic name for cross-region invocation."""
-    template.has_resource_properties("AWS::Lambda::Function", {
-        "FunctionName": "steampulse-spoke-crawler-us-east-1-staging",
-    })
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "FunctionName": "steampulse-spoke-crawler-us-east-1-staging",
+        },
+    )
 
 
 def test_no_vpc(template: Template) -> None:
     template.resource_count_is("AWS::EC2::VPC", 0)
 
 
-def test_no_event_source_mappings(template: Template) -> None:
-    """No SQS event sources — spoke is invoked directly by primary handler."""
-    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
+def test_sqs_event_source_mapping(template: Template) -> None:
+    """Spoke Lambda is triggered by SQS event source mapping."""
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 1)
 
 
-def test_ssm_status_param(template: Template) -> None:
-    template.resource_count_is("AWS::SSM::Parameter", 1)
+def test_spoke_crawl_queue_exists(template: Template) -> None:
+    """Per-spoke SQS crawl queue with deterministic name."""
+    template.has_resource_properties(
+        "AWS::SQS::Queue",
+        {
+            "QueueName": "steampulse-spoke-crawl-us-east-1-staging",
+        },
+    )
+
+
+def test_ssm_params(template: Template) -> None:
+    """Two SSM params: spoke status + crawl queue URL."""
+    template.resource_count_is("AWS::SSM::Parameter", 2)

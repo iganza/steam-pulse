@@ -106,15 +106,6 @@ class TagsSpokeResult(BaseModel):
     error: str | None = None
 
 
-class SpokeResponse(BaseModel):
-    """Spoke Lambda return value (logged by Lambda, useful for debugging)."""
-
-    appid: int
-    task: CrawlTask
-    success: bool
-    count: int
-
-
 # ── SQS record → typed spoke request ────────────────────────────────────────
 
 SpokeRequest = MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest

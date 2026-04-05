@@ -39,7 +39,8 @@ class NetworkStack(cdk.Stack):
         )
 
         self.vpc = ec2.Vpc(
-            self, "Vpc",
+            self,
+            "Vpc",
             max_azs=2,
             nat_gateways=nat_gateways,
             nat_gateway_provider=nat_provider,
@@ -74,7 +75,8 @@ class NetworkStack(cdk.Stack):
         # Shared SG joined by all Lambda functions — grants DB access and allows
         # outbound internet egress via fck-nat.
         self.intra_sg = ec2.SecurityGroup(
-            self, "IntraSg",
+            self,
+            "IntraSg",
             vpc=self.vpc,
             description="Shared intra-VPC SG for Lambda functions",
             allow_all_outbound=True,

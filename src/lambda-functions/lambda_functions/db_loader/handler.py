@@ -126,7 +126,11 @@ def _execute_dump(conn: psycopg2.extensions.connection, f: IO[str]) -> None:
                     dollar_quote_tag = None
 
             # Flush when the line ends with ';' and we're not inside a dollar-quote
-            if stripped.endswith(";") and not stripped.startswith("--") and dollar_quote_tag is None:
+            if (
+                stripped.endswith(";")
+                and not stripped.startswith("--")
+                and dollar_quote_tag is None
+            ):
                 stmt = "".join(stmt_buf).strip()
                 if stmt:
                     cur.execute(stmt)
@@ -155,9 +159,7 @@ def handler(event: dict, context: object) -> dict:
         raise ValueError("Missing required field: key")
 
     if not any(key.startswith(p) for p in _ALLOWED_KEY_PREFIXES):
-        raise ValueError(
-            f"key must be under one of {_ALLOWED_KEY_PREFIXES}, got: {key!r}"
-        )
+        raise ValueError(f"key must be under one of {_ALLOWED_KEY_PREFIXES}, got: {key!r}")
 
     # Derive bucket from the runtime environment rather than trusting event input.
     # This prevents the function being mis-directed at an unexpected bucket.

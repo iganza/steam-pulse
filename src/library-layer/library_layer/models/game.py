@@ -52,7 +52,15 @@ class Game(BaseModel):
             return []
         return v  # type: ignore[return-value]
 
-    @field_validator("review_count", "review_count_english", "total_positive", "total_negative", "required_age", "achievements_total", mode="before")
+    @field_validator(
+        "review_count",
+        "review_count_english",
+        "total_positive",
+        "total_negative",
+        "required_age",
+        "achievements_total",
+        mode="before",
+    )
     @classmethod
     def coerce_int(cls, v: object) -> int:
         if v is None:

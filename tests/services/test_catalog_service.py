@@ -1,6 +1,5 @@
 """Tests for CatalogService using real repos + real DB + moto SQS."""
 
-
 from unittest.mock import MagicMock
 
 import httpx

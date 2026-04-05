@@ -40,15 +40,16 @@ def _discover_role_arn(env: str, region: str) -> str:
                     print(f"Discovered role ARN from Lambda {name}")
                     return role_arn
     raise RuntimeError(
-        f"Could not find SubmitBatchJob Lambda for env={env}. "
-        "Pass --role-arn explicitly."
+        f"Could not find SubmitBatchJob Lambda for env={env}. Pass --role-arn explicitly."
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test Bedrock batch inference end-to-end")
     parser.add_argument("--env", choices=["staging", "production"], default="staging")
-    parser.add_argument("--model", default="us.anthropic.claude-sonnet-4-6", help="Bedrock model ID")
+    parser.add_argument(
+        "--model", default="us.anthropic.claude-sonnet-4-6", help="Bedrock model ID"
+    )
     parser.add_argument("--region", default="us-west-2", help="AWS region")
     parser.add_argument("--role-arn", help="Bedrock batch role ARN (auto-discovered if omitted)")
     args = parser.parse_args()
@@ -93,7 +94,9 @@ def main() -> None:
     }
 
     jsonl_body = json.dumps(record)
-    s3.put_object(Bucket=bucket, Key=input_key, Body=jsonl_body.encode(), ContentType="application/x-ndjson")
+    s3.put_object(
+        Bucket=bucket, Key=input_key, Body=jsonl_body.encode(), ContentType="application/x-ndjson"
+    )
     print(f"[1/4] Uploaded input: s3://{bucket}/{input_key}")
 
     # Step 2: Submit batch job

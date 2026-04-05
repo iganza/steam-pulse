@@ -55,6 +55,7 @@ class ComputeStack(cdk.Stack):
         system_events_topic: sns.ITopic,
         spoke_results_queue: sqs.IQueue,
         email_queue: sqs.IQueue,
+        spoke_crawl_queue_urls: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -63,7 +64,9 @@ class ComputeStack(cdk.Stack):
         private_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)
 
         assets_bucket = s3.Bucket.from_bucket_name(
-            self, "AssetsBucket", f"steampulse-assets-{env}",
+            self,
+            "AssetsBucket",
+            f"steampulse-assets-{env}",
         )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
@@ -104,7 +107,9 @@ class ComputeStack(cdk.Stack):
         analysis_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"
+                ],
             )
         )
         content_events_topic.grant_publish(analysis_role)
@@ -191,7 +196,9 @@ class ComputeStack(cdk.Stack):
         api_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"
+                ],
             )
         )
         email_queue.grant_send_messages(api_role)
@@ -237,7 +244,6 @@ class ComputeStack(cdk.Stack):
         opennext_cache_table = dynamodb.Table(
             self,
             "OpenNextCacheTable",
-
             partition_key=dynamodb.Attribute(name="tag", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="path", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -323,7 +329,9 @@ class ComputeStack(cdk.Stack):
         crawler_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"
+                ],
             )
         )
         app_crawl_queue.grant_send_messages(crawler_role)
@@ -358,6 +366,7 @@ class ComputeStack(cdk.Stack):
             environment=config.to_lambda_env(
                 POWERTOOLS_SERVICE_NAME="crawler",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+                SPOKE_CRAWL_QUEUE_URLS=spoke_crawl_queue_urls,
             ),
         )
 
@@ -390,18 +399,19 @@ class ComputeStack(cdk.Stack):
                 "CrawlerFnSqsEventSourceSteamPulsePipelineSteamPulseStagingMessagingReviewCrawlQueue69735A7ED670F960"
             )
 
-        # Cross-region invoke on spoke Lambdas (deterministic names)
+        # Cross-region SQS send to per-spoke crawl queues (deterministic names)
         spoke_regions = config.spoke_region_list
         if spoke_regions:
-            spoke_fn_arns = [
-                f"arn:aws:lambda:{r}:{self.account}:function:"
-                f"steampulse-spoke-crawler-{r}-{env}"
+            spoke_queue_arns = [
+                f"arn:aws:sqs:{r}:{self.account}:steampulse-spoke-crawl-{r}-{env}"
                 for r in spoke_regions
             ]
-            crawler_role.add_to_policy(iam.PolicyStatement(
-                actions=["lambda:InvokeFunction"],
-                resources=spoke_fn_arns,
-            ))
+            crawler_role.add_to_policy(
+                iam.PolicyStatement(
+                    actions=["sqs:SendMessage"],
+                    resources=spoke_queue_arns,
+                )
+            )
 
         # ── Ingest Lambda (spoke results → DB) ────────────────────────────
         ingest_fn = PythonFunction(
@@ -429,6 +439,7 @@ class ComputeStack(cdk.Stack):
             environment=config.to_lambda_env(
                 POWERTOOLS_SERVICE_NAME="spoke-ingest",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+                SPOKE_CRAWL_QUEUE_URLS=spoke_crawl_queue_urls,
             ),
         )
         ingest_fn.add_event_source(
@@ -456,7 +467,8 @@ class ComputeStack(cdk.Stack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             layers=[library_layer],
             role=iam.Role(
-                self, "AdminRole",
+                self,
+                "AdminRole",
                 assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
                 managed_policies=[
                     iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -588,7 +600,9 @@ class ComputeStack(cdk.Stack):
         email_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"
+                ],
             )
         )
 

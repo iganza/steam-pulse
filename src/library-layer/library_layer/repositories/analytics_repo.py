@@ -5,8 +5,19 @@ import json
 from library_layer.repositories.base import BaseRepository
 
 _MONTH_NAMES = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
@@ -91,9 +102,7 @@ class AnalyticsRepository(BaseRepository):
 
     def find_price_positioning(self, genre_slug: str) -> dict:
         """Price distribution + sentiment correlation within a genre."""
-        genre_row = self._fetchone(
-            "SELECT name FROM genres WHERE slug = %s", (genre_slug,)
-        )
+        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
         genre_name = genre_row["name"] if genre_row else genre_slug
 
         dist_rows = self._fetchall(
@@ -150,22 +159,32 @@ class AnalyticsRepository(BaseRepository):
             {
                 "price_range": r["price_range"],
                 "game_count": int(r["game_count"]),
-                "avg_sentiment": float(r["avg_sentiment"]) if r["avg_sentiment"] is not None else None,
+                "avg_sentiment": float(r["avg_sentiment"])
+                if r["avg_sentiment"] is not None
+                else None,
                 "median_price": float(r["median_price"]) if r["median_price"] is not None else 0.0,
             }
             for r in dist_rows
         ]
 
-        eligible = [d for d in distribution if d["game_count"] >= 10 and d["avg_sentiment"] is not None]
-        sweet_spot = max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
+        eligible = [
+            d for d in distribution if d["game_count"] >= 10 and d["avg_sentiment"] is not None
+        ]
+        sweet_spot = (
+            max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
+        )
 
         return {
             "genre": genre_name,
             "genre_slug": genre_slug,
             "distribution": distribution,
             "summary": {
-                "avg_price": float(summary_row["avg_price"]) if summary_row and summary_row["avg_price"] else None,
-                "median_price": float(summary_row["median_price"]) if summary_row and summary_row["median_price"] else None,
+                "avg_price": float(summary_row["avg_price"])
+                if summary_row and summary_row["avg_price"]
+                else None,
+                "median_price": float(summary_row["median_price"])
+                if summary_row and summary_row["median_price"]
+                else None,
                 "free_count": int(summary_row["free_count"]) if summary_row else 0,
                 "paid_count": int(summary_row["paid_count"]) if summary_row else 0,
                 "sweet_spot": sweet_spot,
@@ -174,9 +193,7 @@ class AnalyticsRepository(BaseRepository):
 
     def find_release_timing(self, genre_slug: str) -> dict:
         """Monthly release density and avg sentiment by month, last 5 years."""
-        genre_row = self._fetchone(
-            "SELECT name FROM genres WHERE slug = %s", (genre_slug,)
-        )
+        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
         genre_name = genre_row["name"] if genre_row else genre_slug
 
         rows = self._fetchall(
@@ -204,7 +221,9 @@ class AnalyticsRepository(BaseRepository):
                 "month": r["month"],
                 "month_name": _MONTH_NAMES[r["month"]],
                 "releases": int(r["releases"]),
-                "avg_sentiment": float(r["avg_sentiment"]) if r["avg_sentiment"] is not None else None,
+                "avg_sentiment": float(r["avg_sentiment"])
+                if r["avg_sentiment"] is not None
+                else None,
                 "avg_reviews": int(r["avg_reviews"]) if r["avg_reviews"] is not None else 0,
             }
             for r in rows
@@ -222,7 +241,9 @@ class AnalyticsRepository(BaseRepository):
 
         has_sentiment = [m for m in monthly if m["avg_sentiment"] is not None]
         best_month = max(has_sentiment, key=lambda x: x["avg_sentiment"]) if has_sentiment else None
-        worst_month = min(has_sentiment, key=lambda x: x["avg_sentiment"]) if has_sentiment else None
+        worst_month = (
+            min(has_sentiment, key=lambda x: x["avg_sentiment"]) if has_sentiment else None
+        )
         quietest_month = min(monthly, key=lambda x: x["releases"])
         busiest_month = max(monthly, key=lambda x: x["releases"])
 
@@ -247,9 +268,7 @@ class AnalyticsRepository(BaseRepository):
 
     def find_platform_distribution(self, genre_slug: str) -> dict:
         """Platform support breakdown and sentiment by platform within a genre."""
-        genre_row = self._fetchone(
-            "SELECT name FROM genres WHERE slug = %s", (genre_slug,)
-        )
+        genre_row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
         genre_name = genre_row["name"] if genre_row else genre_slug
 
         row = self._fetchone(
@@ -287,17 +306,23 @@ class AnalyticsRepository(BaseRepository):
             "windows": {
                 "count": int(row["windows"] or 0),
                 "pct": _pct(int(row["windows"] or 0)),
-                "avg_sentiment": float(row["windows_avg_sentiment"]) if row["windows_avg_sentiment"] is not None else None,
+                "avg_sentiment": float(row["windows_avg_sentiment"])
+                if row["windows_avg_sentiment"] is not None
+                else None,
             },
             "mac": {
                 "count": int(row["mac"] or 0),
                 "pct": _pct(int(row["mac"] or 0)),
-                "avg_sentiment": float(row["mac_avg_sentiment"]) if row["mac_avg_sentiment"] is not None else None,
+                "avg_sentiment": float(row["mac_avg_sentiment"])
+                if row["mac_avg_sentiment"] is not None
+                else None,
             },
             "linux": {
                 "count": int(row["linux"] or 0),
                 "pct": _pct(int(row["linux"] or 0)),
-                "avg_sentiment": float(row["linux_avg_sentiment"]) if row["linux_avg_sentiment"] is not None else None,
+                "avg_sentiment": float(row["linux_avg_sentiment"])
+                if row["linux_avg_sentiment"] is not None
+                else None,
             },
         }
 
@@ -338,7 +363,9 @@ class AnalyticsRepository(BaseRepository):
             {
                 "year": r["year"],
                 "game_count": int(r["game_count"]),
-                "avg_sentiment": float(r["avg_sentiment"]) if r["avg_sentiment"] is not None else None,
+                "avg_sentiment": float(r["avg_sentiment"])
+                if r["avg_sentiment"] is not None
+                else None,
             }
             for r in rows
         ]
@@ -398,11 +425,19 @@ class AnalyticsRepository(BaseRepository):
 
         developer_name = games_rows[0]["developer"] if games_rows else developer_slug
         total_games = int(summary_row["total_games"]) if summary_row else 0
-        overall_avg = float(summary_row["avg_sentiment"]) if summary_row and summary_row["avg_sentiment"] is not None else 0.0
+        overall_avg = (
+            float(summary_row["avg_sentiment"])
+            if summary_row and summary_row["avg_sentiment"] is not None
+            else 0.0
+        )
 
         # Sentiment trajectory: compare last-3 games avg vs overall avg
         ordered = sorted(
-            [g for g in games_rows if g["release_date"] is not None and g["positive_pct"] is not None],
+            [
+                g
+                for g in games_rows
+                if g["release_date"] is not None and g["positive_pct"] is not None
+            ],
             key=lambda g: g["release_date"],
         )
         if total_games == 0:
@@ -443,11 +478,19 @@ class AnalyticsRepository(BaseRepository):
             "developer_slug": developer_slug,
             "summary": {
                 "total_games": total_games,
-                "total_reviews": int(summary_row["total_reviews"]) if summary_row and summary_row["total_reviews"] else 0,
+                "total_reviews": int(summary_row["total_reviews"])
+                if summary_row and summary_row["total_reviews"]
+                else 0,
                 "avg_sentiment": overall_avg,
-                "first_release": str(summary_row["first_release"]) if summary_row and summary_row["first_release"] else None,
-                "latest_release": str(summary_row["latest_release"]) if summary_row and summary_row["latest_release"] else None,
-                "avg_price": float(summary_row["avg_price"]) if summary_row and summary_row["avg_price"] else None,
+                "first_release": str(summary_row["first_release"])
+                if summary_row and summary_row["first_release"]
+                else None,
+                "latest_release": str(summary_row["latest_release"])
+                if summary_row and summary_row["latest_release"]
+                else None,
+                "avg_price": float(summary_row["avg_price"])
+                if summary_row and summary_row["avg_price"]
+                else None,
                 "free_games": int(summary_row["free_games"]) if summary_row else 0,
                 "well_received": int(summary_row["well_received"]) if summary_row else 0,
                 "poorly_received": int(summary_row["poorly_received"]) if summary_row else 0,
@@ -469,7 +512,9 @@ class AnalyticsRepository(BaseRepository):
         return "AND g.type = 'game'"
 
     def _genre_join_and_filter(
-        self, genre_slug: str | None, params: list,
+        self,
+        genre_slug: str | None,
+        params: list,
     ) -> tuple[str, str]:
         """Return (JOIN clause, WHERE clause) for optional genre filter."""
         if genre_slug is None:
@@ -481,7 +526,9 @@ class AnalyticsRepository(BaseRepository):
         )
 
     def _tag_join_and_filter(
-        self, tag_slug: str | None, params: list,
+        self,
+        tag_slug: str | None,
+        params: list,
     ) -> tuple[str, str]:
         """Return (JOIN clause, WHERE clause) for optional tag filter."""
         if tag_slug is None:

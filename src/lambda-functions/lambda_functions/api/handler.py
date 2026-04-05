@@ -45,6 +45,7 @@ if _is_lambda:
     # analysis instead of Step Functions.
     _api_config = SteamPulseConfig()
     from aws_lambda_powertools.utilities.parameters import get_parameter
+
     _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
     _email_queue_url: str | None = get_parameter(_api_config.EMAIL_QUEUE_PARAM_NAME)
 else:
@@ -131,7 +132,9 @@ def _trigger_analysis(appid: int, game_name: str) -> str:
             )
             job_id: str = execution["executionArn"]
         except ImportError as exc:
-            logger.error("boto3 not installed — cannot trigger Step Functions", extra={"appid": appid})
+            logger.error(
+                "boto3 not installed — cannot trigger Step Functions", extra={"appid": appid}
+            )
             raise HTTPException(
                 status_code=503,
                 detail={"error": "step_functions_unavailable", "code": "boto3_missing"},
@@ -143,7 +146,6 @@ def _trigger_analysis(appid: int, game_name: str) -> str:
         status_code=503,
         detail={"error": "step_functions_unavailable", "code": "sfn_arn_not_configured"},
     )
-
 
 
 def _preview_fields(report: dict) -> dict:
@@ -188,7 +190,9 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     try:
         details = _steam.get_app_details(appid)
     except SteamAPIError as exc:
-        raise HTTPException(status_code=503, detail={"error": str(exc), "code": "steam_api_error"}) from exc
+        raise HTTPException(
+            status_code=503, detail={"error": str(exc), "code": "steam_api_error"}
+        ) from exc
 
     if not details:
         raise HTTPException(
@@ -211,7 +215,6 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
         status_code=202,
         content={"job_id": job_id, "appid": appid, "status": "running"},
     )
-
 
 
 @app.get("/api/status/{job_id:path}")
@@ -332,9 +335,18 @@ async def get_game_report(appid: int) -> dict:
             ea_data = _review_repo.find_early_access_impact(appid)
             temporal = build_temporal_context(game, velocity_data, ea_data)
             temporal_dict = temporal.model_dump()
-        return {"status": "available", "report": report, "game": game_meta, "temporal": temporal_dict}
+        return {
+            "status": "available",
+            "report": report,
+            "game": game_meta,
+            "temporal": temporal_dict,
+        }
 
-    review_count = (game.review_count_english or game.review_count) if game else _game_repo.get_review_count(appid)
+    review_count = (
+        (game.review_count_english or game.review_count)
+        if game
+        else _game_repo.get_review_count(appid)
+    )
     return {
         "status": "not_available",
         "review_count": review_count,
@@ -355,7 +367,9 @@ async def get_benchmarks(appid: int) -> dict:
     logger.append_keys(appid=appid)
     game = _game_repo.find_by_appid(appid)
     if not game:
-        raise HTTPException(status_code=404, detail={"error": "Game not found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "Game not found", "code": "not_found"}
+        )
 
     genres = [g["name"] for g in _tag_repo.find_genres_for_game(appid)]
     release_date = game.release_date
@@ -394,7 +408,9 @@ async def list_tags_grouped(
 async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
     logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
-        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
+        )
     return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
 
 
@@ -402,7 +418,9 @@ async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
 async def get_playtime_sentiment(appid: int) -> dict:
     logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
-        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
+        )
     return _review_repo.find_playtime_sentiment(appid)
 
 
@@ -410,7 +428,9 @@ async def get_playtime_sentiment(appid: int) -> dict:
 async def get_early_access_impact(appid: int) -> dict:
     logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
-        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
+        )
     return _review_repo.find_early_access_impact(appid)
 
 
@@ -418,7 +438,9 @@ async def get_early_access_impact(appid: int) -> dict:
 async def get_review_velocity(appid: int) -> dict:
     logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
-        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
+        )
     return _review_repo.find_review_velocity(appid)
 
 
@@ -426,10 +448,15 @@ async def get_review_velocity(appid: int) -> dict:
 async def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
     logger.append_keys(appid=appid)
     if not _game_repo.find_by_appid(appid):
-        raise HTTPException(status_code=404, detail={"error": "game_not_found", "code": "not_found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
+        )
     if sort not in ("helpful", "funny"):
         sort = "helpful"
-    return {"sort": sort, "reviews": _review_repo.find_top_reviews(appid, sort, max(1, min(limit, 50)))}
+    return {
+        "sort": sort,
+        "reviews": _review_repo.find_top_reviews(appid, sort, max(1, min(limit, 50))),
+    }
 
 
 @app.get("/api/analytics/price-positioning")
@@ -472,8 +499,11 @@ async def get_trend_release_volume(
 ) -> dict:
     try:
         return _analytics_service.get_release_volume(
-            granularity=granularity, genre_slug=genre, tag_slug=tag,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            genre_slug=genre,
+            tag_slug=tag,
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -488,8 +518,10 @@ async def get_trend_sentiment(
 ) -> dict:
     try:
         return _analytics_service.get_sentiment_distribution(
-            granularity=granularity, genre_slug=genre,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            genre_slug=genre,
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -504,8 +536,10 @@ async def get_trend_genre_share(
 ) -> dict:
     try:
         return _analytics_service.get_genre_share(
-            granularity=granularity, top_n=max(1, min(top_n, 15)),
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            top_n=max(1, min(top_n, 15)),
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -520,8 +554,10 @@ async def get_trend_velocity(
 ) -> dict:
     try:
         return _analytics_service.get_velocity_distribution(
-            granularity=granularity, genre_slug=genre,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            genre_slug=genre,
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -536,8 +572,10 @@ async def get_trend_pricing(
 ) -> dict:
     try:
         return _analytics_service.get_price_trend(
-            granularity=granularity, genre_slug=genre,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            genre_slug=genre,
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -552,7 +590,8 @@ async def get_trend_early_access(
     try:
         return _analytics_service.get_ea_trend(
             granularity=granularity,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -567,8 +606,10 @@ async def get_trend_platforms(
 ) -> dict:
     try:
         return _analytics_service.get_platform_trend(
-            granularity=granularity, genre_slug=genre,
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            genre_slug=genre,
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -582,7 +623,8 @@ async def get_trend_engagement(
 ) -> dict:
     try:
         return _analytics_service.get_engagement_depth(
-            granularity=granularity, genre_slug=genre,
+            granularity=granularity,
+            genre_slug=genre,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -598,8 +640,10 @@ async def get_trend_categories(
 ) -> dict:
     try:
         return _analytics_service.get_category_trend(
-            granularity=granularity, top_n=max(1, min(top_n, 8)),
-            game_type=game_type, limit=max(1, min(limit, 200)),
+            granularity=granularity,
+            top_n=max(1, min(top_n, 8)),
+            game_type=game_type,
+            limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -625,9 +669,14 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
         except Exception:
             # SQS failure must not return 500 — email is already registered.
             # Confirmation will be missing but the signup succeeded.
-            logger.exception("Failed to enqueue waitlist confirmation", extra={"email": normalized_email})
+            logger.exception(
+                "Failed to enqueue waitlist confirmation", extra={"email": normalized_email}
+            )
     else:
-        logger.warning("EMAIL_QUEUE_URL not set — skipping confirmation email", extra={"email": normalized_email})
+        logger.warning(
+            "EMAIL_QUEUE_URL not set — skipping confirmation email",
+            extra={"email": normalized_email},
+        )
 
     return {"status": "registered"}
 
@@ -635,7 +684,9 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
 @app.post("/api/chat")
 async def chat(body: ChatRequest) -> dict:
     # TODO: gate via JWT "pro" role claim — see scripts/prompts/auth0-authentication.md
-    raise HTTPException(status_code=404, detail={"error": "Not yet available", "code": "not_implemented"})
+    raise HTTPException(
+        status_code=404, detail={"error": "Not yet available", "code": "not_implemented"}
+    )
 
     from .chat import answer_query
 
@@ -659,6 +710,7 @@ async def chat(body: ChatRequest) -> dict:
 # Lambda handler — wraps FastAPI app for Lambda Web Adapter / Mangum
 try:
     from mangum import Mangum  # type: ignore[import-untyped]
+
     _mangum = Mangum(app, lifespan="off")
 
     @logger.inject_lambda_context(clear_state=True)

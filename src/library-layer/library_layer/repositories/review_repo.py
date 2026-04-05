@@ -61,14 +61,10 @@ class ReviewRepository(BaseRepository):
         return upserted
 
     def count_by_appid(self, appid: int) -> int:
-        row = self._fetchone(
-            "SELECT COUNT(*) AS cnt FROM reviews WHERE appid = %s", (appid,)
-        )
+        row = self._fetchone("SELECT COUNT(*) AS cnt FROM reviews WHERE appid = %s", (appid,))
         return int(row["cnt"]) if row else 0
 
-    def find_by_appid(
-        self, appid: int, limit: int = 100, offset: int = 0
-    ) -> list[Review]:
+    def find_by_appid(self, appid: int, limit: int = 100, offset: int = 0) -> list[Review]:
         rows = self._fetchall(
             """
             SELECT * FROM reviews
@@ -138,9 +134,7 @@ class ReviewRepository(BaseRepository):
 
         total_reviews = sum(t["total"] for t in timeline)
         if timeline:
-            days_active = max(
-                (date.today() - date.fromisoformat(timeline[0]["week"])).days, 1
-            )
+            days_active = max((date.today() - date.fromisoformat(timeline[0]["week"])).days, 1)
             reviews_per_day = round(total_reviews / days_active, 1)
             cutoff = (date.today() - timedelta(days=30)).isoformat()
             reviews_last_30 = sum(t["total"] for t in timeline if t["week"] >= cutoff)
@@ -242,7 +236,11 @@ class ReviewRepository(BaseRepository):
                     }
                     break
 
-        median_playtime = float(median_row["median_playtime"]) if median_row and median_row["median_playtime"] is not None else 0.0
+        median_playtime = (
+            float(median_row["median_playtime"])
+            if median_row and median_row["median_playtime"] is not None
+            else 0.0
+        )
         value_score: float | None = None
         if median_row and not median_row["is_free"] and median_row["price_usd"]:
             price = float(median_row["price_usd"])

@@ -47,7 +47,10 @@ class CatalogService:
         apps = self._fetch_app_list()
         new_rows = self._catalog_repo.bulk_upsert(apps)
         enqueued = self.enqueue_pending()
-        logger.info("Catalog refresh complete", extra={"fetched": len(apps), "new": new_rows, "enqueued": enqueued})
+        logger.info(
+            "Catalog refresh complete",
+            extra={"fetched": len(apps), "new": new_rows, "enqueued": enqueued},
+        )
 
         # Publish discovery + completion events
         self._publish_refresh_events(apps, new_rows, len(apps))

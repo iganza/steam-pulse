@@ -65,13 +65,17 @@ class AnalyticsService:
         rows = self._repo.find_release_volume_rows(g, genre_slug, tag_slug, game_type, limit)
         periods = []
         for r in rows:
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "releases": int(r["releases"]),
-                "avg_sentiment": float(r["avg_sentiment"]) if r["avg_sentiment"] is not None else None,
-                "avg_reviews": int(r["avg_reviews"]) if r["avg_reviews"] is not None else 0,
-                "free_count": int(r["free_count"]),
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "releases": int(r["releases"]),
+                    "avg_sentiment": float(r["avg_sentiment"])
+                    if r["avg_sentiment"] is not None
+                    else None,
+                    "avg_reviews": int(r["avg_reviews"]) if r["avg_reviews"] is not None else 0,
+                    "free_count": int(r["free_count"]),
+                }
+            )
 
         release_counts = [p["releases"] for p in periods]
         total = sum(release_counts)
@@ -103,16 +107,22 @@ class AnalyticsService:
         periods = []
         for r in rows:
             total = int(r["total"])
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "total": total,
-                "positive_count": int(r["positive_count"]),
-                "mixed_count": int(r["mixed_count"]),
-                "negative_count": int(r["negative_count"]),
-                "positive_pct": self._safe_pct(int(r["positive_count"]), total),
-                "avg_sentiment": float(r["avg_sentiment"]) if r["avg_sentiment"] is not None else None,
-                "avg_metacritic": float(r["avg_metacritic"]) if r["avg_metacritic"] is not None else None,
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "total": total,
+                    "positive_count": int(r["positive_count"]),
+                    "mixed_count": int(r["mixed_count"]),
+                    "negative_count": int(r["negative_count"]),
+                    "positive_pct": self._safe_pct(int(r["positive_count"]), total),
+                    "avg_sentiment": float(r["avg_sentiment"])
+                    if r["avg_sentiment"] is not None
+                    else None,
+                    "avg_metacritic": float(r["avg_metacritic"])
+                    if r["avg_metacritic"] is not None
+                    else None,
+                }
+            )
         return {"granularity": g, "periods": periods}
 
     def get_genre_share(
@@ -138,7 +148,9 @@ class AnalyticsService:
             period_genre_counts[period_key][genre] += count
             period_totals[period_key] += count
 
-        top_genres = sorted(genre_totals.keys(), key=lambda x: genre_totals[x], reverse=True)[:top_n]
+        top_genres = sorted(genre_totals.keys(), key=lambda x: genre_totals[x], reverse=True)[
+            :top_n
+        ]
         genre_labels = [*top_genres, "Other"]
 
         periods = []
@@ -167,14 +179,16 @@ class AnalyticsService:
         rows = self._repo.find_velocity_distribution_rows(g, genre_slug, game_type, limit)
         periods = []
         for r in rows:
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "total": int(r["total"]),
-                "velocity_under_1": int(r["velocity_under_1"]),
-                "velocity_1_10": int(r["velocity_1_10"]),
-                "velocity_10_50": int(r["velocity_10_50"]),
-                "velocity_50_plus": int(r["velocity_50_plus"]),
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "total": int(r["total"]),
+                    "velocity_under_1": int(r["velocity_under_1"]),
+                    "velocity_1_10": int(r["velocity_1_10"]),
+                    "velocity_10_50": int(r["velocity_10_50"]),
+                    "velocity_50_plus": int(r["velocity_50_plus"]),
+                }
+            )
         return {"granularity": g, "periods": periods}
 
     def get_price_trend(
@@ -190,14 +204,20 @@ class AnalyticsService:
         for r in rows:
             total = int(r["total"])
             free_count = int(r["free_count"])
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "total": total,
-                "avg_paid_price": float(r["avg_paid_price"]) if r["avg_paid_price"] is not None else None,
-                "avg_price_incl_free": float(r["avg_price_incl_free"]) if r["avg_price_incl_free"] is not None else None,
-                "free_count": free_count,
-                "free_pct": self._safe_pct(free_count, total),
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "total": total,
+                    "avg_paid_price": float(r["avg_paid_price"])
+                    if r["avg_paid_price"] is not None
+                    else None,
+                    "avg_price_incl_free": float(r["avg_price_incl_free"])
+                    if r["avg_price_incl_free"] is not None
+                    else None,
+                    "free_count": free_count,
+                    "free_pct": self._safe_pct(free_count, total),
+                }
+            )
         return {"granularity": g, "periods": periods}
 
     def get_ea_trend(
@@ -212,14 +232,20 @@ class AnalyticsService:
         for r in rows:
             total = int(r["total_releases"])
             ea_count = int(r["ea_count"])
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "total_releases": total,
-                "ea_count": ea_count,
-                "ea_pct": self._safe_pct(ea_count, total),
-                "ea_avg_sentiment": float(r["ea_avg_sentiment"]) if r["ea_avg_sentiment"] is not None else None,
-                "non_ea_avg_sentiment": float(r["non_ea_avg_sentiment"]) if r["non_ea_avg_sentiment"] is not None else None,
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "total_releases": total,
+                    "ea_count": ea_count,
+                    "ea_pct": self._safe_pct(ea_count, total),
+                    "ea_avg_sentiment": float(r["ea_avg_sentiment"])
+                    if r["ea_avg_sentiment"] is not None
+                    else None,
+                    "non_ea_avg_sentiment": float(r["non_ea_avg_sentiment"])
+                    if r["non_ea_avg_sentiment"] is not None
+                    else None,
+                }
+            )
         return {"granularity": g, "periods": periods}
 
     def get_platform_trend(
@@ -234,15 +260,17 @@ class AnalyticsService:
         periods = []
         for r in rows:
             total = int(r["total"])
-            periods.append({
-                "period": self._format_period(r["period"], g),
-                "total": total,
-                "mac_pct": self._safe_pct(int(r["mac_count"]), total),
-                "linux_pct": self._safe_pct(int(r["linux_count"]), total),
-                "deck_verified_pct": self._safe_pct(int(r["deck_verified"]), total),
-                "deck_playable_pct": self._safe_pct(int(r["deck_playable"]), total),
-                "deck_unsupported_pct": self._safe_pct(int(r["deck_unsupported"]), total),
-            })
+            periods.append(
+                {
+                    "period": self._format_period(r["period"], g),
+                    "total": total,
+                    "mac_pct": self._safe_pct(int(r["mac_count"]), total),
+                    "linux_pct": self._safe_pct(int(r["linux_count"]), total),
+                    "deck_verified_pct": self._safe_pct(int(r["deck_verified"]), total),
+                    "deck_playable_pct": self._safe_pct(int(r["deck_playable"]), total),
+                    "deck_unsupported_pct": self._safe_pct(int(r["deck_unsupported"]), total),
+                }
+            )
         return {"granularity": g, "periods": periods}
 
     def get_engagement_depth(
@@ -264,18 +292,28 @@ class AnalyticsService:
             raw_period = r.get("period", "")
             try:
                 period_dt = datetime.fromisoformat(str(raw_period)) if raw_period else None
-                formatted_period = self._format_period(period_dt, g) if period_dt else str(raw_period)
+                formatted_period = (
+                    self._format_period(period_dt, g) if period_dt else str(raw_period)
+                )
             except (ValueError, TypeError):
                 formatted_period = str(raw_period)
-            periods.append({
-                "period": formatted_period,
-                "total_reviews": total,
-                "playtime_under_2h_pct": self._safe_pct(int(r.get("playtime_under_2h", 0)), total),
-                "playtime_2_10h_pct": self._safe_pct(int(r.get("playtime_2_10h", 0)), total),
-                "playtime_10_50h_pct": self._safe_pct(int(r.get("playtime_10_50h", 0)), total),
-                "playtime_50_200h_pct": self._safe_pct(int(r.get("playtime_50_200h", 0)), total),
-                "playtime_200h_plus_pct": self._safe_pct(int(r.get("playtime_200h_plus", 0)), total),
-            })
+            periods.append(
+                {
+                    "period": formatted_period,
+                    "total_reviews": total,
+                    "playtime_under_2h_pct": self._safe_pct(
+                        int(r.get("playtime_under_2h", 0)), total
+                    ),
+                    "playtime_2_10h_pct": self._safe_pct(int(r.get("playtime_2_10h", 0)), total),
+                    "playtime_10_50h_pct": self._safe_pct(int(r.get("playtime_10_50h", 0)), total),
+                    "playtime_50_200h_pct": self._safe_pct(
+                        int(r.get("playtime_50_200h", 0)), total
+                    ),
+                    "playtime_200h_plus_pct": self._safe_pct(
+                        int(r.get("playtime_200h_plus", 0)), total
+                    ),
+                }
+            )
         return {"granularity": g, "data_available": bool(periods), "periods": periods}
 
     def get_category_trend(

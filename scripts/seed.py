@@ -50,6 +50,7 @@ REVIEW_QUEUE_ENV = "REVIEW_CRAWL_QUEUE_URL"
 def _send_batch(queue_url: str, messages: list[dict]) -> int:
     """Send messages to SQS in batches of 10. Returns count sent."""
     import boto3  # type: ignore[import-untyped]
+
     sqs = boto3.client("sqs")
     sent = 0
     for i in range(0, len(messages), 10):
@@ -176,10 +177,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Bootstrap SteamPulse with the Steam catalog",
     )
     p.add_argument("--dry-run", action="store_true", help="Print plan; make no SQS/DB writes")
-    p.add_argument("--limit", type=int, default=None, metavar="N",
-                   help="Process at most N apps (default: all)")
-    p.add_argument("--seed-reviews", action="store_true",
-                   help="Push top N games to review-crawl-queue (run after app-crawler)")
+    p.add_argument(
+        "--limit", type=int, default=None, metavar="N", help="Process at most N apps (default: all)"
+    )
+    p.add_argument(
+        "--seed-reviews",
+        action="store_true",
+        help="Push top N games to review-crawl-queue (run after app-crawler)",
+    )
     return p
 
 

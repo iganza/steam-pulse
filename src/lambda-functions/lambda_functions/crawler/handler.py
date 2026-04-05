@@ -8,7 +8,6 @@ Event types handled:
 DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
-import json
 import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
@@ -108,26 +107,33 @@ _catalog_service = CatalogService(
 )
 
 # ── Spoke dispatch ──────────────────────────────────────────────────────────
-# Each spoke region gets a Lambda client + deterministic function name.
-# Invoke by name — no ARN construction, no STS call needed.
+# Each spoke region gets an SQS client + queue URL. Messages are durable —
+# the spoke Lambda consumes via event source mapping with backpressure.
 
-_spoke_targets: list[tuple[str, object]] = []  # [(fn_name, lambda_client), ...]
+_spoke_sqs_targets: list[tuple[str, object]] = []  # [(queue_url, sqs_client), ...]
 
-for _region in _crawler_config.spoke_region_list:
-    _fn_name = f"steampulse-spoke-crawler-{_region}-{_crawler_config.ENVIRONMENT}"
-    _client = boto3.client("lambda", region_name=_region)
-    _spoke_targets.append((_fn_name, _client))
-
-if not _spoke_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+_regions = _crawler_config.spoke_region_list
+_queue_urls = _crawler_config.spoke_crawl_queue_url_list
+if len(_regions) != len(_queue_urls):
     raise RuntimeError(
-        "SPOKE_REGIONS is empty — at least one spoke region is required. "
-        "Set SPOKE_REGIONS in the environment (e.g. 'us-west-2,us-east-1')."
+        f"SPOKE_REGIONS has {len(_regions)} entries but SPOKE_CRAWL_QUEUE_URLS has "
+        f"{len(_queue_urls)} — they must match 1:1. "
+        f"regions={_regions}, queue_urls={_queue_urls}"
+    )
+
+for _region, _queue_url in zip(_regions, _queue_urls, strict=True):
+    _sqs_spoke = boto3.client("sqs", region_name=_region)
+    _spoke_sqs_targets.append((_queue_url, _sqs_spoke))
+
+if not _spoke_sqs_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    raise RuntimeError(
+        "SPOKE_REGIONS / SPOKE_CRAWL_QUEUE_URLS are empty — at least one spoke is required."
     )
 
 
 def _dispatch_to_spoke(record: dict) -> None:
-    """Parse SQS record and invoke the spoke Lambda assigned to this appid."""
-    if not _spoke_targets:
+    """Parse SQS record and send to the per-spoke SQS queue for this appid."""
+    if not _spoke_sqs_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
 
     req = parse_spoke_request(record, review_limit=_crawler_config.REVIEW_LIMIT)
@@ -136,20 +142,11 @@ def _dispatch_to_spoke(record: dict) -> None:
         return
 
     logger.append_keys(appid=req.appid, task=req.task)
-    idx = req.appid % len(_spoke_targets)
-    fn_name, client = _spoke_targets[idx]
-    logger.info("Dispatching to spoke", extra={"fn_name": fn_name})
+    idx = req.appid % len(_spoke_sqs_targets)
+    queue_url, sqs_client = _spoke_sqs_targets[idx]
+    logger.info("Dispatching to spoke queue", extra={"queue_url": queue_url})
 
-    response = client.invoke(
-        FunctionName=fn_name,
-        InvocationType="Event",
-        Payload=req.model_dump_json().encode(),
-    )
-    if response["StatusCode"] != 202:
-        raise RuntimeError(
-            f"Spoke invoke failed for appid={req.appid}: HTTP {response['StatusCode']}"
-        )
-
+    sqs_client.send_message(QueueUrl=queue_url, MessageBody=req.model_dump_json())
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
 
 

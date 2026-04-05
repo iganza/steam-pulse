@@ -8,41 +8,43 @@ from library_layer.repositories.review_repo import ReviewRepository
 
 
 def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
-    game_repo.upsert({
-        "appid": appid,
-        "name": f"App {appid}",
-        "slug": f"app-{appid}",
-        "type": "game",
-        "developer": None,
-        "developer_slug": None,
-        "publisher": None,
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": None,
-        "coming_soon": False,
-        "price_usd": None,
-        "is_free": False,
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": 100,
-        "review_count_english": 100,
-        "total_positive": 80,
-        "total_negative": 20,
-        "positive_pct": 80,
-        "review_score_desc": "Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": "{}",
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+    game_repo.upsert(
+        {
+            "appid": appid,
+            "name": f"App {appid}",
+            "slug": f"app-{appid}",
+            "type": "game",
+            "developer": None,
+            "developer_slug": None,
+            "publisher": None,
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": None,
+            "coming_soon": False,
+            "price_usd": None,
+            "is_free": False,
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": 100,
+            "review_count_english": 100,
+            "total_positive": 80,
+            "total_negative": 20,
+            "positive_pct": 80,
+            "review_score_desc": "Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": "{}",
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
 
 
 def _make_reviews(appid: int = 440, count: int = 3) -> list[dict]:
@@ -85,9 +87,7 @@ def test_bulk_upsert_is_idempotent(
     assert review_repo.count_by_appid(440) == 3
 
 
-def test_find_by_appid_paginates(
-    game_repo: GameRepository, review_repo: ReviewRepository
-) -> None:
+def test_find_by_appid_paginates(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     _seed_game(game_repo)
     review_repo.bulk_upsert(_make_reviews(count=5))
     page1 = review_repo.find_by_appid(440, limit=2, offset=0)
@@ -100,9 +100,7 @@ def test_find_by_appid_paginates(
     assert ids1.isdisjoint(ids2)
 
 
-def test_latest_posted_at(
-    game_repo: GameRepository, review_repo: ReviewRepository
-) -> None:
+def test_latest_posted_at(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     _seed_game(game_repo)
     reviews = _make_reviews(count=3)
     review_repo.bulk_upsert(reviews)
@@ -218,41 +216,43 @@ def test_find_review_stats_excludes_pre_release_reviews(
 ) -> None:
     """Timeline must not include weeks that precede the game's release_date."""
     release = date(2026, 3, 2)  # a Monday — clean week boundary
-    game_repo.upsert({
-        "appid": 440,
-        "name": "App 440",
-        "slug": "app-440",
-        "type": "game",
-        "developer": None,
-        "developer_slug": None,
-        "publisher": None,
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": release,
-        "coming_soon": False,
-        "price_usd": None,
-        "is_free": False,
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": 10,
-        "review_count_english": 10,
-        "total_positive": 8,
-        "total_negative": 2,
-        "positive_pct": 80,
-        "review_score_desc": "Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": "{}",
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+    game_repo.upsert(
+        {
+            "appid": 440,
+            "name": "App 440",
+            "slug": "app-440",
+            "type": "game",
+            "developer": None,
+            "developer_slug": None,
+            "publisher": None,
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": release,
+            "coming_soon": False,
+            "price_usd": None,
+            "is_free": False,
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": 10,
+            "review_count_english": 10,
+            "total_positive": 8,
+            "total_negative": 2,
+            "positive_pct": 80,
+            "review_score_desc": "Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": "{}",
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
     reviews = [
         # Two reviews before the release date — must be excluded
         {
@@ -342,42 +342,49 @@ def _make_review_pt(appid: int, rid: str, playtime: int, voted_up: bool, **kw: o
     }
 
 
-def _seed_priced_game(game_repo: GameRepository, appid: int = 440, price_usd: float | None = 9.99, is_free: bool = False) -> None:
-    game_repo.upsert({
-        "appid": appid,
-        "name": f"App {appid}",
-        "slug": f"app-{appid}",
-        "type": "game",
-        "developer": None,
-        "developer_slug": None,
-        "publisher": None,
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": None,
-        "coming_soon": False,
-        "price_usd": price_usd,
-        "is_free": is_free,
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": 100,
-        "review_count_english": 100,
-        "total_positive": 80,
-        "total_negative": 20,
-        "positive_pct": 80,
-        "review_score_desc": "Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": "{}",
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+def _seed_priced_game(
+    game_repo: GameRepository,
+    appid: int = 440,
+    price_usd: float | None = 9.99,
+    is_free: bool = False,
+) -> None:
+    game_repo.upsert(
+        {
+            "appid": appid,
+            "name": f"App {appid}",
+            "slug": f"app-{appid}",
+            "type": "game",
+            "developer": None,
+            "developer_slug": None,
+            "publisher": None,
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": None,
+            "coming_soon": False,
+            "price_usd": price_usd,
+            "is_free": is_free,
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": 100,
+            "review_count_english": 100,
+            "total_positive": 80,
+            "total_negative": 20,
+            "positive_pct": 80,
+            "review_score_desc": "Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": "{}",
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
 
 
 def test_playtime_sentiment_buckets(
@@ -388,7 +395,7 @@ def test_playtime_sentiment_buckets(
     reviews = [
         _make_review_pt(440, "pt-0h", 0, True),
         _make_review_pt(440, "pt-0h-b", 0, True),  # same 0h bucket
-        _make_review_pt(440, "pt-7h", 7, False),    # 5-10h bucket (< 10)
+        _make_review_pt(440, "pt-7h", 7, False),  # 5-10h bucket (< 10)
     ]
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_playtime_sentiment(440)
@@ -458,14 +465,22 @@ def test_early_access_impact_improved(
     _seed_game(game_repo)
     # EA: 5 reviews, 50% positive
     ea = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"ea-{i}",
-         "voted_up": i < 5, "written_during_early_access": True}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"ea-{i}",
+            "voted_up": i < 5,
+            "written_during_early_access": True,
+        }
         for i in range(10)
     ]
     # Post: 10 reviews, 90% positive
     post = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"post-{i}",
-         "voted_up": i < 9, "written_during_early_access": False}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"post-{i}",
+            "voted_up": i < 9,
+            "written_during_early_access": False,
+        }
         for i in range(10)
     ]
     review_repo.bulk_upsert(ea + post)
@@ -480,13 +495,21 @@ def test_early_access_impact_declined(
     """Post-launch pct < EA pct by >= 5 → verdict 'declined'."""
     _seed_game(game_repo)
     ea = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"ea2-{i}",
-         "voted_up": i < 9, "written_during_early_access": True}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"ea2-{i}",
+            "voted_up": i < 9,
+            "written_during_early_access": True,
+        }
         for i in range(10)
     ]
     post = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"post2-{i}",
-         "voted_up": i < 5, "written_during_early_access": False}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"post2-{i}",
+            "voted_up": i < 5,
+            "written_during_early_access": False,
+        }
         for i in range(10)
     ]
     review_repo.bulk_upsert(ea + post)
@@ -501,13 +524,21 @@ def test_early_access_impact_stable(
     _seed_game(game_repo)
     # EA: 7/10 = 70%, post: 7/10 = 70% → delta = 0, well within the 5pt threshold
     ea = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"ea3-{i}",
-         "voted_up": i < 7, "written_during_early_access": True}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"ea3-{i}",
+            "voted_up": i < 7,
+            "written_during_early_access": True,
+        }
         for i in range(10)
     ]
     post = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"post3-{i}",
-         "voted_up": i < 7, "written_during_early_access": False}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"post3-{i}",
+            "voted_up": i < 7,
+            "written_during_early_access": False,
+        }
         for i in range(10)
     ]
     review_repo.bulk_upsert(ea + post)
@@ -521,8 +552,11 @@ def test_early_access_impact_no_ea(
     """No EA reviews → verdict 'no_ea' and early_access is None."""
     _seed_game(game_repo)
     reviews = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"noea-{i}",
-         "written_during_early_access": False}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"noea-{i}",
+            "written_during_early_access": False,
+        }
         for i in range(5)
     ]
     review_repo.bulk_upsert(reviews)
@@ -538,8 +572,12 @@ def test_early_access_impact_no_post(
     """EA reviews exist but no post-launch reviews → verdict 'no_post', impact_delta None."""
     _seed_game(game_repo)
     ea = [
-        {**_make_reviews(count=1)[0], "steam_review_id": f"ea-nopost-{i}",
-         "voted_up": True, "written_during_early_access": True}
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"ea-nopost-{i}",
+            "voted_up": True,
+            "written_during_early_access": True,
+        }
         for i in range(5)
     ]
     review_repo.bulk_upsert(ea)
@@ -571,21 +609,29 @@ def test_review_velocity_trend_accelerating(
     # Months 23 down to 4 ago: 2 reviews each — anchored to 1st of each month
     for m in range(23, 3, -1):
         for j in range(2):
-            reviews.append({
-                "appid": 440,
-                "steam_review_id": f"vel-acc-{m}-{j}",
-                "voted_up": True, "playtime_hours": 5, "body": "",
-                "posted_at": _month_start(m).replace(day=1 + j),
-            })
+            reviews.append(
+                {
+                    "appid": 440,
+                    "steam_review_id": f"vel-acc-{m}-{j}",
+                    "voted_up": True,
+                    "playtime_hours": 5,
+                    "body": "",
+                    "posted_at": _month_start(m).replace(day=1 + j),
+                }
+            )
     # Months 3, 2, 1 ago: 10 reviews each (well above avg)
     for m in range(1, 4):
         for j in range(10):
-            reviews.append({
-                "appid": 440,
-                "steam_review_id": f"vel-acc-recent-{m}-{j}",
-                "voted_up": True, "playtime_hours": 5, "body": "",
-                "posted_at": _month_start(m).replace(day=1 + j),
-            })
+            reviews.append(
+                {
+                    "appid": 440,
+                    "steam_review_id": f"vel-acc-recent-{m}-{j}",
+                    "voted_up": True,
+                    "playtime_hours": 5,
+                    "body": "",
+                    "posted_at": _month_start(m).replace(day=1 + j),
+                }
+            )
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)
     assert result["summary"]["trend"] == "accelerating"
@@ -600,20 +646,28 @@ def test_review_velocity_trend_decelerating(
     # Months 23 down to 4 ago: 10 reviews each
     for m in range(23, 3, -1):
         for j in range(10):
-            reviews.append({
-                "appid": 440,
-                "steam_review_id": f"vel-dec-{m}-{j}",
-                "voted_up": True, "playtime_hours": 5, "body": "",
-                "posted_at": _month_start(m).replace(day=1 + j),
-            })
+            reviews.append(
+                {
+                    "appid": 440,
+                    "steam_review_id": f"vel-dec-{m}-{j}",
+                    "voted_up": True,
+                    "playtime_hours": 5,
+                    "body": "",
+                    "posted_at": _month_start(m).replace(day=1 + j),
+                }
+            )
     # Months 3, 2, 1 ago: 1 review each (well below avg)
     for m in range(1, 4):
-        reviews.append({
-            "appid": 440,
-            "steam_review_id": f"vel-dec-recent-{m}",
-            "voted_up": True, "playtime_hours": 5, "body": "",
-            "posted_at": _month_start(m),
-        })
+        reviews.append(
+            {
+                "appid": 440,
+                "steam_review_id": f"vel-dec-recent-{m}",
+                "voted_up": True,
+                "playtime_hours": 5,
+                "body": "",
+                "posted_at": _month_start(m),
+            }
+        )
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)
     assert result["summary"]["trend"] == "decelerating"
@@ -626,17 +680,27 @@ def test_review_velocity_peak_month(
     _seed_game(game_repo)
     reviews = []
     # 1 review in month 10 ago, 5 reviews in month 2 ago
-    reviews.append({
-        "appid": 440, "steam_review_id": "vm-old",
-        "voted_up": True, "playtime_hours": 5, "body": "",
-        "posted_at": _month_start(10),
-    })
+    reviews.append(
+        {
+            "appid": 440,
+            "steam_review_id": "vm-old",
+            "voted_up": True,
+            "playtime_hours": 5,
+            "body": "",
+            "posted_at": _month_start(10),
+        }
+    )
     for j in range(5):
-        reviews.append({
-            "appid": 440, "steam_review_id": f"vm-recent-{j}",
-            "voted_up": True, "playtime_hours": 5, "body": "",
-            "posted_at": _month_start(2).replace(day=1 + j),
-        })
+        reviews.append(
+            {
+                "appid": 440,
+                "steam_review_id": f"vm-recent-{j}",
+                "voted_up": True,
+                "playtime_hours": 5,
+                "body": "",
+                "posted_at": _month_start(2).replace(day=1 + j),
+            }
+        )
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_review_velocity(440)
     assert result["summary"]["peak_month"]["total"] == 5
@@ -647,24 +711,17 @@ def test_review_velocity_peak_month(
 # ---------------------------------------------------------------------------
 
 
-def test_top_reviews_sort_helpful(
-    game_repo: GameRepository, review_repo: ReviewRepository
-) -> None:
+def test_top_reviews_sort_helpful(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     """Reviews are ordered by votes_helpful DESC."""
     _seed_game(game_repo)
-    reviews = [
-        _make_review_pt(440, f"tr-{i}", 10, True, votes_helpful=i * 10)
-        for i in range(5)
-    ]
+    reviews = [_make_review_pt(440, f"tr-{i}", 10, True, votes_helpful=i * 10) for i in range(5)]
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_top_reviews(440, sort="helpful", limit=5)
     helpful_counts = [r["votes_helpful"] for r in result]
     assert helpful_counts == sorted(helpful_counts, reverse=True)
 
 
-def test_top_reviews_sort_funny(
-    game_repo: GameRepository, review_repo: ReviewRepository
-) -> None:
+def test_top_reviews_sort_funny(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     """Reviews are ordered by votes_funny DESC."""
     _seed_game(game_repo)
     reviews = [
@@ -677,15 +734,10 @@ def test_top_reviews_sort_funny(
     assert funny_counts == sorted(funny_counts, reverse=True)
 
 
-def test_top_reviews_limit(
-    game_repo: GameRepository, review_repo: ReviewRepository
-) -> None:
+def test_top_reviews_limit(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     """Result is capped at the requested limit."""
     _seed_game(game_repo)
-    reviews = [
-        _make_review_pt(440, f"lim-{i}", 10, True, votes_helpful=i + 1)
-        for i in range(10)
-    ]
+    reviews = [_make_review_pt(440, f"lim-{i}", 10, True, votes_helpful=i + 1) for i in range(10)]
     review_repo.bulk_upsert(reviews)
     result = review_repo.find_top_reviews(440, sort="helpful", limit=3)
     assert len(result) == 3

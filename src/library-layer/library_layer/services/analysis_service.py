@@ -67,12 +67,17 @@ class AnalysisService:
         if not reviews_for_llm:
             raise ValueError(f"No non-empty review bodies for appid={appid}")
 
-        logger.info("Analyzing reviews", extra={"appid": appid, "game_name": game.name, "reviews": len(reviews_for_llm)})
+        logger.info(
+            "Analyzing reviews",
+            extra={"appid": appid, "game_name": game.name, "reviews": len(reviews_for_llm)},
+        )
 
         result = await self._analyzer(reviews_for_llm, game.name, appid=appid)
         self._report_repo.upsert(result)
 
-        logger.info("Report stored", extra={"appid": appid, "sentiment": result.get("overall_sentiment")})
+        logger.info(
+            "Report stored", extra={"appid": appid, "sentiment": result.get("overall_sentiment")}
+        )
 
         report = self._report_repo.find_by_appid(appid)
         if report is None:

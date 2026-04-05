@@ -41,21 +41,25 @@ class MonitoringStack(cdk.Stack):
 
         # ── SNS alarm topic ───────────────────────────────────────────────────
         self.alarm_topic = sns.Topic(
-            self, "AlarmTopic",
+            self,
+            "AlarmTopic",
             display_name=f"SteamPulse {env.capitalize()} Alarms",
         )
 
         cdk.CfnOutput(
-            self, "AlarmTopicArn",
+            self,
+            "AlarmTopicArn",
             value=self.alarm_topic.topic_arn,
             description="Subscribe to this topic to receive alarm notifications",
         )
 
         # ── Monitoring facade ─────────────────────────────────────────────────
         monitoring = MonitoringFacade(
-            self, "Facade",
+            self,
+            "Facade",
             dashboard_factory=DefaultDashboardFactory(
-                self, "DashboardFactory",
+                self,
+                "DashboardFactory",
                 dashboard_name_prefix=f"SteamPulse-{env.capitalize()}",
             ),
             alarm_factory_defaults=AlarmFactoryDefaults(
@@ -75,15 +79,35 @@ class MonitoringStack(cdk.Stack):
                 CustomMetricGroup(
                     title="Requests & Throttles",
                     metrics=[
-                        Metric(namespace="SteamPulse", metric_name="SteamApiRequests", dimensions_map=dims, statistic=Stats.SUM),
-                        Metric(namespace="SteamPulse", metric_name="SteamApiRetries",  dimensions_map=dims, statistic=Stats.SUM),
-                        Metric(namespace="SteamPulse", metric_name="SteamApiErrors",   dimensions_map=dims, statistic=Stats.SUM),
+                        Metric(
+                            namespace="SteamPulse",
+                            metric_name="SteamApiRequests",
+                            dimensions_map=dims,
+                            statistic=Stats.SUM,
+                        ),
+                        Metric(
+                            namespace="SteamPulse",
+                            metric_name="SteamApiRetries",
+                            dimensions_map=dims,
+                            statistic=Stats.SUM,
+                        ),
+                        Metric(
+                            namespace="SteamPulse",
+                            metric_name="SteamApiErrors",
+                            dimensions_map=dims,
+                            statistic=Stats.SUM,
+                        ),
                     ],
                 ),
                 CustomMetricGroup(
                     title="Latency (p99)",
                     metrics=[
-                        Metric(namespace="SteamPulse", metric_name="SteamApiLatency", dimensions_map=dims, statistic=Stats.percentile(99)),
+                        Metric(
+                            namespace="SteamPulse",
+                            metric_name="SteamApiLatency",
+                            dimensions_map=dims,
+                            statistic=Stats.percentile(99),
+                        ),
                     ],
                 ),
             ],

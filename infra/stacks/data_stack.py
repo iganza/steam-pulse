@@ -58,14 +58,17 @@ class DataStack(cdk.Stack):
             # Shape to pre-create: {"username": "postgres", "password": "..."}
             # RDS writes host/port/dbname/engine back into the secret after cluster creation.
             db_secret: secretsmanager.ISecret = secretsmanager.Secret.from_secret_name_v2(
-                self, "DbSecret", secret_name,
+                self,
+                "DbSecret",
+                secret_name,
             )
             # db.t4g.micro (Graviton2): ~$12/mo single-AZ, no cold-start latency.
             # 50 GB gp3 (~$5.75/mo) — sized for full catalog at 10k reviews/game cap (~26 GB used).
             # max_allocated_storage=500 enables RDS autoscaling if ever needed.
             # To increase manually: update allocated_storage and redeploy (in-place, no downtime).
             db_instance = rds.DatabaseInstance(
-                self, "Db",
+                self,
+                "Db",
                 engine=rds.DatabaseInstanceEngine.postgres(
                     version=rds.PostgresEngineVersion.VER_16_12,
                 ),
@@ -89,7 +92,8 @@ class DataStack(cdk.Stack):
             # The override_logical_id keeps it stable across pipeline vs direct deploys.
             # Aurora Serverless v2 (min=0 ACU): near-$0 when idle, scales on demand.
             db_cluster = rds.DatabaseCluster(
-                self, "Db",
+                self,
+                "Db",
                 engine=rds.DatabaseClusterEngine.aurora_postgres(
                     version=rds.AuroraPostgresEngineVersion.VER_16_4,
                 ),
@@ -131,7 +135,8 @@ class DataStack(cdk.Stack):
         # Deterministic name — spokes in other regions reference by name because
         # CDK tokens can't resolve cross-region.
         self.assets_bucket = s3.Bucket(
-            self, "AssetsBucket",
+            self,
+            "AssetsBucket",
             bucket_name=f"steampulse-assets-{env}",
             versioned=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -159,7 +164,8 @@ class DataStack(cdk.Stack):
         )
 
         ssm.StringParameter(
-            self, "AssetsBucketNameParam",
+            self,
+            "AssetsBucketNameParam",
             parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
             string_value=self.assets_bucket.bucket_name,
         )

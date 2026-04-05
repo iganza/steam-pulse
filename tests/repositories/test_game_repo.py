@@ -175,9 +175,7 @@ def test_find_benchmarks_null_ranks_for_small_review_count(
     assert result["cohort_size"] == 0
 
 
-def test_find_benchmarks_single_game_in_cohort(
-    db_conn: Any, game_repo: GameRepository
-) -> None:
+def test_find_benchmarks_single_game_in_cohort(db_conn: Any, game_repo: GameRepository) -> None:
     """Single game in its cohort has PERCENT_RANK 0.0 (sole row in window)."""
     data = _game_data()
     data["review_count"] = 200
@@ -212,9 +210,7 @@ def test_find_benchmarks_rank_within_multi_game_cohort(
     assert result["sentiment_rank"] == pytest.approx(0.5, abs=0.01)
 
 
-def test_find_benchmarks_excludes_different_genre(
-    db_conn: Any, game_repo: GameRepository
-) -> None:
+def test_find_benchmarks_excludes_different_genre(db_conn: Any, game_repo: GameRepository) -> None:
     """A game in a different genre is not counted in the Action cohort."""
     _upsert_genre(db_conn, 1, "Action")
     _upsert_genre(db_conn, 2, "RPG")
@@ -312,7 +308,12 @@ def test_list_games_price_tier_free(game_repo: GameRepository) -> None:
     free_game["is_free"] = True
     free_game["price_usd"] = None
     game_repo.upsert(free_game)
-    paid_game = {**_game_data(441, "Paid Game"), "is_free": False, "price_usd": 9.99, "slug": "paid-game-441"}
+    paid_game = {
+        **_game_data(441, "Paid Game"),
+        "is_free": False,
+        "price_usd": 9.99,
+        "slug": "paid-game-441",
+    }
     game_repo.upsert(paid_game)
     result = game_repo.list_games(price_tier="free")
     appids = [g["appid"] for g in result["games"]]
@@ -324,9 +325,19 @@ def test_list_games_price_tier_under_10(game_repo: GameRepository) -> None:
     """price_tier='under_10' returns non-free paid games priced below $10."""
     cheap = {**_game_data(440, "Cheap Game"), "is_free": False, "price_usd": 4.99}
     game_repo.upsert(cheap)
-    pricey = {**_game_data(441, "Pricey Game"), "is_free": False, "price_usd": 29.99, "slug": "pricey-game-441"}
+    pricey = {
+        **_game_data(441, "Pricey Game"),
+        "is_free": False,
+        "price_usd": 29.99,
+        "slug": "pricey-game-441",
+    }
     game_repo.upsert(pricey)
-    free_game = {**_game_data(442, "Free Game"), "is_free": True, "price_usd": None, "slug": "free-game-442"}
+    free_game = {
+        **_game_data(442, "Free Game"),
+        "is_free": True,
+        "price_usd": None,
+        "slug": "free-game-442",
+    }
     game_repo.upsert(free_game)
     result = game_repo.list_games(price_tier="under_10")
     appids = [g["appid"] for g in result["games"]]
@@ -365,7 +376,12 @@ def test_list_games_sentiment_and_price_tier_combined(
     """Both sentiment and price_tier must match — a game passing only one is excluded."""
     match = {**_game_data(440, "Match"), "is_free": False, "price_usd": 4.99}
     game_repo.upsert(match)
-    no_match = {**_game_data(441, "Pricey"), "is_free": False, "price_usd": 39.99, "slug": "pricey-441"}
+    no_match = {
+        **_game_data(441, "Pricey"),
+        "is_free": False,
+        "price_usd": 39.99,
+        "slug": "pricey-441",
+    }
     game_repo.upsert(no_match)
     report_repo.upsert({"appid": 440, "sentiment_score": 0.80, "total_reviews_analyzed": 100})
     report_repo.upsert({"appid": 441, "sentiment_score": 0.80, "total_reviews_analyzed": 100})

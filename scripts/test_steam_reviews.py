@@ -8,6 +8,7 @@ Usage:
     poetry run python scripts/test_steam_reviews.py 934700
     poetry run python scripts/test_steam_reviews.py 934700 --max 500
 """
+
 import argparse
 import datetime
 import json

@@ -15,41 +15,45 @@ from library_layer.repositories.review_repo import ReviewRepository
 
 
 def _seed_game(game_repo: GameRepository, appid: int = 440, **kw: Any) -> None:
-    game_repo.upsert({
-        "appid": appid,
-        "name": kw.get("name", f"Game {appid}"),
-        "slug": kw.get("slug", f"game-{appid}"),
-        "type": "game",
-        "developer": kw.get("developer", "Test Dev"),
-        "developer_slug": kw.get("developer_slug", "test-dev"),
-        "publisher": None,
-        "developers": "[]",
-        "publishers": "[]",
-        "website": None,
-        "release_date": kw.get("release_date", "2022-06-15"),
-        "coming_soon": False,
-        "price_usd": kw.get("price_usd", 9.99),
-        "is_free": kw.get("is_free", False),
-        "short_desc": None,
-        "detailed_description": None,
-        "about_the_game": None,
-        "review_count": kw.get("review_count", 100),
-        "review_count_english": kw.get("review_count", 100),
-        "total_positive": 75,
-        "total_negative": 25,
-        "positive_pct": kw.get("positive_pct", 75),
-        "review_score_desc": "Mostly Positive",
-        "header_image": None,
-        "background_image": None,
-        "required_age": 0,
-        "platforms": kw.get("platforms", json.dumps({"windows": True, "mac": False, "linux": False})),
-        "supported_languages": None,
-        "achievements_total": 0,
-        "metacritic_score": None,
-        "deck_compatibility": None,
-        "deck_test_results": None,
-        "data_source": "steam_direct",
-    })
+    game_repo.upsert(
+        {
+            "appid": appid,
+            "name": kw.get("name", f"Game {appid}"),
+            "slug": kw.get("slug", f"game-{appid}"),
+            "type": "game",
+            "developer": kw.get("developer", "Test Dev"),
+            "developer_slug": kw.get("developer_slug", "test-dev"),
+            "publisher": None,
+            "developers": "[]",
+            "publishers": "[]",
+            "website": None,
+            "release_date": kw.get("release_date", "2022-06-15"),
+            "coming_soon": False,
+            "price_usd": kw.get("price_usd", 9.99),
+            "is_free": kw.get("is_free", False),
+            "short_desc": None,
+            "detailed_description": None,
+            "about_the_game": None,
+            "review_count": kw.get("review_count", 100),
+            "review_count_english": kw.get("review_count", 100),
+            "total_positive": 75,
+            "total_negative": 25,
+            "positive_pct": kw.get("positive_pct", 75),
+            "review_score_desc": "Mostly Positive",
+            "header_image": None,
+            "background_image": None,
+            "required_age": 0,
+            "platforms": kw.get(
+                "platforms", json.dumps({"windows": True, "mac": False, "linux": False})
+            ),
+            "supported_languages": None,
+            "achievements_total": 0,
+            "metacritic_score": None,
+            "deck_compatibility": None,
+            "deck_test_results": None,
+            "data_source": "steam_direct",
+        }
+    )
 
 
 def _seed_genre(db_conn: Any, name: str, slug: str) -> int:
@@ -459,9 +463,13 @@ def test_developer_portfolio_summary(
     """Aggregate summary stats are correct."""
     for i in range(3):
         _seed_game(
-            game_repo, 13000 + i,
-            developer="Pixel Studio", developer_slug="pixel-studio",
-            positive_pct=80, review_count=1000, price_usd=14.99,
+            game_repo,
+            13000 + i,
+            developer="Pixel Studio",
+            developer_slug="pixel-studio",
+            positive_pct=80,
+            review_count=1000,
+            price_usd=14.99,
         )
 
     result = analytics_repo.find_developer_portfolio("pixel-studio")
@@ -478,11 +486,21 @@ def test_developer_portfolio_trajectory_improving(
     game_repo: GameRepository,
 ) -> None:
     """Last 3 games avg > overall avg by 5+ → trajectory is 'improving'."""
-    _seed_game(game_repo, 14000, developer_slug="indie-a", release_date="2018-01-01", positive_pct=50)
-    _seed_game(game_repo, 14001, developer_slug="indie-a", release_date="2019-01-01", positive_pct=50)
-    _seed_game(game_repo, 14002, developer_slug="indie-a", release_date="2020-01-01", positive_pct=90)
-    _seed_game(game_repo, 14003, developer_slug="indie-a", release_date="2021-01-01", positive_pct=90)
-    _seed_game(game_repo, 14004, developer_slug="indie-a", release_date="2022-01-01", positive_pct=90)
+    _seed_game(
+        game_repo, 14000, developer_slug="indie-a", release_date="2018-01-01", positive_pct=50
+    )
+    _seed_game(
+        game_repo, 14001, developer_slug="indie-a", release_date="2019-01-01", positive_pct=50
+    )
+    _seed_game(
+        game_repo, 14002, developer_slug="indie-a", release_date="2020-01-01", positive_pct=90
+    )
+    _seed_game(
+        game_repo, 14003, developer_slug="indie-a", release_date="2021-01-01", positive_pct=90
+    )
+    _seed_game(
+        game_repo, 14004, developer_slug="indie-a", release_date="2022-01-01", positive_pct=90
+    )
 
     result = analytics_repo.find_developer_portfolio("indie-a")
     assert result["summary"]["sentiment_trajectory"] == "improving"
@@ -493,11 +511,21 @@ def test_developer_portfolio_trajectory_declining(
     game_repo: GameRepository,
 ) -> None:
     """Last 3 games avg < overall avg by 5+ → trajectory is 'declining'."""
-    _seed_game(game_repo, 15000, developer_slug="indie-b", release_date="2018-01-01", positive_pct=90)
-    _seed_game(game_repo, 15001, developer_slug="indie-b", release_date="2019-01-01", positive_pct=90)
-    _seed_game(game_repo, 15002, developer_slug="indie-b", release_date="2020-01-01", positive_pct=50)
-    _seed_game(game_repo, 15003, developer_slug="indie-b", release_date="2021-01-01", positive_pct=50)
-    _seed_game(game_repo, 15004, developer_slug="indie-b", release_date="2022-01-01", positive_pct=50)
+    _seed_game(
+        game_repo, 15000, developer_slug="indie-b", release_date="2018-01-01", positive_pct=90
+    )
+    _seed_game(
+        game_repo, 15001, developer_slug="indie-b", release_date="2019-01-01", positive_pct=90
+    )
+    _seed_game(
+        game_repo, 15002, developer_slug="indie-b", release_date="2020-01-01", positive_pct=50
+    )
+    _seed_game(
+        game_repo, 15003, developer_slug="indie-b", release_date="2021-01-01", positive_pct=50
+    )
+    _seed_game(
+        game_repo, 15004, developer_slug="indie-b", release_date="2022-01-01", positive_pct=50
+    )
 
     result = analytics_repo.find_developer_portfolio("indie-b")
     assert result["summary"]["sentiment_trajectory"] == "declining"
@@ -509,8 +537,13 @@ def test_developer_portfolio_trajectory_stable(
 ) -> None:
     """All games at same sentiment → trajectory is 'stable'."""
     for i in range(4):
-        _seed_game(game_repo, 16000 + i, developer_slug="indie-c",
-                   release_date=f"202{i}-01-01", positive_pct=75)
+        _seed_game(
+            game_repo,
+            16000 + i,
+            developer_slug="indie-c",
+            release_date=f"202{i}-01-01",
+            positive_pct=75,
+        )
 
     result = analytics_repo.find_developer_portfolio("indie-c")
     assert result["summary"]["sentiment_trajectory"] == "stable"
@@ -525,5 +558,3 @@ def test_developer_portfolio_single_title(
 
     result = analytics_repo.find_developer_portfolio("solo-dev")
     assert result["summary"]["sentiment_trajectory"] == "single_title"
-
-

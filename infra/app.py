@@ -43,15 +43,6 @@ ApplicationStage(
     env=env,
 )
 
-# ── Monitoring stacks (standalone) ───────────────────────────────────────────
-MonitoringStack(
-    app,
-    "SteamPulse-Staging-Monitoring",
-    stack_name="SteamPulse-Staging-Monitoring",
-    config=SteamPulseConfig.for_environment("staging"),
-    env=env,
-)
-
 MonitoringStack(
     app,
     "SteamPulse-Production-Monitoring",

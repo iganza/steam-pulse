@@ -133,26 +133,26 @@ class AnalyticsRepository(BaseRepository):
             max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
         )
 
-        # Compute summary from the matview rows.
-        free_row = next((d for d in distribution if d["price_range"] == "Free"), None)
-        paid_rows = [d for d in distribution if d["price_range"] != "Free"]
-        free_count = free_row["game_count"] if free_row else 0
-        paid_count = sum(d["game_count"] for d in paid_rows)
-
-        paid_median_prices = [d["median_price"] for d in paid_rows if d["median_price"]]
-        avg_price = (
-            round(
-                sum(d["median_price"] * d["game_count"] for d in paid_rows if d["median_price"])
-                / paid_count,
-                2,
-            )
-            if paid_count
-            else None
-        )
-        median_price = (
-            round(sorted(paid_median_prices)[len(paid_median_prices) // 2], 2)
-            if paid_median_prices
-            else None
+        # Summary stats need exact avg/median over individual game prices,
+        # not bucket-level medians (median-of-medians is inaccurate).
+        # This lightweight query hits base tables but is cheap (single genre filter).
+        summary_row = self._fetchone(
+            """
+            SELECT
+                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
+                ROUND(
+                    (PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY g.price_usd)
+                     FILTER (WHERE NOT g.is_free))::numeric,
+                    2
+                ) AS median_price,
+                COUNT(*) FILTER (WHERE g.is_free) AS free_count,
+                COUNT(*) FILTER (WHERE NOT g.is_free) AS paid_count
+            FROM games g
+            JOIN game_genres gg ON gg.appid = g.appid
+            JOIN genres gn ON gg.genre_id = gn.id
+            WHERE gn.slug = %s AND g.review_count >= 10
+            """,
+            (genre_slug,),
         )
 
         return {
@@ -160,10 +160,14 @@ class AnalyticsRepository(BaseRepository):
             "genre_slug": genre_slug,
             "distribution": distribution,
             "summary": {
-                "avg_price": avg_price,
-                "median_price": median_price,
-                "free_count": free_count,
-                "paid_count": paid_count,
+                "avg_price": float(summary_row["avg_price"])
+                if summary_row and summary_row["avg_price"]
+                else None,
+                "median_price": float(summary_row["median_price"])
+                if summary_row and summary_row["median_price"]
+                else None,
+                "free_count": int(summary_row["free_count"]) if summary_row else 0,
+                "paid_count": int(summary_row["paid_count"]) if summary_row else 0,
                 "sweet_spot": sweet_spot,
             },
         }

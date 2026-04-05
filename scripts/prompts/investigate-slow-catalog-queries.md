@@ -13,7 +13,7 @@ connections stuck on `BufferIO` waits for 2-3 minutes. Two root causes have been
 The DB tunnel is open at:
 ```
 host=127.0.0.1 port=5433 dbname=production_steampulse user=postgres sslmode=require
-PGPASSWORD=8uzRYfsrDD1B
+# Password: retrieve from AWS Secrets Manager (steampulse/{env}/db-credentials)
 ```
 
 ---

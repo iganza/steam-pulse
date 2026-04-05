@@ -216,6 +216,18 @@ class MessagingStack(cdk.Stack):
             )
         )
 
+        # cache-invalidation-queue ← system-events (catalog-refresh-complete)
+        self.system_events_topic.add_subscription(
+            subs.SqsSubscription(
+                self.cache_invalidation_queue,
+                filter_policy={
+                    "event_type": sns.SubscriptionFilter.string_filter(
+                        allowlist=["catalog-refresh-complete"],
+                    ),
+                },
+            )
+        )
+
         # ── EventBridge → SQS ─────────────────────────────────────────────────
         # Disabled by default — enable manually after initial seed completes.
         nightly_rule = events.Rule(

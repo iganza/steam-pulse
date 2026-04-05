@@ -55,6 +55,7 @@ class ComputeStack(cdk.Stack):
         system_events_topic: sns.ITopic,
         spoke_results_queue: sqs.IQueue,
         email_queue: sqs.IQueue,
+        cache_invalidation_queue: sqs.IQueue,
         spoke_crawl_queue_urls: str,
         **kwargs: object,
     ) -> None:
@@ -547,6 +548,62 @@ class ComputeStack(cdk.Stack):
         cdk.Tags.of(migration_fn).add("steampulse:service", "migration")
         cdk.Tags.of(migration_fn).add("steampulse:tier", "internal")
         db_secret.grant_read(migration_fn)
+
+        # ── Matview Refresh Lambda (keeps materialized views up-to-date) ────────
+        matview_refresh_fn = PythonFunction(
+            self,
+            "MatviewRefreshFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/admin/matview_refresh_handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=iam.Role(
+                self,
+                "MatviewRefreshRole",
+                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                managed_policies=[
+                    iam.ManagedPolicy.from_aws_managed_policy_name(
+                        "service-role/AWSLambdaVPCAccessExecutionRole",
+                    ),
+                ],
+            ),
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(5),
+            memory_size=256,
+            reserved_concurrent_executions=1,
+            log_group=logs.LogGroup(
+                self,
+                "MatviewRefreshLogs",
+                log_group_name=f"/steampulse/{env}/matview-refresh",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="matview-refresh",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
+        )
+        cdk.Tags.of(matview_refresh_fn).add("steampulse:service", "matview-refresh")
+        cdk.Tags.of(matview_refresh_fn).add("steampulse:tier", "internal")
+        db_secret.grant_read(matview_refresh_fn)
+
+        # SQS event source — consumes from cache_invalidation_queue
+        matview_refresh_fn.add_event_source(
+            event_sources.SqsEventSource(
+                cache_invalidation_queue,
+                batch_size=1,
+            )
+        )
+
+        # EventBridge fallback — refresh every 6 hours
+        events.Rule(
+            self,
+            "MatviewRefreshSchedule",
+            schedule=events.Schedule.rate(cdk.Duration.hours(6)),
+        ).add_target(events_targets.LambdaFunction(matview_refresh_fn))
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
         # This Lambda drops and recreates the public schema. It must never exist

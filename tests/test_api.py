@@ -44,6 +44,17 @@ class _MemGameRepo:
         return []
 
 
+class _MemMatviewRepo:
+    def list_genre_counts(self) -> list[dict]:
+        return []
+
+    def list_tag_counts(self, limit: int = 100) -> list[dict]:
+        return []
+
+    def list_tags_grouped(self, limit_per_category: int = 20) -> list[dict]:
+        return []
+
+
 class _MemJobRepo:
     def __init__(self) -> None:
         self._store: dict[str, dict] = {}
@@ -81,6 +92,7 @@ def reset_api_state() -> None:
 
     api_module._report_repo = _MemReportRepo()  # type: ignore[assignment]
     api_module._game_repo = _MemGameRepo()  # type: ignore[assignment]
+    api_module._matview_repo = _MemMatviewRepo()  # type: ignore[assignment]
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
     api_module._waitlist_repo = _MemWaitlistRepo()  # type: ignore[assignment]
     api_module._sqs_client = _StubSqsClient()  # type: ignore[assignment]

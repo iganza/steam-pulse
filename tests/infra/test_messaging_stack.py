@@ -49,10 +49,10 @@ def test_messaging_stack_creates_3_topics() -> None:
 def test_messaging_stack_creates_subscriptions_with_filters() -> None:
     """SNS subscriptions use event_type filter policies (test 45)."""
     template = _synth_messaging_stack()
-    # 4 subscriptions: metadata-enrichment, review-crawl ($or CfnSubscription),
-    # batch-staging, cache-invalidation
+    # 5 subscriptions: metadata-enrichment, review-crawl ($or CfnSubscription),
+    # batch-staging, cache-invalidation (report-ready), cache-invalidation (catalog-refresh-complete)
     subs = template.find_resources("AWS::SNS::Subscription")
-    assert len(subs) == 4, f"Expected 4 subscriptions, got {len(subs)}"
+    assert len(subs) == 5, f"Expected 5 subscriptions, got {len(subs)}"
 
     # Every subscription must have a FilterPolicy
     for logical_id, resource in subs.items():

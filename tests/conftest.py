@@ -22,7 +22,7 @@ from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
-from library_layer.schema import create_all, create_indexes
+from library_layer.schema import create_all, create_indexes, create_matviews
 
 _TEST_DB_DEFAULT = "postgresql://steampulse:dev@localhost:5432/steampulse_test"
 
@@ -89,6 +89,7 @@ def db_conn() -> Generator[Any, None, None]:
         pytest.skip("PostgreSQL not available")
     create_all(conn)
     create_indexes(conn)
+    create_matviews(conn)
     yield conn
     conn.close()
 
@@ -112,6 +113,28 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         """)
     conn.commit()
     yield
+
+
+@pytest.fixture
+def refresh_matviews(db_conn: Any) -> Any:
+    """Return a callable that refreshes all materialized views.
+
+    Analytics tests that seed data and then query matview-backed methods
+    must call this after seeding: ``refresh_matviews()``
+    """
+    from library_layer.repositories.matview_repo import MATVIEW_NAMES
+
+    def _refresh() -> None:
+        prev = db_conn.autocommit
+        db_conn.autocommit = True
+        try:
+            with db_conn.cursor() as cur:
+                for name in MATVIEW_NAMES:
+                    cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {name}")
+        finally:
+            db_conn.autocommit = prev
+
+    return _refresh
 
 
 @pytest.fixture

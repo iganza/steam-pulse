@@ -11,9 +11,18 @@ import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
 import aws_cdk.aws_logs as logs
+import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
+from cdk_monitoring_constructs import (
+    AlarmFactoryDefaults,
+    ErrorCountThreshold,
+    MaxMessageAgeThreshold,
+    MaxMessageCountThreshold,
+    MonitoringFacade,
+    SnsAlarmActionStrategy,
+)
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
 
@@ -171,4 +180,53 @@ class CrawlSpokeStack(cdk.Stack):
             "SpokeCrawlQueueUrl",
             parameter_name=f"/steampulse/{environment}/spokes/{spoke_region}/crawl-queue-url",
             string_value=spoke_crawl_queue.queue_url,
+        )
+
+        # ── Tags ──��─────────────────────────────────────────────────────────
+        for resource in (spoke_fn, spoke_crawl_queue, spoke_dlq):
+            cdk.Tags.of(resource).add("steampulse:service", "spoke")
+            cdk.Tags.of(resource).add("steampulse:tier", "critical")
+
+        # ── Local Alarms (same region as metrics) ────────────��──────────────
+        alarm_topic = sns.Topic(
+            self,
+            "SpokeAlarmTopic",
+            display_name=f"SteamPulse {environment.capitalize()} Spoke {spoke_region} Alarms",
+        )
+        cdk.CfnOutput(
+            self,
+            "SpokeAlarmTopicArn",
+            value=alarm_topic.topic_arn,
+            description=f"Spoke alarm topic for {spoke_region}",
+        )
+
+        spoke_monitoring = MonitoringFacade(
+            self,
+            "SpokeMonitoring",
+            alarm_factory_defaults=AlarmFactoryDefaults(
+                actions_enabled=True,
+                alarm_name_prefix=f"SteamPulse-{environment.capitalize()}-Spoke-{spoke_region}",
+                action=SnsAlarmActionStrategy(on_alarm_topic=alarm_topic),
+            ),
+        )
+
+        spoke_monitoring.monitor_lambda_function(
+            lambda_function=spoke_fn,
+            human_readable_name=f"Spoke Crawler ({spoke_region})",
+            alarm_friendly_name=f"SpokeCrawler-{spoke_region}",
+            add_fault_count_alarm={"SpokeErrors": ErrorCountThreshold(max_error_count=0)},
+            add_throttles_count_alarm={"SpokeThrottles": ErrorCountThreshold(max_error_count=0)},
+        )
+
+        spoke_monitoring.monitor_sqs_queue_with_dlq(
+            queue=spoke_crawl_queue,
+            dead_letter_queue=spoke_dlq,
+            human_readable_name=f"Spoke Queue ({spoke_region})",
+            alarm_friendly_name=f"SpokeQueue-{spoke_region}",
+            add_queue_max_message_age_alarm={
+                "SpokeQueueAge": MaxMessageAgeThreshold(max_age_in_seconds=3600),
+            },
+            add_dead_letter_queue_max_size_alarm={
+                "SpokeDlq": MaxMessageCountThreshold(max_message_count=0),
+            },
         )

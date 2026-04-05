@@ -87,6 +87,9 @@ class DataStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.RETAIN,
             )
             db_endpoint: str = db_instance.db_instance_endpoint_address
+            db_identifier = db_instance.instance_identifier
+            cdk.Tags.of(db_instance).add("steampulse:service", "database")
+            cdk.Tags.of(db_instance).add("steampulse:tier", "critical")
         else:
             # Staging: CDK owns and manages the secret (from_generated_secret).
             # The override_logical_id keeps it stable across pipeline vs direct deploys.
@@ -116,6 +119,9 @@ class DataStack(cdk.Stack):
             )
             db_secret = db_cluster.secret  # type: ignore[assignment]
             db_endpoint = db_cluster.cluster_endpoint.hostname
+            db_identifier = db_cluster.cluster_identifier
+            cdk.Tags.of(db_cluster).add("steampulse:service", "database")
+            cdk.Tags.of(db_cluster).add("steampulse:tier", "critical")
 
             # Stable logical ID — matches the pipeline-created resource so CloudFormation
             # treats it as the same resource (not remove+add) on direct deploys.
@@ -163,9 +169,18 @@ class DataStack(cdk.Stack):
             )
         )
 
+        cdk.Tags.of(self.assets_bucket).add("steampulse:service", "database")
+        cdk.Tags.of(self.assets_bucket).add("steampulse:tier", "critical")
+
         ssm.StringParameter(
             self,
             "AssetsBucketNameParam",
             parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
             string_value=self.assets_bucket.bucket_name,
+        )
+        ssm.StringParameter(
+            self,
+            "DbIdentifierParam",
+            parameter_name=f"/steampulse/{env}/data/db-instance-identifier",
+            string_value=db_identifier,
         )

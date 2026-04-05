@@ -29,10 +29,9 @@ from stacks.data_stack import DataStack
 from stacks.delivery_stack import DeliveryStack
 from stacks.frontend_stack import FrontendStack
 from stacks.messaging_stack import MessagingStack
+from stacks.monitoring_stack import MonitoringStack
 from stacks.network_stack import NetworkStack
 from stacks.spoke_stack import CrawlSpokeStack
-
-# from stacks.monitoring_stack import MonitoringStack
 
 
 class ApplicationStage(cdk.Stage):
@@ -49,6 +48,8 @@ class ApplicationStage(cdk.Stage):
         config = SteamPulseConfig.for_environment(environment)
         env_name = environment.capitalize()
         cdk_env = cdk.Environment(account=self.account, region=self.region)
+
+        cdk.Tags.of(self).add("steampulse:environment", environment)
 
         # ── Network ───────────────────────────────────────────────────────────
         network = NetworkStack(
@@ -169,13 +170,13 @@ class ApplicationStage(cdk.Stage):
         batch.add_dependency(messaging)
 
         # ── Monitoring ────────────────────────────────────────────────────────
-        # Disabled — enable when ready to set up alarms.
-        # MonitoringStack(
-        #     self, "Monitoring",
-        #     stack_name=f"SteamPulse-{env_name}-Monitoring",
-        #     config=config,
-        #     env=cdk_env,
-        # )
+        MonitoringStack(
+            self,
+            "Monitoring",
+            stack_name=f"SteamPulse-{env_name}-Monitoring",
+            config=config,
+            env=cdk_env,
+        )
 
         # ── Spoke Stacks (one per region) ─────────────────────────────────
         # Every region is a spoke, including the primary. Spoke Lambdas

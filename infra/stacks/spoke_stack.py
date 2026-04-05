@@ -182,17 +182,20 @@ class CrawlSpokeStack(cdk.Stack):
             string_value=spoke_crawl_queue.queue_url,
         )
 
-        # ── Tags ──��─────────────────────────────────────────────────────────
+        # ── Tags ────────────────────────────────────────────────────────────
         for resource in (spoke_fn, spoke_crawl_queue, spoke_dlq):
             cdk.Tags.of(resource).add("steampulse:service", "spoke")
             cdk.Tags.of(resource).add("steampulse:tier", "critical")
 
-        # ── Local Alarms (same region as metrics) ────────────��──────────────
+        # ── Local Alarms (same region as metrics) ──────────────────────────
         alarm_topic = sns.Topic(
             self,
             "SpokeAlarmTopic",
             display_name=f"SteamPulse {environment.capitalize()} Spoke {spoke_region} Alarms",
         )
+        cdk.Tags.of(alarm_topic).add("steampulse:service", "spoke")
+        cdk.Tags.of(alarm_topic).add("steampulse:tier", "critical")
+
         cdk.CfnOutput(
             self,
             "SpokeAlarmTopicArn",

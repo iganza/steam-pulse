@@ -170,13 +170,15 @@ class ApplicationStage(cdk.Stage):
         batch.add_dependency(messaging)
 
         # ── Monitoring ────────────────────────────────────────────────────────
-        MonitoringStack(
+        monitoring = MonitoringStack(
             self,
             "Monitoring",
             stack_name=f"SteamPulse-{env_name}-Monitoring",
             config=config,
             env=cdk_env,
         )
+        monitoring.add_dependency(compute)
+        monitoring.add_dependency(messaging)
 
         # ── Spoke Stacks (one per region) ─────────────────────────────────
         # Every region is a spoke, including the primary. Spoke Lambdas

@@ -23,6 +23,22 @@ class MatviewRepository(BaseRepository):
     # Read methods — simple SELECTs against pre-computed matviews
     # ------------------------------------------------------------------
 
+    def get_genre_count(self, genre_slug: str) -> int | None:
+        """Return pre-computed game count for a single genre, or None."""
+        row = self._fetchone(
+            "SELECT game_count FROM mv_genre_counts WHERE slug = %s",
+            (genre_slug,),
+        )
+        return int(row["game_count"]) if row else None
+
+    def get_tag_count(self, tag_slug: str) -> int | None:
+        """Return pre-computed game count for a single tag, or None."""
+        row = self._fetchone(
+            "SELECT game_count FROM mv_tag_counts WHERE slug = %s",
+            (tag_slug,),
+        )
+        return int(row["game_count"]) if row else None
+
     def list_genre_counts(self) -> list[dict]:
         rows = self._fetchall("""
             SELECT id, name, slug, game_count

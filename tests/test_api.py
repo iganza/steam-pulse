@@ -31,8 +31,8 @@ class _MemGameRepo:
     def ensure_stub(self, appid: int, name: str | None = None) -> None:
         pass
 
-    def list_games(self, **kwargs: object) -> list[dict]:
-        return []
+    def list_games(self, **kwargs: object) -> dict:
+        return {"total": None, "games": []}
 
     def list_genres(self) -> list[dict]:
         return []
@@ -45,6 +45,12 @@ class _MemGameRepo:
 
 
 class _MemMatviewRepo:
+    def get_genre_count(self, genre_slug: str) -> int | None:
+        return None
+
+    def get_tag_count(self, tag_slug: str) -> int | None:
+        return None
+
     def list_genre_counts(self) -> list[dict]:
         return []
 

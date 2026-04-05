@@ -286,7 +286,7 @@ async def list_games(
     offset: int = 0,
 ) -> dict:
     limit = min(limit, 100)
-    return _game_repo.list_games(
+    result = _game_repo.list_games(
         q=q,
         genre=genre,
         tag=tag,
@@ -302,6 +302,18 @@ async def list_games(
         limit=limit,
         offset=offset,
     )
+
+    # Use pre-computed counts from matviews for simple single-filter browsing.
+    extra_filters = (q, developer, year_from, year_to, min_reviews,
+                     has_analysis, sentiment, price_tier, deck)
+    if genre and not tag and not any(extra_filters):
+        total = _matview_repo.get_genre_count(genre)
+    elif tag and not genre and not any(extra_filters):
+        total = _matview_repo.get_tag_count(tag)
+    else:
+        total = result["total"]
+
+    return {"total": total, "games": result["games"]}
 
 
 @app.get("/api/games/{appid}/report")

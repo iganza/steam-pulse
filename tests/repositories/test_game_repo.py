@@ -392,30 +392,21 @@ def test_list_games_sentiment_and_price_tier_combined(
 
 
 # ---------------------------------------------------------------------------
-# list_games pagination (COUNT(*) OVER() semantics)
+# list_games pagination (total from matviews, not from repo)
 # ---------------------------------------------------------------------------
 
 
-def test_list_games_total_matches_result_count(game_repo: GameRepository) -> None:
-    """total reflects the full matching set, not just the page."""
+def test_list_games_total_is_none(game_repo: GameRepository) -> None:
+    """list_games returns total=None — handler provides count from matviews."""
     for i in range(5):
         game_repo.upsert({**_game_data(100 + i, f"Game {i}"), "slug": f"game-{100 + i}"})
     result = game_repo.list_games(limit=2, offset=0)
-    assert result["total"] == 5
+    assert result["total"] is None
     assert len(result["games"]) == 2
 
 
-def test_list_games_offset_beyond_results(game_repo: GameRepository) -> None:
-    """Paging past all results returns total via fallback COUNT."""
-    for i in range(3):
-        game_repo.upsert({**_game_data(200 + i, f"Game {i}"), "slug": f"game-{200 + i}"})
-    result = game_repo.list_games(limit=10, offset=100)
-    assert result["total"] == 3
-    assert result["games"] == []
-
-
-def test_list_games_no_results_offset_zero(game_repo: GameRepository) -> None:
-    """No matching games at offset 0 returns total=0 without fallback."""
+def test_list_games_empty_result(game_repo: GameRepository) -> None:
+    """No matching games returns total=None and empty list."""
     result = game_repo.list_games(q="nonexistent-query-xyz", limit=10, offset=0)
-    assert result["total"] == 0
+    assert result["total"] is None
     assert result["games"] == []

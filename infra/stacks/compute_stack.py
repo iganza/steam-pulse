@@ -138,6 +138,8 @@ class ComputeStack(cdk.Stack):
             ),
             environment=config.to_lambda_env(),
         )
+        cdk.Tags.of(analysis_fn).add("steampulse:service", "analysis")
+        cdk.Tags.of(analysis_fn).add("steampulse:tier", "standard")
 
         # ── Step Functions ────────────────────────────────────────────────────
         analyze_task = tasks.LambdaInvoke(
@@ -228,6 +230,9 @@ class ComputeStack(cdk.Stack):
             environment=config.to_lambda_env(PORT="8080"),
         )
 
+        cdk.Tags.of(api_fn).add("steampulse:service", "api")
+        cdk.Tags.of(api_fn).add("steampulse:tier", "critical")
+
         self.api_fn_url = api_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
             cors=lambda_.FunctionUrlCorsOptions(
@@ -291,6 +296,9 @@ class ComputeStack(cdk.Stack):
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
             },
         )
+        cdk.Tags.of(frontend_fn).add("steampulse:service", "frontend")
+        cdk.Tags.of(frontend_fn).add("steampulse:tier", "critical")
+
         assets_bucket.grant_read_write(frontend_fn)
         opennext_cache_table.grant_read_write_data(frontend_fn)
 
@@ -370,6 +378,9 @@ class ComputeStack(cdk.Stack):
             ),
         )
 
+        cdk.Tags.of(crawler_fn).add("steampulse:service", "crawler")
+        cdk.Tags.of(crawler_fn).add("steampulse:tier", "critical")
+
         # SQS event sources — crawler dispatches work to spoke Lambdas
         for queue, _source_id in [
             (app_crawl_queue, "AppCrawlSource"),
@@ -442,6 +453,9 @@ class ComputeStack(cdk.Stack):
                 SPOKE_CRAWL_QUEUE_URLS=spoke_crawl_queue_urls,
             ),
         )
+        cdk.Tags.of(ingest_fn).add("steampulse:service", "ingest")
+        cdk.Tags.of(ingest_fn).add("steampulse:tier", "critical")
+
         ingest_fn.add_event_source(
             event_sources.SqsEventSource(
                 spoke_results_queue,
@@ -489,6 +503,8 @@ class ComputeStack(cdk.Stack):
             ),
             environment=config.to_lambda_env(),
         )
+        cdk.Tags.of(admin_fn).add("steampulse:service", "admin")
+        cdk.Tags.of(admin_fn).add("steampulse:tier", "internal")
         db_secret.grant_read(admin_fn)
 
         # ── Migration Lambda (applies pending yoyo migrations post-deployment) ───
@@ -528,6 +544,8 @@ class ComputeStack(cdk.Stack):
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),
         )
+        cdk.Tags.of(migration_fn).add("steampulse:service", "migration")
+        cdk.Tags.of(migration_fn).add("steampulse:tier", "internal")
         db_secret.grant_read(migration_fn)
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
@@ -630,6 +648,9 @@ class ComputeStack(cdk.Stack):
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),
         )
+        cdk.Tags.of(email_fn).add("steampulse:service", "email")
+        cdk.Tags.of(email_fn).add("steampulse:tier", "standard")
+
         email_fn.add_event_source(
             event_sources.SqsEventSource(
                 email_queue,
@@ -706,4 +727,22 @@ class ComputeStack(cdk.Stack):
             "MigrationFnArnParam",
             parameter_name=f"/steampulse/{env}/compute/migration-fn-arn",
             string_value=migration_fn.function_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "FrontendFnArnParam",
+            parameter_name=f"/steampulse/{env}/compute/frontend-fn-arn",
+            string_value=frontend_fn.function_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "EmailFnArnParam",
+            parameter_name=f"/steampulse/{env}/compute/email-fn-arn",
+            string_value=email_fn.function_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "AdminFnArnParam",
+            parameter_name=f"/steampulse/{env}/compute/admin-fn-arn",
+            string_value=admin_fn.function_arn,
         )

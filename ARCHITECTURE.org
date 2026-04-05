@@ -38,23 +38,30 @@ DbLoaderFn is staging-only. MigrationFn has reserved concurrency = 1.
 
 *** Spoke Regions (per config.SPOKE_REGIONS)
 
-| Name           | Handler                                     | Memory | Timeout | VPC | Reserved Concurrency |
-|----------------+---------------------------------------------+--------+---------+-----+----------------------|
-| SpokeCrawlerFn | lambda_functions/crawler/spoke_handler.py   | 256 MB | 10 min  | No  | 3                    |
+| Name           | Handler                                     | Memory | Timeout | VPC | SQS ESM max_concurrency |
+|----------------+---------------------------------------------+--------+---------+-----+-------------------------|
+| SpokeCrawlerFn | lambda_functions/crawler/spoke_handler.py   | 256 MB | 10 min  | No  | 3                       |
 
 Deterministic name: =steampulse-spoke-crawler-{region}-{env}=
-Routing: =appid % len(spoke_targets)= — same appid always hits same spoke.
+Each spoke has a per-region SQS queue (=steampulse-spoke-crawl-{region}-{env}=) with an
+event source mapping (=batch_size=1=, =max_concurrency=3=). The primary crawler and
+ingest handler send messages to these queues; the spoke Lambda consumes them with
+backpressure. Routing: =appid % len(spoke_targets)= — same appid always hits same spoke.
 
 ** SQS Queues
 
-| Logical Name          | Physical Name Pattern              | DLQ | Visibility | Consumers        |
-|-----------------------+------------------------------------+-----+------------+------------------|
-| MetadataEnrichmentQ   | steampulse-app-crawl-{env}         | Yes | 10 min     | CrawlerFn (b=10) |
-| ReviewCrawlQ          | steampulse-review-crawl-{env}      | Yes | 10 min     | CrawlerFn (b=10) |
-| SpokeResultsQ         | steampulse-spoke-results-{env}     | Yes | 15 min     | SpokeIngestFn(b=5)|
-| BatchStagingQ         | (cdk-generated)                    | Yes | 10 min     | — (SNS sub only) |
-| CacheInvalidationQ    | (cdk-generated)                    | Yes | 5 min      | — (SNS sub only) |
+| Logical Name          | Physical Name Pattern                        | DLQ | Visibility | Consumers                   |
+|-----------------------+----------------------------------------------+-----+------------+-----------------------------|
+| MetadataEnrichmentQ   | steampulse-app-crawl-{env}                   | Yes | 10 min     | CrawlerFn (b=10)            |
+| ReviewCrawlQ          | steampulse-review-crawl-{env}                | Yes | 10 min     | CrawlerFn (b=10)            |
+| SpokeCrawlQ (×N)      | steampulse-spoke-crawl-{region}-{env}        | Yes | 12 min     | SpokeCrawlerFn (b=1, mc=3)  |
+| SpokeResultsQ         | steampulse-spoke-results-{env}               | Yes | 15 min     | SpokeIngestFn (b=5)         |
+| BatchStagingQ         | (cdk-generated)                              | Yes | 10 min     | — (SNS sub only)            |
+| CacheInvalidationQ    | (cdk-generated)                              | Yes | 5 min      | — (SNS sub only)            |
 
+SpokeCrawlQ: one per spoke region, created in spoke_stack.py. Deterministic name for
+cross-region send. =max_concurrency=3= on the ESM controls spoke parallelism (replaces
+the old =reserved_concurrent_executions=3=). Retention: 14 days.
 All DLQs: max_receive_count=3, retention=14 days.
 
 ** SNS Topics
@@ -177,58 +184,64 @@ Invariant: Every appid Steam returns that is not yet in app_catalog
 4. On successful fetch and save of metadata, the "game-metadata-ready" event should be published to GameEventsTopic
 
 #+BEGIN_SRC
-  GameEventsTopic          MetadataEnrichmentQ         CrawlerFn                  SpokeCrawlerFn              Steam API        AssetsBucket
-      │                           │                    handler.py                 spoke_handler.py                │                  │
-      │  game-discovered          │                        │                           │                          │                  │
-      │  {event_type, appid}      │                        │                           │                          │                  │
-      │──────────────────────────>│                        │                           │                          │                  │
-      │  (SNS filter: event_type=game-discovered)          │                           │                          │                  │
-      │                           │  SQS receive (b=10)    │                           │                          │                  │
-      │                           │───────────────────────>│                           │                          │                  │
-      │                           │                        │  async invoke (Event)     │                          │                  │
-      │                           │                        │  MetadataSpokeReq         │                          │                  │
-      │                           │                        │  {appid, task:"metadata"} │                          │                  │
-      │                           │                        │  appid % len(spokes)      │                          │                  │
-      │                           │                        │──────────────────────────>│                          │                  │
-      │                           │                        │                           │  GET appdetails          │                  │
-      │                           │                        │                           │  GET review_summary      │                  │
-      │                           │                        │                           │  GET deck compatibility  │                  │
-      │                           │                        │                           │─────────────────────────>│                  │
-      │                           │                        │                           │<─────────────────────────│                  │
-      │                           │                        │                           │                          │                  │
-      │                           │                        │                           │  gzip JSON               │                  │
-      │                           │                        │                           │  spoke-results/metadata/{appid}-{uid}.json.gz
-      │                           │                        │                           │──────────────────────────────────────────────>│
-      │                           │                        │                           │                          │                  │
-      │                           │                        │                           │  MetadataSpokeResult → SpokeResultsQ          │
-      │                           │                        │                           │  {appid, task, success, s3_key, spoke_region}  │
+  GameEventsTopic      MetadataEnrichmentQ     CrawlerFn          SpokeCrawlQ        SpokeCrawlerFn        Steam API      AssetsBucket
+      │                        │              handler.py         (per-region)        spoke_handler.py          │                │
+      │ game-discovered        │                  │                   │                     │                  │                │
+      │ {event_type, appid}    │                  │                   │                     │                  │                │
+      │───────────────────────>│                  │                   │                     │                  │                │
+      │ (SNS filter)           │ SQS receive      │                   │                     │                  │                │
+      │                        │ (b=10)           │                   │                     │                  │                │
+      │                        │─────────────────>│                   │                     │                  │                │
+      │                        │                  │ SQS send_message  │                     │                  │                │
+      │                        │                  │ MetadataSpokeReq  │                     │                  │                │
+      │                        │                  │ {appid,           │                     │                  │                │
+      │                        │                  │  task:"metadata"} │                     │                  │                │
+      │                        │                  │ appid % len(spokes)                     │                  │                │
+      │                        │                  │──────────────────>│                     │                  │                │
+      │                        │                  │                   │ SQS ESM (b=1,mc=3)  │                  │                │
+      │                        │                  │                   │────────────────────>│                  │                │
+      │                        │                  │                   │                     │ GET appdetails   │                │
+      │                        │                  │                   │                     │ GET review_summary                │
+      │                        │                  │                   │                     │ GET deck compat  │                │
+      │                        │                  │                   │                     │─────────────────>│                │
+      │                        │                  │                   │                     │<─────────────────│                │
+      │                        │                  │                   │                     │                  │                │
+      │                        │                  │                   │                     │ gzip JSON → S3   │                │
+      │                        │                  │                   │                     │ spoke-results/metadata/{appid}-{uid}.json.gz
+      │                        │                  │                   │                     │────────────────────────────────>  │
+      │                        │                  │                   │                     │                  │                │
+      │                        │                  │                   │                     │ MetadataSpokeResult              │
+      │                        │                  │                   │                     │ → SpokeResultsQ                  │
+      │                        │                  │                   │                     │ {appid, task, success,            │
+      │                        │                  │                   │                     │  s3_key, spoke_region}            │
 
-  SpokeResultsQ          SpokeIngestFn                   RDS (games)           AssetsBucket          GameEventsTopic
-      │                  ingest_handler.py                     │                     │                      │
-      │  SQS receive (b=5)    │                                │                     │                      │
-      │──────────────────────>│                                │                     │                      │
-      │                       │  S3 get + gzip decompress      │                     │                      │
-      │                       │<────────────────────────────────────────────────────>│                      │
-      │                       │  CrawlService.ingest_spoke_metadata()                │                      │
-      │                       │  GameRepository.upsert()  ON CONFLICT DO UPDATE      │                      │
-      │                       │───────────────────────────────>│                     │                      │
-      │                       │<───────────────────────────────│                     │                      │
-      │                       │  upsert tags / genres / categories                   │                      │
-      │                       │  CatalogRepository.set_meta_status("done")           │                      │
-      │                       │───────────────────────────────>│                     │                      │
-      │                       │<───────────────────────────────│                     │                      │
-      │                       │  S3 delete object              │                     │                      │
-      │                       │────────────────────────────────────────────────────> │                       │
-      │                       │                                │                     │                      │
-      │                       │  publish GameMetadataReadyEvent                                             │
-      │                       │  {event_type:"game-metadata-ready", appid, review_count, version:1}         │
-      │                       │  MessageAttribute: is_eligible="true"|"false"                               │
-      │                       │──────────────────────────────────────────────────────────────────────────>  │
+  SpokeResultsQ        SpokeIngestFn                 RDS (games)         AssetsBucket        GameEventsTopic
+      │                ingest_handler.py                   │                   │                    │
+      │ SQS receive (b=5)   │                              │                   │                    │
+      │────────────────────>│                              │                   │                    │
+      │                     │ S3 get + gzip decompress     │                   │                    │
+      │                     │<─────────────────────────────────────────────>  │                    │
+      │                     │ CrawlService.ingest_spoke_metadata()            │                    │
+      │                     │ GameRepository.upsert()  ON CONFLICT DO UPDATE  │                    │
+      │                     │──────────────────────────>│                     │                    │
+      │                     │<──────────────────────────│                     │                    │
+      │                     │ upsert tags / genres / categories               │                    │
+      │                     │ CatalogRepository.set_meta_status("done")       │                    │
+      │                     │──────────────────────────>│                     │                    │
+      │                     │<──────────────────────────│                     │                    │
+      │                     │ S3 delete object          │                     │                    │
+      │                     │──────────────────────────────────────────────>  │                    │
+      │                     │                           │                     │                    │
+      │                     │ publish GameMetadataReadyEvent                                       │
+      │                     │ {event_type:"game-metadata-ready", appid, review_count, version:1}   │
+      │                     │ MessageAttribute: is_eligible="true"|"false"                         │
+      │                     │──────────────────────────────────────────────────────────────────>   │
 #+END_SRC
 
 *Drift checklist:*
-- Spoke invocation is =InvocationType="Event"= (async — fire and forget)
-- =appid % len(spoke_targets)= determines which spoke — deterministic routing
+- Dispatch is via SQS =send_message= to per-spoke crawl queue (NOT Lambda async invoke)
+- =appid % len(spoke_targets)= determines which spoke queue — deterministic routing
+- Spoke consumes via SQS event source mapping (=batch_size=1=, =max_concurrency=3=)
 - =is_eligible= is a SNS MessageAttribute string ="true"= or ="false"= (not bool); event body also carries =review_count= and =version=1=
 - =GameRepository.upsert()= uses =ON CONFLICT DO UPDATE= (full metadata overwrite is correct here)
 - S3 object is deleted after successful ingest (no orphaned objects)
@@ -260,10 +273,11 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
    - =cursor=: missing/null/"" → normalize to ="*"= (fresh start)
    - =target=: missing → =REVIEW_LIMIT=; =0= → skip dispatch (budget exhausted); positive → use as-is
    - =started_at=: missing → =datetime.now(UTC)=
-3. =CrawlerFn= async-invokes =SpokeCrawlerFn= (fire-and-forget, =InvocationType="Event"=).
+3. =CrawlerFn= sends =ReviewSpokeRequest{appid, task:"reviews", cursor, target, started_at}=
+   to the per-spoke SQS queue via =sqs.send_message()=.
    Routing: =appid % len(spoke_targets)= — deterministic, same appid always hits same spoke.
-   Payload: =ReviewSpokeRequest{appid, task:"reviews", cursor, target, started_at}=.
-4. =SpokeCrawlerFn= calls Steam =GET /appreviews/{appid}?filter=recent&cursor={cursor}&num_per_page=min(target,BATCH_SIZE)=.
+4. =SpokeCrawlerFn= receives the message via SQS event source mapping (=batch_size=1=, =max_concurrency=3=).
+   Calls Steam =GET /appreviews/{appid}?filter=recent&cursor={cursor}&num_per_page=min(target,BATCH_SIZE)=.
    Overshoot prevention: =limit = min(target, BATCH_SIZE)= caps the final partial batch.
 5. =SpokeCrawlerFn= gzips the review batch, writes to S3:
    =spoke-results/reviews/{appid}-{uuid}.json.gz=
@@ -279,95 +293,96 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 9. On exhausted/early_stop/target_hit: =CatalogRepository.mark_reviews_complete(appid, completed_at)=
    sets =reviews_completed_at= — the only DB write in the whole chain.
    =completed_at=: batch boundary timestamp on early_stop; =NOW()= on exhausted/target_hit.
-10. On re-queue: =SQS.send_message= to =ReviewCrawlQ= with
-    ={appid, cursor:next_cursor, target:new_remaining, started_at}=. Loop returns to step 2.
+10. On re-queue: =SQS.send_message= directly to the per-spoke crawl queue with
+    =ReviewSpokeRequest{appid, cursor:next_cursor, target:new_remaining, started_at}=.
+    This bypasses the primary crawler — loop returns directly to step 4.
 11. S3 object deleted after all DB/SQS work succeeds (safe to retry on failure — object still present).
 
 #+BEGIN_SRC
-  GameEventsTopic      ReviewCrawlQ         CrawlerFn           SpokeCrawlerFn      Steam API       AssetsBucket
-      │                    │              handler.py           spoke_handler.py          │                │
-      │ game-metadata-ready │                  │                      │                  │                │
-      │ {appid}             │                  │                      │                  │                │
-      │ is_eligible=true    │                  │                      │                  │                │
-      │────────────────────>│                  │                      │                  │                │
-      │ (SNS filter)        │  SQS receive     │                      │                  │                │
-      │                     │ (b=10)           │                      │                  │                │
-      │                     │─────────────────>│                      │                  │                │
-      │                     │                  │ normalize from body: │                  │                │
-      │                     │                  │ cursor  = * (fresh)  │                  │                │
-      │                     │                  │ target  = REVIEW_LIMIT                 │                │
-      │                     │                  │ started_at = now()   │                  │                │
-      │                     │                  │                      │                  │                │
-      │                     │                  │ async invoke (Event)  │                  │                │
-      │                     │                  │ appid % len(spokes)   │                  │                │
-      │                     │                  │ ReviewSpokeRequest    │                  │                │
-      │                     │                  │ {appid, task:reviews, │                  │                │
-      │                     │                  │  cursor, target,      │                  │                │
-      │                     │                  │  started_at}          │                  │                │
-      │                     │                  │──────────────────────>│                  │                │
-      │                     │                  │                       │ GET /appreviews  │                │
-      │                     │                  │                       │ filter=recent    │                │
-      │                     │                  │                       │ cursor=*         │                │
-      │                     │                  │                       │ num_per_page=    │                │
-      │                     │                  │                       │ min(target,BATCH)│                │
-      │                     │                  │                       │─────────────────>│                │
-      │                     │                  │                       │ [{review}×N]     │                │
-      │                     │                  │                       │ next_cursor      │                │
-      │                     │                  │                       │<─────────────────│                │
-      │                     │                  │                       │                  │                │
-      │                     │                  │                       │ gzip reviews     │                │
-      │                     │                  │                       │ spoke-results/reviews/{appid}-{uuid}.json.gz
-      │                     │                  │                       │─────────────────────────────────>│
-      │                     │                  │                       │                  │                │
-      │                     │                  │    ReviewSpokeResult → SpokeResultsQ    │                │
-      │                     │                  │    {appid, task, success, s3_key, count,│                │
-      │                     │                  │     next_cursor, target, started_at,    │                │
-      │                     │                  │     spoke_region}                       │                │
+  GameEventsTopic    ReviewCrawlQ       CrawlerFn        SpokeCrawlQ       SpokeCrawlerFn     Steam API     AssetsBucket
+      │                  │            handler.py         (per-region)      spoke_handler.py        │              │
+      │ game-metadata-   │                │                  │                  │                  │              │
+      │ ready {appid}    │                │                  │                  │                  │              │
+      │ is_eligible=true │                │                  │                  │                  │              │
+      │─────────────────>│                │                  │                  │                  │              │
+      │ (SNS filter)     │ SQS receive    │                  │                  │                  │              │
+      │                  │ (b=10)         │                  │                  │                  │              │
+      │                  │───────────────>│                  │                  │                  │              │
+      │                  │                │ normalize:       │                  │                  │              │
+      │                  │                │ cursor = *       │                  │                  │              │
+      │                  │                │ target = LIMIT   │                  │                  │              │
+      │                  │                │ started_at=now() │                  │                  │              │
+      │                  │                │                  │                  │                  │              │
+      │                  │                │ SQS send_message │                  │                  │              │
+      │                  │                │ appid%len(spokes)│                  │                  │              │
+      │                  │                │ ReviewSpokeReq   │                  │                  │              │
+      │                  │                │─────────────────>│                  │                  │              │
+      │                  │                │                  │ ESM (b=1,mc=3)   │                  │              │
+      │                  │                │                  │─────────────────>│                  │              │
+      │                  │                │                  │                  │ GET /appreviews  │              │
+      │                  │                │                  │                  │ filter=recent    │              │
+      │                  │                │                  │                  │ cursor, limit=   │              │
+      │                  │                │                  │                  │ min(target,BATCH)│              │
+      │                  │                │                  │                  │─────────────────>│              │
+      │                  │                │                  │                  │ [{review}×N]     │              │
+      │                  │                │                  │                  │ next_cursor      │              │
+      │                  │                │                  │                  │<─────────────────│              │
+      │                  │                │                  │                  │                  │              │
+      │                  │                │                  │                  │ gzip → S3        │              │
+      │                  │                │                  │                  │ spoke-results/reviews/{appid}-{uid}.json.gz
+      │                  │                │                  │                  │────────────────────────────────>│
+      │                  │                │                  │                  │                  │              │
+      │                  │                │                  │  ReviewSpokeResult → SpokeResultsQ │              │
+      │                  │                │                  │  {appid, task, success, s3_key,    │              │
+      │                  │                │                  │   count, next_cursor, target,      │              │
+      │                  │                │                  │   started_at, spoke_region}        │              │
 
-  SpokeResultsQ        SpokeIngestFn            RDS (reviews       AssetsBucket      ReviewCrawlQ
-      │                ingest_handler.py         + app_catalog)         │                  │
-      │  SQS receive        │                         │                 │                  │
-      │  (b=5)              │                         │                 │                  │
-      │────────────────────>│                         │                 │                  │
-      │                     │  S3 get + decompress    │                 │                  │
-      │                     │<────────────────────────────────────────>│                  │
-      │                     │  ReviewRepository.bulk_upsert()          │                  │
-      │                     │  ON CONFLICT(steam_review_id) DO UPDATE  │                  │
-      │                     │────────────────────────>│                 │                  │
-      │                     │<────────────────────────│                 │                  │
-      │                     │                         │                 │                  │
-      │                     │  early_stop check:      │                 │                  │
-      │                     │  get reviews_completed_at                │                  │
-      │                     │────────────────────────>│                 │                  │
-      │                     │<────────────────────────│                 │                  │
-      │                     │                         │                 │                  │
-      │                     │  ┌─ exhausted (next_cursor=None)                             │
-      │                     │  │  OR early_stop (min_batch_ts < reviews_completed_at)      │
-      │                     │  │  OR target_hit (msg.target ≤ msg.count) ───────────────┐ │
-      │                     │  │  mark_reviews_complete(appid,                          │ │
-      │                     │  │    completed_at=batch_boundary|NOW())                  │ │
-      │                     │  │────────────────────>│                                  │ │
-      │                     │  └───────────────────────────────────────────────────────── │
-      │                     │                         │                 │                  │
-      │                     │  ┌─ else: more pages ──────────────────────────────────────┐│
-      │                     │  │  new_remaining = msg.target - msg.count                 ││
-      │                     │  │  SQS send {appid, cursor:next_cursor,                   ││
-      │                     │  │            target:new_remaining, started_at}            ││
-      │                     │  │────────────────────────────────────────────────────────>││
-      │                     │  └──────────────────────────────────────────────────────── ┘│
-      │                     │                         │                 │                  │
-      │                     │  S3 delete object (after all DB/SQS work)│                  │
-      │                     │────────────────────────────────────────>│                   │
+  SpokeResultsQ      SpokeIngestFn          RDS (reviews       AssetsBucket    SpokeCrawlQ
+      │              ingest_handler.py       + app_catalog)         │            (per-region)
+      │ SQS receive       │                       │                 │                │
+      │ (b=5)             │                       │                 │                │
+      │──────────────────>│                       │                 │                │
+      │                   │ S3 get + decompress   │                 │                │
+      │                   │<──────────────────────────────────────>│                │
+      │                   │ ReviewRepository.bulk_upsert()         │                │
+      │                   │ ON CONFLICT(steam_review_id) DO UPDATE │                │
+      │                   │──────────────────────>│                │                │
+      │                   │<──────────────────────│                │                │
+      │                   │                       │                │                │
+      │                   │ early_stop check:     │                │                │
+      │                   │ get reviews_completed_at               │                │
+      │                   │──────────────────────>│                │                │
+      │                   │<──────────────────────│                │                │
+      │                   │                       │                │                │
+      │                   │ ┌─ exhausted | early_stop | target_hit ────────────┐   │
+      │                   │ │  mark_reviews_complete(appid,                    │   │
+      │                   │ │    completed_at=batch_boundary|NOW())            │   │
+      │                   │ │──────────────────>│                              │   │
+      │                   │ └──────────────────────────────────────────────────┘   │
+      │                   │                       │                │                │
+      │                   │ ┌─ else: more pages ─────────────────────────────────┐ │
+      │                   │ │  ReviewSpokeRequest (direct to spoke queue)        │ │
+      │                   │ │  {appid, cursor:next_cursor,                       │ │
+      │                   │ │   target:remaining, started_at}                    │ │
+      │                   │ │  appid % len(spoke_targets)                        │ │
+      │                   │ │───────────────────────────────────────────────────>│ │
+      │                   │ └────────────────── (loop back to spoke step 4) ────┘ │
+      │                   │                       │                │                │
+      │                   │ S3 delete (after all DB/SQS work)      │                │
+      │                   │──────────────────────────────────────>│                 │
 #+END_SRC
 
 *Drift checklist:*
+- Dispatch is via SQS =send_message= to per-spoke crawl queue (NOT Lambda async invoke)
+- Spoke consumes via SQS event source mapping (=batch_size=1=, =max_concurrency=3=)
 - =filter="recent"= in =steam_source.get_reviews()= (NOT =filter="all"=)
 - =ReviewRepository.bulk_upsert()= uses =ON CONFLICT (steam_review_id) DO UPDATE= (update, not skip)
 - Cursor, target, and started_at are read from the SQS message body — no DB reads during dispatch
 - Fresh-start message body contains only ={appid}=; cursor/target/started_at are normalized by CrawlerFn
 - =cursor= normalization: missing/null/"" → ="*"= (fresh start)
 - =target= normalization: missing → =REVIEW_LIMIT=; =0= → skip dispatch; positive → use as-is
-- Re-queue sends ={appid, cursor, target:remaining, started_at}= — =target= decremented by =msg.count= each hop
+- Re-queue from ingest goes directly to per-spoke SQS queue (bypasses CrawlerFn entirely)
+- Re-queue sends =ReviewSpokeRequest{appid, cursor, target:remaining, started_at}= — =target= decremented by =msg.count= each hop
 - =target_hit= check: =msg.target ≤ msg.count= (remaining budget ≤ this batch — NOT total DB count vs original total)
 - Overshoot prevention: spoke computes =limit = min(target, BATCH_SIZE)= before calling Steam
 - Ingest is data-only: no SNS events, no Step Functions trigger from this flow

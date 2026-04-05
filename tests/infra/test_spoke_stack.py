@@ -97,3 +97,18 @@ def test_spoke_crawl_queue_exists(template: Template) -> None:
 def test_ssm_params(template: Template) -> None:
     """Two SSM params: spoke status + crawl queue URL."""
     template.resource_count_is("AWS::SSM::Parameter", 2)
+
+
+def test_alarm_topic(template: Template) -> None:
+    """Spoke has a local SNS alarm topic."""
+    template.resource_count_is("AWS::SNS::Topic", 1)
+
+
+def test_alarm_topic_output(template: Template) -> None:
+    """CfnOutput for the spoke alarm topic ARN."""
+    template.has_output("SpokeAlarmTopicArn", {})
+
+
+def test_no_cloudwatch_dashboards(template: Template) -> None:
+    """Spoke monitoring is alarms-only; no CloudWatch dashboards should be created."""
+    template.resource_count_is("AWS::CloudWatch::Dashboard", 0)

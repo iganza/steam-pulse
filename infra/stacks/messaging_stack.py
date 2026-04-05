@@ -131,6 +131,31 @@ class MessagingStack(cdk.Stack):
             ),
         )
 
+        # ── Tags ────────────────────────────────────────────────────────────
+        for q in (
+            self.app_crawl_queue,
+            self.metadata_enrichment_dlq,
+            self.review_crawl_queue,
+            self.review_crawl_dlq,
+        ):
+            cdk.Tags.of(q).add("steampulse:service", "crawler")
+
+        for q in (self.spoke_results_queue, self.spoke_results_dlq):
+            cdk.Tags.of(q).add("steampulse:service", "ingest")
+
+        for q in (self.email_queue, self.email_dlq):
+            cdk.Tags.of(q).add("steampulse:service", "email")
+
+        for q in (self.batch_staging_queue, self.batch_staging_dlq):
+            cdk.Tags.of(q).add("steampulse:service", "batch")
+
+        for q in (self.cache_invalidation_queue, self.cache_invalidation_dlq):
+            cdk.Tags.of(q).add("steampulse:service", "frontend")
+
+        cdk.Tags.of(self.game_events_topic).add("steampulse:service", "crawler")
+        cdk.Tags.of(self.content_events_topic).add("steampulse:service", "analysis")
+        cdk.Tags.of(self.system_events_topic).add("steampulse:service", "admin")
+
         # ── SNS → SQS Subscriptions with Filter Policies ────────────────────
 
         # metadata-enrichment-queue ← game-events (game-discovered only)
@@ -282,6 +307,25 @@ class MessagingStack(cdk.Stack):
             "EmailQueueUrlParam",
             parameter_name=f"/steampulse/{env}/messaging/email-queue-url",
             string_value=self.email_queue.queue_url,
+        )
+
+        ssm.StringParameter(
+            self,
+            "SpokeResultsDlqArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/spoke-results-dlq-arn",
+            string_value=self.spoke_results_dlq.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "EmailQueueArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/email-queue-arn",
+            string_value=self.email_queue.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "EmailDlqArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/email-dlq-arn",
+            string_value=self.email_dlq.queue_arn,
         )
 
         # Eligibility threshold SSM param

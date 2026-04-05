@@ -24,6 +24,16 @@ _MONTH_NAMES = [
 class AnalyticsRepository(BaseRepository):
     """Cross-cutting analytics queries spanning games, reviews, genres, and tags."""
 
+    def _resolve_genre_name(self, genre_slug: str) -> str:
+        """Look up the display name for a genre slug from the base table."""
+        row = self._fetchone("SELECT name FROM genres WHERE slug = %s", (genre_slug,))
+        return row["name"] if row else genre_slug
+
+    def _resolve_tag_name(self, tag_slug: str) -> str:
+        """Look up the display name for a tag slug from the base table."""
+        row = self._fetchone("SELECT name FROM tags WHERE slug = %s", (tag_slug,))
+        return row["name"] if row else tag_slug
+
     def find_audience_overlap(self, appid: int, limit: int = 20) -> dict:
         """Find games with the most shared reviewers via author_steamid.
 
@@ -112,7 +122,9 @@ class AnalyticsRepository(BaseRepository):
             (genre_slug,),
         )
 
-        genre_name = dist_rows[0]["genre_name"] if dist_rows else genre_slug
+        genre_name = (
+            dist_rows[0]["genre_name"] if dist_rows else self._resolve_genre_name(genre_slug)
+        )
 
         distribution = [
             {
@@ -183,7 +195,9 @@ class AnalyticsRepository(BaseRepository):
             """,
             (genre_slug,),
         )
-        genre_name = rows[0]["genre_name"] if rows else genre_slug
+        genre_name = (
+            rows[0]["genre_name"] if rows else self._resolve_genre_name(genre_slug)
+        )
 
         monthly = [
             {
@@ -246,7 +260,7 @@ class AnalyticsRepository(BaseRepository):
             """,
             (genre_slug,),
         )
-        genre_name = row["genre_name"] if row else genre_slug
+        genre_name = row["genre_name"] if row else self._resolve_genre_name(genre_slug)
 
         if not row or not row["total"]:
             return {"genre": genre_name, "total_games": 0, "platforms": {}, "underserved": None}
@@ -301,7 +315,7 @@ class AnalyticsRepository(BaseRepository):
             """,
             (tag_slug,),
         )
-        tag_name = rows[0]["tag_name"] if rows else tag_slug
+        tag_name = rows[0]["tag_name"] if rows else self._resolve_tag_name(tag_slug)
 
         yearly = [
             {

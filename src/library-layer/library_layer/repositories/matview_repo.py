@@ -2,6 +2,7 @@
 
 from aws_lambda_powertools import Logger
 from library_layer.repositories.base import BaseRepository
+from psycopg2 import sql
 
 logger = Logger()
 
@@ -154,13 +155,17 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def get_last_refresh_time(self) -> float | None:
-        """Return epoch seconds of the most recent refresh, or None."""
-        row = self._fetchone("""
+        """Return epoch seconds of the most recent *full* successful refresh, or None."""
+        row = self._fetchone(
+            """
             SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts
             FROM matview_refresh_log
+            WHERE views_refreshed @> %s AND views_refreshed <@ %s
             ORDER BY refreshed_at DESC
             LIMIT 1
-        """)
+            """,
+            (list(MATVIEW_NAMES), list(MATVIEW_NAMES)),
+        )
         return float(row["ts"]) if row else None
 
     def refresh_all(self) -> dict[str, bool]:
@@ -172,7 +177,11 @@ class MatviewRepository(BaseRepository):
             for name in MATVIEW_NAMES:
                 try:
                     with self.conn.cursor() as cur:
-                        cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {name}")
+                        cur.execute(
+                            sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
+                                sql.Identifier(name)
+                            )
+                        )
                     results[name] = True
                 except Exception:
                     logger.exception(

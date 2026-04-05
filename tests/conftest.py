@@ -122,6 +122,8 @@ def refresh_matviews(db_conn: Any) -> Any:
     Analytics tests that seed data and then query matview-backed methods
     must call this after seeding: ``refresh_matviews()``
     """
+    from psycopg2 import sql as psql
+
     from library_layer.repositories.matview_repo import MATVIEW_NAMES
 
     def _refresh() -> None:
@@ -130,7 +132,11 @@ def refresh_matviews(db_conn: Any) -> Any:
         try:
             with db_conn.cursor() as cur:
                 for name in MATVIEW_NAMES:
-                    cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {name}")
+                    cur.execute(
+                        psql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
+                            psql.Identifier(name)
+                        )
+                    )
         finally:
             db_conn.autocommit = prev
 

@@ -40,18 +40,20 @@ def handler(event: dict, context: LambdaContext) -> dict:
     results = _repo.refresh_all()
     duration_ms = int((time.monotonic() - start) * 1000)
 
-    _repo.log_refresh(duration_ms, [name for name, ok in results.items() if ok])
-
     failed = [name for name, ok in results.items() if not ok]
     if failed:
+        # Don't log to debounce table — partial failure should allow retries.
         logger.warning(
             "Some matviews failed to refresh",
             extra={"failed": failed, "duration_ms": duration_ms},
         )
-    else:
-        logger.info(
-            "All matviews refreshed",
-            extra={"duration_ms": duration_ms, "count": len(results)},
-        )
+        raise RuntimeError(f"Failed to refresh materialized views: {', '.join(failed)}")
+
+    _repo.log_refresh(duration_ms, list(results.keys()))
+
+    logger.info(
+        "All matviews refreshed",
+        extra={"duration_ms": duration_ms, "count": len(results)},
+    )
 
     return {"status": "refreshed", "duration_ms": duration_ms, "results": results}

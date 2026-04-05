@@ -353,6 +353,48 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     WHERE g.release_date IS NOT NULL AND EXTRACT(YEAR FROM g.release_date) >= 2015
     GROUP BY t.slug, t.name, 3""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tag_trend_pk ON mv_tag_trend(tag_slug, year)",
+    # 0019/0020: pre-joined genre/tag game matviews (with last_analyzed)
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_genre_games AS
+    SELECT
+        gn.slug AS genre_slug,
+        g.appid, g.name, g.slug, g.developer, g.header_image,
+        g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
+        g.release_date, g.deck_compatibility,
+        g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
+        EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
+    FROM games g
+    JOIN game_genres gg2 ON gg2.appid = g.appid
+    JOIN genres gn ON gg2.genre_id = gn.id""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_genre_games_pk ON mv_genre_games(genre_slug, appid)",
+    "CREATE INDEX IF NOT EXISTS idx_mv_genre_games_review ON mv_genre_games(genre_slug, review_count DESC NULLS LAST)",
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_tag_games AS
+    SELECT
+        t.slug AS tag_slug,
+        g.appid, g.name, g.slug, g.developer, g.header_image,
+        g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
+        g.release_date, g.deck_compatibility,
+        g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
+        EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
+    FROM games g
+    JOIN game_tags gt ON gt.appid = g.appid
+    JOIN tags t ON gt.tag_id = t.id""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_tag_games_pk ON mv_tag_games(tag_slug, appid)",
+    "CREATE INDEX IF NOT EXISTS idx_mv_tag_games_review ON mv_tag_games(tag_slug, review_count DESC NULLS LAST)",
+    # 0020: price summary
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_summary AS
+    SELECT
+        gn.slug AS genre_slug,
+        ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY g.price_usd)
+               FILTER (WHERE NOT g.is_free))::numeric, 2) AS median_price,
+        COUNT(*) FILTER (WHERE g.is_free) AS free_count,
+        COUNT(*) FILTER (WHERE NOT g.is_free) AS paid_count
+    FROM games g
+    JOIN game_genres gg ON gg.appid = g.appid
+    JOIN genres gn ON gg.genre_id = gn.id
+    WHERE g.review_count >= 10
+    GROUP BY gn.slug""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_price_summary_pk ON mv_price_summary(genre_slug)",
 )
 
 

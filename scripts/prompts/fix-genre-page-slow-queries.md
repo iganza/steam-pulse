@@ -79,12 +79,12 @@ year range, or genre+tag combined.
 
 | File | Change |
 |------|--------|
-| `src/lambda-functions/migrations/0020_price_summary_and_matview_refresh.sql` | New — mv_price_summary + recreate mv_genre_games/mv_tag_games with last_analyzed |
+| `src/lambda-functions/migrations/0020_price_summary_matview.sql` | New — recreate mv_genre_games/mv_tag_games with last_analyzed + mv_price_summary |
 | `src/library-layer/library_layer/repositories/analytics_repo.py` | Replace summary query with matview read |
 | `src/library-layer/library_layer/repositories/matview_repo.py` | Add mv_price_summary to MATVIEW_NAMES |
 | `src/library-layer/library_layer/repositories/game_repo.py` | Add last_analyzed to _list_from_matview, extend fast path for common filters |
-| `src/library-layer/library_layer/schema.py` | Add matview DDL reference |
-| `src/lambda-functions/migrations/0019_genre_tag_game_matviews.sql` | Update to include last_analyzed column |
+| `src/library-layer/library_layer/schema.py` | Add mv_genre_games, mv_tag_games, mv_price_summary to MATERIALIZED_VIEWS |
+| `src/lambda-functions/migrations/0019_genre_tag_game_matviews.sql` | Updated to include last_analyzed column |
 
 ## Verification
 

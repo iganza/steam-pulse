@@ -282,11 +282,10 @@ async def list_games(
     price_tier: str | None = None,
     deck: str | None = None,
     sort: str = "review_count",
-    limit: int = 24,
-    offset: int = 0,
+    limit: int = Query(default=24, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
-    limit = min(limit, 100)
-    return _game_repo.list_games(
+    result = _game_repo.list_games(
         q=q,
         genre=genre,
         tag=tag,
@@ -302,6 +301,37 @@ async def list_games(
         limit=limit,
         offset=offset,
     )
+
+    # Resolve total from pre-computed matviews or estimates — never scan.
+    games = result["games"]
+    has_extra = (
+        q is not None
+        or developer is not None
+        or year_from is not None
+        or year_to is not None
+        or min_reviews is not None
+        or has_analysis is True
+        or bool(sentiment)
+        or bool(price_tier)
+        or bool(deck)
+    )
+
+    total: int | None
+    if genre and not tag and not has_extra:
+        total = _matview_repo.get_genre_count(genre) or 0
+    elif tag and not genre and not has_extra:
+        total = _matview_repo.get_tag_count(tag) or 0
+    elif not genre and not tag and not has_extra:
+        total = _matview_repo.get_total_games_count()
+    else:
+        # Complex filters — exact total unknown without an expensive scan.
+        total = None
+
+    has_more = (
+        (offset + len(games) < total) if total is not None else len(games) == limit
+    )
+
+    return {"total": total, "has_more": has_more, "games": games}
 
 
 @app.get("/api/games/{appid}/report")

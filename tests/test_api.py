@@ -31,8 +31,8 @@ class _MemGameRepo:
     def ensure_stub(self, appid: int, name: str | None = None) -> None:
         pass
 
-    def list_games(self, **kwargs: object) -> list[dict]:
-        return []
+    def list_games(self, **kwargs: object) -> dict:
+        return {"total": None, "games": []}
 
     def list_genres(self) -> list[dict]:
         return []
@@ -45,6 +45,15 @@ class _MemGameRepo:
 
 
 class _MemMatviewRepo:
+    def get_total_games_count(self) -> int:
+        return 100
+
+    def get_genre_count(self, genre_slug: str) -> int | None:
+        return {"indie": 5000, "action": 3000}.get(genre_slug)
+
+    def get_tag_count(self, tag_slug: str) -> int | None:
+        return {"roguelike": 800}.get(tag_slug)
+
     def list_genre_counts(self) -> list[dict]:
         return []
 
@@ -336,6 +345,68 @@ def test_waitlist_normalizes_email(client: TestClient) -> None:
     # A second request with the normalized form should deduplicate
     resp2 = client.post("/api/waitlist", json={"email": "dev@example.com"})
     assert resp2.json()["status"] == "already_registered"
+
+
+# ---------------------------------------------------------------------------
+# /api/games total count logic
+# ---------------------------------------------------------------------------
+
+
+def test_games_genre_only_returns_matview_total(client: TestClient) -> None:
+    """Genre-only filter uses pre-computed count from mv_genre_counts."""
+    resp = client.get("/api/games?genre=indie")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 5000
+    assert data["has_more"] is True
+
+
+def test_games_tag_only_returns_matview_total(client: TestClient) -> None:
+    """Tag-only filter uses pre-computed count from mv_tag_counts."""
+    resp = client.get("/api/games?tag=roguelike")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 800
+    assert data["has_more"] is True
+
+
+def test_games_unfiltered_returns_estimated_total(client: TestClient) -> None:
+    """Unfiltered browse uses pg_class estimate."""
+    resp = client.get("/api/games")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 100
+    assert data["has_more"] is True
+
+
+def test_games_complex_filter_empty_result(client: TestClient) -> None:
+    """Complex filters with empty result return total=null, has_more=false."""
+    resp = client.get("/api/games?genre=indie&sentiment=positive")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] is None
+    assert data["has_more"] is False
+
+
+def test_games_complex_filter_full_page(client: TestClient) -> None:
+    """Complex filters with a full page of results set has_more=true."""
+    import lambda_functions.api.handler as api_module
+
+    # Mock list_games to return exactly `limit` (24) games
+    class _FullPageGameRepo:
+        def ensure_stub(self, appid: int, name: str | None = None) -> None:
+            pass
+
+        def list_games(self, **kwargs: object) -> dict:
+            return {"total": None, "games": [{"appid": i} for i in range(24)]}
+
+    api_module._game_repo = _FullPageGameRepo()  # type: ignore[assignment]
+    resp = client.get("/api/games?genre=indie&sentiment=positive")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] is None
+    assert data["has_more"] is True
+    assert len(data["games"]) == 24
 
 
 def test_waitlist_rejects_invalid_email(client: TestClient) -> None:

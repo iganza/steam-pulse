@@ -23,6 +23,42 @@ class MatviewRepository(BaseRepository):
     # Read methods — simple SELECTs against pre-computed matviews
     # ------------------------------------------------------------------
 
+    def get_total_games_count(self) -> int:
+        """Return estimated total games count for public.games (instant, no scan)."""
+        row = self._fetchone(
+            """
+            SELECT COALESCE(
+                       CASE
+                           WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+                           ELSE NULL
+                       END,
+                       s.n_live_tup::bigint,
+                       0
+                   ) AS estimate
+            FROM pg_class AS c
+            LEFT JOIN pg_stat_user_tables AS s
+              ON s.relid = c.oid
+            WHERE c.oid = 'public.games'::regclass
+            """
+        )
+        return int(row["estimate"]) if row else 0
+
+    def get_genre_count(self, genre_slug: str) -> int | None:
+        """Return pre-computed game count for a single genre, or None."""
+        row = self._fetchone(
+            "SELECT game_count FROM mv_genre_counts WHERE slug = %s",
+            (genre_slug,),
+        )
+        return int(row["game_count"]) if row else None
+
+    def get_tag_count(self, tag_slug: str) -> int | None:
+        """Return pre-computed game count for a single tag, or None."""
+        row = self._fetchone(
+            "SELECT game_count FROM mv_tag_counts WHERE slug = %s",
+            (tag_slug,),
+        )
+        return int(row["game_count"]) if row else None
+
     def list_genre_counts(self) -> list[dict]:
         rows = self._fetchall("""
             SELECT id, name, slug, game_count

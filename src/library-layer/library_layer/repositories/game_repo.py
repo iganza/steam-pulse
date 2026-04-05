@@ -238,7 +238,7 @@ class GameRepository(BaseRepository):
             conditions.append("g.review_count >= %s")
             params.append(min_reviews)
         if has_analysis:
-            conditions.append("g.sentiment_score IS NOT NULL")
+            conditions.append("g.last_analyzed IS NOT NULL")
         if sentiment:
             if sentiment == "positive":
                 conditions.append("g.sentiment_score >= 0.65")

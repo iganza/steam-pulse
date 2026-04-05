@@ -14,8 +14,14 @@ class ReportRepository(BaseRepository):
     def upsert(self, report: dict) -> None:
         """Insert or update a report by appid.
 
-        Also syncs denormalized sentiment_score and hidden_gem_score onto the
-        games table so catalog queries avoid the JSONB LEFT JOIN.
+        report_json is always a complete GameReport dict — callers never send
+        partial payloads. The ON CONFLICT overwrites the entire JSONB column,
+        which is correct for full-report upserts.
+
+        Also syncs denormalized sentiment_score, hidden_gem_score, and
+        last_analyzed onto the games table so catalog queries avoid the
+        JSONB LEFT JOIN. The games sync is partial-safe (only updates keys
+        present in the dict) as a defensive measure.
         """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)

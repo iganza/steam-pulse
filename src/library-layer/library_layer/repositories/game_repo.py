@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
 from library_layer.repositories.tag_repo import TAG_CATEGORY_ORDER
@@ -170,6 +172,48 @@ class GameRepository(BaseRepository):
             )
         self.conn.commit()
 
+    _MV_SORT_COLS: ClassVar[dict[str, str]] = {
+        "review_count": "review_count DESC NULLS LAST",
+        "hidden_gem_score": "hidden_gem_score DESC NULLS LAST",
+        "sentiment_score": "sentiment_score DESC NULLS LAST",
+        "positive_pct": "positive_pct DESC NULLS LAST",
+        "release_date": "release_date DESC NULLS LAST",
+        "last_analyzed": "last_analyzed DESC NULLS LAST",
+        "name": "name ASC",
+    }
+
+    def _list_from_matview(
+        self,
+        view: str,
+        slug_col: str,
+        slug_val: str,
+        sort: str,
+        limit: int,
+        offset: int,
+    ) -> dict:
+        """Fast path: read from a pre-joined genre/tag materialized view."""
+        order = self._MV_SORT_COLS.get(sort, self._MV_SORT_COLS["review_count"])
+        rows = self._fetchall(
+            f"""
+            SELECT appid, name, slug, developer, header_image,
+                   review_count, review_count_english, positive_pct, price_usd, is_free,
+                   release_date, deck_compatibility,
+                   hidden_gem_score, sentiment_score, is_early_access
+            FROM {view}
+            WHERE {slug_col} = %s
+            ORDER BY {order}
+            LIMIT %s OFFSET %s
+            """,
+            (slug_val, limit, offset),
+        )
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("release_date"):
+                d["release_date"] = str(d["release_date"])
+            result.append(d)
+        return {"total": None, "games": result}
+
     def list_games(
         self,
         q: str | None = None,
@@ -193,7 +237,19 @@ class GameRepository(BaseRepository):
 
         Returns dict with 'total' (always None — callers provide the count
         from matviews or estimates) and 'games' list.
+
+        For simple genre-only or tag-only browsing, queries pre-joined
+        materialized views (mv_genre_games / mv_tag_games) to avoid
+        expensive nested-loop joins on cold cache.
         """
+        # Fast path: genre-only or tag-only with no extra filters → matview.
+        extra = (q, search, developer, year_from, year_to, min_reviews,
+                 has_analysis, sentiment, price_tier, deck_status)
+        if genre and not tag and not any(f is not None and f is not False for f in extra):
+            return self._list_from_matview("mv_genre_games", "genre_slug", genre, sort, limit, offset)
+        if tag and not genre and not any(f is not None and f is not False for f in extra):
+            return self._list_from_matview("mv_tag_games", "tag_slug", tag, sort, limit, offset)
+
         _sort_cols = {
             "review_count": "g.review_count DESC NULLS LAST",
             "hidden_gem_score": "g.hidden_gem_score DESC NULLS LAST",

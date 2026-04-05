@@ -14,6 +14,8 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_release_timing",
     "mv_platform_distribution",
     "mv_tag_trend",
+    "mv_genre_games",
+    "mv_tag_games",
 )
 
 class MatviewRepository(BaseRepository):

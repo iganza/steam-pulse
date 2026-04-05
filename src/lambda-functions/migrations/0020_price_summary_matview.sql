@@ -19,6 +19,9 @@ JOIN genres gn ON gg2.genre_id = gn.id;
 
 CREATE UNIQUE INDEX idx_mv_genre_games_pk ON mv_genre_games(genre_slug, appid);
 CREATE INDEX idx_mv_genre_games_review ON mv_genre_games(genre_slug, review_count DESC NULLS LAST);
+CREATE INDEX idx_mv_genre_games_sentiment ON mv_genre_games(genre_slug, sentiment_score DESC NULLS LAST);
+CREATE INDEX idx_mv_genre_games_hidden_gem ON mv_genre_games(genre_slug, hidden_gem_score DESC NULLS LAST);
+CREATE INDEX idx_mv_genre_games_last_analyzed ON mv_genre_games(genre_slug, last_analyzed DESC NULLS LAST);
 
 CREATE MATERIALIZED VIEW mv_tag_games AS
 SELECT
@@ -34,6 +37,9 @@ JOIN tags t ON gt.tag_id = t.id;
 
 CREATE UNIQUE INDEX idx_mv_tag_games_pk ON mv_tag_games(tag_slug, appid);
 CREATE INDEX idx_mv_tag_games_review ON mv_tag_games(tag_slug, review_count DESC NULLS LAST);
+CREATE INDEX idx_mv_tag_games_sentiment ON mv_tag_games(tag_slug, sentiment_score DESC NULLS LAST);
+CREATE INDEX idx_mv_tag_games_hidden_gem ON mv_tag_games(tag_slug, hidden_gem_score DESC NULLS LAST);
+CREATE INDEX idx_mv_tag_games_last_analyzed ON mv_tag_games(tag_slug, last_analyzed DESC NULLS LAST);
 
 -- Pre-computed price summary stats per genre.
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_summary AS

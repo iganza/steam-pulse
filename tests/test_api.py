@@ -356,29 +356,57 @@ def test_games_genre_only_returns_matview_total(client: TestClient) -> None:
     """Genre-only filter uses pre-computed count from mv_genre_counts."""
     resp = client.get("/api/games?genre=indie")
     assert resp.status_code == 200
-    assert resp.json()["total"] == 5000
+    data = resp.json()
+    assert data["total"] == 5000
+    assert data["has_more"] is True
 
 
 def test_games_tag_only_returns_matview_total(client: TestClient) -> None:
     """Tag-only filter uses pre-computed count from mv_tag_counts."""
     resp = client.get("/api/games?tag=roguelike")
     assert resp.status_code == 200
-    assert resp.json()["total"] == 800
+    data = resp.json()
+    assert data["total"] == 800
+    assert data["has_more"] is True
 
 
 def test_games_unfiltered_returns_estimated_total(client: TestClient) -> None:
     """Unfiltered browse uses pg_class estimate."""
     resp = client.get("/api/games")
     assert resp.status_code == 200
-    assert resp.json()["total"] == 100
+    data = resp.json()
+    assert data["total"] == 100
+    assert data["has_more"] is True
 
 
-def test_games_complex_filter_infers_total(client: TestClient) -> None:
-    """Complex filters infer total from result set size."""
+def test_games_complex_filter_empty_result(client: TestClient) -> None:
+    """Complex filters with empty result return total=null, has_more=false."""
     resp = client.get("/api/games?genre=indie&sentiment=positive")
     assert resp.status_code == 200
-    # Empty result (mock returns []) with limit=24: offset(0) + len(0) = 0
-    assert resp.json()["total"] == 0
+    data = resp.json()
+    assert data["total"] is None
+    assert data["has_more"] is False
+
+
+def test_games_complex_filter_full_page(client: TestClient) -> None:
+    """Complex filters with a full page of results set has_more=true."""
+    import lambda_functions.api.handler as api_module
+
+    # Mock list_games to return exactly `limit` (24) games
+    class _FullPageGameRepo:
+        def ensure_stub(self, appid: int, name: str | None = None) -> None:
+            pass
+
+        def list_games(self, **kwargs: object) -> dict:
+            return {"total": None, "games": [{"appid": i} for i in range(24)]}
+
+    api_module._game_repo = _FullPageGameRepo()  # type: ignore[assignment]
+    resp = client.get("/api/games?genre=indie&sentiment=positive")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] is None
+    assert data["has_more"] is True
+    assert len(data["games"]) == 24
 
 
 def test_waitlist_rejects_invalid_email(client: TestClient) -> None:

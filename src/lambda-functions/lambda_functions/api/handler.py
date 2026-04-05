@@ -304,28 +304,27 @@ async def list_games(
     )
 
     # Resolve total from pre-computed matviews or estimates — never scan.
+    games = result["games"]
     extra_filters = (q, developer, year_from, year_to, min_reviews,
                      has_analysis, sentiment, price_tier, deck)
     has_extra = any(extra_filters)
 
+    total: int | None
     if genre and not tag and not has_extra:
         total = _matview_repo.get_genre_count(genre) or 0
     elif tag and not genre and not has_extra:
         total = _matview_repo.get_tag_count(tag) or 0
     elif not genre and not tag and not has_extra:
-        # Unfiltered browse — use estimated total from pg_class.
         total = _matview_repo.get_total_games_count()
     else:
-        # Complex filters — infer from result set size.
-        games = result["games"]
-        if len(games) < limit:
-            total = offset + len(games)
-        else:
-            # More pages exist — we don't know the exact total.
-            # Return offset + limit + 1 so the frontend knows there's a next page.
-            total = offset + limit + 1
+        # Complex filters — exact total unknown without an expensive scan.
+        total = None
 
-    return {"total": total, "games": result["games"]}
+    has_more = (
+        (offset + len(games) < total) if total is not None else len(games) == limit
+    )
+
+    return {"total": total, "has_more": has_more, "games": games}
 
 
 @app.get("/api/games/{appid}/report")

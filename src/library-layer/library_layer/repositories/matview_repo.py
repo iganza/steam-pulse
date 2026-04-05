@@ -24,11 +24,24 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def get_total_games_count(self) -> int:
-        """Return estimated total games count from pg_class (instant, no scan)."""
+        """Return estimated total games count for public.games (instant, no scan)."""
         row = self._fetchone(
-            "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname = 'games'"
+            """
+            SELECT COALESCE(
+                       CASE
+                           WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+                           ELSE NULL
+                       END,
+                       s.n_live_tup::bigint,
+                       0
+                   ) AS estimate
+            FROM pg_class AS c
+            LEFT JOIN pg_stat_user_tables AS s
+              ON s.relid = c.oid
+            WHERE c.oid = 'public.games'::regclass
+            """
         )
-        return int(row["estimate"]) if row and row["estimate"] else 0
+        return int(row["estimate"]) if row else 0
 
     def get_genre_count(self, genre_slug: str) -> int | None:
         """Return pre-computed game count for a single genre, or None."""

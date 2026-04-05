@@ -89,9 +89,17 @@ Update `test_list_games_total_matches_result_count`, `test_list_games_offset_bey
 | `tests/repositories/test_game_repo.py` | Update 3 pagination tests |
 | `tests/test_api.py` | Add `get_genre_count`/`get_tag_count` to `_MemMatviewRepo` |
 
+## API response contract
+
+`GET /api/games` now returns `total`, `has_more`, and `games`:
+
+- **Genre-only / tag-only**: `total` = pre-computed count from matview (exact), `has_more` derived from total
+- **Unfiltered browse**: `total` = estimated count from `pg_class.reltuples` (instant), `has_more` derived from total
+- **Complex filters**: `total` = `null` (exact count unknown), `has_more` = `true` if result set equals limit (more pages likely exist)
+
 ## Verification
 
 1. `poetry run pytest -v` — all tests pass
 2. `poetry run ruff check src/ tests/`
-3. Test locally: `GET /api/games?genre=indie` returns `total` from matview + 24 games instantly
-4. `GET /api/games?genre=indie&sentiment=positive` returns `total: null` + filtered games
+3. Test locally: `GET /api/games?genre=indie` returns `total` from matview + `has_more` + 24 games instantly
+4. `GET /api/games?genre=indie&sentiment=positive` returns `total: null` + `has_more: true/false` + filtered games

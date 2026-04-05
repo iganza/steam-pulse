@@ -247,11 +247,12 @@ TABLES: tuple[str, ...] = (
     # 0017_denormalize_scores
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS sentiment_score REAL",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS hidden_gem_score REAL",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_analyzed TIMESTAMPTZ",
 )
 
-# Analytics engine indexes — kept for test suite use only.
-# Production indexes are managed by yoyo migration 0006_add_analytics_indexes.sql
-# which uses CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
+# Indexes — kept for test suite use only.
+# Production indexes are managed by yoyo migrations (0006, 0013, 0014, 0015, 0018)
+# which use CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
 INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_author_appid ON reviews(appid, author_steamid) WHERE author_steamid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime ON reviews(appid, playtime_hours, voted_up)",

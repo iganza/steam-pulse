@@ -200,6 +200,7 @@ class GameRepository(BaseRepository):
             "sentiment_score": "g.sentiment_score DESC NULLS LAST",
             "positive_pct": "g.positive_pct DESC NULLS LAST",
             "release_date": "g.release_date DESC NULLS LAST",
+            "last_analyzed": "g.last_analyzed DESC NULLS LAST",
             "name": "g.name ASC",
         }
         order = _sort_cols.get(sort, _sort_cols["review_count"])

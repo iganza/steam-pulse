@@ -31,18 +31,22 @@ class ReportRepository(BaseRepository):
                 """,
                 (appid, json.dumps(report), reviews_analyzed),
             )
-            # Sync denormalized scores to games table.
-            sentiment = report.get("sentiment_score")
-            hidden_gem = report.get("hidden_gem_score")
-            if sentiment is not None or hidden_gem is not None:
-                cur.execute(
-                    """
-                    UPDATE games
-                    SET sentiment_score = %s, hidden_gem_score = %s
-                    WHERE appid = %s
-                    """,
-                    (sentiment, hidden_gem, appid),
-                )
+            # Sync denormalized fields to games table — only update columns present
+            # in the report dict to avoid nulling omitted fields on partial payloads.
+            # last_analyzed is always set to NOW() on every upsert.
+            score_sets: list[str] = ["last_analyzed = NOW()"]
+            score_vals: list[object] = []
+            if "sentiment_score" in report:
+                score_sets.append("sentiment_score = %s")
+                score_vals.append(report["sentiment_score"])
+            if "hidden_gem_score" in report:
+                score_sets.append("hidden_gem_score = %s")
+                score_vals.append(report["hidden_gem_score"])
+            score_vals.append(appid)
+            cur.execute(
+                f"UPDATE games SET {', '.join(score_sets)} WHERE appid = %s",
+                score_vals,
+            )
         self.conn.commit()
 
     def find_by_appid(self, appid: int) -> Report | None:

@@ -238,11 +238,11 @@ class SQLConsoleScreen(Widget):
                 text_area.text = self._history[idx]
 
     async def _run_query(self, sql: str) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             self._show_error("No database connection")
             return
 
+        conn = self.app.get_db()  # type: ignore[attr-defined]
         status = self.query_one("#sql-status", Static)
         status.update("Running...")
 
@@ -273,6 +273,8 @@ class SQLConsoleScreen(Widget):
         except Exception as exc:  # noqa: BLE001
             self._show_error(str(exc))
             status.update("Error")
+        finally:
+            conn.close()
 
     @staticmethod
     def _execute_readonly(conn: object, sql: str) -> tuple[list[str], list[dict]]:

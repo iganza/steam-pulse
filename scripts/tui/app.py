@@ -12,7 +12,7 @@ from textual.timer import Timer
 from textual.widgets import Button, ContentSwitcher, Footer, Header, Static
 
 from tui.aws import AwsClients
-from tui.config import connect_db
+from tui.config import _resolve_db_dsn, connect_db, new_connection
 from tui.screens.analysis import AnalysisScreen
 from tui.screens.dashboard import DashboardScreen
 from tui.screens.games import GamesBrowserScreen
@@ -176,11 +176,18 @@ class SteamPulseAdmin(App[None]):
     def __init__(self, env: str | None = None, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self.env = env
-        self.db_conn = connect_db(env)
+        self.db_dsn = _resolve_db_dsn(env)
+        self.db_conn = connect_db(env)  # for startup validation only
         self.aws_available = env is not None
         self.aws = AwsClients(env)
         self.spoke_regions = self._resolve_spoke_regions()
         self._clock_timer: Timer | None = None
+
+    def get_db(self) -> "psycopg2.extensions.connection":
+        """Create a fresh DB connection for use in a worker thread."""
+        if not self.db_dsn:
+            raise RuntimeError("No DB connection configured")
+        return new_connection(self.db_dsn)
 
     def _resolve_spoke_regions(self) -> list[str]:
         """Get spoke regions from config."""

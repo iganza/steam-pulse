@@ -181,9 +181,9 @@ class AnalysisScreen(Widget):
         self.query_one("#report-viewer").remove_class("visible")
 
     async def _load_backlog(self) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             rows = await asyncio.to_thread(self._query_all, conn, ANALYSIS_BACKLOG)
@@ -217,11 +217,13 @@ class AnalysisScreen(Widget):
             )
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     async def _load_report(self, appid: int) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             row = await asyncio.to_thread(self._query_one, conn, REPORT_FULL_JSON, (appid,))
@@ -242,6 +244,8 @@ class AnalysisScreen(Widget):
             viewer.add_class("visible")
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Error loading report: {exc}", severity="error")
+        finally:
+            conn.close()
 
     @staticmethod
     def _query_one(conn: object, sql: str, params: object = None) -> dict | None:

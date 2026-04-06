@@ -86,6 +86,9 @@ class QueuesScreen(Widget):
         self._queue_names: list[str] = []
         self._dlq_messages: list[dict] = []
         self._selected_dlq: str | None = None
+        self._prev_depths: dict[str, int] = {}
+        self._prev_time: float = 0.0
+        self._last_rates: dict[str, float] = {}
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -103,18 +106,21 @@ class QueuesScreen(Widget):
 
     def on_mount(self) -> None:
         table = self.query_one("#queues-table", DataTable)
-        table.add_columns("Queue", "Messages", "In Flight", "Type")
+        table.add_columns("Queue", "Available", "In Flight", "Delayed", "Rate", "ETA", "Type")
         table.cursor_type = "row"
 
         if self.app.aws_available:  # type: ignore[attr-defined]
-            self.set_interval(10, self._auto_refresh)
-            self.run_worker(self._load_queues, exclusive=True)
+            self.refresh_data()
+            self.set_interval(10, self.refresh_data)
         else:
             table.add_row("[dim]Connect with --env for AWS ops[/dim]", "", "", "")
 
-    def action_refresh(self) -> None:
+    def refresh_data(self) -> None:
         if self.app.aws_available:  # type: ignore[attr-defined]
-            self.run_worker(self._load_queues, exclusive=True)
+            self.run_worker(self._load_queues)
+
+    def action_refresh(self) -> None:
+        self.refresh_data()
 
     def action_close_inspector(self) -> None:
         self.query_one("#dlq-inspector").remove_class("visible")
@@ -133,37 +139,121 @@ class QueuesScreen(Widget):
         self._selected_dlq = name
         self.run_worker(self._peek_dlq(name), exclusive=True)
 
-    async def _auto_refresh(self) -> None:
-        if self.app.aws_available:  # type: ignore[attr-defined]
-            self.run_worker(self._load_queues, exclusive=True)
+    def action_refresh(self) -> None:
+        self._do_refresh()
+
+    @staticmethod
+    def _format_rate(rate: float) -> str:
+        """Format processing rate as msg/s or msg/m."""
+        if rate <= 0:
+            return ""
+        if rate >= 1:
+            return f"{rate:.1f}/s"
+        return f"{rate * 60:.0f}/m"
+
+    @staticmethod
+    def _format_eta(available: int, rate: float) -> str:
+        """Format estimated time to drain."""
+        if rate <= 0 or available <= 0:
+            return ""
+        secs = available / rate
+        if secs < 60:
+            return f"{secs:.0f}s"
+        if secs < 3600:
+            return f"{secs / 60:.0f}m"
+        return f"{secs / 3600:.1f}h"
 
     async def _load_queues(self) -> None:
         try:
+            import time
+
+            now = time.monotonic()
             depths = await asyncio.to_thread(
                 self.app.aws.get_all_queue_depths  # type: ignore[attr-defined]
             )
 
-            self._queue_names = list(depths.keys())
+            # Compute processing rates from delta with previous reading
+            elapsed = now - self._prev_time if self._prev_time > 0 else 0
+            if elapsed > 0 and self._prev_depths:
+                for name, info in depths.items():
+                    if "dlq" in name:
+                        continue
+                    prev = self._prev_depths.get(name, 0)
+                    curr = info["available"] + info["in_flight"]
+                    delta = prev - curr  # positive = draining
+                    new_rate = max(0, delta / elapsed)
+                    if new_rate > 0:
+                        # New measurement — use it
+                        self._last_rates[name] = new_rate
+                    elif curr == 0:
+                        # Queue is empty — clear the rate
+                        self._last_rates.pop(name, None)
+                    # else: queue has items but no change this cycle — keep last rate
+
+            # Store current reading for next cycle
+            self._prev_depths = {
+                k: v["available"] + v["in_flight"]
+                for k, v in depths.items()
+                if "dlq" not in k
+            }
+            self._prev_time = now
+            rates = self._last_rates
+
+            # Build reverse map: source queue name → DLQ name
+            source_to_dlq = {v: k for k, v in DLQ_TO_SOURCE.items()}
+
+            # Separate queues from DLQs
+            queues = {k: v for k, v in depths.items() if "dlq" not in k}
+            dlqs = {k: v for k, v in depths.items() if "dlq" in k}
+
+            # Build rows first, then swap into table in one batch
+            new_names: list[str] = []
+            new_rows: list[tuple[str, ...]] = []
+
+            for name, info in queues.items():
+                new_names.append(name)
+                avail = str(info["available"]) if info["available"] >= 0 else "?"
+                inflight = str(info["in_flight"]) if info["in_flight"] >= 0 else "?"
+                delayed = str(info["delayed"]) if info["delayed"] >= 0 else "?"
+                rate = rates.get(name, 0)
+                rate_str = self._format_rate(rate)
+                eta_str = self._format_eta(info["available"], rate)
+                new_rows.append((name, avail, inflight, delayed, rate_str, eta_str, ""))
+
+                # Show DLQ underneath if it has messages
+                dlq_name = source_to_dlq.get(name)
+                if dlq_name and dlq_name in dlqs:
+                    dlq_info = dlqs[dlq_name]
+                    if dlq_info["available"] > 0:
+                        new_names.append(dlq_name)
+                        new_rows.append((
+                            f"  [red]\u2514 {dlq_name} \u26a0[/red]",
+                            f"[red]{dlq_info['available']}[/red]",
+                            str(dlq_info["in_flight"]),
+                            str(dlq_info["delayed"]),
+                            "",
+                            "",
+                            "[red]DLQ[/red]",
+                        ))
+
+            # Swap into table — clear + add back-to-back to minimize flicker
+            self._queue_names = new_names
             table = self.query_one("#queues-table", DataTable)
             table.clear()
-
-            for name, info in depths.items():
-                msgs = str(info["messages"]) if info["messages"] >= 0 else "?"
-                inflight = str(info["in_flight"]) if info["in_flight"] >= 0 else "?"
-                qtype = "[red]DLQ[/red]" if "dlq" in name else "Queue"
-                warning = ""
-                if "dlq" in name and info["messages"] > 0:
-                    warning = " \u26a0"
-                table.add_row(f"{name}{warning}", msgs, inflight, qtype)
+            for row in new_rows:
+                table.add_row(*row)
 
             total_dlq = sum(
-                v["messages"]
-                for k, v in depths.items()
-                if "dlq" in k and v["messages"] > 0
+                v["available"]
+                for v in dlqs.values()
+                if v["available"] > 0
             )
-            status = f"  {len(depths)} queues"
+            queue_count = len(queues)
+            status = f"  {queue_count} queues"
             if total_dlq > 0:
                 status += f"  \u2502  [red]{total_dlq} DLQ messages[/red]"
+            else:
+                status += f"  \u2502  [green]DLQs clean[/green]"
             self.query_one("#queues-status", Static).update(status)
 
         except AwsUnavailableError:

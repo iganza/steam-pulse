@@ -7,18 +7,14 @@ import psycopg2
 import psycopg2.extras
 
 
-def connect_db(env: str | None) -> psycopg2.extensions.connection | None:
-    """Establish a DB connection based on environment.
-
-    Local (env=None): uses DATABASE_URL from .env.
-    Staging/Production: resolves credentials from Secrets Manager, connects via SSH tunnel.
-    Returns None if connection fails (caller shows error in UI).
-    """
+def _resolve_db_dsn(env: str | None) -> str | None:
+    """Resolve DB connection string. Returns None if unavailable."""
     try:
         if env is None:
-            from library_layer.utils.db import get_conn
-
-            return get_conn()
+            url = os.getenv("DATABASE_URL")
+            if url:
+                return url
+            raise RuntimeError("No DATABASE_URL configured")
 
         import boto3
 
@@ -26,19 +22,32 @@ def connect_db(env: str | None) -> psycopg2.extensions.connection | None:
         secret = json.loads(
             sm.get_secret_value(SecretId=f"steampulse/{env}/db-credentials")["SecretString"]
         )
-        default_port = "5434" if env == "production" else "5433"
-        port = int(os.environ.get("DB_TUNNEL_PORT", default_port))
-        return psycopg2.connect(
-            host="127.0.0.1",
-            port=port,
-            dbname=secret["dbname"],
-            user=secret["username"],
-            password=secret["password"],
-            cursor_factory=psycopg2.extras.RealDictCursor,
+        port = int(os.environ.get("DB_TUNNEL_PORT", "5433"))
+        return (
+            f"postgresql://{secret['username']}:{secret['password']}"
+            f"@127.0.0.1:{port}/{secret['dbname']}"
         )
     except Exception as exc:  # noqa: BLE001
-        # Return None — the app will show a DB error indicator
         import sys
 
         print(f"DB connection failed: {exc}", file=sys.stderr)
         return None
+
+
+def connect_db(env: str | None) -> psycopg2.extensions.connection | None:
+    """Create a single connection for startup validation."""
+    dsn = _resolve_db_dsn(env)
+    if not dsn:
+        return None
+    try:
+        return psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+    except Exception as exc:  # noqa: BLE001
+        import sys
+
+        print(f"DB connection failed: {exc}", file=sys.stderr)
+        return None
+
+
+def new_connection(dsn: str) -> psycopg2.extensions.connection:
+    """Create a fresh DB connection for use in a worker thread."""
+    return psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)

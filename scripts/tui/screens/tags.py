@@ -114,13 +114,16 @@ class TagsGenresScreen(Widget):
         try:
             import asyncio
 
-            conn = self.app.db_conn  # type: ignore[attr-defined]
-            if not conn:
+            if not self.app.db_dsn:  # type: ignore[attr-defined]
                 self.app.notify("No DB connection", severity="error")
                 return
+            conn = self.app.get_db()  # type: ignore[attr-defined]
 
             self.app.notify("Refreshing materialized views...")
-            await asyncio.to_thread(self._refresh_views, conn)
+            try:
+                await asyncio.to_thread(self._refresh_views, conn)
+            finally:
+                conn.close()
             self.app.notify("Matview refresh complete")
             await self._load_data()
         except Exception as exc:  # noqa: BLE001
@@ -157,9 +160,9 @@ class TagsGenresScreen(Widget):
             conn.autocommit = previous_autocommit  # type: ignore[union-attr]
 
     async def _load_data(self) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             tags, genres, refresh = await asyncio.gather(
@@ -194,28 +197,34 @@ class TagsGenresScreen(Widget):
                 )
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     async def _load_tag_games(self, slug: str, name: str) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             rows = await asyncio.to_thread(self._query_all, conn, TAG_TOP_GAMES, (slug,))
             self._show_top_games(rows or [], f"Top Games — Tag: {name}")
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     async def _load_genre_games(self, slug: str, name: str) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             rows = await asyncio.to_thread(self._query_all, conn, GENRE_TOP_GAMES, (slug,))
             self._show_top_games(rows or [], f"Top Games — Genre: {name}")
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     def _show_top_games(self, rows: list[dict], title: str) -> None:
         self.query_one("#tag-detail-title", Static).update(f"[bold]{title}[/bold]")

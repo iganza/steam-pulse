@@ -139,9 +139,9 @@ class ReviewsBrowserScreen(Widget):
             self.run_worker(self._load_reviews, exclusive=True)
 
     async def _load_reviews(self) -> None:
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn or not self._appid:
+        if not self.app.db_dsn or not self._appid:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         try:
             stats, rows = await asyncio.gather(
@@ -190,6 +190,8 @@ class ReviewsBrowserScreen(Widget):
             )
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     @staticmethod
     def _query_one(conn: object, sql: str, params: object = None) -> dict | None:

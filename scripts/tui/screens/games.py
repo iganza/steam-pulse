@@ -320,9 +320,9 @@ class GamesBrowserScreen(Widget):
 
     async def _load_games(self) -> None:
         """Load games list from DB."""
-        conn = self.app.db_conn  # type: ignore[attr-defined]
-        if not conn:
+        if not self.app.db_dsn:  # type: ignore[attr-defined]
             return
+        conn = self.app.get_db()  # type: ignore[attr-defined]
 
         where = self._build_where()
         sort_sql = SORT_COLUMNS.get(self._sort, "g.review_count DESC")
@@ -370,6 +370,8 @@ class GamesBrowserScreen(Widget):
             )
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Query error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     async def _load_detail(self) -> None:
         """Load detail for the selected game."""
@@ -452,6 +454,8 @@ class GamesBrowserScreen(Widget):
 
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Detail error: {exc}", severity="error")
+        finally:
+            conn.close()
 
     @staticmethod
     def _query_one(conn: object, sql: str, params: object = None) -> dict | None:

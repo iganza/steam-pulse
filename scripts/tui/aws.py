@@ -11,8 +11,8 @@ class AwsClients:
     QUEUE_PARAMS = {
         "app-crawl-queue": "/steampulse/{env}/messaging/app-crawl-queue-url",
         "review-crawl-queue": "/steampulse/{env}/messaging/review-crawl-queue-url",
-        "spoke-results-queue": "/steampulse/{env}/messaging/spoke-results-queue-arn",
-        "email-queue": "/steampulse/{env}/messaging/email-queue-arn",
+        "spoke-results-queue": "/steampulse/{env}/messaging/spoke-results-queue-url",
+        "email-queue": "/steampulse/{env}/messaging/email-queue-url",
     }
 
     DLQ_PARAMS = {
@@ -39,13 +39,15 @@ class AwsClients:
         return self.env
 
     def _client(self, service: str, region: str = "us-west-2") -> object:
-        """Get or create a boto3 client."""
+        """Get or create a boto3 client with short timeouts for TUI responsiveness."""
         self._require_env()
         key = f"{service}:{region}"
         if key not in self._clients:
             import boto3
+            from botocore.config import Config
 
-            self._clients[key] = boto3.client(service, region_name=region)
+            cfg = Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 1})
+            self._clients[key] = boto3.client(service, region_name=region, config=cfg)
         return self._clients[key]
 
     @property
@@ -100,34 +102,83 @@ class AwsClients:
         except Exception:  # noqa: BLE001
             return None
 
+    @staticmethod
+    def _region_from_queue_url(queue_url: str) -> str:
+        """Extract region from an SQS queue URL like https://sqs.us-east-1.amazonaws.com/..."""
+        try:
+            host = queue_url.split("/")[2]  # sqs.us-east-1.amazonaws.com
+            return host.split(".")[1]
+        except (IndexError, AttributeError):
+            return "us-west-2"
+
     def get_queue_depth(self, queue_url: str) -> dict[str, int]:
-        """Get message counts for a queue."""
-        result = self.sqs.get_queue_attributes(  # type: ignore[union-attr]
+        """Get message counts for a queue, using the correct regional SQS client."""
+        region = self._region_from_queue_url(queue_url)
+        sqs_client = self._client("sqs", region)
+        result = sqs_client.get_queue_attributes(  # type: ignore[union-attr]
             QueueUrl=queue_url,
             AttributeNames=[
                 "ApproximateNumberOfMessages",
                 "ApproximateNumberOfMessagesNotVisible",
+                "ApproximateNumberOfMessagesDelayed",
             ],
         )
         attrs = result.get("Attributes", {})
         return {
-            "messages": int(attrs.get("ApproximateNumberOfMessages", 0)),
+            "available": int(attrs.get("ApproximateNumberOfMessages", 0)),
             "in_flight": int(attrs.get("ApproximateNumberOfMessagesNotVisible", 0)),
+            "delayed": int(attrs.get("ApproximateNumberOfMessagesDelayed", 0)),
         }
 
+    _ERR_DEPTH: dict[str, int] = {"available": -1, "in_flight": -1, "delayed": -1}
+
     def get_all_queue_depths(self) -> dict[str, dict[str, int]]:
-        """Get depths for all known queues + DLQs."""
+        """Get depths for all known queues + DLQs + spoke queues."""
         depths: dict[str, dict[str, int]] = {}
+
+        # Static queues from SSM
         for name in list(self.QUEUE_PARAMS) + list(self.DLQ_PARAMS):
             url = self.get_queue_url(name)
             if url:
                 try:
                     depths[name] = self.get_queue_depth(url)
                 except Exception:  # noqa: BLE001
-                    depths[name] = {"messages": -1, "in_flight": -1}
+                    depths[name] = self._ERR_DEPTH
             else:
-                depths[name] = {"messages": -1, "in_flight": -1}
+                depths[name] = self._ERR_DEPTH
+
+        # Per-region spoke crawl queues (deterministic naming)
+        env = self._require_env()
+        spoke_regions = self._get_spoke_regions()
+        account_id = self._get_account_id()
+        if account_id:
+            for region in spoke_regions:
+                name = f"spoke-crawl-{region}"
+                queue_name = f"steampulse-spoke-crawl-{region}-{env}"
+                url = f"https://sqs.{region}.amazonaws.com/{account_id}/{queue_name}"
+                try:
+                    depths[name] = self.get_queue_depth(url)
+                except Exception:  # noqa: BLE001
+                    depths[name] = self._ERR_DEPTH
+
         return depths
+
+    def _get_account_id(self) -> str | None:
+        """Get AWS account ID from STS, cached."""
+        if not hasattr(self, "_account_id"):
+            try:
+                sts = self._client("sts")
+                self._account_id: str | None = sts.get_caller_identity()["Account"]  # type: ignore[union-attr]
+            except Exception:  # noqa: BLE001
+                self._account_id = None
+        return self._account_id
+
+    def _get_spoke_regions(self) -> list[str]:
+        """Get spoke regions from SPOKE_REGIONS env var."""
+        import os
+
+        regions_str = os.environ.get("SPOKE_REGIONS", "")
+        return [r.strip() for r in regions_str.split(",") if r.strip()]
 
     def get_topic_arn(self, name: str) -> str | None:
         """Resolve a topic ARN from SSM."""

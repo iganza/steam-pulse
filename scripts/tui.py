@@ -8,13 +8,20 @@ Usage:
 """
 
 import argparse
+import atexit
 import os
+import signal
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "library-layer"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+
+# Force-kill on exit — boto3 thread pool can block shutdown indefinitely.
+atexit.register(os._exit, 0)
+signal.signal(signal.SIGINT, lambda *_: os._exit(0))
+signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
 
 
 def main() -> None:
@@ -40,6 +47,10 @@ def main() -> None:
 
     app = SteamPulseAdmin(env=args.env)
     app.run()
+
+    # Force exit — boto3 background threads (cross-region SQS clients,
+    # CloudWatch Logs) can block the thread pool on shutdown.
+    os._exit(0)
 
 
 if __name__ == "__main__":

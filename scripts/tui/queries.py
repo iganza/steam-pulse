@@ -32,6 +32,13 @@ SELECT
 
 DASHBOARD_REPORT_COUNT = "SELECT COUNT(*) AS reports FROM reports"
 
+DASHBOARD_MIGRATIONS = """
+SELECT migration_id, applied_at_utc
+FROM _yoyo_migration
+WHERE migration_id ~ '^[0-9]{4}_'
+ORDER BY migration_id DESC
+"""
+
 # -- Games ---------------------------------------------------------------------
 
 GAMES_LIST = """

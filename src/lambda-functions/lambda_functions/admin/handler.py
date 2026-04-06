@@ -18,9 +18,11 @@ logger = Logger(service="admin")
 
 MAX_QUERY_ROWS = 500
 
-_conn = get_conn()
-# Use autocommit so reads don't hold open transactions across warm invocations.
-_conn.autocommit = True
+def _get_admin_conn() -> "psycopg2.extensions.connection":
+    """Get a connection with autocommit for admin queries."""
+    conn = get_conn()
+    conn.autocommit = True
+    return conn
 
 _FORBIDDEN_CTE_KEYWORDS = (
     " INSERT ",
@@ -65,7 +67,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     if action == "status":
         logger.info("status action")
-        with _conn.cursor() as cur:
+        with _get_admin_conn().cursor() as cur:
             cur.execute("""
                 SELECT tablename
                 FROM pg_tables
@@ -93,7 +95,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
         error = _check_sql_safe(sql)
         if error:
             return {"status": "error", "message": error}
-        with _conn.cursor() as cur:
+        with _get_admin_conn().cursor() as cur:
             cur.execute("SET statement_timeout = '10s'")
             cur.execute(sql)
             columns = [desc[0] for desc in cur.description] if cur.description else []

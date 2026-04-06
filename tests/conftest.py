@@ -145,37 +145,37 @@ def refresh_matviews(db_conn: Any) -> Any:
 
 @pytest.fixture
 def analytics_repo(db_conn: Any) -> AnalyticsRepository:
-    return AnalyticsRepository(db_conn)
+    return AnalyticsRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def game_repo(db_conn: Any) -> GameRepository:
-    return GameRepository(db_conn)
+    return GameRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def review_repo(db_conn: Any) -> ReviewRepository:
-    return ReviewRepository(db_conn)
+    return ReviewRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def catalog_repo(db_conn: Any) -> CatalogRepository:
-    return CatalogRepository(db_conn)
+    return CatalogRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def report_repo(db_conn: Any) -> ReportRepository:
-    return ReportRepository(db_conn)
+    return ReportRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def tag_repo(db_conn: Any) -> TagRepository:
-    return TagRepository(db_conn)
+    return TagRepository(lambda: db_conn)
 
 
 @pytest.fixture
 def job_repo(db_conn: Any) -> JobRepository:
-    return JobRepository(db_conn)
+    return JobRepository(lambda: db_conn)
 
 
 @pytest.fixture

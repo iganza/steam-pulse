@@ -207,21 +207,20 @@ def test_reviews_with_cursor_and_max_reviews(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_metadata_steam_api_error_notifies_failure(lambda_context: Any) -> None:
+def test_metadata_steam_api_error_propagates_as_batch_failure(lambda_context: Any) -> None:
+    """SteamAPIError propagates so SQS retries the message (not silently dropped)."""
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_app_details = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
+    # Powertools raises BatchProcessingError when the entire batch fails
+    with pytest.raises(BatchProcessingError):
+        sh.handler(_sqs_event(MetadataSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
-    msg = MetadataSpokeResult.model_validate_json(sh._sqs.send_message.call_args[1]["MessageBody"])
-    assert msg.success is False
-    assert msg.s3_key is None
-    assert msg.error is not None
+    sh._sqs.send_message.assert_not_called()
 
 
 @mock_aws
@@ -239,21 +238,24 @@ def test_metadata_empty_details_notifies_failure(lambda_context: Any) -> None:
 
 
 @mock_aws
-def test_reviews_steam_api_error_notifies_failure(lambda_context: Any) -> None:
+def test_reviews_steam_api_error_propagates_as_batch_failure(lambda_context: Any) -> None:
+    """SteamAPIError propagates so SQS retries the message."""
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_reviews = MagicMock(side_effect=SteamAPIError("rate limited"))
     sh._s3 = MagicMock()
     sh._sqs = MagicMock()
 
-    result = sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
+    with pytest.raises(BatchProcessingError):
+        sh.handler(_sqs_event(ReviewSpokeRequest(appid=440).model_dump()), lambda_context)
 
-    assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
+    sh._sqs.send_message.assert_not_called()
 
 
 @mock_aws
-def test_reviews_empty_list_notifies_failure(lambda_context: Any) -> None:
+def test_reviews_empty_list_sends_success_with_zero_count(lambda_context: Any) -> None:
+    """Empty reviews is a legitimate terminal state — sends success=True so ingest marks complete."""
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_reviews = MagicMock(return_value=([], None))
@@ -264,6 +266,10 @@ def test_reviews_empty_list_notifies_failure(lambda_context: Any) -> None:
 
     assert result["batchItemFailures"] == []
     sh._s3.put_object.assert_not_called()
+    msg = ReviewSpokeResult.model_validate_json(sh._sqs.send_message.call_args[1]["MessageBody"])
+    assert msg.success is True
+    assert msg.count == 0
+    assert msg.next_cursor is None
 
 
 # ── S3 key uniqueness ──────────────────────────────────────────────────────

@@ -33,7 +33,6 @@ from library_layer.utils.scores import (
 logger = Logger(service="batch-prepare-pass2")
 tracer = Tracer(service="batch-prepare-pass2")
 
-_conn = get_conn()
 _s3 = boto3.client("s3")
 _BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _SUMMARIZER_MODEL = os.environ["LLM_MODEL__SUMMARIZER"]
@@ -108,9 +107,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     logger.info("grouped chunks by appid", extra={"games": len(chunks_by_appid)})
 
-    game_repo = GameRepository(_conn)
-    review_repo = ReviewRepository(_conn)
-    tag_repo = TagRepository(_conn)
+    game_repo = GameRepository(get_conn)
+    review_repo = ReviewRepository(get_conn)
+    tag_repo = TagRepository(get_conn)
     pass2_records: list[dict] = []
     scores_by_appid: dict[str, dict] = {}
 

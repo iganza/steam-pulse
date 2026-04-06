@@ -19,8 +19,7 @@ logger = Logger(service="matview-refresh")
 
 _DEBOUNCE_SECONDS = 300  # 5 minutes
 
-_conn = get_conn()
-_repo = MatviewRepository(_conn)
+_repo = MatviewRepository(get_conn)
 
 
 @logger.inject_lambda_context

@@ -18,7 +18,6 @@ from library_layer.utils.db import get_conn
 logger = Logger(service="batch-prepare-pass1")
 tracer = Tracer(service="batch-prepare-pass1")
 
-_conn = get_conn()
 _s3 = boto3.client("s3")
 _BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _CHUNKING_MODEL = os.environ["LLM_MODEL__CHUNKING"]
@@ -50,8 +49,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     execution_id: str = event["execution_id"]
     appids_input = event["appids"]
 
-    game_repo = GameRepository(_conn)
-    review_repo = ReviewRepository(_conn)
+    game_repo = GameRepository(get_conn)
+    review_repo = ReviewRepository(get_conn)
 
     if not isinstance(appids_input, list):
         raise ValueError(f"appids must be a list of integers, got: {type(appids_input).__name__}")

@@ -49,7 +49,6 @@ metrics = Metrics(namespace="SteamPulse", service="spoke-ingest")
 
 ingest_processor = BatchProcessor(event_type=EventType.SQS)
 
-_conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
@@ -63,9 +62,9 @@ _assets_bucket_name = get_parameter(_config.ASSETS_BUCKET_PARAM_NAME)
 _game_events_topic_arn = get_parameter(_config.GAME_EVENTS_TOPIC_PARAM_NAME)
 _content_events_topic_arn = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
-_catalog_repo = CatalogRepository(_conn)
-_review_repo = ReviewRepository(_conn)
-_tag_repo = TagRepository(_conn)
+_catalog_repo = CatalogRepository(get_conn)
+_review_repo = ReviewRepository(get_conn)
+_tag_repo = TagRepository(get_conn)
 
 # Per-spoke SQS targets — for direct re-queue of review pagination.
 # Eliminates the round-trip through the primary crawler dispatcher.
@@ -88,10 +87,10 @@ if not _spoke_sqs_targets and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     )
 
 _crawl_service = CrawlService(
-    game_repo=GameRepository(_conn),
+    game_repo=GameRepository(get_conn),
     review_repo=_review_repo,
     catalog_repo=_catalog_repo,
-    tag_repo=TagRepository(_conn),
+    tag_repo=TagRepository(get_conn),
     steam=DirectSteamSource(httpx.Client(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_crawl_queue_url,
@@ -137,7 +136,10 @@ def _ingest_record(record: dict) -> None:
             raise ValueError(f"Unknown task: {task}")
     except Exception:
         logger.exception("Record processing failed", extra={"appid": appid, "task": task})
-        _conn.rollback()
+        try:
+            get_conn().rollback()
+        except Exception:
+            pass
         raise
 
 

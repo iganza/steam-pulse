@@ -20,7 +20,6 @@ from library_layer.utils.db import get_conn
 logger = Logger(service="batch-process-results")
 tracer = Tracer(service="batch-process-results")
 
-_conn = get_conn()
 _s3 = boto3.client("s3")
 _sns = boto3.client("sns")
 
@@ -78,8 +77,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     output_keys = _list_output_objects(bucket, prefix)
     scores_by_appid = _read_scores_from_s3(execution_id)
 
-    report_repo = ReportRepository(_conn)
-    game_repo = GameRepository(_conn)
+    report_repo = ReportRepository(get_conn)
+    game_repo = GameRepository(get_conn)
 
     processed = 0
     failed = 0

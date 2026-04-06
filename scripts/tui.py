@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""SteamPulse Admin TUI — launch the Textual admin interface.
+
+Usage:
+  poetry run python scripts/tui.py                    # local DB (DATABASE_URL from .env)
+  poetry run python scripts/tui.py --env staging      # staging DB via tunnel + AWS ops
+  poetry run python scripts/tui.py --env production   # production DB via tunnel + AWS ops
+"""
+
+import argparse
+import os
+import sys
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "src", "library-layer"))
+sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
+sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="SteamPulse Admin TUI")
+    parser.add_argument(
+        "--env",
+        choices=["staging", "production"],
+        default=None,
+        help="Connect to a deployed environment (requires SSH tunnel)",
+    )
+    args = parser.parse_args()
+
+    from dotenv import load_dotenv
+
+    if args.env:
+        env_file = os.path.join(REPO_ROOT, f".env.{args.env}")
+        if os.path.exists(env_file):
+            load_dotenv(env_file)
+    else:
+        load_dotenv(os.path.join(REPO_ROOT, ".env"))
+
+    from tui.app import SteamPulseAdmin
+
+    app = SteamPulseAdmin(env=args.env)
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

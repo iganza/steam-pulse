@@ -1,0 +1,65 @@
+/* SteamPulse Admin TUI — Textual CSS */
+
+Screen {
+    background: $surface;
+}
+
+#main-container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#sidebar {
+    width: 18;
+    dock: left;
+    background: $panel;
+    border-right: solid $primary;
+    padding: 1 0;
+}
+
+#sidebar .nav-btn {
+    width: 100%;
+    margin: 0 1;
+    min-width: 16;
+}
+
+#sidebar .nav-btn.-active {
+    background: $accent;
+    text-style: bold;
+}
+
+#content-switcher {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+/* Header bar */
+#env-badge {
+    color: $text;
+    text-style: bold;
+    margin: 0 1;
+}
+
+#env-badge.staging {
+    color: $warning;
+}
+
+#env-badge.production {
+    color: $error;
+}
+
+.status-dot-ok {
+    color: $success;
+}
+
+.status-dot-err {
+    color: $error;
+}
+
+/* Stub screens */
+.stub-screen {
+    content-align: center middle;
+    height: 100%;
+    color: $text-muted;
+}

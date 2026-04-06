@@ -1,0 +1,189 @@
+"""Dashboard screen — system overview with KPIs, pipeline status, and queue depths."""
+
+import asyncio
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.widget import Widget
+from textual.widgets import DataTable, Static
+
+from tui.queries import DASHBOARD_FRESHNESS, DASHBOARD_KPI, DASHBOARD_PIPELINE, DASHBOARD_REPORT_COUNT
+from tui.widgets.freshness import FreshnessLabel
+from tui.widgets.kpi_card import KpiCard
+from tui.widgets.pipeline_funnel import PipelineFunnel
+
+
+class DashboardScreen(Widget):
+    """Landing screen with live system overview."""
+
+    DEFAULT_CSS = """
+    DashboardScreen {
+        height: 100%;
+        padding: 1;
+    }
+
+    #kpi-row {
+        height: 7;
+        layout: horizontal;
+    }
+
+    #kpi-row KpiCard {
+        width: 1fr;
+        margin: 0 1;
+    }
+
+    #middle-row {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #bottom-row {
+        layout: horizontal;
+        height: auto;
+        margin-top: 1;
+    }
+
+    #freshness-panel {
+        width: 1fr;
+        height: auto;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    #queue-panel {
+        width: 1fr;
+        height: auto;
+        border: round $primary;
+        padding: 1 2;
+        margin-left: 1;
+    }
+
+    #refresh-hint {
+        dock: bottom;
+        height: 1;
+        color: $text-muted;
+        text-align: center;
+    }
+    """
+
+    BINDINGS = [
+        Binding("f5", "refresh", "Refresh", show=True),
+    ]
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._refresh_timer_id: object = None
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="kpi-row"):
+            yield KpiCard("Games", id="kpi-games")
+            yield KpiCard("Reviews", id="kpi-reviews")
+            yield KpiCard("Reports", id="kpi-reports")
+            yield KpiCard("Catalog", id="kpi-catalog")
+
+        with Vertical(id="middle-row"):
+            yield PipelineFunnel(id="pipeline-funnel")
+
+        with Horizontal(id="bottom-row"):
+            with Vertical(id="freshness-panel"):
+                yield Static("[bold]Freshness[/bold]")
+                yield FreshnessLabel("Last metadata crawl", id="fresh-meta")
+                yield FreshnessLabel("Last review crawl", id="fresh-reviews")
+                yield FreshnessLabel("Last analysis", id="fresh-analysis")
+                yield FreshnessLabel("Last matview refresh", id="fresh-matview")
+
+            with Vertical(id="queue-panel"):
+                yield Static("[bold]Queue Depths[/bold]")
+                yield DataTable(id="queue-table")
+
+        yield Static("Press [bold]F5[/bold] to refresh \u2022 Auto-refresh: 30s", id="refresh-hint")
+
+    def on_mount(self) -> None:
+        # Set up queue table columns
+        table = self.query_one("#queue-table", DataTable)
+        table.add_columns("Queue", "Messages", "In Flight")
+        table.show_cursor = False
+
+        self._refresh_timer_id = self.set_interval(30, self._auto_refresh)
+        self.run_worker(self._load_data, exclusive=True)
+
+    def action_refresh(self) -> None:
+        self.run_worker(self._load_data, exclusive=True)
+
+    async def _auto_refresh(self) -> None:
+        self.run_worker(self._load_data, exclusive=True)
+
+    async def _load_data(self) -> None:
+        """Load all dashboard data (runs in worker)."""
+        app = self.app
+        conn = app.db_conn  # type: ignore[attr-defined]
+
+        if conn:
+            try:
+                kpi, pipeline, freshness = await asyncio.gather(
+                    asyncio.to_thread(self._query_db, conn, DASHBOARD_KPI),
+                    asyncio.to_thread(self._query_db, conn, DASHBOARD_PIPELINE),
+                    asyncio.to_thread(self._query_db, conn, DASHBOARD_FRESHNESS),
+                )
+                report_count = await asyncio.to_thread(
+                    self._query_db, conn, DASHBOARD_REPORT_COUNT
+                )
+
+                if kpi:
+                    self.query_one("#kpi-games", KpiCard).value = f"{kpi['games']:,}"
+                    self.query_one("#kpi-reviews", KpiCard).value = f"{kpi['reviews']:,}"
+                    self.query_one("#kpi-reports", KpiCard).value = f"{kpi['reports']:,}"
+                    self.query_one("#kpi-catalog", KpiCard).value = f"{kpi['catalog']:,}"
+
+                if pipeline:
+                    reports = report_count["reports"] if report_count else 0
+                    self.query_one("#pipeline-funnel", PipelineFunnel).data = {
+                        **pipeline,
+                        "reports": reports,
+                    }
+
+                if freshness:
+                    self.query_one("#fresh-meta", FreshnessLabel).timestamp = freshness[
+                        "last_meta_crawl"
+                    ]
+                    self.query_one("#fresh-reviews", FreshnessLabel).timestamp = freshness[
+                        "last_review_crawl"
+                    ]
+                    self.query_one("#fresh-analysis", FreshnessLabel).timestamp = freshness[
+                        "last_analysis"
+                    ]
+                    self.query_one("#fresh-matview", FreshnessLabel).timestamp = freshness[
+                        "last_matview_refresh"
+                    ]
+            except Exception as exc:  # noqa: BLE001
+                self.app.notify(f"DB error: {exc}", severity="error")
+
+        # Queue depths (AWS only)
+        if app.aws_available:  # type: ignore[attr-defined]
+            try:
+                depths = await asyncio.to_thread(app.aws.get_all_queue_depths)  # type: ignore[attr-defined]
+                table = self.query_one("#queue-table", DataTable)
+                table.clear()
+                for name, info in depths.items():
+                    msgs = str(info["messages"]) if info["messages"] >= 0 else "?"
+                    inflight = str(info["in_flight"]) if info["in_flight"] >= 0 else "?"
+                    warning = " \u26a0" if info["messages"] > 0 and "dlq" in name else ""
+                    table.add_row(f"{name}{warning}", msgs, inflight)
+            except Exception as exc:  # noqa: BLE001
+                self.app.notify(f"AWS error: {exc}", severity="warning")
+        else:
+            table = self.query_one("#queue-table", DataTable)
+            table.clear()
+            table.add_row("[dim]Connect with --env for AWS ops[/dim]", "", "")
+
+    @staticmethod
+    def _query_db(conn: object, sql: str) -> dict | None:
+        """Execute a query and return the first row as a dict."""
+        cur = conn.cursor()  # type: ignore[union-attr]
+        try:
+            cur.execute(sql)
+            row = cur.fetchone()
+            return dict(row) if row else None
+        finally:
+            cur.close()

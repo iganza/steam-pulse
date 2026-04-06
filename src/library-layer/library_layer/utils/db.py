@@ -43,13 +43,20 @@ def get_conn(
     .closed flag doesn't catch.
     """
     if "conn" in _state and not _state["conn"].closed:
+        conn = _state["conn"]
         try:
-            _state["conn"].cursor().execute("SELECT 1")
-            _state["conn"].commit()
-            return _state["conn"]  # type: ignore[return-value]
+            # Skip health check if a transaction is in progress — don't
+            # commit/rollback caller's work.
+            if conn.get_transaction_status() != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                return conn  # type: ignore[return-value]
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()  # clean up — never commit caller's work
+            return conn  # type: ignore[return-value]
         except Exception:
             try:
-                _state["conn"].close()
+                conn.close()
             except Exception:
                 pass
 

@@ -61,7 +61,7 @@ VERSION = "0.1.0"
 
 # ---------------------------------------------------------------------------
 # Repository wiring — built once at module level.
-# Raises RuntimeError at cold start if DATABASE_URL is not set.
+# DB connection is lazy (established on first query, reconnects if stale).
 # ---------------------------------------------------------------------------
 
 _analytics_repo = AnalyticsRepository(get_conn)

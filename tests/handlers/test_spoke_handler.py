@@ -209,8 +209,6 @@ def test_reviews_with_cursor_and_max_reviews(lambda_context: Any) -> None:
 @mock_aws
 def test_metadata_steam_api_error_propagates_as_batch_failure(lambda_context: Any) -> None:
     """SteamAPIError propagates so SQS retries the message (not silently dropped)."""
-    from aws_lambda_powertools.utilities.batch.exceptions import BatchProcessingError
-
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_app_details = MagicMock(side_effect=SteamAPIError("rate limited"))
@@ -242,8 +240,6 @@ def test_metadata_empty_details_notifies_failure(lambda_context: Any) -> None:
 @mock_aws
 def test_reviews_steam_api_error_propagates_as_batch_failure(lambda_context: Any) -> None:
     """SteamAPIError propagates so SQS retries the message."""
-    from aws_lambda_powertools.utilities.batch.exceptions import BatchProcessingError
-
     sh = _get_handler_module()
     sh._steam = MagicMock()
     sh._steam.get_reviews = MagicMock(side_effect=SteamAPIError("rate limited"))

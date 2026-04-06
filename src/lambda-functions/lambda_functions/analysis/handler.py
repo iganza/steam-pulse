@@ -32,7 +32,7 @@ metrics = Metrics(namespace="SteamPulse", service="analysis")
 MAX_REVIEWS = 2000
 
 
-# ── Eager module-level initialization — fails loud on cold start if DB unavailable
+# ── Module-level repo wiring — DB connection is lazy (established on first query).
 # Schema managed by yoyo migrations — see src/lambda-functions/migrations/
 _game_repo: GameRepository = GameRepository(get_conn)
 _review_repo: ReviewRepository = ReviewRepository(get_conn)

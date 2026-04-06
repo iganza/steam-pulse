@@ -429,9 +429,13 @@ def create_indexes(conn: object) -> None:
 def create_matviews(conn: object) -> None:
     """Create materialized views and their unique indexes. For the test suite only.
 
-    Production matviews are managed by yoyo migration 0016_materialized_views.sql.
+    Production matviews are managed by yoyo migrations (0016, 0019, 0020).
+    Drop mv_genre_games/mv_tag_games first so IF NOT EXISTS picks up the
+    current definition (with last_analyzed) on persistent test databases.
     """
     with conn.cursor() as cur:  # type: ignore[union-attr]
+        cur.execute("DROP MATERIALIZED VIEW IF EXISTS mv_genre_games")
+        cur.execute("DROP MATERIALIZED VIEW IF EXISTS mv_tag_games")
         for ddl in MATERIALIZED_VIEWS:
             cur.execute(ddl)
     conn.commit()  # type: ignore[union-attr]

@@ -172,6 +172,55 @@ class GameRepository(BaseRepository):
             )
         self.conn.commit()
 
+    @staticmethod
+    def _build_game_filters(
+        prefix: str = "",
+        *,
+        min_reviews: int | None = None,
+        has_analysis: bool | None = None,
+        sentiment: str | None = None,
+        price_tier: str | None = None,
+        deck_status: str | None = None,
+    ) -> tuple[list[str], list[object]]:
+        """Build shared SQL filter fragments for game listing (fast + slow path)."""
+        conditions: list[str] = []
+        params: list[object] = []
+        p = prefix
+
+        if min_reviews is not None:
+            conditions.append(f"{p}review_count >= %s")
+            params.append(min_reviews)
+        if has_analysis:
+            conditions.append(f"{p}last_analyzed IS NOT NULL")
+        if sentiment:
+            if sentiment == "positive":
+                conditions.append(f"{p}sentiment_score >= 0.65")
+            elif sentiment == "mixed":
+                conditions.append(
+                    f"{p}sentiment_score >= 0.45 AND {p}sentiment_score < 0.65"
+                )
+            elif sentiment == "negative":
+                conditions.append(f"{p}sentiment_score < 0.45")
+        if price_tier:
+            if price_tier == "free":
+                conditions.append(f"{p}is_free = TRUE")
+            elif price_tier == "under_10":
+                conditions.append(
+                    f"{p}price_usd < 10 AND ({p}is_free IS NULL OR {p}is_free = FALSE)"
+                )
+            elif price_tier == "10_to_20":
+                conditions.append(f"{p}price_usd >= 10 AND {p}price_usd <= 20")
+            elif price_tier == "over_20":
+                conditions.append(f"{p}price_usd > 20")
+        if deck_status:
+            deck_map = {"verified": 3, "playable": 2, "unsupported": 1, "unknown": 0}
+            deck_val = deck_map.get(deck_status)
+            if deck_val is not None:
+                conditions.append(f"{p}deck_compatibility = %s")
+                params.append(deck_val)
+
+        return conditions, params
+
     _MV_SORT_COLS: ClassVar[dict[str, str]] = {
         "review_count": "review_count DESC NULLS LAST",
         "hidden_gem_score": "hidden_gem_score DESC NULLS LAST",
@@ -190,9 +239,28 @@ class GameRepository(BaseRepository):
         sort: str,
         limit: int,
         offset: int,
+        *,
+        min_reviews: int | None = None,
+        has_analysis: bool | None = None,
+        sentiment: str | None = None,
+        price_tier: str | None = None,
+        deck_status: str | None = None,
     ) -> dict:
         """Fast path: read from a pre-joined genre/tag materialized view."""
         order = self._MV_SORT_COLS.get(sort, self._MV_SORT_COLS["review_count"])
+        conditions = [f"{slug_col} = %s"]
+        params: list[object] = [slug_val]
+
+        extra_conds, extra_params = self._build_game_filters(
+            min_reviews=min_reviews, has_analysis=has_analysis,
+            sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+        )
+        conditions.extend(extra_conds)
+        params.extend(extra_params)
+
+        where = " AND ".join(conditions)
+        params.extend([limit, offset])
+
         rows = self._fetchall(
             f"""
             SELECT appid, name, slug, developer, header_image,
@@ -200,11 +268,11 @@ class GameRepository(BaseRepository):
                    release_date, deck_compatibility,
                    hidden_gem_score, sentiment_score, is_early_access
             FROM {view}
-            WHERE {slug_col} = %s
+            WHERE {where}
             ORDER BY {order}
             LIMIT %s OFFSET %s
             """,
-            (slug_val, limit, offset),
+            tuple(params),
         )
         result = []
         for row in rows:
@@ -242,13 +310,21 @@ class GameRepository(BaseRepository):
         materialized views (mv_genre_games / mv_tag_games) to avoid
         expensive nested-loop joins on cold cache.
         """
-        # Fast path: genre-only or tag-only with no extra filters → matview.
-        extra = (q, search, developer, year_from, year_to, min_reviews,
-                 has_analysis, sentiment, price_tier, deck_status)
-        if genre and not tag and not any(f is not None and f is not False for f in extra):
-            return self._list_from_matview("mv_genre_games", "genre_slug", genre, sort, limit, offset)
-        if tag and not genre and not any(f is not None and f is not False for f in extra):
-            return self._list_from_matview("mv_tag_games", "tag_slug", tag, sort, limit, offset)
+        # Fast path: genre or tag filter with matview-compatible extra filters.
+        # Only q, search, developer, year range, and genre+tag combined force the slow path.
+        needs_slow = (q or search or developer or year_from is not None or year_to is not None)
+        if genre and not tag and not needs_slow:
+            return self._list_from_matview(
+                "mv_genre_games", "genre_slug", genre, sort, limit, offset,
+                min_reviews=min_reviews, has_analysis=has_analysis,
+                sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+            )
+        if tag and not genre and not needs_slow:
+            return self._list_from_matview(
+                "mv_tag_games", "tag_slug", tag, sort, limit, offset,
+                min_reviews=min_reviews, has_analysis=has_analysis,
+                sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+            )
 
         _sort_cols = {
             "review_count": "g.review_count DESC NULLS LAST",
@@ -290,33 +366,12 @@ class GameRepository(BaseRepository):
         if year_to is not None:
             conditions.append("EXTRACT(YEAR FROM g.release_date) <= %s")
             params.append(year_to)
-        if min_reviews is not None:
-            conditions.append("g.review_count >= %s")
-            params.append(min_reviews)
-        if has_analysis:
-            conditions.append("g.last_analyzed IS NOT NULL")
-        if sentiment:
-            if sentiment == "positive":
-                conditions.append("g.sentiment_score >= 0.65")
-            elif sentiment == "mixed":
-                conditions.append("g.sentiment_score >= 0.45 AND g.sentiment_score < 0.65")
-            elif sentiment == "negative":
-                conditions.append("g.sentiment_score < 0.45")
-        if price_tier:
-            if price_tier == "free":
-                conditions.append("g.is_free = TRUE")
-            elif price_tier == "under_10":
-                conditions.append("g.price_usd < 10 AND (g.is_free IS NULL OR g.is_free = FALSE)")
-            elif price_tier == "10_to_20":
-                conditions.append("g.price_usd >= 10 AND g.price_usd <= 20")
-            elif price_tier == "over_20":
-                conditions.append("g.price_usd > 20")
-        if deck_status:
-            _deck_map = {"verified": 3, "playable": 2, "unsupported": 1, "unknown": 0}
-            deck_val = _deck_map.get(deck_status)
-            if deck_val is not None:
-                conditions.append("g.deck_compatibility = %s")
-                params.append(deck_val)
+        extra_conds, extra_params = self._build_game_filters(
+            "g.", min_reviews=min_reviews, has_analysis=has_analysis,
+            sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+        )
+        conditions.extend(extra_conds)
+        params.extend(extra_params)
 
         where = " AND ".join(conditions)
 

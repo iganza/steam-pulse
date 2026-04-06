@@ -145,24 +145,12 @@ class AnalyticsRepository(BaseRepository):
             max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
         )
 
-        # Summary stats need exact avg/median over individual game prices,
-        # not bucket-level medians (median-of-medians is inaccurate).
-        # This lightweight query hits base tables but is cheap (single genre filter).
+        # Summary stats from pre-computed matview (one row per genre).
         summary_row = self._fetchone(
             """
-            SELECT
-                ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
-                ROUND(
-                    (PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY g.price_usd)
-                     FILTER (WHERE NOT g.is_free))::numeric,
-                    2
-                ) AS median_price,
-                COUNT(*) FILTER (WHERE g.is_free) AS free_count,
-                COUNT(*) FILTER (WHERE NOT g.is_free) AS paid_count
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s AND g.review_count >= 10
+            SELECT avg_price, median_price, free_count, paid_count
+            FROM mv_price_summary
+            WHERE genre_slug = %s
             """,
             (genre_slug,),
         )

@@ -36,7 +36,30 @@ def get_db_url() -> str:
 def get_conn(
     cursor_factory: Any = psycopg2.extras.RealDictCursor,
 ) -> psycopg2.extensions.connection:
-    """Return a cached psycopg2 connection, reconnecting if closed."""
-    if "conn" not in _state or _state["conn"].closed:
-        _state["conn"] = psycopg2.connect(get_db_url(), cursor_factory=cursor_factory)
+    """Return a cached psycopg2 connection, reconnecting if stale.
+
+    Validates the connection with a lightweight SELECT 1 to detect
+    server-side disconnects (RDS maintenance, failover) that psycopg2's
+    .closed flag doesn't catch.
+    """
+    if "conn" in _state and not _state["conn"].closed:
+        try:
+            _state["conn"].cursor().execute("SELECT 1")
+            _state["conn"].commit()
+            return _state["conn"]  # type: ignore[return-value]
+        except Exception:
+            try:
+                _state["conn"].close()
+            except Exception:
+                pass
+
+    _state["conn"] = psycopg2.connect(
+        get_db_url(),
+        cursor_factory=cursor_factory,
+        connect_timeout=5,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+    )
     return _state["conn"]  # type: ignore[return-value]

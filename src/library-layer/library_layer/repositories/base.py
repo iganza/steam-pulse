@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import psycopg2
 import psycopg2.extras
 
 
 class BaseRepository:
-    """Common psycopg2 helpers. Subclasses never open connections themselves."""
+    """Common psycopg2 helpers. Subclasses never open connections themselves.
 
-    def __init__(self, conn: psycopg2.extensions.connection) -> None:
-        self.conn = conn
+    Accepts a connection factory (callable) instead of a connection object.
+    The factory is called on every access via the `conn` property, ensuring
+    stale connections (RDS maintenance, Lambda freeze/thaw) are replaced
+    transparently.
+    """
+
+    def __init__(self, get_conn: Callable[[], psycopg2.extensions.connection]) -> None:
+        self._get_conn = get_conn
+
+    @property
+    def conn(self) -> psycopg2.extensions.connection:
+        """Get a validated connection — reconnects transparently if stale."""
+        return self._get_conn()
 
     def _execute(self, sql: str, params: tuple = ()) -> psycopg2.extensions.cursor:
         """Execute a statement and return the cursor (for rowcount / lastrowid)."""

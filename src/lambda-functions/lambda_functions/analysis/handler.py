@@ -9,8 +9,6 @@ deletion — see scripts/prompts/remove-realtime-analysis.md. Do not add new fea
 """
 
 import boto3
-import psycopg2
-import psycopg2.extras
 from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.parameters import get_parameter
@@ -22,7 +20,7 @@ from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.utils.db import get_db_url
+from library_layer.utils.db import get_conn
 from library_layer.utils.events import EventPublishError, publish_event
 
 from .events import AnalyzeRequest
@@ -36,12 +34,9 @@ MAX_REVIEWS = 2000
 
 # ── Eager module-level initialization — fails loud on cold start if DB unavailable
 # Schema managed by yoyo migrations — see src/lambda-functions/migrations/
-_conn: psycopg2.extensions.connection = psycopg2.connect(
-    get_db_url(), cursor_factory=psycopg2.extras.RealDictCursor
-)
-_game_repo: GameRepository = GameRepository(_conn)
-_review_repo: ReviewRepository = ReviewRepository(_conn)
-_report_repo: ReportRepository = ReportRepository(_conn)
+_game_repo: GameRepository = GameRepository(get_conn)
+_review_repo: ReviewRepository = ReviewRepository(get_conn)
+_report_repo: ReportRepository = ReportRepository(get_conn)
 
 _sns_client = boto3.client("sns")
 _analysis_config = SteamPulseConfig()

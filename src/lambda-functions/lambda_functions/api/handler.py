@@ -64,15 +64,14 @@ VERSION = "0.1.0"
 # Raises RuntimeError at cold start if DATABASE_URL is not set.
 # ---------------------------------------------------------------------------
 
-_conn = get_conn()
-_analytics_repo = AnalyticsRepository(_conn)
-_game_repo = GameRepository(_conn)
-_report_repo = ReportRepository(_conn)
-_review_repo = ReviewRepository(_conn)
-_job_repo = JobRepository(_conn)
-_tag_repo = TagRepository(_conn)
-_waitlist_repo = WaitlistRepository(_conn)
-_matview_repo = MatviewRepository(_conn)
+_analytics_repo = AnalyticsRepository(get_conn)
+_game_repo = GameRepository(get_conn)
+_report_repo = ReportRepository(get_conn)
+_review_repo = ReviewRepository(get_conn)
+_job_repo = JobRepository(get_conn)
+_tag_repo = TagRepository(get_conn)
+_waitlist_repo = WaitlistRepository(get_conn)
+_matview_repo = MatviewRepository(get_conn)
 _analytics_service = AnalyticsService(_analytics_repo)
 
 
@@ -725,7 +724,7 @@ async def chat(body: ChatRequest) -> dict:
     # Thin storage adapter — uses the module-level DB connection
     class _ChatStorage:
         def query_catalog(self, sql: str, params: tuple = ()) -> list:
-            with _conn.cursor() as cur:
+            with get_conn().cursor() as cur:
                 cur.execute(sql, params)
                 rows = [dict(r) for r in cur.fetchall()]
             return rows

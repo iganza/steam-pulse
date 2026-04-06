@@ -53,7 +53,6 @@ from library_layer.services.catalog_service import CatalogService
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 
-_conn = get_conn()
 _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
@@ -78,10 +77,10 @@ _steam_api_key: str = _sm.get_secret_value(SecretId=_crawler_config.STEAM_API_KE
 ]
 
 _crawl_service = CrawlService(
-    game_repo=GameRepository(_conn),
-    review_repo=ReviewRepository(_conn),
-    catalog_repo=CatalogRepository(_conn),
-    tag_repo=TagRepository(_conn),
+    game_repo=GameRepository(get_conn),
+    review_repo=ReviewRepository(get_conn),
+    catalog_repo=CatalogRepository(get_conn),
+    tag_repo=TagRepository(get_conn),
     steam=DirectSteamSource(httpx.Client(timeout=60.0), on_request=_steam_metrics_callback),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
@@ -95,7 +94,7 @@ _crawl_service = CrawlService(
     content_events_topic_arn=_content_events_topic_arn,
 )
 _catalog_service = CatalogService(
-    catalog_repo=CatalogRepository(_conn),
+    catalog_repo=CatalogRepository(get_conn),
     http_client=httpx.Client(timeout=30.0),
     sqs_client=_sqs,
     app_crawl_queue_url=_app_crawl_queue_url,

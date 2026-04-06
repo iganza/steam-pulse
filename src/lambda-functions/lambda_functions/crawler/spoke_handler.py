@@ -118,14 +118,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
 
 def _process_metadata(appid: int) -> bool:
-    try:
-        details = _steam.get_app_details(appid)
-    except SteamAPIError as exc:
-        logger.error("Steam app_details error", extra={"appid": appid, "error": str(exc)})
-        _notify_metadata(appid, success=False, error=str(exc))
-        return False
+    # Let SteamAPIError propagate — SQS retries the spoke-crawl-queue message.
+    details = _steam.get_app_details(appid)
 
     if not details:
+        # Game may be delisted or hidden — not an error, just nothing to crawl.
         logger.warning("Empty details from Steam — skipping", extra={"appid": appid})
         _notify_metadata(appid, success=False, error="empty details from Steam")
         return False
@@ -133,12 +130,8 @@ def _process_metadata(appid: int) -> bool:
     game_name = details.get("name", "<unknown>")
     logger.info("Fetched app_details", extra={"appid": appid, "game_name": game_name})
 
-    try:
-        summary = _steam.get_review_summary(appid)
-    except SteamAPIError as exc:
-        logger.error("Steam review_summary error", extra={"appid": appid, "error": str(exc)})
-        _notify_metadata(appid, success=False, error=str(exc))
-        return False
+    # Let SteamAPIError propagate for retry via SQS.
+    summary = _steam.get_review_summary(appid)
 
     logger.info(
         "Fetched review_summary",
@@ -171,26 +164,18 @@ def _process_reviews(
     limit = min(target, BATCH_SIZE) if target is not None else BATCH_SIZE
     logger.info("Fetching reviews", extra={"appid": appid, "limit": limit, "cursor": cursor})
 
-    try:
-        reviews, next_cursor = _steam.get_reviews(appid, max_reviews=limit, start_cursor=cursor)
-    except SteamAPIError as exc:
-        logger.warning("Steam reviews error", extra={"appid": appid, "error": str(exc)})
-        _notify_reviews(
-            appid,
-            success=False,
-            error=str(exc),
-            next_cursor=None,
-            target=target,
-            started_at=started_at,
-        )
-        return 0, None
+    # Let SteamAPIError propagate — SQS retries the spoke-crawl-queue message,
+    # and after maxReceiveCount failures it lands in the spoke DLQ.
+    reviews, next_cursor = _steam.get_reviews(appid, max_reviews=limit, start_cursor=cursor)
 
     if not reviews:
-        logger.warning("No reviews returned from Steam", extra={"appid": appid, "cursor": cursor})
+        # Legitimate terminal state — game has no (more) reviews.
+        # Send success=True so ingest marks reviews complete.
+        logger.info("No reviews returned from Steam", extra={"appid": appid, "cursor": cursor})
         _notify_reviews(
             appid,
-            success=False,
-            error="no reviews returned",
+            success=True,
+            count=0,
             next_cursor=None,
             target=target,
             started_at=started_at,
@@ -239,12 +224,8 @@ def _write_s3(key: str, data: dict | list) -> str:
 
 def _process_tags(appid: int) -> bool:
     """Fetch player tags from Steam store page, upload to S3, notify ingest via SQS."""
-    try:
-        tags = _steam.get_player_tags(appid)
-    except Exception as exc:
-        logger.warning("Steam tag fetch error", extra={"appid": appid, "error": str(exc)})
-        _notify_tags(appid, success=False, error=str(exc))
-        return False
+    # Let exceptions propagate for retry via SQS.
+    tags = _steam.get_player_tags(appid)
 
     if not tags:
         logger.warning("No tags found on store page", extra={"appid": appid})

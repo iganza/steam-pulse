@@ -143,7 +143,9 @@ def _ingest_record(record: dict) -> None:
 
 def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not msg.success:
-        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        # Permanent failure (e.g. game delisted) — log and skip, don't retry.
+        logger.warning("Spoke reported metadata failure", extra={"appid": msg.appid, "error": msg.error})
+        _catalog_repo.set_meta_status(msg.appid, "failed")
         return
 
     appid = msg.appid
@@ -166,7 +168,9 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
 
 def _handle_tags(msg: TagsSpokeResult) -> None:
     if not msg.success:
-        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        # Spoke should not send success=False for tags anymore (transient errors
+        # propagate as exceptions in the spoke). This is a safety net.
+        logger.warning("Spoke reported tags failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     if not msg.s3_key:
@@ -199,7 +203,9 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
 
 def _handle_reviews(msg: ReviewSpokeResult) -> None:
     if not msg.success:
-        logger.warning("Spoke reported failure", extra={"appid": msg.appid, "error": msg.error})
+        # Spoke should not send success=False for reviews anymore (transient errors
+        # propagate as exceptions in the spoke). This is a safety net.
+        logger.warning("Spoke reported review failure", extra={"appid": msg.appid, "error": msg.error})
         return
 
     appid = msg.appid

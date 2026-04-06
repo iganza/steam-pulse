@@ -8,20 +8,33 @@ Usage:
 """
 
 import argparse
-import atexit
 import os
 import signal
 import sys
+import threading
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "library-layer"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
-# Force-kill on exit — boto3 thread pool can block shutdown indefinitely.
-atexit.register(os._exit, 0)
-signal.signal(signal.SIGINT, lambda *_: os._exit(0))
-signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+# Watchdog: when the main thread signals quit, wait 2s then SIGKILL.
+# This handles the case where boto3 C-level socket calls block os._exit.
+_quit_event = threading.Event()
+
+
+def _watchdog() -> None:
+    _quit_event.wait()
+    # Give Textual 2 seconds to shut down gracefully
+    _quit_event.wait(timeout=2)
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+_watchdog_thread = threading.Thread(target=_watchdog, daemon=True)
+_watchdog_thread.start()
+
+signal.signal(signal.SIGINT, lambda *_: (_quit_event.set(), os._exit(0)))
+signal.signal(signal.SIGTERM, lambda *_: (_quit_event.set(), os._exit(0)))
 
 
 def main() -> None:
@@ -48,8 +61,8 @@ def main() -> None:
     app = SteamPulseAdmin(env=args.env)
     app.run()
 
-    # Force exit — boto3 background threads (cross-region SQS clients,
-    # CloudWatch Logs) can block the thread pool on shutdown.
+    # Trigger watchdog and force exit
+    _quit_event.set()
     os._exit(0)
 
 

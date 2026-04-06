@@ -250,7 +250,7 @@ class LogsScreen(Widget):
         kwargs: dict = {
             "logGroupName": log_group,
             "startTime": start_ms,
-            "limit": 100,
+            "limit": 200,
             "interleaved": True,
         }
         if filter_pattern:
@@ -258,7 +258,8 @@ class LogsScreen(Widget):
         try:
             result = logs_client.filter_log_events(**kwargs)
             return result.get("events", [])
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            self.app.notify(f"Log fetch failed: {log_group}: {exc}", severity="warning")
             return []
 
     @staticmethod

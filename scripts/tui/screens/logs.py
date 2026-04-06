@@ -80,7 +80,6 @@ class LogsScreen(Widget):
         self._active_services: set[str] = {"crawler", "spoke", "ingest"}
         self._errors_only = False
         self._time_range = "15m"
-        self._next_tokens: dict[str, str] = {}
         self._polling = False
 
     def compose(self) -> ComposeResult:
@@ -122,7 +121,7 @@ class LogsScreen(Widget):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "logs-time-range":
             self._time_range = str(event.value)
-            self._next_tokens.clear()
+
             log = self.query_one("#logs-stream", RichLog)
             log.clear()
             self.run_worker(self._initial_load, exclusive=True)

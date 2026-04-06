@@ -107,28 +107,40 @@ class TagsGenresScreen(Widget):
             self._trigger_matview_refresh()
 
     def _trigger_matview_refresh(self) -> None:
-        if not self.app.aws_available:  # type: ignore[attr-defined]
-            self.app.notify("AWS not available in local mode", severity="warning")
-            return
         self.run_worker(self._do_matview_refresh, exclusive=True)
 
     async def _do_matview_refresh(self) -> None:
-        """Send a message to the cache-invalidation queue to trigger matview refresh."""
+        """Refresh materialized views directly via DB connection."""
         try:
             import asyncio
-            import json
 
-            aws = self.app.aws  # type: ignore[attr-defined]
-            msg = json.dumps({"source": "admin-tui", "action": "refresh"})
-            await asyncio.to_thread(
-                aws.send_sqs_message, "cache-invalidation-queue", msg
-            )
-            self.app.notify("Matview refresh triggered")
-            # Reload data after a short delay to show updated freshness
-            await asyncio.sleep(2)
+            conn = self.app.db_conn  # type: ignore[attr-defined]
+            if not conn:
+                self.app.notify("No DB connection", severity="error")
+                return
+
+            self.app.notify("Refreshing materialized views...")
+            await asyncio.to_thread(self._refresh_views, conn)
+            self.app.notify("Matview refresh complete")
             await self._load_data()
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Matview refresh failed: {exc}", severity="error")
+
+    @staticmethod
+    def _refresh_views(conn: object) -> None:
+        """Refresh all materialized views (sync, runs in thread)."""
+        views = [
+            "mv_genre_counts", "mv_tag_counts", "mv_genre_games", "mv_tag_games",
+            "mv_price_positioning", "mv_release_timing", "mv_platform_distribution",
+            "mv_tag_trend", "mv_price_summary",
+        ]
+        cur = conn.cursor()  # type: ignore[union-attr]
+        try:
+            for view in views:
+                cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")  # noqa: S608
+            conn.commit()  # type: ignore[union-attr]
+        finally:
+            cur.close()
 
     async def _load_data(self) -> None:
         conn = self.app.db_conn  # type: ignore[attr-defined]

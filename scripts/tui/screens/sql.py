@@ -165,6 +165,13 @@ class SQLConsoleScreen(Widget):
             self._show_error("Write operations are not allowed. This is a read-only console.")
             return
 
+        # Reject multi-statement input (semicolons outside string literals)
+        # Strip trailing semicolons/whitespace, then check for remaining semicolons
+        stripped = sql.rstrip().rstrip(";").strip()
+        if ";" in stripped:
+            self._show_error("Multi-statement queries are not allowed. Use a single statement.")
+            return
+
         self._hide_error()
 
         # Add to history
@@ -206,13 +213,14 @@ class SQLConsoleScreen(Widget):
         key = getattr(event, "key", "")
         text_area = self.query_one("#sql-input", TextArea)
 
-        # History navigation when input is empty or at history browsing
-        if key == "up" and not text_area.text.strip():
-            self._navigate_history(-1)
-        elif key == "down" and self._history_idx >= 0:
+        # History navigation: up = older, down = newer
+        if key == "up" and (not text_area.text.strip() or self._history_idx >= 0):
             self._navigate_history(1)
+        elif key == "down" and self._history_idx >= 0:
+            self._navigate_history(-1)
 
     def _navigate_history(self, direction: int) -> None:
+        """Navigate query history. direction=1 goes older, direction=-1 goes newer."""
         if not self._history:
             return
         self._history_idx += direction
@@ -223,6 +231,7 @@ class SQLConsoleScreen(Widget):
             text_area.text = ""
             self._history_idx = -1
         else:
+            # Index from the end: 0 = most recent, 1 = second most recent, etc.
             idx = len(self._history) - 1 - self._history_idx
             if 0 <= idx < len(self._history):
                 text_area.text = self._history[idx]

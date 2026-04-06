@@ -14,10 +14,9 @@ from tui.widgets.confirm_dialog import ConfirmDialog
 
 # Map DLQ name → source queue name for retry routing
 DLQ_TO_SOURCE = {
-    "metadata-dlq": "app-crawl-queue",
-    "review-dlq": "review-crawl-queue",
+    "app-crawl-dlq": "app-crawl-queue",
+    "review-crawl-dlq": "review-crawl-queue",
     "spoke-results-dlq": "spoke-results-queue",
-    "cache-dlq": "cache-invalidation-queue",
     "email-dlq": "email-queue",
 }
 

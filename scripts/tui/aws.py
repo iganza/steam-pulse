@@ -12,15 +12,13 @@ class AwsClients:
         "app-crawl-queue": "/steampulse/{env}/messaging/app-crawl-queue-url",
         "review-crawl-queue": "/steampulse/{env}/messaging/review-crawl-queue-url",
         "spoke-results-queue": "/steampulse/{env}/messaging/spoke-results-queue-arn",
-        "cache-invalidation-queue": "/steampulse/{env}/messaging/cache-invalidation-queue-url",
         "email-queue": "/steampulse/{env}/messaging/email-queue-arn",
     }
 
     DLQ_PARAMS = {
-        "metadata-dlq": "/steampulse/{env}/messaging/metadata-dlq-arn",
-        "review-dlq": "/steampulse/{env}/messaging/review-dlq-arn",
+        "app-crawl-dlq": "/steampulse/{env}/messaging/app-crawl-dlq-arn",
+        "review-crawl-dlq": "/steampulse/{env}/messaging/review-crawl-dlq-arn",
         "spoke-results-dlq": "/steampulse/{env}/messaging/spoke-results-dlq-arn",
-        "cache-dlq": "/steampulse/{env}/messaging/cache-dlq-arn",
         "email-dlq": "/steampulse/{env}/messaging/email-dlq-arn",
     }
 

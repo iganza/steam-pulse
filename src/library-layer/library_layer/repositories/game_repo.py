@@ -266,7 +266,7 @@ class GameRepository(BaseRepository):
             SELECT appid, name, slug, developer, header_image,
                    review_count, review_count_english, positive_pct, price_usd, is_free,
                    release_date, deck_compatibility,
-                   hidden_gem_score, sentiment_score, is_early_access
+                   hidden_gem_score, sentiment_score, last_analyzed, is_early_access
             FROM {view}
             WHERE {where}
             ORDER BY {order}
@@ -380,7 +380,7 @@ class GameRepository(BaseRepository):
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
                    g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
-                   g.hidden_gem_score, g.sentiment_score,
+                   g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
                    EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
             FROM games g
             WHERE {where}

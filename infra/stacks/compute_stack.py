@@ -441,6 +441,7 @@ class ComputeStack(cdk.Stack):
             timeout=cdk.Duration.minutes(15),
             memory_size=256,
             tracing=lambda_.Tracing.ACTIVE,
+            recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
                 self,
                 "SpokeIngestLogs",

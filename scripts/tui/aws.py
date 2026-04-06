@@ -66,9 +66,14 @@ class AwsClients:
     def sfn(self) -> object:
         return self._client("stepfunctions")
 
+    def logs_for_region(self, region: str) -> object:
+        """Get or create a CloudWatch Logs client for a specific region."""
+        return self._client("logs", region)
+
     @property
     def logs(self) -> object:
-        return self._client("logs")
+        """Default CloudWatch Logs client (us-west-2)."""
+        return self.logs_for_region("us-west-2")
 
     def resolve_ssm(self, param_name: str) -> str:
         """Resolve an SSM parameter, with caching."""

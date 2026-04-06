@@ -1,5 +1,6 @@
 """SteamPulse Admin TUI — main Textual application."""
 
+import os
 from datetime import datetime, timezone
 
 from textual.app import App, ComposeResult
@@ -170,7 +171,13 @@ class SteamPulseAdmin(App[None]):
         self.db_conn = connect_db(env)
         self.aws_available = env is not None
         self.aws = AwsClients(env)
+        self.spoke_regions = self._resolve_spoke_regions()
         self._clock_timer: Timer | None = None
+
+    def _resolve_spoke_regions(self) -> list[str]:
+        """Get spoke regions from config."""
+        regions_str = os.environ.get("SPOKE_REGIONS", "")
+        return [r.strip() for r in regions_str.split(",") if r.strip()]
 
     def compose(self) -> ComposeResult:
         yield Header()

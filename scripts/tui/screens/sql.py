@@ -266,8 +266,8 @@ class SQLConsoleScreen(Widget):
         """Execute SQL in a read-only transaction with timeout."""
         cur = conn.cursor()  # type: ignore[union-attr]
         try:
-            cur.execute("SET statement_timeout = '10s'")
             cur.execute("BEGIN TRANSACTION READ ONLY")
+            cur.execute("SET LOCAL statement_timeout = '10s'")
             cur.execute(sql)
             columns = [desc[0] for desc in cur.description] if cur.description else []
             rows = [dict(row) for row in cur.fetchall()]

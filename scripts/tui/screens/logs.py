@@ -150,18 +150,17 @@ class LogsScreen(Widget):
             return
         self.run_worker(self._fetch_new_logs, exclusive=True)
 
-    def _log_group_names(self) -> list[tuple[str, str]]:
-        """Return (service, log_group_name) pairs for active services."""
+    def _log_group_names(self) -> list[tuple[str, str, str]]:
+        """Return (service, log_group_name, region) triples for active services."""
         env = self.app.env  # type: ignore[attr-defined]
-        groups = []
+        groups: list[tuple[str, str, str]] = []
         for svc in self._active_services:
             if svc == "spoke":
-                # Include all spoke regions
-                config = getattr(self.app, "env", None)
-                # Default spoke regions
-                groups.append((svc, f"/steampulse/{env}/spoke"))
+                spoke_regions = getattr(self.app, "spoke_regions", [])
+                for spoke_region in spoke_regions:
+                    groups.append((svc, f"/steampulse/{env}/spoke/{spoke_region}", spoke_region))
             else:
-                groups.append((svc, f"/steampulse/{env}/{svc}"))
+                groups.append((svc, f"/steampulse/{env}/{svc}", "us-west-2"))
         return groups
 
     async def _initial_load(self) -> None:
@@ -177,13 +176,14 @@ class LogsScreen(Widget):
 
             log_widget = self.query_one("#logs-stream", RichLog)
 
-            for svc, log_group in self._log_group_names():
+            for svc, log_group, region in self._log_group_names():
                 try:
                     events = await asyncio.to_thread(
                         self._fetch_log_events,
                         log_group,
                         start_ms,
                         filter_pattern,
+                        region,
                     )
                     color = SERVICE_COLORS.get(svc, "white")
                     for event in events:
@@ -219,13 +219,14 @@ class LogsScreen(Widget):
             filter_pattern = '"ERROR"' if self._errors_only else ""
             log_widget = self.query_one("#logs-stream", RichLog)
 
-            for svc, log_group in self._log_group_names():
+            for svc, log_group, region in self._log_group_names():
                 try:
                     events = await asyncio.to_thread(
                         self._fetch_log_events,
                         log_group,
                         start_ms,
                         filter_pattern,
+                        region,
                     )
                     color = SERVICE_COLORS.get(svc, "white")
                     for event in events:
@@ -244,10 +245,11 @@ class LogsScreen(Widget):
             self._polling = False
 
     def _fetch_log_events(
-        self, log_group: str, start_ms: int, filter_pattern: str
+        self, log_group: str, start_ms: int, filter_pattern: str, region: str = "us-west-2"
     ) -> list[dict]:
         """Fetch log events from CloudWatch (sync, runs in thread)."""
         aws = self.app.aws  # type: ignore[attr-defined]
+        logs_client = aws.logs_for_region(region)
         kwargs: dict = {
             "logGroupName": log_group,
             "startTime": start_ms,
@@ -257,7 +259,7 @@ class LogsScreen(Widget):
         if filter_pattern:
             kwargs["filterPattern"] = filter_pattern
         try:
-            result = aws.logs.filter_log_events(**kwargs)
+            result = logs_client.filter_log_events(**kwargs)
             return result.get("events", [])
         except Exception:  # noqa: BLE001
             return []

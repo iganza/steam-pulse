@@ -77,6 +77,8 @@ class QueuesScreen(Widget):
 
     BINDINGS = [
         Binding("enter", "inspect_dlq", "Inspect DLQ", show=False),
+        Binding("1", "retry_dlq_message", "Retry", show=False),
+        Binding("2", "delete_dlq_message", "Delete", show=False),
         Binding("escape", "close_inspector", "Close", show=False),
     ]
 
@@ -217,3 +219,82 @@ class QueuesScreen(Widget):
 
         except Exception as exc:  # noqa: BLE001
             self.app.notify(f"Error peeking DLQ: {exc}", severity="error")
+
+    def action_retry_dlq_message(self) -> None:
+        """Retry the first DLQ message by moving it to the source queue."""
+        if not self._dlq_messages or not self._selected_dlq:
+            self.app.notify("No DLQ messages to retry", severity="warning")
+            return
+
+        source_name = DLQ_TO_SOURCE.get(self._selected_dlq)
+        if not source_name:
+            self.app.notify(f"No source queue mapped for {self._selected_dlq}", severity="error")
+            return
+
+        msg = self._dlq_messages[0]
+
+        async def _do_retry(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            try:
+                aws = self.app.aws  # type: ignore[attr-defined]
+                source_url = aws.get_queue_url(source_name)
+                dlq_url = aws.get_queue_url(self._selected_dlq)
+                if not source_url or not dlq_url:
+                    self.app.notify("Could not resolve queue URLs", severity="error")
+                    return
+
+                # Send to source queue
+                await asyncio.to_thread(
+                    aws.sqs.send_message,
+                    QueueUrl=source_url,
+                    MessageBody=msg["Body"],
+                )
+                # Delete from DLQ
+                await asyncio.to_thread(
+                    aws.sqs.delete_message,
+                    QueueUrl=dlq_url,
+                    ReceiptHandle=msg["ReceiptHandle"],
+                )
+                self._dlq_messages.pop(0)
+                self.app.notify(f"Message retried to {source_name}")
+            except Exception as exc:  # noqa: BLE001
+                self.app.notify(f"Retry failed: {exc}", severity="error")
+
+        self.app.push_screen(
+            ConfirmDialog(f"Retry first message from {self._selected_dlq} to {source_name}?"),
+            _do_retry,
+        )
+
+    def action_delete_dlq_message(self) -> None:
+        """Delete the first DLQ message."""
+        if not self._dlq_messages or not self._selected_dlq:
+            self.app.notify("No DLQ messages to delete", severity="warning")
+            return
+
+        msg = self._dlq_messages[0]
+
+        async def _do_delete(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            try:
+                aws = self.app.aws  # type: ignore[attr-defined]
+                dlq_url = aws.get_queue_url(self._selected_dlq)
+                if not dlq_url:
+                    self.app.notify("Could not resolve DLQ URL", severity="error")
+                    return
+
+                await asyncio.to_thread(
+                    aws.sqs.delete_message,
+                    QueueUrl=dlq_url,
+                    ReceiptHandle=msg["ReceiptHandle"],
+                )
+                self._dlq_messages.pop(0)
+                self.app.notify("Message deleted")
+            except Exception as exc:  # noqa: BLE001
+                self.app.notify(f"Delete failed: {exc}", severity="error")
+
+        self.app.push_screen(
+            ConfirmDialog(f"Permanently delete first message from {self._selected_dlq}?"),
+            _do_delete,
+        )

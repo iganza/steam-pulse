@@ -26,7 +26,8 @@ def connect_db(env: str | None) -> psycopg2.extensions.connection | None:
         secret = json.loads(
             sm.get_secret_value(SecretId=f"steampulse/{env}/db-credentials")["SecretString"]
         )
-        port = int(os.environ.get("DB_TUNNEL_PORT", "5433"))
+        default_port = "5434" if env == "production" else "5433"
+        port = int(os.environ.get("DB_TUNNEL_PORT", default_port))
         return psycopg2.connect(
             host="127.0.0.1",
             port=port,

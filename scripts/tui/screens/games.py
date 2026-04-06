@@ -234,7 +234,7 @@ class GamesBrowserScreen(Widget):
             try:
                 import json
 
-                msg = json.dumps({"appid": appid, "max_reviews": 5000})
+                msg = json.dumps({"appid": appid, "target": 5000})
                 await asyncio.to_thread(
                     self.app.aws.send_sqs_message, "review-crawl-queue", msg  # type: ignore[attr-defined]
                 )
@@ -351,9 +351,11 @@ class GamesBrowserScreen(Widget):
                     f"{row['review_count'] or 0:,}",
                     f"{row['positive_pct'] or 0:.0f}%",
                     f"{row['sentiment_score']:.2f}" if row.get("sentiment_score") else "--",
-                    f"${row['price_usd']:.2f}" if row.get("price_usd") is not None else "Free"
+                    "Free"
                     if row.get("price_usd") == 0
-                    else "--",
+                    else "--"
+                    if row.get("price_usd") is None
+                    else f"${row['price_usd']:.2f}",
                     str(row["release_date"] or "--")[:10],
                     str(row["crawled_at"] or "--")[:10],
                     str(row["last_analyzed"] or "--")[:10],
@@ -403,13 +405,15 @@ class GamesBrowserScreen(Widget):
                     parts.append("Linux \u2713")
                 platforms = "  ".join(parts)
 
+            price_display = "Free" if game.get("is_free") else f"${game.get('price_usd', 0):.2f}"
+
             lines = [
                 f"[bold]\u2550\u2550\u2550 {game['name']} ({game['appid']}) \u2550\u2550\u2550[/bold]",
                 "",
                 f"Developer:    {game.get('developer', '--')}",
                 f"Publisher:    {game.get('publisher', '--')}",
                 f"Released:     {str(game.get('release_date', '--'))[:10]}",
-                f"Price:        {'Free' if game.get('is_free') else f'${game.get("price_usd", 0):.2f}'}",
+                f"Price:        {price_display}",
                 f"Platforms:    {platforms or '--'}",
                 "",
                 "[bold]\u2500\u2500 Crawl Status \u2500\u2500[/bold]",

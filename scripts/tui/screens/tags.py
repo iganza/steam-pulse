@@ -110,7 +110,25 @@ class TagsGenresScreen(Widget):
         if not self.app.aws_available:  # type: ignore[attr-defined]
             self.app.notify("AWS not available in local mode", severity="warning")
             return
-        self.app.notify("Matview refresh not yet implemented")
+        self.run_worker(self._do_matview_refresh, exclusive=True)
+
+    async def _do_matview_refresh(self) -> None:
+        """Send a message to the cache-invalidation queue to trigger matview refresh."""
+        try:
+            import asyncio
+            import json
+
+            aws = self.app.aws  # type: ignore[attr-defined]
+            msg = json.dumps({"source": "admin-tui", "action": "refresh"})
+            await asyncio.to_thread(
+                aws.send_sqs_message, "cache-invalidation-queue", msg
+            )
+            self.app.notify("Matview refresh triggered")
+            # Reload data after a short delay to show updated freshness
+            await asyncio.sleep(2)
+            await self._load_data()
+        except Exception as exc:  # noqa: BLE001
+            self.app.notify(f"Matview refresh failed: {exc}", severity="error")
 
     async def _load_data(self) -> None:
         conn = self.app.db_conn  # type: ignore[attr-defined]

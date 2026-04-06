@@ -184,7 +184,7 @@ class QueuesScreen(Widget):
                 aws.sqs.receive_message,
                 QueueUrl=url,
                 MaxNumberOfMessages=10,
-                VisibilityTimeout=0,
+                VisibilityTimeout=30,
                 AttributeNames=["All"],
             )
 

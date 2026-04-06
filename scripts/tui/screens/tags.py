@@ -134,13 +134,27 @@ class TagsGenresScreen(Widget):
             "mv_price_positioning", "mv_release_timing", "mv_platform_distribution",
             "mv_tag_trend", "mv_price_summary",
         ]
-        cur = conn.cursor()  # type: ignore[union-attr]
+        previous_autocommit = conn.autocommit  # type: ignore[union-attr]
+        cur = None
         try:
+            conn.autocommit = True  # type: ignore[union-attr]
+            cur = conn.cursor()  # type: ignore[union-attr]
+            start = __import__("time").monotonic()
             for view in views:
                 cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")  # noqa: S608
+            duration_ms = int((__import__("time").monotonic() - start) * 1000)
+            # Log refresh to matview_refresh_log
+            conn.autocommit = False  # type: ignore[union-attr]
+            cur.execute(
+                "INSERT INTO matview_refresh_log (refreshed_at, duration_ms, views_refreshed) "
+                "VALUES (NOW(), %s, %s)",
+                (duration_ms, views),
+            )
             conn.commit()  # type: ignore[union-attr]
         finally:
-            cur.close()
+            if cur is not None:
+                cur.close()
+            conn.autocommit = previous_autocommit  # type: ignore[union-attr]
 
     async def _load_data(self) -> None:
         conn = self.app.db_conn  # type: ignore[attr-defined]

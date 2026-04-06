@@ -90,12 +90,19 @@ HELP_TEXT = """\
   Enter      Select / drill into row
   Escape     Close panel / modal
   PgUp/PgDn  Page through tables
-  F5         Refresh current screen
 
-[bold]Games (detail panel open)[/bold]
-  1  Crawl metadata   2  Crawl reviews
-  3  Crawl tags       4  Analyze game
-  o  Open on Steam    /  Focus search
+[bold]Dashboard[/bold]
+  F5  Refresh
+
+[bold]Games[/bold]
+  /  Focus search     F1-F5  Toggle filters
+  Detail panel (Enter on row):
+    1  Crawl metadata   2  Crawl reviews
+    3  Crawl tags       4  Analyze game
+    o  Open on Steam
+
+[bold]Tags/Genres[/bold]
+  F5  Refresh materialized views
 
 [bold]Analysis[/bold]
   1  Analyze selected game
@@ -105,7 +112,8 @@ HELP_TEXT = """\
   1  Retry message    2  Delete message
 
 [bold]Logs[/bold]
-  e  Toggle error-only filter
+  e   Toggle error-only filter
+  F5  Refresh
 
 [bold]SQL Console[/bold]
   Ctrl+Enter  Run query      Ctrl+L  Templates

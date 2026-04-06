@@ -405,7 +405,11 @@ class GamesBrowserScreen(Widget):
                     parts.append("Linux \u2713")
                 platforms = "  ".join(parts)
 
-            price_display = "Free" if game.get("is_free") else f"${game.get('price_usd', 0):.2f}"
+            if game.get("is_free"):
+                price_display = "Free"
+            else:
+                price_usd = game.get("price_usd")
+                price_display = "--" if price_usd is None else f"${price_usd:.2f}"
 
             lines = [
                 f"[bold]\u2550\u2550\u2550 {game['name']} ({game['appid']}) \u2550\u2550\u2550[/bold]",

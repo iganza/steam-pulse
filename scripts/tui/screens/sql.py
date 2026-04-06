@@ -165,8 +165,9 @@ class SQLConsoleScreen(Widget):
             self._show_error("Write operations are not allowed. This is a read-only console.")
             return
 
-        # Reject multi-statement input (semicolons outside string literals)
-        # Strip trailing semicolons/whitespace, then check for remaining semicolons
+        # Reject multi-statement input — simple semicolon check after stripping
+        # trailing semicolons. Note: this may reject valid queries with semicolons
+        # inside string literals, but the read-only transaction provides the real guard.
         stripped = sql.rstrip().rstrip(";").strip()
         if ";" in stripped:
             self._show_error("Multi-statement queries are not allowed. Use a single statement.")
@@ -256,14 +257,17 @@ class SQLConsoleScreen(Widget):
             table = self.query_one("#sql-results", DataTable)
             table.clear(columns=True)
 
+            truncated = len(rows) > 500
+            display_rows = rows[:500]
+
             if columns:
                 table.add_columns(*columns)
-                for row in rows[:500]:
+                for row in display_rows:
                     table.add_row(*[self._format_cell(row.get(c)) for c in columns])
 
-            row_note = f" (showing 500/{len(rows)})" if len(rows) > 500 else ""
+            row_note = " (truncated to 500)" if truncated else ""
             status.update(
-                f"  {len(rows)} rows{row_note}  \u2502  {elapsed:.0f}ms  "
+                f"  {len(display_rows)} rows{row_note}  \u2502  {elapsed:.0f}ms  "
                 f"\u2502  History: \u2191\u2193"
             )
         except Exception as exc:  # noqa: BLE001
@@ -279,7 +283,7 @@ class SQLConsoleScreen(Widget):
             cur.execute("SET LOCAL statement_timeout = '10s'")
             cur.execute(sql)
             columns = [desc[0] for desc in cur.description] if cur.description else []
-            rows = [dict(row) for row in cur.fetchall()]
+            rows = [dict(row) for row in cur.fetchmany(501)]
             cur.execute("COMMIT")
             return columns, rows
         except Exception:

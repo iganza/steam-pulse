@@ -130,13 +130,11 @@ class LogsScreen(Widget):
         self._errors_only = not self._errors_only
         mode = "errors only" if self._errors_only else "all levels"
         self.app.notify(f"Log filter: {mode}")
-        self._next_tokens.clear()
         log = self.query_one("#logs-stream", RichLog)
         log.clear()
         self.run_worker(self._initial_load, exclusive=True)
 
     def action_refresh_logs(self) -> None:
-        self._next_tokens.clear()
         log = self.query_one("#logs-stream", RichLog)
         log.clear()
         self.run_worker(self._initial_load, exclusive=True)

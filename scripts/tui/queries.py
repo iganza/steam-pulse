@@ -32,7 +32,7 @@ SELECT
 
 DASHBOARD_REPORT_COUNT = "SELECT COUNT(*) AS reports FROM reports"
 
-# ─�� Games ──────────────────────────────────────────────���───────────────────────
+# -- Games ---------------------------------------------------------------------
 
 GAMES_LIST = """
 SELECT g.appid, g.name, g.review_count, g.positive_pct, g.sentiment_score,
@@ -73,7 +73,7 @@ FROM reports WHERE appid = %s
 
 GAME_REVIEW_COUNT = "SELECT COUNT(*) AS count FROM reviews WHERE appid = %s"
 
-# ── Reviews ───────���─────────────────────────────��──────────────────────────────
+# -- Reviews -------------------------------------------------------------------
 
 REVIEW_STATS = """
 SELECT
@@ -132,7 +132,7 @@ MATVIEW_LAST_REFRESH = """
 SELECT MAX(refreshed_at) AS last_refresh FROM matview_refresh_log
 """
 
-# ── Analysis ─────────────────────────────��─────────────────────────────────────
+# -- Analysis ------------------------------------------------------------------
 
 ANALYSIS_BACKLOG = """
 SELECT g.appid, g.name, g.review_count,
@@ -165,7 +165,7 @@ SELECT
   COUNT(*) FILTER (WHERE meta_status = 'failed') AS meta_failed,
   COUNT(*) FILTER (WHERE meta_status = 'skipped') AS meta_skipped,
   COUNT(*) FILTER (WHERE reviews_completed_at IS NOT NULL) AS reviews_done,
-  COUNT(*) FILTER (WHERE tags_crawled_at IS NOT NULL) AS tags_done
+  COUNT(*) FILTER (WHERE tags_crawled_at IS NOT NULL) AS tags_crawled
 FROM app_catalog
     """.strip(),
     "Unanalyzed games (top 50)": """

@@ -11,6 +11,20 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 
+def spoke_index_for_appid(appid: int, num_spokes: int) -> int:
+    """Hash an appid to a spoke index using MD5 for even distribution.
+
+    Steam appids are biased toward even numbers and round multiples of 10,
+    so plain `appid % N` distributes unevenly (every other spoke gets traffic).
+    MD5 gives even distribution and is deterministic across processes
+    (unlike Python's built-in hash() which is randomized per process).
+    """
+    import hashlib
+
+    digest = hashlib.md5(str(appid).encode()).digest()
+    return int.from_bytes(digest[:4], "big") % num_spokes
+
+
 class CrawlAppsRequest(BaseModel):
     action: Literal["crawl_apps"]
     appid: int

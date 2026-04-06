@@ -30,6 +30,7 @@ from lambda_functions.crawler.events import (
     ReviewSpokeRequest,
     ReviewSpokeResult,
     TagsSpokeResult,
+    spoke_index_for_appid,
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
@@ -300,7 +301,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # More to fetch — re-queue directly to the spoke's SQS queue,
         # bypassing the primary crawler dispatcher entirely.
         new_remaining = msg.target - msg.count if msg.target is not None else None
-        idx = appid % len(_spoke_sqs_targets)
+        idx = spoke_index_for_appid(appid, len(_spoke_sqs_targets))
         queue_url, spoke_sqs = _spoke_sqs_targets[idx]
         req = ReviewSpokeRequest(
             appid=appid,

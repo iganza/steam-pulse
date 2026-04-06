@@ -30,6 +30,7 @@ from .events import (
     CrawlReviewsRequest,
     DirectRequest,
     parse_spoke_request,
+    spoke_index_for_appid,
 )
 
 logger = Logger(service="crawler")
@@ -141,7 +142,7 @@ def _dispatch_to_spoke(record: dict) -> None:
         return
 
     logger.append_keys(appid=req.appid, task=req.task)
-    idx = req.appid % len(_spoke_sqs_targets)
+    idx = spoke_index_for_appid(req.appid, len(_spoke_sqs_targets))
     queue_url, sqs_client = _spoke_sqs_targets[idx]
     logger.info("Dispatching to spoke queue", extra={"queue_url": queue_url})
 

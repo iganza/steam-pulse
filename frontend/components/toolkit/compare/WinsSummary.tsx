@@ -39,12 +39,65 @@ export function WinsSummary({ data }: WinsSummaryProps) {
       .forEach((x) => losses[x.i].push(metric.label));
   }
 
+  // 2-game case: simpler "A beats B on …" wording.
+  if (data.length === 2) {
+    const [a, b] = data;
+    const aWins = wins[0].slice(0, 5).join(", ");
+    const bWins = wins[1].slice(0, 5).join(", ");
+    return (
+      <div
+        className="rounded-xl bg-card border border-border p-6"
+        data-testid="compare-wins-summary"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Swords className="w-4 h-4" style={{ color: "var(--teal)" }} />
+          <SectionLabel className="mb-0">Who Wins Where</SectionLabel>
+        </div>
+        <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+          <p>
+            <span className="text-foreground font-semibold">{a.meta.name}</span> beats{" "}
+            <span className="text-foreground font-semibold">{b.meta.name}</span> on:{" "}
+            <span className="text-foreground">{aWins || "—"}</span>.
+          </p>
+          <p>
+            <span className="text-foreground font-semibold">{b.meta.name}</span> beats{" "}
+            <span className="text-foreground font-semibold">{a.meta.name}</span> on:{" "}
+            <span className="text-foreground">{bWins || "—"}</span>.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 3+ games: identify overall leader (most wins, tie-break by positive_pct then review_count).
+  const winCounts = wins.map((w) => w.length);
+  const maxWins = Math.max(...winCounts);
+  const tiedIdx = winCounts
+    .map((c, i) => (c === maxWins ? i : -1))
+    .filter((i) => i >= 0);
+  tiedIdx.sort((a, b) => {
+    const pa = data[a].meta.positive_pct ?? -1;
+    const pb = data[b].meta.positive_pct ?? -1;
+    if (pb !== pa) return pb - pa;
+    const ra = data[a].meta.review_count ?? -1;
+    const rb = data[b].meta.review_count ?? -1;
+    return rb - ra;
+  });
+  const overallLeaderIdx = tiedIdx[0];
+
   return (
     <div className="rounded-xl bg-card border border-border p-6" data-testid="compare-wins-summary">
       <div className="flex items-center gap-2 mb-3">
         <Swords className="w-4 h-4" style={{ color: "var(--teal)" }} />
         <SectionLabel className="mb-0">Who Wins Where</SectionLabel>
       </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Overall leader:{" "}
+        <span className="text-foreground font-semibold">
+          {data[overallLeaderIdx].meta.name}
+        </span>
+        .
+      </p>
       <div className="space-y-4">
         {data.map((d, i) => {
           const wCount = wins[i].length;

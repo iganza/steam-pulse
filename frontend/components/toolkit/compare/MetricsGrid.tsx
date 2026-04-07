@@ -10,17 +10,26 @@ interface MetricsGridProps {
   isPro: boolean;
 }
 
+function nodeToText(node: unknown): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeToText).join(" ").trim();
+  if (typeof node === "object") {
+    const el = node as { props?: { children?: unknown } };
+    if (el.props && "children" in el.props) return nodeToText(el.props.children).trim();
+  }
+  return "";
+}
+
+function metricCsvValue(metric: MetricRow, d: CompareGameData): string {
+  const n = metric.numeric(d);
+  if (n != null) return String(n);
+  return nodeToText(metric.render(d));
+}
+
 function toCsv(data: CompareGameData[]): string {
   const header = ["Metric", ...data.map((d) => d.meta.name)];
-  const rows = COMPARE_METRICS.map((m) => {
-    const values = data.map((d) => {
-      const n = m.numeric(d);
-      if (n != null) return String(n);
-      // Fallback: stringify via a rough textual render
-      return "";
-    });
-    return [m.label, ...values];
-  });
+  const rows = COMPARE_METRICS.map((m) => [m.label, ...data.map((d) => metricCsvValue(m, d))]);
   return [header, ...rows]
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
     .join("\n");

@@ -105,7 +105,7 @@ async function resolveMeta(
   let header: string | null = null;
   if (reportName) {
     try {
-      const res = await getGames({ q: reportName, limit: 5 });
+      const res = await getGames({ q: reportName, limit: 5 }, signal);
       const match = res.games.find((g) => g.appid === appid);
       if (match) {
         name = match.name;
@@ -133,11 +133,34 @@ async function resolveMeta(
   return meta;
 }
 
-async function loadOne(appid: number, signal: AbortSignal): Promise<CompareGameData | null> {
+function placeholderData(appid: number): CompareGameData {
+  const cached = gameMetaCache.get(appid);
+  const meta: CompareGameMeta = cached ?? {
+    appid,
+    name: `App ${appid}`,
+    slug: String(appid),
+    header_image: null,
+    positive_pct: null,
+    review_score_desc: null,
+    review_count: null,
+    price_usd: null,
+    is_free: null,
+    release_date: null,
+  };
+  return {
+    appid,
+    meta,
+    report: null,
+    benchmarks: null,
+    radarAxes: computeRadarAxes(meta, null),
+  };
+}
+
+async function loadOne(appid: number, signal: AbortSignal): Promise<CompareGameData> {
   try {
     const [reportRes, benchmarks] = await Promise.all([
-      getGameReport(appid),
-      getBenchmarks(appid).catch(() => null),
+      getGameReport(appid, signal),
+      getBenchmarks(appid, signal).catch(() => null),
     ]);
     const report = reportRes.report ?? null;
     const meta = await resolveMeta(appid, report?.game_name, reportRes.game, signal);
@@ -151,7 +174,9 @@ async function loadOne(appid: number, signal: AbortSignal): Promise<CompareGameD
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     console.warn(`compare: failed to load appid ${appid}`, err);
-    return null;
+    // Return a placeholder so data[i] still maps to appids[i] — the grid
+    // will render "—" cells for the missing values and the column remains.
+    return placeholderData(appid);
   }
 }
 
@@ -184,12 +209,14 @@ export function useCompareData(appids: number[]): {
           appids.map((appid) => loadOne(appid, controller.signal)),
         );
         if (controller.signal.aborted) return;
-        const ok = results.filter((r): r is CompareGameData => r !== null);
-        if (ok.length === 0) {
+        // Order preserved: results[i] corresponds to appids[i]. Failed loads
+        // are placeholder stubs rather than being dropped, so columns stay stable.
+        const anyLoaded = results.some((r) => r.report !== null || r.meta.positive_pct != null);
+        if (!anyLoaded) {
           setError("Could not load any of the selected games.");
           setData([]);
         } else {
-          setData(ok);
+          setData(results);
         }
       } catch (err) {
         if ((err as Error).name !== "AbortError") {

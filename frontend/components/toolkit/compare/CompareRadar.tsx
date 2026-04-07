@@ -27,10 +27,12 @@ const AXES = [
 ] as const;
 
 export function CompareRadar({ data }: CompareRadarProps) {
+  // Use appid-based keys (`g-${appid}`) so two games with the same display name
+  // don't collide and overwrite each other in the series data.
   const chartData = AXES.map((axis) => {
     const row: Record<string, string | number> = { axis: axis.label };
     data.forEach((d) => {
-      row[d.meta.name] = d.radarAxes[axis.key];
+      row[`g-${d.appid}`] = d.radarAxes[axis.key];
     });
     return row;
   });
@@ -48,7 +50,7 @@ export function CompareRadar({ data }: CompareRadarProps) {
               <Radar
                 key={d.appid}
                 name={d.meta.name}
-                dataKey={d.meta.name}
+                dataKey={`g-${d.appid}`}
                 stroke={PALETTE[i % PALETTE.length]}
                 fill={PALETTE[i % PALETTE.length]}
                 fillOpacity={0.15}

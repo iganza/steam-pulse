@@ -33,10 +33,20 @@ async function apiFetch<T>(
   // Server-side: allow 25s for Lambda cold starts chained across SSR + API.
   // Browser-side: keep 8s to avoid hanging UI.
   const timeout = typeof window === "undefined" ? 25000 : 8000;
+  // Merge an optional caller-supplied signal with the built-in timeout so
+  // callers (e.g., useCompareData) can actually cancel in-flight requests.
+  const timeoutSignal = AbortSignal.timeout(timeout);
+  const callerSignal = init?.signal;
+  const signal =
+    callerSignal && "any" in AbortSignal
+      ? AbortSignal.any([timeoutSignal, callerSignal])
+      : (callerSignal ?? timeoutSignal);
+  const { signal: _s, ...rest } = init ?? {};
+  void _s;
   const res = await fetch(`${getApiBase()}${path}`, {
     headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(timeout),
-    ...init,
+    ...rest,
+    signal,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -55,7 +65,7 @@ export async function getPreview(appid: number): Promise<PreviewResponse> {
 }
 
 /** GET /api/games/{appid}/report — full report JSON */
-export async function getGameReport(appid: number): Promise<{
+export async function getGameReport(appid: number, signal?: AbortSignal): Promise<{
   status: string;
   report?: GameReport;
   review_count?: number;
@@ -82,6 +92,7 @@ export async function getGameReport(appid: number): Promise<{
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
+    signal,
     next: { revalidate: 3600, tags: [`report-${appid}`] },
   });
 }
@@ -120,7 +131,8 @@ export interface GamesResponse {
 }
 
 /** GET /api/games — listing with optional filters */
-export async function getGames(params?: {
+export async function getGames(
+  params?: {
   q?: string;
   genre?: string;
   tag?: string;
@@ -135,7 +147,9 @@ export async function getGames(params?: {
   sort?: string;
   limit?: number;
   offset?: number;
-}): Promise<GamesResponse> {
+},
+  signal?: AbortSignal,
+): Promise<GamesResponse> {
   const qs = new URLSearchParams();
   if (params?.q) qs.set("q", params.q);
   if (params?.genre) qs.set("genre", params.genre);
@@ -153,6 +167,7 @@ export async function getGames(params?: {
   if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch<GamesResponse>(`/api/games${query}`, {
+    signal,
     next: { revalidate: 3600 },
   });
 }
@@ -187,8 +202,8 @@ export async function getReviewStats(appid: number): Promise<ReviewStats> {
 }
 
 /** GET /api/games/{appid}/benchmarks */
-export async function getBenchmarks(appid: number): Promise<Benchmarks> {
-  return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`);
+export async function getBenchmarks(appid: number, signal?: AbortSignal): Promise<Benchmarks> {
+  return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`, { signal });
 }
 
 // ---------------------------------------------------------------------------

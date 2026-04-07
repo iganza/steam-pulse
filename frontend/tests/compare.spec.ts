@@ -71,7 +71,12 @@ test.describe('Compare lens', () => {
     await page.goto('/compare?appids=440,892970')
     await expect(page.getByTestId('compare-radar')).toBeVisible()
     await expect(page.getByTestId('compare-promise-gap-diff')).toBeVisible()
-    await expect(page.getByTestId('compare-export-csv')).toBeVisible()
+    const exportBtn = page.getByTestId('compare-export-csv')
+    await expect(exportBtn).toBeVisible()
+    const downloadPromise = page.waitForEvent('download')
+    await exportBtn.click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/steampulse-compare.*\.csv$/)
   })
 
   test('who-wins-where narrative renders game names and scores', async ({ page }) => {

@@ -477,11 +477,25 @@ export function GameReportClient({
         <section className="animate-fade-up stagger-1">
           <SectionLabel>The Verdict</SectionLabel>
           <blockquote
-            className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-8 italic"
+            className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-4 italic"
             style={{ letterSpacing: "-0.01em" }}
           >
             &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
           </blockquote>
+          <div className="mb-8">
+            <Link
+              href={`/compare?appids=${appid}`}
+              data-testid="game-compare-deeplink"
+              className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border"
+              style={{
+                borderColor: "var(--teal)",
+                color: "var(--teal)",
+              }}
+            >
+              <Swords className="w-3.5 h-3.5" />
+              Compare with…
+            </Link>
+          </div>
           {/* Steam Facts zone — sentiment magnitude is owned by Steam, not the LLM */}
           <div
             className="rounded-xl p-4 mb-4"

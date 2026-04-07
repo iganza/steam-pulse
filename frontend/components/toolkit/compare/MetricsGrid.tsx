@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Download, Lock } from "lucide-react";
 import { COMPARE_METRICS, METRIC_GROUPS, computeLeaders } from "@/lib/compare-metrics";
 import type { CompareGameData, MetricRow } from "@/lib/compare-types";
@@ -104,6 +105,30 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
   const freeMetrics = COMPARE_METRICS.filter((m) => m.free);
   const proMetrics = COMPARE_METRICS.filter((m) => !m.free);
 
+  // Measure where the Pro tbody starts so the overlay can be anchored exactly
+  // to that region (instead of a fragile `top: 50%`).
+  const proTbodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [proRect, setProRect] = useState<{ top: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (isPro) return;
+    function measure() {
+      const tb = proTbodyRef.current;
+      if (!tb) return;
+      setProRect({ top: tb.offsetTop, height: tb.offsetHeight });
+    }
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (proTbodyRef.current) ro.observe(proTbodyRef.current);
+    if (scrollContainerRef.current) ro.observe(scrollContainerRef.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [isPro, data.length]);
+
   function renderGroupRows(metrics: MetricRow[]) {
     return METRIC_GROUPS.flatMap((group) => {
       const rows = metrics.filter((m) => m.group === group.id);
@@ -159,7 +184,7 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
         )}
       </div>
 
-      <div className="overflow-x-auto relative">
+      <div className="overflow-x-auto relative" ref={scrollContainerRef}>
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border">
@@ -191,6 +216,7 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
           </thead>
           <tbody>{renderGroupRows(freeMetrics)}</tbody>
           <tbody
+            ref={proTbodyRef}
             className={isPro ? "" : "blur-sm pointer-events-none select-none"}
             aria-hidden={!isPro}
           >
@@ -201,8 +227,11 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
         {!isPro && (
           <div
             data-testid="compare-pro-gate"
-            className="absolute inset-x-0 bottom-0 flex items-center justify-center p-8"
-            style={{ top: "50%" }}
+            className="absolute inset-x-0 flex items-center justify-center p-8"
+            style={{
+              top: proRect ? proRect.top : "50%",
+              height: proRect ? proRect.height : undefined,
+            }}
           >
             <div className="rounded-xl bg-card/95 border border-border shadow-xl px-6 py-5 text-center max-w-sm">
               <Lock className="w-5 h-5 mx-auto mb-2 text-[color:var(--teal)]" />

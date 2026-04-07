@@ -276,7 +276,15 @@ export const COMPARE_METRICS: MetricRow[] = [
       return `#${benchmarks.sentiment_rank} / ${benchmarks.cohort_size}`;
     },
     numeric: ({ benchmarks }) => {
-      if (!benchmarks || benchmarks.sentiment_rank == null || benchmarks.cohort_size === 0) return null;
+      // Non-comparable when there's only one game in the cohort — don't
+      // award a bogus 0 to the only member.
+      if (
+        !benchmarks ||
+        benchmarks.sentiment_rank == null ||
+        benchmarks.cohort_size <= 1
+      ) {
+        return null;
+      }
       // Lower rank = better; invert to percentile so higher is better.
       return 1 - benchmarks.sentiment_rank / benchmarks.cohort_size;
     },

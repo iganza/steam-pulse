@@ -55,13 +55,14 @@ export function GamePicker({
     // Fetch any unknown ones via getGames.
     const unknown = selectedAppids.filter((id) => !pillCache.get(id));
     if (unknown.length === 0) return;
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       for (const id of unknown) {
+        if (controller.signal.aborted) return;
         try {
           // We don't have a by-appid endpoint; try a broad search and match by appid.
           // The compare data loader caches the proper meta. As a fallback, leave as "App {id}".
-          const res = await getGames({ q: String(id), limit: 5 });
+          const res = await getGames({ q: String(id), limit: 5 }, controller.signal);
           const match = res.games.find((g) => g.appid === id);
           if (match) {
             const p: PillData = {
@@ -82,17 +83,17 @@ export function GamePicker({
               is_free: match.is_free ?? null,
               release_date: match.release_date ?? null,
             });
-            if (!cancelled) {
+            if (!controller.signal.aborted) {
               setPills((prev) => prev.map((x) => (x.appid === id ? p : x)));
             }
           }
         } catch {
-          // swallow
+          // swallow — aborted or network error; the pill stays as "App {id}"
         }
       }
     })();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [selectedAppids.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -43,7 +43,7 @@ export interface GameReport {
   dev_priorities: DevPriority[];
   competitive_context: CompetitorRef[];
   genre_context: string;
-  hidden_gem_score: number; // 0–100
+  hidden_gem_score: number; // 0.0–1.0 (backend scale); UI scales x100 at the badge boundary
   last_analyzed?: string; // ISO timestamp
 }
 

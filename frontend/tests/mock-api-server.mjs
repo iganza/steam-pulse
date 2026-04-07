@@ -21,7 +21,8 @@ const MOCK_GAME_ANALYZED = {
   review_count: 142389,
   positive_pct: 87,
   review_score_desc: 'Very Positive',
-  hidden_gem_score: 12,
+  // 0.0-1.0 scale matching the backend; UI scales x100 at the badge boundary.
+  hidden_gem_score: 0.12,
   price_usd: null,
   is_free: true,
   genres: ['Action', 'Free to Play'],

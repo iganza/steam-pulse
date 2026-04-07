@@ -235,6 +235,13 @@ export default async function GameReportPage({ params }: Props) {
                   deckCompatibility={gameData.deckCompatibility}
                   deckTestResults={gameData.deckTestResults}
                   isEarlyAccess={gameData.isEarlyAccess}
+                  positivePct={gameData.positivePct}
+                  reviewScoreDesc={gameData.reviewScoreDesc}
+                  metaCrawledAt={gameData.metaCrawledAt}
+                  reviewCrawledAt={gameData.reviewCrawledAt}
+                  reviewsCompletedAt={gameData.reviewsCompletedAt}
+                  tagsCrawledAt={gameData.tagsCrawledAt}
+                  lastAnalyzed={gameData.lastAnalyzed}
                 />
               ),
             }}

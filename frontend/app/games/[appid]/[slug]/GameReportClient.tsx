@@ -238,6 +238,12 @@ export function GameReportClient({
                   {reviewCount?.toLocaleString() ?? "—"}
                   {reviewCount != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
                 </p>
+                {(() => {
+                  const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
+                  return ts ? (
+                    <p className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
+                  ) : null;
+                })()}
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -298,6 +304,11 @@ export function GameReportClient({
                 )}
               </div>
             </div>
+            {relativeTime(metaCrawledAt) && (
+              <p className="mt-3 text-xs font-mono text-muted-foreground">
+                Page metadata updated {relativeTime(metaCrawledAt)} · Source: Steam
+              </p>
+            )}
           </section>
 
           {/* Description */}
@@ -530,6 +541,12 @@ export function GameReportClient({
                 {report.total_reviews_analyzed?.toLocaleString() ?? "—"}
                 {report.total_reviews_analyzed != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
               </p>
+              {(() => {
+                const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
+                return ts ? (
+                  <p className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
+                ) : null;
+              })()}
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -597,6 +614,11 @@ export function GameReportClient({
               )}
             </div>
           </div>
+          {relativeTime(metaCrawledAt) && (
+            <p className="mt-3 text-xs font-mono text-muted-foreground">
+              Page metadata updated {relativeTime(metaCrawledAt)} · Source: Steam
+            </p>
+          )}
         </section>
 
         {/* Section 3 - Design Strengths */}

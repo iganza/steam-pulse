@@ -49,7 +49,7 @@ test.describe('Game report page — analyzed game', () => {
     // Verdict section's Steam-facts zone identifies the source and shows when
     // Steam data was last fetched via the relativeTime() helper.
     await expect(page.getByText(/Steam Facts/i)).toBeVisible()
-    await expect(page.getByText(/Crawled \d+[mhd] ago/)).toBeVisible()
+    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
   })
 
   test('SteamPulse Analysis zone header renders with analyzed freshness', async ({ page }) => {

@@ -15,16 +15,25 @@ a more obvious place: under the **Reviews** tile in Quick Stats (when reviews
 were last fetched), plus a small page-level "metadata last updated" line
 nearby. We already pass `metaCrawledAt`, `reviewCrawledAt`,
 `reviewsCompletedAt`, `tagsCrawledAt`, and `lastAnalyzed` as props to
-`GameReportClient` in both branches — no API or page-loader changes needed.
+`GameReportClient` — but only in the Suspense **fallback** render path. The
+primary render path goes through `ToolkitShell.lensContent.sentiment` in
+`page.tsx`, and that `GameReportClient` instance is currently missing the
+freshness/Steam-sentiment props. They need to be wired through there as well —
+otherwise the new captions never appear at runtime. No API changes needed.
 
 ## Approach
 
-Single-file change to
-`frontend/app/games/[appid]/[slug]/GameReportClient.tsx`. Add a tiny muted
-caption inside the **Reviews** tile and a single muted "Page metadata updated X
-ago" line below the Quick Stats grid. Apply both edits to BOTH JSX branches
-(unanalyzed branch around line 229, analyzed branch around line 524) so an
-un-LLM-analyzed game still shows the same trust signals.
+Two-file change:
+1. `frontend/app/games/[appid]/[slug]/GameReportClient.tsx` — add a tiny muted
+   caption inside the **Reviews** tile and a single muted "Page metadata
+   updated X ago" line below the Quick Stats grid. Apply both edits to BOTH JSX
+   branches (unanalyzed ~L229, analyzed ~L524) so an un-LLM-analyzed game still
+   shows the same trust signals.
+2. `frontend/app/games/[appid]/[slug]/page.tsx` — pass the freshness +
+   Steam-sentiment props (`positivePct`, `reviewScoreDesc`, `metaCrawledAt`,
+   `reviewCrawledAt`, `reviewsCompletedAt`, `tagsCrawledAt`, `lastAnalyzed`) to
+   the `GameReportClient` rendered inside `ToolkitShell.lensContent.sentiment`,
+   not just to the Suspense fallback instance.
 
 ### Reviews tile caption
 
@@ -51,12 +60,19 @@ Immediately after the closing `</div>` of the Quick Stats grid in each branch,
 add:
 
 ```tsx
-{relativeTime(metaCrawledAt) && (
-  <p className="mt-3 text-xs font-mono text-muted-foreground">
-    Page metadata updated {relativeTime(metaCrawledAt)} · Source: Steam
-  </p>
-)}
+{(() => {
+  const metaTs = relativeTime(metaCrawledAt);
+  return metaTs ? (
+    <p className="mt-3 text-xs font-mono text-muted-foreground">
+      Page metadata updated {metaTs} · Source: Steam
+    </p>
+  ) : null;
+})()}
 ```
+
+Compute `relativeTime(metaCrawledAt)` once and reuse it — calling it twice
+(condition + interpolation) duplicates work and can produce edge-case
+inconsistencies near rounding boundaries since it depends on `Date.now()`.
 
 Single line, muted, sits flush under the grid. Skipped entirely when
 `metaCrawledAt` is null.

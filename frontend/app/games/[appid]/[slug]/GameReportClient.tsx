@@ -304,11 +304,14 @@ export function GameReportClient({
                 )}
               </div>
             </div>
-            {relativeTime(metaCrawledAt) && (
-              <p className="mt-3 text-xs font-mono text-muted-foreground">
-                Page metadata updated {relativeTime(metaCrawledAt)} · Source: Steam
-              </p>
-            )}
+            {(() => {
+              const metaTs = relativeTime(metaCrawledAt);
+              return metaTs ? (
+                <p className="mt-3 text-xs font-mono text-muted-foreground">
+                  Page metadata updated {metaTs} · Source: Steam
+                </p>
+              ) : null;
+            })()}
           </section>
 
           {/* Description */}
@@ -493,7 +496,7 @@ export function GameReportClient({
                   relativeTime(reviewCrawledAt) ??
                   relativeTime(reviewsCompletedAt) ??
                   relativeTime(metaCrawledAt);
-                return ts ? <span>Crawled {ts}</span> : null;
+                return ts ? <span data-testid="steam-facts-crawled">Crawled {ts}</span> : null;
               })()}
             </div>
             {positivePct != null ? (
@@ -614,11 +617,14 @@ export function GameReportClient({
               )}
             </div>
           </div>
-          {relativeTime(metaCrawledAt) && (
-            <p className="mt-3 text-xs font-mono text-muted-foreground">
-              Page metadata updated {relativeTime(metaCrawledAt)} · Source: Steam
-            </p>
-          )}
+          {(() => {
+            const metaTs = relativeTime(metaCrawledAt);
+            return metaTs ? (
+              <p className="mt-3 text-xs font-mono text-muted-foreground">
+                Page metadata updated {metaTs} · Source: Steam
+              </p>
+            ) : null;
+          })()}
         </section>
 
         {/* Section 3 - Design Strengths */}

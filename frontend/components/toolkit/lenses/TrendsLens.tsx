@@ -79,6 +79,14 @@ const GAME_TYPE_OPTIONS: { value: "game" | "dlc" | "all"; label: string }[] = [
 // Filters Trends actually consumes today (passed through to backend).
 const TRENDS_HONORED_FILTERS = new Set<keyof ToolkitFilters>(["genre", "tag"]);
 
+// Default value for `sort` in toolkit-state — must match toolkitParsers.sort.withDefault().
+// Without this, the default sort would always be reported as an "ignored" filter.
+const DEFAULT_SORT = "review_count";
+
+// Charts whose backend endpoints do NOT accept genre/tag — they remain
+// catalog-wide regardless of the segment filter.
+const UNFILTERED_CHARTS = ["Genre Share", "Early Access Trends", "Feature Adoption"];
+
 // Human labels for filter keys we may report as ignored.
 const FILTER_LABELS: Partial<Record<keyof ToolkitFilters, string>> = {
   q: "search",
@@ -96,6 +104,8 @@ const FILTER_LABELS: Partial<Record<keyof ToolkitFilters, string>> = {
 function isFilterSet(filters: ToolkitFilters, key: keyof ToolkitFilters): boolean {
   const v = filters[key];
   if (v === null || v === undefined) return false;
+  // `sort` has a non-empty default — only count it as set when it diverges.
+  if (key === "sort") return typeof v === "string" && v.length > 0 && v !== DEFAULT_SORT;
   if (typeof v === "string") return v.length > 0;
   if (Array.isArray(v)) return v.length > 0;
   return true;
@@ -179,25 +189,88 @@ export function TrendsLens({ filters, isPro }: LensProps) {
   return (
     <div className="space-y-6">
       {/* Filter awareness caption */}
-      <p className="text-xs font-mono text-muted-foreground" data-testid="trends-segment-caption">
-        Trends for: {summarizeSegment(filters)}
-        {ignored.length > 0 && (
-          <span className="ml-2 text-foreground/40">
-            ({ignored.join(", ")} not yet supported in Trends — try Explorer)
-          </span>
-        )}
-        {appidsScoped && (
-          <span className="ml-2 text-foreground/40">
-            Trends are catalog-wide — game selection ignored. Use Sentiment Drill for a single-game timeline.
-          </span>
-        )}
-      </p>
+      <div className="space-y-1" data-testid="trends-segment-caption">
+        <p className="text-xs font-mono text-muted-foreground">
+          Trends for: {summarizeSegment(filters)}
+          {(filters.genre || filters.tag) && (
+            <span className="ml-2 text-foreground/40">
+              (filters applied where supported — {UNFILTERED_CHARTS.join(", ")} remain catalog-wide)
+            </span>
+          )}
+          {ignored.length > 0 && (
+            <span className="ml-2 text-foreground/40">
+              ({ignored.join(", ")} not yet supported in Trends — try Explorer)
+            </span>
+          )}
+          {appidsScoped && (
+            <span className="ml-2 text-foreground/40">
+              Trends are catalog-wide — game selection ignored. Use Sentiment Drill for a single-game timeline.
+            </span>
+          )}
+        </p>
+      </div>
 
-      {/* Lens-local display controls (granularity) — Pro-gated */}
+      {/* Lens-local display controls — granularity + per-chart display toggles.
+          All consolidated into a single Pro-gated strip; cards are pure displays. */}
       <div className="relative">
         <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
-          <div className="flex items-center gap-4 flex-wrap">
-            <GranularityToggle value={granularity} onChange={setGranularity} disabled={!isPro} />
+          <div className="flex items-center gap-x-6 gap-y-2 flex-wrap text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Granularity:</span>
+              <GranularityToggle value={granularity} onChange={setGranularity} disabled={!isPro} />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Release Volume:</span>
+              <select
+                value={gameType}
+                onChange={(e) => setGameType(e.target.value as "game" | "dlc" | "all")}
+                disabled={!isPro}
+                className="px-2 py-1 rounded bg-card border border-border text-foreground"
+              >
+                {GAME_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Sentiment:</span>
+              <button
+                onClick={() => setSentimentNormalized(true)}
+                disabled={!isPro}
+                className={`px-2 py-0.5 rounded transition-colors ${sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                % Share
+              </button>
+              <button
+                onClick={() => setSentimentNormalized(false)}
+                disabled={!isPro}
+                className={`px-2 py-0.5 rounded transition-colors ${!sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Raw
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Genre Share top:</span>
+              <div className="inline-flex rounded-lg border border-border overflow-hidden">
+                {GENRE_SHARE_TOP_N_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setGenreShareTopN(n)}
+                    disabled={!isPro}
+                    className={`px-2 py-0.5 transition-colors ${
+                      genreShareTopN === n
+                        ? "bg-teal-500/20 text-teal-400"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
         {!isPro && (
@@ -230,20 +303,6 @@ export function TrendsLens({ filters, isPro }: LensProps) {
                 {data.releaseVolume.summary.trend}
               </p>
             )}
-            {/* Per-chart Pro control: type */}
-            {isPro && (
-              <div className="flex items-center gap-2 mt-1">
-                <select
-                  value={gameType}
-                  onChange={(e) => setGameType(e.target.value as "game" | "dlc" | "all")}
-                  className="px-2 py-1 rounded bg-card border border-border text-xs text-foreground"
-                >
-                  {GAME_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </CardHeader>
           <CardContent>
             <TrendBarChart
@@ -263,22 +322,6 @@ export function TrendsLens({ filters, isPro }: LensProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Sentiment Distribution</CardTitle>
-            {isPro && (
-              <div className="flex items-center gap-2 mt-1">
-                <button
-                  onClick={() => setSentimentNormalized(true)}
-                  className={`text-xs font-mono px-2 py-0.5 rounded transition-colors ${sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  % Share
-                </button>
-                <button
-                  onClick={() => setSentimentNormalized(false)}
-                  className={`text-xs font-mono px-2 py-0.5 rounded transition-colors ${!sentimentNormalized ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  Raw
-                </button>
-              </div>
-            )}
           </CardHeader>
           <CardContent>
             <TrendStackedArea
@@ -299,26 +342,6 @@ export function TrendsLens({ filters, isPro }: LensProps) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Genre Share</CardTitle>
-            {isPro && (
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-xs text-muted-foreground font-mono">Top:</span>
-                <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                  {GENRE_SHARE_TOP_N_OPTIONS.map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setGenreShareTopN(n)}
-                      className={`px-2 py-0.5 text-xs font-mono transition-colors ${
-                        genreShareTopN === n
-                          ? "bg-teal-500/20 text-teal-400"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </CardHeader>
           <CardContent>
             <TrendStackedArea

@@ -143,7 +143,18 @@ export const COMPARE_METRICS: MetricRow[] = [
     render: ({ report }) => {
       const s = report?.hidden_gem_score;
       if (s == null) return "—";
-      return `${Math.round(s * 100)}`;
+      const pct = Math.round(s * 100);
+      return (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[60px]">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${pct}%`, background: "var(--teal)" }}
+            />
+          </div>
+          <span className="text-xs tabular-nums">{pct}</span>
+        </div>
+      );
     },
     numeric: ({ report }) => report?.hidden_gem_score ?? null,
   },

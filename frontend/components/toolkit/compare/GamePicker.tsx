@@ -100,6 +100,7 @@ export function GamePicker({
   useEffect(() => {
     if (!open || !query.trim()) {
       setResults([]);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -111,12 +112,15 @@ export function GamePicker({
       } catch {
         if (!controller.signal.aborted) setResults([]);
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        // Always clear loading — even on abort — so it can't get stuck true
+        // if the popover closes mid-flight.
+        setLoading(false);
       }
     }, 250);
     return () => {
       controller.abort();
       clearTimeout(t);
+      setLoading(false);
     };
   }, [query, open]);
 

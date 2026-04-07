@@ -113,7 +113,7 @@ export function CompareLens({ filters, isPro }: LensProps) {
         onClear={onClear}
       />
 
-      {appids.length < 2 && !loading && <ComparePromptEmpty onAdd={onAdd} />}
+      {appids.length < 2 && <ComparePromptEmpty onAdd={onAdd} />}
 
       {loading && appids.length >= 2 && <CompareSkeleton count={appids.length} />}
 

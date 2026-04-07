@@ -49,7 +49,7 @@ test.describe('Game report page — analyzed game', () => {
     // Verdict section's Steam-facts zone identifies the source and shows when
     // Steam data was last fetched via the relativeTime() helper.
     await expect(page.getByText(/Steam Facts/i)).toBeVisible()
-    await expect(page.getByText(/Crawled \d+[mhd] ago/)).toBeVisible()
+    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
   })
 
   test('SteamPulse Analysis zone header renders with analyzed freshness', async ({ page }) => {
@@ -90,6 +90,16 @@ test.describe('Game report page — analyzed game', () => {
     // report.overall_sentiment. The mock game's Steam review_score_desc is
     // "Very Positive" — that's what the UI surfaces post-data-source-clarity.
     await expect(page.getByText(/very positive/i).first()).toBeVisible()
+  })
+
+  test('Quick Stats Reviews tile shows crawl freshness caption', async ({ page }) => {
+    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+  })
+
+  test('Quick Stats grid shows page metadata freshness footer', async ({ page }) => {
+    await expect(page.getByTestId('quick-stats-meta-updated')).toHaveText(
+      /Page metadata updated \d+[mhd] ago · Source: Steam/,
+    )
   })
 
   test('displays Deck Playable badge for analyzed game', async ({ page }) => {
@@ -306,6 +316,50 @@ test.describe('Game report page — unanalyzed game', () => {
 
   test('hides Deck badge when unknown/null', async ({ page }) => {
     await expect(page.getByTestId('deck-badge')).not.toBeAttached()
+  })
+
+  test('Quick Stats Reviews tile shows crawl freshness caption', async ({ page }) => {
+    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+  })
+
+  test('Quick Stats grid shows page metadata freshness footer', async ({ page }) => {
+    await expect(page.getByTestId('quick-stats-meta-updated')).toHaveText(
+      /Page metadata updated \d+[mhd] ago · Source: Steam/,
+    )
+  })
+})
+
+test.describe('Quick Stats freshness — null timestamps', () => {
+  test('omits both freshness captions when crawl timestamps are null', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    // Override the unanalyzed game route to strip all crawl timestamps —
+    // the captions must degrade gracefully (no render, no layout shift).
+    await page.route('**/api/games/9999999/report', route =>
+      route.fulfill({
+        json: {
+          status: 'not_available',
+          review_count: 42,
+          game: {
+            short_desc: 'A small indie adventure game.',
+            developer: 'Small Studio',
+            release_date: '2024-06-01',
+            price_usd: 9.99,
+            is_free: false,
+            is_early_access: false,
+            deck_compatibility: null,
+            deck_test_results: [],
+            positive_pct: 80,
+            review_score_desc: 'Mostly Positive',
+            review_count: 42,
+            // meta_crawled_at / review_crawled_at / reviews_completed_at omitted
+          },
+        },
+      }),
+    )
+    await page.goto('/games/9999999/obscure-indie-game')
+    await expect(page.getByText('Quick Stats').first()).toBeVisible()
+    await expect(page.getByTestId('reviews-tile-crawled')).not.toBeAttached()
+    await expect(page.getByTestId('quick-stats-meta-updated')).not.toBeAttached()
   })
 })
 

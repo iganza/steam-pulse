@@ -170,6 +170,10 @@ export async function mockAllApiRoutes(page: Page) {
           positive_pct: MOCK_GAME_UNANALYZED.positive_pct,
           review_score_desc: MOCK_GAME_UNANALYZED.review_score_desc,
           review_count: MOCK_GAME_UNANALYZED.review_count,
+          meta_crawled_at: MOCK_GAME_UNANALYZED.meta_crawled_at,
+          review_crawled_at: MOCK_GAME_UNANALYZED.review_crawled_at,
+          reviews_completed_at: MOCK_GAME_UNANALYZED.reviews_completed_at,
+          tags_crawled_at: MOCK_GAME_UNANALYZED.tags_crawled_at,
         },
       },
     })

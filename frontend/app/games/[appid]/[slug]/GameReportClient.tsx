@@ -238,6 +238,12 @@ export function GameReportClient({
                   {reviewCount?.toLocaleString() ?? "—"}
                   {reviewCount != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
                 </p>
+                {(() => {
+                  const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
+                  return ts ? (
+                    <p data-testid="reviews-tile-crawled" className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
+                  ) : null;
+                })()}
               </div>
               <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -298,6 +304,14 @@ export function GameReportClient({
                 )}
               </div>
             </div>
+            {(() => {
+              const metaTs = relativeTime(metaCrawledAt);
+              return metaTs ? (
+                <p data-testid="quick-stats-meta-updated" className="mt-3 text-xs font-mono text-muted-foreground">
+                  Page metadata updated {metaTs} · Source: Steam
+                </p>
+              ) : null;
+            })()}
           </section>
 
           {/* Description */}
@@ -482,7 +496,7 @@ export function GameReportClient({
                   relativeTime(reviewCrawledAt) ??
                   relativeTime(reviewsCompletedAt) ??
                   relativeTime(metaCrawledAt);
-                return ts ? <span>Crawled {ts}</span> : null;
+                return ts ? <span data-testid="steam-facts-crawled">Crawled {ts}</span> : null;
               })()}
             </div>
             {positivePct != null ? (
@@ -530,6 +544,12 @@ export function GameReportClient({
                 {report.total_reviews_analyzed?.toLocaleString() ?? "—"}
                 {report.total_reviews_analyzed != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
               </p>
+              {(() => {
+                const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
+                return ts ? (
+                  <p data-testid="reviews-tile-crawled" className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
+                ) : null;
+              })()}
             </div>
             <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -597,6 +617,14 @@ export function GameReportClient({
               )}
             </div>
           </div>
+          {(() => {
+            const metaTs = relativeTime(metaCrawledAt);
+            return metaTs ? (
+              <p data-testid="quick-stats-meta-updated" className="mt-3 text-xs font-mono text-muted-foreground">
+                Page metadata updated {metaTs} · Source: Steam
+              </p>
+            ) : null;
+          })()}
         </section>
 
         {/* Section 3 - Design Strengths */}

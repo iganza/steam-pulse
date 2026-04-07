@@ -56,6 +56,10 @@ export const MOCK_GAME_UNANALYZED = {
   short_desc: 'A small indie adventure game.',
   deck_compatibility: null,
   deck_test_results: [],
+  meta_crawled_at: _HOURS_AGO(2),
+  review_crawled_at: _HOURS_AGO(2),
+  reviews_completed_at: _HOURS_AGO(2),
+  tags_crawled_at: _HOURS_AGO(2),
 }
 
 export const MOCK_REPORT = {

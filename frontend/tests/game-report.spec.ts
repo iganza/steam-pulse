@@ -302,6 +302,51 @@ test.describe('Data-driven insights — unanalyzed game', () => {
     // Benchmarks section only renders in the analyzed game path
     await expect(page.getByTestId('competitive-benchmark')).not.toBeAttached()
   })
+
+  test('promise gap is NOT shown for unanalyzed games', async ({ page }) => {
+    await expect(page.getByTestId('promise-gap')).not.toBeAttached()
+  })
+})
+
+test.describe('Promise Gap — legacy report without store_page_alignment', () => {
+  test('section is not rendered when store_page_alignment is null', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    // Override the analyzed-game report route AFTER the suite mock so this
+    // registration wins (Playwright LIFO). Strip store_page_alignment to
+    // simulate a legacy report produced before this feature existed.
+    const { store_page_alignment: _omit, ...legacyReport } = MOCK_REPORT
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: legacyReport,
+          game: {
+            short_desc: 'Legacy',
+            developer: 'Valve',
+            release_date: '2007-10-10',
+            price_usd: null,
+            is_free: true,
+            is_early_access: false,
+            genres: [],
+            tags: [],
+            deck_compatibility: null,
+            deck_test_results: [],
+            positive_pct: 87,
+            review_score_desc: 'Very Positive',
+            review_count: 100,
+            meta_crawled_at: null,
+            review_crawled_at: null,
+            reviews_completed_at: null,
+            tags_crawled_at: null,
+            last_analyzed: new Date().toISOString(),
+          },
+        },
+      }),
+    )
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByRole('heading', { name: 'Team Fortress 2' })).toBeVisible()
+    await expect(page.getByTestId('promise-gap')).not.toBeAttached()
+  })
 })
 
 test.describe('Game report page — unanalyzed game', () => {

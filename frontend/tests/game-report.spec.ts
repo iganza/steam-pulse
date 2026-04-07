@@ -23,6 +23,7 @@ test.describe('Game report page — analyzed game', () => {
       /developer priorities/i,
       /competitive context/i,
       /genre context/i,
+      /promise gap/i,
     ]
     for (const section of sections) {
       await expect(page.getByText(section)).toBeVisible()
@@ -148,6 +149,19 @@ test.describe('Data-driven insights — analyzed game', () => {
     await expect(chart).toBeVisible()
     // Insight text renders (blurred but present in DOM)
     await expect(chart.locator('p.italic')).toBeAttached()
+  })
+
+  test('promise gap renders verdict rows and audience match', async ({ page }) => {
+    const promiseGap = page.getByTestId('promise-gap')
+    await expect(promiseGap).toBeVisible()
+    await expect(promiseGap.getByText('VALIDATED').first()).toBeVisible()
+    await expect(promiseGap.getByText('UNDERDELIVERED').first()).toBeVisible()
+    await expect(promiseGap.getByText('HIDDEN STRENGTH').first()).toBeVisible()
+    await expect(promiseGap.getByText('PARTIAL MISMATCH')).toBeVisible()
+    // isPro = true — full audience note rendered, no blur, no upgrade CTA
+    await expect(promiseGap.locator('.blur-sm')).not.toBeAttached()
+    await expect(promiseGap.getByRole('link', { name: /upgrade to pro/i })).not.toBeVisible()
+    await expect(promiseGap.getByText(/Store page targets new players/i)).toBeVisible()
   })
 
   test('competitive benchmark section is present in DOM and fully visible', async ({ page }) => {
@@ -287,6 +301,51 @@ test.describe('Data-driven insights — unanalyzed game', () => {
   test('competitive benchmark is NOT shown for unanalyzed games', async ({ page }) => {
     // Benchmarks section only renders in the analyzed game path
     await expect(page.getByTestId('competitive-benchmark')).not.toBeAttached()
+  })
+
+  test('promise gap is NOT shown for unanalyzed games', async ({ page }) => {
+    await expect(page.getByTestId('promise-gap')).not.toBeAttached()
+  })
+})
+
+test.describe('Promise Gap — legacy report without store_page_alignment', () => {
+  test('section is not rendered when store_page_alignment is null', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    // Override the analyzed-game report route AFTER the suite mock so this
+    // registration wins (Playwright LIFO). Strip store_page_alignment to
+    // simulate a legacy report produced before this feature existed.
+    const { store_page_alignment: _omit, ...legacyReport } = MOCK_REPORT
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: legacyReport,
+          game: {
+            short_desc: 'Legacy',
+            developer: 'Valve',
+            release_date: '2007-10-10',
+            price_usd: null,
+            is_free: true,
+            is_early_access: false,
+            genres: [],
+            tags: [],
+            deck_compatibility: null,
+            deck_test_results: [],
+            positive_pct: 87,
+            review_score_desc: 'Very Positive',
+            review_count: 100,
+            meta_crawled_at: null,
+            review_crawled_at: null,
+            reviews_completed_at: null,
+            tags_crawled_at: null,
+            last_analyzed: new Date().toISOString(),
+          },
+        },
+      }),
+    )
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByRole('heading', { name: 'Team Fortress 2' })).toBeVisible()
+    await expect(page.getByTestId('promise-gap')).not.toBeAttached()
   })
 })
 

@@ -378,6 +378,13 @@ In `frontend/tests/game-report.spec.ts`:
 
 ## Verification
 
+**Pre-launch: mock-only.** No LLM-analyzed games are required. All verification
+runs against `MOCK_REPORT` in `frontend/tests/fixtures/mock-data.ts` via the
+Playwright API mock in `frontend/tests/fixtures/api-mock.ts`. A consolidated
+real-data QA pass (analyze 2–3 games locally with `poetry run python main.py
+--appid 440`, eyeball wrapping/length edge cases) is deferred until after the
+other pre-launch prompts (#7–#10) land.
+
 1. **Build succeeds**: `cd frontend && npm run build` — no TypeScript errors.
 
 2. **Dev server check**:

@@ -40,6 +40,7 @@ import {
   computePlaytimeInsight,
 } from "@/components/game/PlaytimeChart";
 import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
+import { PromiseGap } from "@/components/game/PromiseGap";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 
 interface GameReportClientProps {
@@ -713,6 +714,14 @@ export function GameReportClient({
           <section>
             <SectionLabel>Genre Context</SectionLabel>
             <p className="text-base text-foreground/80 leading-relaxed">{report.genre_context}</p>
+          </section>
+        )}
+
+        {/* Promise Gap */}
+        {report.store_page_alignment && (
+          <section>
+            <SectionLabel>Promise Gap</SectionLabel>
+            <PromiseGap alignment={report.store_page_alignment} isPro={isPro} />
           </section>
         )}
 

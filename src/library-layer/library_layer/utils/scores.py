@@ -49,7 +49,13 @@ def compute_hidden_gem_score(positive_pct: int | float | None, review_count: int
 
 
 def compute_sentiment_trend(reviews: list[dict]) -> SentimentTrend:
-    """Compare positive_pct of last 90 days vs. prior 90 days.
+    """Compare the share of `voted_up` reviews in the last 90 days vs. the prior 90 days.
+
+    This is a *window comparison over the local review sample* — it is NOT a
+    recomputation of Steam's canonical `positive_pct`. The output is a
+    trajectory label (improving / stable / declining), not a sentiment magnitude.
+    Sentiment magnitude is owned by Steam (`positive_pct` / `review_score_desc`)
+    and never derived here.
 
     Returns a dict with trend label, narrative note, sample_size and a `reliable`
     flag (True when EACH window has at least 50 reviews — anything less and the

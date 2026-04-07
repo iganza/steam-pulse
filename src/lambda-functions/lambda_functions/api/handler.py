@@ -185,24 +185,26 @@ async def health() -> dict:
     }
 
 
+def _preview_meta_for(appid: int) -> dict | None:
+    """Steam-sourced sentiment fields for the preview shape, read from the Game row."""
+    game = _game_repo.find_by_appid(appid)
+    if game is None:
+        return None
+    return {
+        "positive_pct": game.positive_pct,
+        "review_score_desc": game.review_score_desc,
+    }
+
+
 @app.post("/api/preview", response_model=None)
 async def preview(body: PreviewRequest) -> JSONResponse | dict:
     appid = body.appid
     logger.append_keys(appid=appid)
 
-    # Cache hit — return preview fields only
+    # Cache hit — return the stable preview shape
     cached = _get_report(appid)
     if cached:
-        cached_game = _game_repo.find_by_appid(appid)
-        cached_meta = (
-            {
-                "positive_pct": cached_game.positive_pct,
-                "review_score_desc": cached_game.review_score_desc,
-            }
-            if cached_game
-            else None
-        )
-        return _preview_fields(cached, cached_meta)
+        return _preview_fields(cached, _preview_meta_for(appid))
 
     # Fetch game details to get name
     try:
@@ -223,10 +225,11 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     # Trigger analysis — Step Functions (async) or inline (local dev, sync)
     job_id = _trigger_analysis(appid, game_name)
 
-    # If inline run completed, report is already stored
+    # If inline run completed, return the same preview shape — never the raw report.
+    # /api/preview is contract-stable: callers always get _preview_fields() on success.
     report = _get_report(appid)
     if report:
-        return report
+        return _preview_fields(report, _preview_meta_for(appid))
 
     # Step Functions path — return 202 for polling
     return JSONResponse(

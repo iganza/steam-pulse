@@ -20,7 +20,9 @@ export const LENS_REGISTRY: LensDefinition[] = [
     id: "compare",
     label: "Compare",
     icon: "Swords",
-    pro: true,
+    // Free users can compare exactly 2 games with a limited metric set.
+    // The lens itself gates pro metrics internally via MetricsGrid's blur overlay.
+    pro: false,
     description: "Side-by-side comparison of multiple games",
   },
   {

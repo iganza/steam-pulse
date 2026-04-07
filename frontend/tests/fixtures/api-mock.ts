@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 import {
   MOCK_GAMES_LIST, MOCK_GENRES, MOCK_TAGS, MOCK_TAG_GROUPS,
-  MOCK_REPORT, MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED,
+  MOCK_REPORT, MOCK_REPORT_2, MOCK_GAME_ANALYZED, MOCK_GAME_2, MOCK_GAME_UNANALYZED,
   MOCK_REVIEW_STATS, MOCK_BENCHMARKS,
   MOCK_RELEASE_VOLUME, MOCK_SENTIMENT_DIST, MOCK_GENRE_SHARE,
   MOCK_VELOCITY_DIST, MOCK_PRICING, MOCK_EARLY_ACCESS,
@@ -174,6 +174,36 @@ export async function mockAllApiRoutes(page: Page) {
           review_crawled_at: MOCK_GAME_UNANALYZED.review_crawled_at,
           reviews_completed_at: MOCK_GAME_UNANALYZED.reviews_completed_at,
           tags_crawled_at: MOCK_GAME_UNANALYZED.tags_crawled_at,
+        },
+      },
+    })
+  )
+
+  // Compare lens — second game report
+  await page.route('**/api/games/892970/report', route =>
+    route.fulfill({
+      json: {
+        status: 'available',
+        report: MOCK_REPORT_2,
+        game: {
+          short_desc: MOCK_GAME_2.short_desc,
+          developer: MOCK_GAME_2.developer,
+          release_date: MOCK_GAME_2.release_date,
+          price_usd: MOCK_GAME_2.price_usd,
+          is_free: MOCK_GAME_2.is_free,
+          is_early_access: MOCK_GAME_2.is_early_access,
+          genres: MOCK_GAME_2.genres,
+          tags: MOCK_GAME_2.tags,
+          deck_compatibility: MOCK_GAME_2.deck_compatibility,
+          deck_test_results: MOCK_GAME_2.deck_test_results,
+          positive_pct: MOCK_GAME_2.positive_pct,
+          review_score_desc: MOCK_GAME_2.review_score_desc,
+          review_count: MOCK_GAME_2.review_count,
+          meta_crawled_at: MOCK_GAME_2.meta_crawled_at,
+          review_crawled_at: MOCK_GAME_2.review_crawled_at,
+          reviews_completed_at: MOCK_GAME_2.reviews_completed_at,
+          tags_crawled_at: MOCK_GAME_2.tags_crawled_at,
+          last_analyzed: MOCK_GAME_2.last_analyzed,
         },
       },
     })

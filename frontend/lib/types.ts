@@ -44,8 +44,40 @@ export interface GameReport {
   competitive_context: CompetitorRef[];
   genre_context: string;
   hidden_gem_score: number; // 0.0–1.0 (backend scale); UI scales x100 at the badge boundary
+  technical_issues?: string[];
+  refund_signals?: RefundSignals | null;
+  community_health?: CommunityHealth | null;
+  monetization_sentiment?: MonetizationSentiment | null;
+  content_depth?: ContentDepth | null;
   store_page_alignment?: StorePageAlignment | null;
   last_analyzed?: string; // ISO timestamp
+}
+
+export interface RefundSignals {
+  refund_language_frequency: "none" | "rare" | "moderate" | "frequent";
+  primary_refund_drivers: string[];
+  risk_level: "low" | "medium" | "high";
+}
+
+export interface CommunityHealth {
+  overall: "thriving" | "active" | "declining" | "dead" | "not_applicable";
+  signals: string[];
+  multiplayer_population: "healthy" | "shrinking" | "critical" | "not_applicable";
+}
+
+export interface MonetizationSentiment {
+  overall: "fair" | "mixed" | "predatory" | "not_applicable";
+  signals: string[];
+  dlc_sentiment: "positive" | "mixed" | "negative" | "not_applicable";
+}
+
+export interface ContentDepth {
+  perceived_length: "short" | "medium" | "long" | "endless";
+  replayability: "low" | "medium" | "high";
+  value_perception: "poor" | "fair" | "good" | "excellent";
+  signals: string[];
+  confidence: "low" | "medium" | "high";
+  sample_size: number;
 }
 
 export interface StorePageAlignment {

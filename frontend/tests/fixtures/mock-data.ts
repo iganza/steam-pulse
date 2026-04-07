@@ -108,6 +108,95 @@ export const MOCK_REPORT = {
   last_analyzed: _DAYS_AGO(3),
 }
 
+// Second game + report for the Compare lens. Intentionally has different metric
+// shapes so leader highlighting is visually distinguishable from MOCK_GAME_ANALYZED.
+export const MOCK_GAME_2 = {
+  appid: 892970,
+  name: 'Valheim',
+  slug: 'valheim',
+  developer: 'Iron Gate AB',
+  header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/892970/header.jpg',
+  review_count: 405000,
+  positive_pct: 94, // higher than TF2
+  review_score_desc: 'Overwhelmingly Positive',
+  hidden_gem_score: 0.68, // higher than TF2
+  price_usd: 19.99,
+  is_free: false,
+  is_early_access: true,
+  genres: ['Action', 'Adventure', 'Indie', 'RPG'],
+  tags: ['Open World', 'Survival', 'Co-op', 'Building'],
+  release_date: '2021-02-02',
+  short_desc: 'A brutal exploration and survival game for 1–10 players set in a vibrant world inspired by Viking culture.',
+  deck_compatibility: 3,
+  deck_test_results: [],
+  meta_crawled_at: _HOURS_AGO(2),
+  review_crawled_at: _HOURS_AGO(2),
+  reviews_completed_at: _HOURS_AGO(2),
+  tags_crawled_at: _HOURS_AGO(2),
+  last_analyzed: _DAYS_AGO(1),
+}
+
+export const MOCK_REPORT_2 = {
+  game_name: 'Valheim',
+  appid: 892970,
+  total_reviews_analyzed: 405000,
+  sentiment_trend: 'improving',
+  sentiment_trend_note: 'Sentiment has trended up with each content drop.',
+  one_liner: 'A Viking survival sandbox that nails the co-op loop.',
+  audience_profile: {
+    ideal_player: 'Co-op survival fans',
+    casual_friendliness: 'high',
+    archetypes: ['Builder', 'Explorer', 'Co-op crew'],
+    not_for: ['Competitive PvPers', 'Solo grinders'],
+  },
+  design_strengths: ['Procedural biomes', 'Building system', 'Co-op pacing'],
+  gameplay_friction: ['Late-game grind'],
+  player_wishlist: ['More biomes', 'Mounts'],
+  churn_triggers: ['Endgame grind'],
+  technical_issues: [],
+  refund_signals: {
+    refund_language_frequency: 'rare',
+    primary_refund_drivers: [],
+    risk_level: 'low',
+  },
+  community_health: {
+    overall: 'thriving',
+    signals: ['Active modding scene', 'Regular content drops'],
+    multiplayer_population: 'healthy',
+  },
+  monetization_sentiment: {
+    overall: 'fair',
+    signals: ['One-time purchase'],
+    dlc_sentiment: 'not_applicable',
+  },
+  content_depth: {
+    perceived_length: 'long',
+    replayability: 'high',
+    value_perception: 'excellent',
+    signals: ['Hundreds of hours per playthrough'],
+    confidence: 'high',
+    sample_size: 12000,
+  },
+  dev_priorities: [
+    { action: 'More biome variety', why_it_matters: 'Keeps endgame fresh', frequency: 'Common', effort: 'High' },
+  ],
+  competitive_context: [],
+  genre_context: 'One of the most successful survival sandboxes of its era.',
+  hidden_gem_score: 0.68,
+  store_page_alignment: {
+    promises_delivered: [
+      'Procedural biomes',
+      'Up to 10 player co-op',
+      'Building system',
+    ],
+    promises_broken: [],
+    hidden_strengths: ['Surprisingly strong modding support'],
+    audience_match: 'aligned' as const,
+    audience_match_note: 'Store page matches actual playerbase closely.',
+  },
+  last_analyzed: _DAYS_AGO(1),
+}
+
 export const MOCK_GENRES = [
   { id: 1, name: 'Action', slug: 'action', game_count: 12400, analyzed_count: 980 },
   { id: 2, name: 'Indie', slug: 'indie', game_count: 28000, analyzed_count: 1200 },
@@ -132,7 +221,7 @@ export const MOCK_TAG_GROUPS = [
 
 export const MOCK_GAMES_LIST = {
   total: 100, // >24 so pagination renders in SearchClient
-  games: [MOCK_GAME_ANALYZED, MOCK_GAME_UNANALYZED],
+  games: [MOCK_GAME_ANALYZED, MOCK_GAME_2, MOCK_GAME_UNANALYZED],
 }
 
 export const MOCK_REVIEW_STATS = {

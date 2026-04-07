@@ -78,6 +78,7 @@ class DataStack(cdk.Stack):
                 vpc_subnets=isolated_subnets,
                 security_groups=[db_sg],
                 database_name=db_name,
+                storage_type=rds.StorageType.GP3,
                 allocated_storage=50,
                 max_allocated_storage=100,
                 deletion_protection=True,

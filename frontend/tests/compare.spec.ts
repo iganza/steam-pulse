@@ -86,4 +86,29 @@ test.describe('Compare lens', () => {
     await expect(summary).toContainText('Team Fortress 2')
     await expect(summary).toContainText('Valheim')
   })
+
+  test('empty prompt shown even with a single appid selected', async ({ page }) => {
+    // Regression: previously the lens rendered nothing when exactly 1 appid
+    // was selected because the prompt was gated on !loading.
+    await page.goto('/compare?appids=440')
+    await expect(page.getByTestId('compare-empty-prompt')).toBeVisible()
+  })
+
+  test('URL normalizes duplicates and over-cap entries', async ({ page }) => {
+    test.skip(IS_PRO, 'URL cap is only enforced in free mode at 2 games')
+    // Duplicates + over-cap: dedupe to [440, 892970], drop the rest.
+    await page.goto('/compare?appids=440,440,892970,9999999')
+    await page.waitForURL(/appids=440(%2C|,)892970(?!\d)/)
+    // Only two pills rendered
+    await expect(page.getByTestId('compare-pill-440')).toBeVisible()
+    await expect(page.getByTestId('compare-pill-892970')).toBeVisible()
+    await expect(page.getByTestId('compare-pill-9999999')).toHaveCount(0)
+  })
+
+  test('game report page has Compare deep-link pointing to /compare', async ({ page }) => {
+    await page.goto('/games/440/team-fortress-2')
+    const link = page.getByTestId('game-compare-deeplink')
+    await expect(link).toBeVisible()
+    await expect(link).toHaveAttribute('href', '/compare?appids=440')
+  })
 })

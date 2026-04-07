@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import datetime
 
+from library_layer.analytics.metrics import METRIC_REGISTRY, get_metric
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 
 VALID_GRANULARITIES = {"week", "month", "quarter", "year"}
@@ -315,6 +316,78 @@ class AnalyticsService:
                 }
             )
         return {"granularity": g, "data_available": bool(periods), "periods": periods}
+
+    # -------------------------------------------------------------------
+    # Builder lens
+    # -------------------------------------------------------------------
+
+    def list_metrics(self) -> list[dict]:
+        """Return the full metric catalog as plain dicts."""
+        return [m.model_dump() for m in METRIC_REGISTRY.values()]
+
+    def trend_query(
+        self,
+        metric_ids: list[str],
+        granularity: str = "month",
+        genre_slug: str | None = None,
+        tag_slug: str | None = None,
+        limit: int = 24,
+    ) -> dict:
+        """Generic trend query powering the Builder lens.
+
+        Returns:
+            {
+                "granularity": str,
+                "periods": [{"period": "...", "<metric_id>": value, ...}, ...],
+                "metrics": [{"id","label","unit","category","default_chart_hint"}, ...],
+            }
+        """
+        g = self._validate_granularity(granularity)
+
+        if not metric_ids:
+            raise ValueError("at least one metric is required")
+        if len(metric_ids) > 6:
+            raise ValueError("at most 6 metrics are allowed")
+
+        # Validate every metric id up-front so we 400 cleanly on typos.
+        defs = [get_metric(mid) for mid in metric_ids]
+
+        rows = self._repo.query_metrics(
+            metric_ids=metric_ids,
+            granularity=g,
+            genre_slug=genre_slug,
+            tag_slug=tag_slug,
+            limit=limit,
+        )
+
+        periods: list[dict] = []
+        for r in rows:
+            period_dt = r["period"]
+            row: dict = {"period": self._format_period(period_dt, g)}
+            for d in defs:
+                v = r.get(d.id)
+                if v is None:
+                    row[d.id] = None
+                elif d.unit == "count":
+                    row[d.id] = int(v)
+                else:
+                    row[d.id] = float(v)
+            periods.append(row)
+
+        return {
+            "granularity": g,
+            "periods": periods,
+            "metrics": [
+                {
+                    "id": d.id,
+                    "label": d.label,
+                    "unit": d.unit,
+                    "category": d.category,
+                    "default_chart_hint": d.default_chart_hint,
+                }
+                for d in defs
+            ],
+        }
 
     def get_category_trend(
         self,

@@ -2,7 +2,9 @@
 
 import json
 
+from library_layer.analytics.metrics import get_metric
 from library_layer.repositories.base import BaseRepository
+from psycopg2 import sql
 
 _MONTH_NAMES = [
     "",
@@ -802,6 +804,92 @@ class AnalyticsRepository(BaseRepository):
             except (json.JSONDecodeError, TypeError):
                 return []
         return data if isinstance(data, list) else []
+
+    # -----------------------------------------------------------------------
+    # Builder lens — generic metric query against pre-computed trend matviews
+    # -----------------------------------------------------------------------
+
+    def query_metrics(
+        self,
+        metric_ids: list[str],
+        granularity: str,
+        genre_slug: str | None = None,
+        tag_slug: str | None = None,
+        limit: int = 24,
+    ) -> list[dict]:
+        """Generic metric query against the mv_trend_* matviews.
+
+        Picks the right matview based on which filter is active:
+          - neither genre nor tag → mv_trend_catalog
+          - genre_slug set         → mv_trend_by_genre
+          - tag_slug set           → mv_trend_by_tag
+
+        Combining genre_slug + tag_slug is not supported in v1 — the caller
+        (service layer) should validate and raise.
+
+        Returns rows as {"period": <datetime>, "<metric_id>": value, ...}
+        sorted ascending by period. The service layer formats the period.
+        """
+        if genre_slug and tag_slug:
+            raise ValueError("combining genre and tag filters is not supported")
+
+        # All metrics in v1 share source=trend_matview — future sources (e.g.
+        # engagement from index_insights) will add a merge step here.
+        defs = [get_metric(mid) for mid in metric_ids]
+        if not defs:
+            raise ValueError("at least one metric is required")
+
+        # De-duplicate column list while preserving metric_id → column mapping.
+        columns: list[str] = []
+        seen: set[str] = set()
+        for d in defs:
+            if d.column not in seen:
+                columns.append(d.column)
+                seen.add(d.column)
+
+        if genre_slug is not None:
+            table = "mv_trend_by_genre"
+            filter_clause = sql.SQL("AND genre_slug = %s")
+            filter_params: tuple = (genre_slug,)
+        elif tag_slug is not None:
+            table = "mv_trend_by_tag"
+            filter_clause = sql.SQL("AND tag_slug = %s")
+            filter_params = (tag_slug,)
+        else:
+            table = "mv_trend_catalog"
+            filter_clause = sql.SQL("")
+            filter_params = ()
+
+        col_sql = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+        query = sql.SQL(
+            """
+            SELECT * FROM (
+                SELECT period, {cols}
+                FROM {table}
+                WHERE granularity = %s
+                  {filter_clause}
+                ORDER BY period DESC
+                LIMIT %s
+            ) sub ORDER BY period
+            """
+        ).format(
+            cols=col_sql,
+            table=sql.Identifier(table),
+            filter_clause=filter_clause,
+        )
+
+        params: tuple = (granularity, *filter_params, limit)
+        rows = self._fetchall(query, params)
+
+        # Rename columns from physical column → metric_id (1:1 in v1, but the
+        # indirection lets a future metric alias a shared column).
+        out: list[dict] = []
+        for r in rows:
+            row: dict = {"period": r["period"]}
+            for d in defs:
+                row[d.id] = r[d.column]
+            out.append(row)
+        return out
 
     def find_category_trend_rows(
         self,

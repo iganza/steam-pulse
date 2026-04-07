@@ -399,6 +399,9 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     WHERE g.review_count >= 10
     GROUP BY gn.slug""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_price_summary_pk ON mv_price_summary(genre_slug)",
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_review_counts AS
+    SELECT appid, COUNT(*) AS stored_count FROM reviews GROUP BY appid""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_review_counts_appid ON mv_review_counts(appid)",
 )
 
 

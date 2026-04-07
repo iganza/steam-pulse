@@ -7,6 +7,7 @@ import {
   Target,
   PieChart,
   TrendingUp,
+  Hammer,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -16,6 +17,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Target,
   PieChart,
   TrendingUp,
+  Hammer,
 };
 
 export function LensIcon({

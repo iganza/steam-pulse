@@ -712,6 +712,34 @@ async def get_trend_categories(
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
+@app.get("/api/analytics/metrics")
+async def get_analytics_metrics() -> dict:
+    """Return the metric catalog powering the Builder lens picker."""
+    return {"metrics": _analytics_service.list_metrics()}
+
+
+@app.get("/api/analytics/trend-query")
+async def get_analytics_trend_query(
+    metrics: str,
+    granularity: str = "month",
+    genre: str | None = None,
+    tag: str | None = None,
+    limit: int = 24,
+) -> dict:
+    """Generic trend query — pick any combination of metrics from the catalog."""
+    metric_ids = [m.strip() for m in metrics.split(",") if m.strip()]
+    try:
+        return _analytics_service.trend_query(
+            metric_ids=metric_ids,
+            granularity=granularity,
+            genre_slug=genre,
+            tag_slug=tag,
+            limit=max(1, min(limit, 200)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 @app.post("/api/waitlist")
 async def join_waitlist(body: WaitlistRequest) -> dict:
     """Add an email to the waitlist and enqueue a confirmation email."""

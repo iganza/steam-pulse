@@ -18,7 +18,7 @@ export default function AnalyticsPage() {
       <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
         <ToolkitShell
           defaultLens="trends"
-          visibleLenses={["trends", "market-map", "explorer"]}
+          visibleLenses={["trends", "builder", "market-map", "explorer"]}
         />
       </Suspense>
     </main>

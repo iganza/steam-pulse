@@ -53,6 +53,14 @@ export const LENS_REGISTRY: LensDefinition[] = [
     pro: true,
     description: "Time-series trends for any metric",
   },
+  {
+    id: "builder",
+    label: "Chart Builder",
+    icon: "Hammer",
+    // Free tier has a 1-metric cap; richer capabilities are gated inside the lens.
+    pro: false,
+    description: "Compose your own chart from any metric",
+  },
 ];
 
 export function getLens(id: LensId): LensDefinition {

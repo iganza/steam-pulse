@@ -12,6 +12,87 @@ import {
   MOCK_DEVELOPER_PORTFOLIO,
 } from './mock-data'
 
+export const MOCK_BUILDER_CATALOG = {
+  metrics: [
+    {
+      id: "releases",
+      label: "Releases",
+      description: "Number of games released in the period.",
+      category: "volume",
+      unit: "count",
+      source: "trend_matview",
+      column: "releases",
+      default_chart_hint: "bar",
+    },
+    {
+      id: "free_count",
+      label: "Free Releases",
+      description: "Number of free-to-play games released.",
+      category: "volume",
+      unit: "count",
+      source: "trend_matview",
+      column: "free_count",
+      default_chart_hint: "bar",
+    },
+    {
+      id: "avg_steam_pct",
+      label: "Avg Steam Positive %",
+      description: "Average Steam positive_pct across releases.",
+      category: "sentiment",
+      unit: "pct",
+      source: "trend_matview",
+      column: "avg_steam_pct",
+      default_chart_hint: "line",
+    },
+    {
+      id: "avg_paid_price",
+      label: "Avg Paid Price",
+      description: "Average price of non-free releases.",
+      category: "pricing",
+      unit: "currency",
+      source: "trend_matview",
+      column: "avg_paid_price",
+      default_chart_hint: "line",
+    },
+  ],
+}
+
+function mockTrendQueryPayload(metrics: string[], granularity = "month") {
+  const periods = [
+    { period: "2024-09", releases: 120, free_count: 22, avg_steam_pct: 78.1, avg_paid_price: 19.99 },
+    { period: "2024-10", releases: 140, free_count: 25, avg_steam_pct: 80.2, avg_paid_price: 21.49 },
+    { period: "2024-11", releases: 155, free_count: 30, avg_steam_pct: 76.5, avg_paid_price: 18.75 },
+    { period: "2024-12", releases: 170, free_count: 34, avg_steam_pct: 79.3, avg_paid_price: 20.99 },
+  ]
+  const shaped = periods.map((p) => {
+    const row: Record<string, number | string> = { period: p.period }
+    for (const m of metrics) if (m in p) row[m] = p[m as keyof typeof p]
+    return row
+  })
+  const meta = MOCK_BUILDER_CATALOG.metrics
+    .filter((m) => metrics.includes(m.id))
+    .map((m) => ({
+      id: m.id,
+      label: m.label,
+      unit: m.unit,
+      category: m.category,
+      default_chart_hint: m.default_chart_hint,
+    }))
+  return { granularity, periods: shaped, metrics: meta }
+}
+
+export async function mockBuilderRoutes(page: Page) {
+  await page.route('**/api/analytics/metrics', route =>
+    route.fulfill({ json: MOCK_BUILDER_CATALOG })
+  )
+  await page.route('**/api/analytics/trend-query**', route => {
+    const url = new URL(route.request().url())
+    const metrics = (url.searchParams.get('metrics') ?? '').split(',').filter(Boolean)
+    const granularity = url.searchParams.get('granularity') ?? 'month'
+    route.fulfill({ json: mockTrendQueryPayload(metrics, granularity) })
+  })
+}
+
 export async function mockAnalyticsRoutes(page: Page) {
   await page.route('**/api/analytics/trends/release-volume**', route =>
     route.fulfill({ json: MOCK_RELEASE_VOLUME })
@@ -211,4 +292,5 @@ export async function mockAllApiRoutes(page: Page) {
 
   await mockAnalyticsRoutes(page)
   await mockPerEntityAnalyticsRoutes(page)
+  await mockBuilderRoutes(page)
 }

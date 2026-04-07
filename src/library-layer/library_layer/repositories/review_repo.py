@@ -289,6 +289,16 @@ class ReviewRepository(BaseRepository):
         ea_count = ea_data["total"] if ea_data else 0
         post_count = post_data["total"] if post_data else 0
 
+        # Audience-shift disclaimer: an EA→post-launch sentiment delta is NOT a
+        # causal measurement of "did the game get better" — the audience changes
+        # too (early adopters are typically more forgiving than the wider
+        # post-launch audience). Frontends should surface this verbatim.
+        _AUDIENCE_SHIFT_NOTE = (
+            "EA-era and post-launch audiences differ — early adopters tend to be more "
+            "forgiving than the wider post-launch crowd. Treat the delta as a signal, "
+            "not a causal measurement of game quality changes."
+        )
+
         if ea_data is None:
             return {
                 "has_ea_reviews": False,
@@ -299,6 +309,7 @@ class ReviewRepository(BaseRepository):
                 "ea_reviews": ea_count,
                 "post_reviews": post_count,
                 "reliable": False,
+                "disclaimer": None,
             }
 
         if post_data is None:
@@ -311,6 +322,7 @@ class ReviewRepository(BaseRepository):
                 "ea_reviews": ea_count,
                 "post_reviews": post_count,
                 "reliable": False,
+                "disclaimer": None,
             }
 
         delta = post_data["pct_positive"] - ea_data["pct_positive"]
@@ -330,6 +342,7 @@ class ReviewRepository(BaseRepository):
             "ea_reviews": ea_count,
             "post_reviews": post_count,
             "reliable": ea_count >= 50 and post_count >= 50,
+            "disclaimer": _AUDIENCE_SHIFT_NOTE,
         }
 
     def find_review_velocity(self, appid: int) -> dict:

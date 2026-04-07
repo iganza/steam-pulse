@@ -411,13 +411,10 @@ def create_all(conn: object) -> None:
     with conn.cursor() as cur:  # type: ignore[union-attr]
         for ddl in TABLES:
             cur.execute(ddl)
-        # Persistent test DBs may still have the old AI sentiment_score column
-        # from a previous run. Drop it so the matview recreate (which no longer
-        # references it) can succeed and so repository tests don't accidentally
-        # fall back on the stale denormalized value. Mirrors migration 0021.
-        cur.execute("DROP INDEX IF EXISTS idx_games_sentiment_score")
-        cur.execute("ALTER TABLE games DROP COLUMN IF EXISTS sentiment_score")
     conn.commit()  # type: ignore[union-attr]
+    # NOTE: dropping the legacy `games.sentiment_score` column happens in
+    # create_matviews(), AFTER the dependent matviews are dropped — Postgres
+    # would otherwise refuse the ALTER. Don't move it back here.
 
 
 def create_indexes(conn: object) -> None:
@@ -456,6 +453,12 @@ def create_matviews(conn: object) -> None:
             "mv_tag_trend",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
+        # Now that all dependent matviews are gone, drop the legacy
+        # games.sentiment_score column on persistent test DBs (mirrors
+        # migration 0021_drop_sentiment_score). Must run BEFORE we recreate
+        # the matviews below — they reference g.positive_pct, not sentiment_score.
+        cur.execute("DROP INDEX IF EXISTS idx_games_sentiment_score")
+        cur.execute("ALTER TABLE games DROP COLUMN IF EXISTS sentiment_score")
         for ddl in MATERIALIZED_VIEWS:
             cur.execute(ddl)
     conn.commit()  # type: ignore[union-attr]

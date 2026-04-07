@@ -36,7 +36,7 @@ export function GameCard({ game }: GameCardProps) {
             <EarlyAccessBadge />
           </div>
         )}
-        {(game.hidden_gem_score ?? 0) >= 70 && (
+        {Math.round((game.hidden_gem_score ?? 0) * 100) >= 70 && (
           <div
             className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono uppercase tracking-widest"
             style={{ background: "rgba(201,151,60,0.85)", color: "#0c0c0f" }}

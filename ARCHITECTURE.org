@@ -430,8 +430,10 @@ Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Function
            workflow orchestrates two-pass LLM analysis via Bedrock Batch Inference:
              Pass 1 (Haiku): 50-review chunks → extract 11 signal types
              Pass 2 (Sonnet): aggregated chunk signals → structured GameReport JSON
-           sentiment_score, hidden_gem_score, and sentiment_trend are computed in
-           Python (PreparePass2 Lambda) — never LLM-guessed.
+           hidden_gem_score and sentiment_trend are computed in Python
+           (PreparePass2 Lambda) — never LLM-guessed. Sentiment magnitude is
+           owned by Steam (positive_pct / review_score_desc on the Game row);
+           the GameReport is narrative-only — see scripts/prompts/data-source-clarity.md.
            The pipeline is idempotent: re-analyzing an appid overwrites its report.
            Intermediate JSONL artifacts in S3 are auto-deleted after 7 days.
 #+END_SRC
@@ -482,8 +484,8 @@ Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Function
       │                       │<─────────────────────│               │
       │                       │  parse ChunkSummary per record        │
       │                       │  group by appid, aggregate signals    │
-      │                       │  compute sentiment_score (Python)     │
-      │                       │  compute hidden_gem_score (Python)    │
+      │                       │  compute hidden_gem_score (Python,    │
+      │                       │    from Steam positive_pct + count)   │
       │                       │  ReviewRepository.find_by_appid()     │
       │                       │──────────────────────────────────────>│
       │                       │<──────────────────────────────────────│
@@ -530,8 +532,9 @@ Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Function
 - Step Functions type: STANDARD (not EXPRESS) — batch jobs run for hours, Wait states > 5 min
 - Bedrock Batch Inference API: =create_model_invocation_job()= (not Converse) — no prompt caching in batch
 - =recordId= format: ={appid}-chunk-{n}= (Pass 1), ={appid}-synthesis= (Pass 2)
-- =sentiment_score=, =hidden_gem_score= computed from =total_stats= (aggregated =batch_stats=) in PreparePass2
-- =sentiment_trend= computed via =compute_sentiment_trend(reviews)= with DB query in PreparePass2
+- =hidden_gem_score= computed from Steam =positive_pct= + =review_count= on the Game row (Python, in PreparePass2). NOT derived from =batch_stats=.
+- =sentiment_trend= computed via =compute_sentiment_trend(reviews)= (returns dict with =reliable= + =sample_size=) with DB query in PreparePass2
+- The GameReport schema does NOT contain =sentiment_score= or =overall_sentiment= — Steam's =positive_pct= / =review_score_desc= are the only sentiment numbers, surfaced via the =Game= row at the API layer.
 - Pre-computed scores saved to =pass2/scores.json=; ProcessResults reads and overrides LLM output
 - =ReportRepository.upsert()= overwrites on conflict — re-analysis is always a full replace
 - =report-ready= event published per game; =batch-complete= published once at end by ProcessResults
@@ -584,16 +587,16 @@ Invariant: Any caller can request a preview for any appid. If no report
       │                     │         └───────────────────────────┘ │
       │                     │                   │                   │
       │                     │  {game_name,      │                   │
-      │                     │   overall_sentiment,                  │
-      │                     │   sentiment_score,                    │
-      │                     │   one_liner}                          │
+      │                     │   one_liner,                          │
+      │                     │   positive_pct,        ← from Game    │
+      │                     │   review_score_desc}   ← from Game    │
       │<───────────────────────────────────────│                   │
 #+END_SRC
 
 *Drift checklist:*
 - Rate limit uses IP hash (not raw IP) stored in =rate_limits= table
 - =POST /api/preview= returns 402 (not 429) on limit reached
-- Response includes only: =game_name=, =overall_sentiment=, =sentiment_score=, =one_liner=
+- Response includes only: =game_name=, =one_liner=, plus Steam-sourced =positive_pct= and =review_score_desc= (read from the =Game= row, NOT from the report)
 - CloudFront behaviour for =/api/*= has caching DISABLED
 
 ** Flow-06: Pipeline Deploy

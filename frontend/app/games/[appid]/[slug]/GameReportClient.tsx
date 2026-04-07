@@ -429,7 +429,7 @@ export function GameReportClient({
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             {isEarlyAccess && <EarlyAccessBadge />}
-            <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
+            <HiddenGemBadge score={Math.round((report.hidden_gem_score ?? 0) * 100)} />
             <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
             {/* Steam-sourced sentiment chip — only Steam's review_score_desc is shown here.
                 If we don't have Steam's label yet, render nothing rather than fabricate. */}

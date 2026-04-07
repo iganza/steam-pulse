@@ -21,7 +21,7 @@ This document covers the comprehensive cleanup, not just sentiment. The audit fo
 | `review_score_desc` | Steam | KEEP | Brand as Steam, replaces overall_sentiment |
 | `hidden_gem_score` | Python (depends on sentiment_score) | REWORK | Use `positive_pct` directly, document thresholds |
 | `compute_sentiment_trend()` | Python from Steam votes | KEEP | Add `reliable` flag and `sample_size` |
-| `find_review_velocity()` | Python | KEEP | Add 7-day rolling average, ignore months <5 |
+| `find_review_velocity()` | Python | KEEP | Add 3-month centered rolling average (the data is bucketed monthly — a 7-day window doesn't apply), ignore months <5 in `avg_monthly` |
 | `find_playtime_sentiment()` churn_point | Python | KEEP | Only flag if both buckets ≥20 reviews |
 | `find_early_access_impact()` | Python | KEEP | Add audience-shift disclaimer + sample sizes |
 | `find_audience_overlap()` | Python | KEEP | Document the 10k reviewer cap |
@@ -146,7 +146,7 @@ The signature changes from `(total_reviews, sentiment_score)` to `(positive_pct,
 
 `find_playtime_sentiment()` — only set `churn_point` if both the previous and current bucket each have ≥20 reviews. Otherwise `churn_point` is `None`.
 
-`find_review_velocity()` — add a `smoothed` field with 3-month rolling average alongside the raw monthly series. In `summary`, exclude months with <5 reviews from `avg_monthly`.
+`find_review_velocity()` — add a `smoothed` field with a 3-month centered rolling average alongside the raw monthly series (the underlying series is bucketed monthly, so the originally-suggested "7-day" window doesn't apply). In `summary`, exclude months with <5 reviews from `avg_monthly`.
 
 `find_early_access_impact()` — add `ea_reviews` and `post_reviews` count fields. Add a `reliable: bool` flag (True when both are >= 50).
 

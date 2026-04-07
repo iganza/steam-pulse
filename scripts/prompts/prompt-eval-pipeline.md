@@ -1,5 +1,28 @@
 # Prompt Eval Pipeline — Implementation Prompt
 
+> **Needs revision before implementation.** Several scorers in this prompt assume
+> the pre-data-source-clarity `GameReport` shape. Specifically:
+> - **DROP** `score_sentiment_score_range`, `score_sentiment_label_match`,
+>   `score_sentiment_score_ground_truth` — `sentiment_score` and `overall_sentiment`
+>   were removed from `GameReport`. Sentiment magnitude lives on the `Game` row
+>   (Steam's `positive_pct` / `review_score_desc`) and is not LLM-produced, so
+>   there is nothing to evaluate.
+> - **RENAME** `score_refund_risk_present` / `score_refund_risk_coherent` to
+>   reference `refund_signals` (the model was renamed from `RefundRisk` →
+>   `RefundSignals`; same fields).
+> - **ADD** `score_content_depth_confidence` — `ContentDepth` now carries
+>   `confidence` and `sample_size`; assert `confidence` is one of low/medium/high
+>   and that `sample_size` ≥ 0.
+> - **ADD** `score_sentiment_trend_reliability` — when `sentiment_trend_reliable`
+>   is True, both 90-day windows must have ≥50 reviews (verify against the input
+>   review set).
+> - **ADD** `score_no_legacy_sentiment_fields` — assert the report dict does NOT
+>   contain `sentiment_score` or `overall_sentiment` (regression guard).
+> - The example `valid_report` fixture and the test cases that mutate
+>   `overall_sentiment` / `sentiment_score` must be rewritten against the new
+>   schema.
+> See `scripts/prompts/data-source-clarity.md` for the rationale.
+
 ## Goal
 
 Build a **lightweight, Python-native prompt evaluation harness** that scores

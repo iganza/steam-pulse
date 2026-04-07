@@ -1,5 +1,13 @@
 # Three-Phase LLM Analysis Pipeline
 
+> **Updated post-data-source-clarity refactor.** Sentiment magnitude is owned by Steam
+> (`positive_pct` / `review_score_desc` on the `Game` row). The `GameReport` no longer
+> contains `sentiment_score` or `overall_sentiment`. The only Python-computed numeric
+> values still overwritten on the report are `hidden_gem_score` (now derived from
+> Steam's positive_pct + review_count, not from sampled batch_stats) and the
+> `sentiment_trend*` fields (a window comparison, not a magnitude). See
+> `scripts/prompts/data-source-clarity.md` for the full rationale.
+
 ## Background
 
 The current two-pass analysis pipeline has five structural limitations:
@@ -92,7 +100,7 @@ prompts and produce identical output.
 
 - **Models**: `src/library-layer/library_layer/models/analyzer_models.py` — add `TopicSignal`, `ReviewQuote`, `RichChunkSummary`, `MergedSummary`
 - **Analyzer**: `src/library-layer/library_layer/analyzer.py` — v2 prompts, new chunk/merge/synthesis functions, `analyze_reviews_v3()` orchestrator
-- **Scores**: `src/library-layer/library_layer/utils/scores.py` — add `compute_sentiment_score_from_counts()`
+- **Scores**: `src/library-layer/library_layer/utils/scores.py` — no new helpers needed; `compute_hidden_gem_score(positive_pct, review_count)` and `compute_sentiment_trend(reviews) -> dict` already exist post-data-source-clarity
 - **Config**: `src/library-layer/library_layer/config.py` — add `LLM_MODEL__MERGING` task
 - **Schema reference**: `src/library-layer/library_layer/schema.py` — add new tables
 - **Analysis handler**: `src/lambda-functions/lambda_functions/analysis/handler.py` — switch to `analyze_reviews_v3()`
@@ -125,8 +133,11 @@ _config.model_for("merging")     # LLM_MODEL__MERGING
 
 **Prompt constants**: system prompts defined as module-level string constants in `analyzer.py`.
 
-**Scores computed in Python**: `sentiment_score`, `hidden_gem_score`, `sentiment_trend`
-are ALWAYS computed in Python and override LLM output. This principle is unchanged.
+**Scores computed in Python**: `hidden_gem_score` and the `sentiment_trend*` fields are
+ALWAYS computed in Python and override LLM output. **Sentiment magnitude
+(`positive_pct` / `review_score_desc`) is owned by Steam** and read directly from the
+`Game` row — never recomputed from the local review sample. The `GameReport` no longer
+contains `sentiment_score` or `overall_sentiment`.
 
 ---
 
@@ -146,7 +157,14 @@ class ReviewQuote(BaseModel):
 
 
 class TopicSignal(BaseModel):
-    """A structured topic extracted from a chunk of reviews."""
+    """A structured topic extracted from a chunk of reviews.
+
+    NOTE on `sentiment`: this is a per-TOPIC tag, not a game-wide sentiment score.
+    Game-wide sentiment magnitude is owned by Steam (`positive_pct` /
+    `review_score_desc` on the Game row) and is never derived from these tags.
+    The topic-level tag is only used to render Topic cards in the UI and to
+    weight signals during merge.
+    """
     topic: str                          # canonical label, e.g. "base building", "matchmaking"
     category: Literal[
         "design_praise", "gameplay_friction", "wishlist_items",
@@ -478,21 +496,32 @@ Key changes in the user message:
 
 ### GameReport Output Schema
 
-**Unchanged.** Backward compatible with the frontend. Future iterations may add a
-`topic_sentiments` field with a default of `[]`.
+**Reflects post-data-source-clarity shape.** No `sentiment_score`, no `overall_sentiment`,
+`refund_risk` is now `refund_signals`, `ContentDepth` carries `confidence` + `sample_size`,
+and `sentiment_trend_reliable` / `sentiment_trend_sample_size` are present. Future
+iterations may add a `topic_sentiments` field with a default of `[]` to expose the
+merged `TopicSignal` list to the frontend Topics tab. The frontend already consumes
+Steam's `positive_pct` / `review_score_desc` from the `Game` row joined at the API
+layer — do not reintroduce these into the report.
 
 ### Python Score Computation
 
-Unchanged in principle. Add a convenience function:
+The synthesis call must be passed Steam's canonical sentiment numbers as context (so
+the LLM frames its narrative consistent with Steam's verdict) and the Python-computed
+`hidden_gem_score`:
 
 ```python
-def compute_sentiment_score_from_counts(positive: int, negative: int) -> float:
-    total = positive + negative
-    return round(positive / total, 3) if total > 0 else 0.5
+hidden_gem_score = compute_hidden_gem_score(
+    positive_pct=game.positive_pct,    # Steam, from games row
+    review_count=game.review_count,    # Steam, from games row
+)
+trend = compute_sentiment_trend(reviews)  # returns dict{trend, note, reliable, sample_size}
 ```
 
-Called from both the old `compute_sentiment_score(chunk_summaries)` and the new path
-using `merged.total_stats.positive_count` / `negative_count`.
+`merged.total_stats.positive_count` / `negative_count` are kept for diagnostics and to
+let the LLM see the local sample distribution, but they MUST NOT be used to compute
+any sentiment magnitude shown to the user — Steam's `positive_pct` is the only number.
+There is no `compute_sentiment_score_from_counts()` helper and one must not be added.
 
 ### Prompt Version Constant
 
@@ -514,8 +543,16 @@ def analyze_reviews_v3(
     conn: psycopg2.extensions.connection,
     temporal: GameTemporalContext | None = None,
     metadata: GameMetadataContext | None = None,
+    steam_positive_pct: int | float | None = None,
+    steam_review_count: int | None = None,
+    steam_review_score_desc: str | None = None,
 ) -> dict:
-    """Three-phase LLM analysis pipeline."""
+    """Three-phase LLM analysis pipeline.
+
+    Steam's positive_pct/review_count/review_score_desc must be passed by the caller
+    (read from the Game row). They feed both `compute_hidden_gem_score` and the
+    synthesis prompt context. They are NEVER recomputed from `merged.total_stats`.
+    """
     client = _get_instructor_client()
 
     # Phase 1: Chunk & Summarize (with idempotency)
@@ -540,24 +577,28 @@ def analyze_reviews_v3(
     merged_repo = MergedSummaryRepository(conn)
     merged_id = merged_repo.insert(appid, merged, ...)
 
-    # Python scores from merged stats
-    sentiment_score = compute_sentiment_score_from_counts(
-        merged.total_stats.positive_count, merged.total_stats.negative_count
-    )
-    hidden_gem_score = compute_hidden_gem_score(len(reviews), sentiment_score)
-    sentiment_trend, sentiment_trend_note = compute_sentiment_trend(reviews)
+    # Python derived values — sentiment magnitude is owned by Steam, not derived here
+    hidden_gem_score = compute_hidden_gem_score(steam_positive_pct, steam_review_count)
+    trend = compute_sentiment_trend(reviews)  # dict with trend, note, reliable, sample_size
 
     # Phase 3: Synthesize
-    report = _synthesize_v3(client, merged, game_name, len(reviews),
-                            sentiment_score, hidden_gem_score,
-                            sentiment_trend, sentiment_trend_note,
-                            temporal=temporal, metadata=metadata)
+    report = _synthesize_v3(
+        client, merged, game_name, len(reviews),
+        hidden_gem_score=hidden_gem_score,
+        sentiment_trend=trend["trend"],
+        sentiment_trend_note=trend["note"],
+        steam_positive_pct=steam_positive_pct,
+        steam_review_score_desc=steam_review_score_desc,
+        temporal=temporal,
+        metadata=metadata,
+    )
 
-    # Override with Python-computed values
-    report.sentiment_score = sentiment_score
+    # Override Python-computed values (defensive — LLM must not produce these)
     report.hidden_gem_score = hidden_gem_score
-    report.sentiment_trend = sentiment_trend
-    report.sentiment_trend_note = sentiment_trend_note
+    report.sentiment_trend = trend["trend"]
+    report.sentiment_trend_note = trend["note"]
+    report.sentiment_trend_reliable = trend["reliable"]
+    report.sentiment_trend_sample_size = trend["sample_size"]
     if appid is not None:
         report.appid = appid
 
@@ -565,7 +606,9 @@ def analyze_reviews_v3(
 ```
 
 Note: `conn` parameter is new — needed for chunk storage/lookup. The analysis handler
-already has `_conn` at module level.
+already has `_conn` at module level. The handler must also pass `steam_positive_pct`
+/ `steam_review_count` / `steam_review_score_desc` from the `Game` row it already
+loads (see the existing pattern in `analysis/handler.py` post-data-source-clarity).
 
 ---
 
@@ -615,11 +658,20 @@ jobs/{execution-id}/
 No feature flag — there is no production environment to protect. Replace the old
 `analyze_reviews()` call directly.
 
-In `analysis/handler.py`, change the call to:
+In `analysis/handler.py`, change the call to (mirrors the post-data-source-clarity
+v2 call signature — Steam values come from the `game` row already loaded above):
 
 ```python
-result = analyze_reviews_v3(reviews_for_llm, name, appid=req.appid,
-                            conn=_conn, temporal=temporal, metadata=metadata)
+result = analyze_reviews_v3(
+    reviews_for_llm, name,
+    appid=req.appid,
+    conn=_conn,
+    temporal=temporal,
+    metadata=metadata,
+    steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
+    steam_review_count=game.review_count or None,
+    steam_review_score_desc=game.review_score_desc,
+)
 ```
 
 Once verified, remove the old `analyze_reviews()` function and the legacy `ChunkSummary`
@@ -669,8 +721,7 @@ calls instead of 44.
 | 8 | Phase 2 prompts + `_merge_chunk_summaries()` | Steps 1, 5 |
 | 9 | Phase 3 updated synthesis | Step 1 |
 | 10 | `analyze_reviews_v3()` orchestrator | Steps 7, 8, 9 |
-| 11 | Update `analysis/handler.py` to call v3 | Step 10 |
-| 12 | `compute_sentiment_score_from_counts()` | None |
+| 11 | Update `analysis/handler.py` to call v3 (passing Steam fields) | Step 10 |
 | 13 | Batch: `prepare_merge.py` | Steps 7, 8 |
 | 14 | Batch: rename `prepare_pass2.py` → `prepare_pass3.py` | Step 9 |
 | 15 | CDK: add merge Lambda + update SFN | Steps 13, 14 |
@@ -713,8 +764,10 @@ calls instead of 44.
 - Phase 2 model is configured via `LLM_MODEL__MERGING`, NOT hardcoded
 - `chunk_summaries` unique key is `(appid, chunk_hash, prompt_version)` — NOT `(appid, chunk_index)`
 - `MergedSummary` schema is a superset of `RichChunkSummary` (same topic structure)
-- Python scores are ALWAYS computed in Python, never from LLM output
-- `GameReport` output schema is UNCHANGED — frontend backward compatibility is mandatory
+- `hidden_gem_score` and `sentiment_trend*` are ALWAYS computed in Python and overwritten on the report — never from LLM output
+- **Sentiment magnitude is owned by Steam.** `positive_pct` / `review_score_desc` come from the `Game` row and are NEVER recomputed from `merged.total_stats`. Do not reintroduce `sentiment_score` or `overall_sentiment` to `GameReport`. Do not add `compute_sentiment_score_from_counts()`.
+- The synthesis prompt receives Steam's `positive_pct` as canonical context (`steam_positive_pct` parameter on the user-message builder) so the LLM frames its narrative consistently
+- `GameReport` output schema reflects the post-data-source-clarity shape: `refund_signals` (not `refund_risk`), `ContentDepth` has `confidence` + `sample_size`, `sentiment_trend_reliable` + `sentiment_trend_sample_size` are present
 - Hierarchical merge max depth is 3 levels — never deeper
 - Legacy `review_summaries` table (appid PK) is unrelated to `chunk_summaries`
 - Both real-time and batch paths use the same prompt constants

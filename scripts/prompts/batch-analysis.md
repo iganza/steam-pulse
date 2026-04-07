@@ -1,5 +1,17 @@
 # SteamPulse — Batch Analysis Pipeline
 
+> **Historical design doc — implemented, then partially superseded by
+> `scripts/prompts/data-source-clarity.md`.** Key changes vs. what is described
+> below:
+> - The `GameReport` no longer contains `sentiment_score` or `overall_sentiment`.
+> - `hidden_gem_score` is now computed from Steam's `positive_pct` + `review_count`
+>   on the `Game` row, NOT from `total_stats.positive_count/negative_count`.
+> - `compute_sentiment_score()` and `sentiment_label()` were deleted.
+> - `compute_sentiment_trend()` now returns a dict with `reliable` + `sample_size`.
+> - PreparePass2 / ProcessResults read Steam fields from the `games` row and pass
+>   them through the synthesis prompt as canonical context.
+> See `prepare_pass2.py` and `process_results.py` for the live shapes.
+
 ## Overview
 
 SteamPulse processes Steam game reviews through a two-pass LLM pipeline:

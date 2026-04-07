@@ -27,8 +27,9 @@ export function ScoreBar({ score, label, className = "" }: ScoreBarProps) {
   return (
     <div className={`space-y-2 ${className}`}>
       <div className="flex items-center justify-between">
-        <span className="text-sm uppercase tracking-widest text-muted-foreground font-mono">
-          Sentiment Score
+        <span className="text-sm uppercase tracking-widest text-muted-foreground font-mono inline-flex items-center gap-1.5">
+          <span aria-hidden>👍</span>
+          Steam Sentiment
         </span>
         <span
           className="font-mono text-2xl font-bold tabular-nums"

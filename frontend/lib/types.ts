@@ -20,15 +20,20 @@ export interface CompetitorRef {
   note: string;
 }
 
-/** Full report — returned by /api/games/{appid}/report and /api/status when complete */
+/** Full report — returned by /api/games/{appid}/report and /api/status when complete.
+ *
+ * NOTE: sentiment magnitude (positive_pct / review_score_desc) is owned by Steam
+ * and lives on the `Game` object, NOT here. The report is narrative-only —
+ * branded as AI ("SteamPulse Analysis") in the UI.
+ */
 export interface GameReport {
   game_name: string;
   appid: number;
   total_reviews_analyzed: number;
-  overall_sentiment: string;
-  sentiment_score: number; // 0–100
   sentiment_trend: string;
   sentiment_trend_note: string;
+  sentiment_trend_reliable?: boolean;
+  sentiment_trend_sample_size?: number;
   one_liner: string;
   audience_profile: AudienceProfile;
   design_strengths: string[];
@@ -42,12 +47,13 @@ export interface GameReport {
   last_analyzed?: string; // ISO timestamp
 }
 
-/** Free preview — returned by POST /api/preview */
+/** Free preview — returned by POST /api/preview.
+ * positive_pct + review_score_desc come from Steam, not the LLM. */
 export interface PreviewResponse {
   game_name: string;
   appid: number;
-  overall_sentiment: string;
-  sentiment_score: number;
+  positive_pct?: number | null;
+  review_score_desc?: string | null;
   one_liner: string;
   audience_profile?: AudienceProfile;
   job_id?: string; // present when report is being generated async
@@ -67,7 +73,11 @@ export interface DeckTestResult {
   loc_token: string;
 }
 
-/** Game row from DB — used on listing pages */
+/** Game row from DB — used on listing pages.
+ *
+ * Sentiment fields come straight from Steam (positive_pct, review_score_desc).
+ * The legacy AI `sentiment_score` was dropped in the data-source-clarity refactor;
+ * UI must source sentiment exclusively from positive_pct here. */
 export interface Game {
   appid: number;
   name: string;
@@ -78,8 +88,8 @@ export interface Game {
   review_count?: number;
   review_count_english?: number;
   positive_pct?: number;
+  review_score_desc?: string | null;
   hidden_gem_score?: number;
-  sentiment_score?: number;
   price_usd?: number;
   is_free?: boolean;
   is_early_access?: boolean;
@@ -88,6 +98,12 @@ export interface Game {
   release_date?: string;
   deck_compatibility?: number | null;
   deck_test_results?: DeckTestResult[];
+  // Per-source freshness — surfaced in the Steam Facts zone on the detail page
+  meta_crawled_at?: string | null;
+  review_crawled_at?: string | null;
+  reviews_completed_at?: string | null;
+  tags_crawled_at?: string | null;
+  last_analyzed?: string | null;
 }
 
 export interface TimelineEntry {
@@ -153,7 +169,7 @@ export interface TrendPeriod {
 
 export interface ReleaseVolumePeriod extends TrendPeriod {
   releases: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
   avg_reviews: number;
   free_count: number;
 }
@@ -164,7 +180,7 @@ export interface SentimentDistPeriod extends TrendPeriod {
   mixed_count: number;
   negative_count: number;
   positive_pct: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
   avg_metacritic: number | null;
 }
 
@@ -193,8 +209,8 @@ export interface EATrendPeriod extends TrendPeriod {
   total_releases: number;
   ea_count: number;
   ea_pct: number;
-  ea_avg_sentiment: number | null;
-  non_ea_avg_sentiment: number | null;
+  ea_avg_steam_pct: number | null;
+  non_ea_avg_steam_pct: number | null;
 }
 
 export interface PlatformTrendPeriod extends TrendPeriod {
@@ -333,7 +349,7 @@ export interface PricePositioning {
 export interface PriceRange {
   price_range: string;
   game_count: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
   median_price: number;
 }
 
@@ -359,7 +375,7 @@ export interface ReleaseMonth {
   month: number;
   month_name: string;
   releases: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
   avg_reviews: number;
 }
 
@@ -367,7 +383,7 @@ export interface MonthHighlight {
   month: number;
   month_name: string;
   releases?: number;
-  avg_sentiment?: number;
+  avg_steam_pct?: number;
 }
 
 // Feature 9: Platform Gaps
@@ -385,7 +401,7 @@ export interface PlatformGaps {
 export interface PlatformStats {
   count: number;
   pct: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
 }
 
 // Feature 10: Tag Trend
@@ -401,7 +417,7 @@ export interface TagTrend {
 export interface TagYear {
   year: number;
   game_count: number;
-  avg_sentiment: number | null;
+  avg_steam_pct: number | null;
 }
 
 // Feature 11: Developer Portfolio
@@ -415,7 +431,7 @@ export interface DeveloperPortfolio {
 export interface DeveloperSummary {
   total_games: number;
   total_reviews: number;
-  avg_sentiment: number;
+  avg_steam_pct: number;
   first_release: string | null;
   latest_release: string | null;
   avg_price: number | null;

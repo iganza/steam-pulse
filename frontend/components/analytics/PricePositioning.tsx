@@ -75,8 +75,8 @@ export function PricePositioning({ data }: PricePositioningProps) {
             <Line
               yAxisId="right"
               type="monotone"
-              dataKey="avg_sentiment"
-              name="Avg Sentiment %"
+              dataKey="avg_steam_pct"
+              name="Avg Steam %"
               stroke="#22c55e"
               strokeWidth={2}
               dot={{ r: 3, fill: "#22c55e" }}

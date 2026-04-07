@@ -5,9 +5,9 @@ export const MOCK_GAME_ANALYZED = {
   developer: 'Valve',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
   review_count: 142389,
-  positive_pct: 0.967,
+  positive_pct: 87,
+  review_score_desc: 'Very Positive',
   hidden_gem_score: 12,
-  sentiment_score: 87,
   price_usd: null,
   is_free: true,
   is_early_access: false,
@@ -29,9 +29,9 @@ export const MOCK_GAME_UNANALYZED = {
   developer: 'Small Studio',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/9999999/header.jpg',
   review_count: 42,
-  positive_pct: 0.80,
+  positive_pct: 80,
+  review_score_desc: 'Mostly Positive',
   hidden_gem_score: null,
-  sentiment_score: null,
   price_usd: 9.99,
   is_free: false,
   is_early_access: false,
@@ -47,8 +47,6 @@ export const MOCK_REPORT = {
   game_name: 'Team Fortress 2',
   appid: 440,
   total_reviews_analyzed: 142389,
-  overall_sentiment: 'Overwhelmingly Positive',
-  sentiment_score: 87,
   sentiment_trend: 'stable',
   sentiment_trend_note: 'Sentiment has remained consistent over the past 6 months.',
   one_liner: 'A timeless class-based shooter that rewards teamwork and creativity.',
@@ -154,7 +152,7 @@ export const MOCK_RELEASE_VOLUME = {
   periods: PERIODS_MONTHLY.map((period, i) => ({
     period,
     releases: 100 + i * 10,
-    avg_sentiment: 70.0 + i * 1,  // 0–100 scale (AVG of games.positive_pct)
+    avg_steam_pct: 70.0 + i * 1,  // 0–100 scale (AVG of games.positive_pct)
     avg_reviews: 45 + i * 2,
     free_count: 20 + i,
   })),
@@ -170,7 +168,7 @@ export const MOCK_SENTIMENT_DIST = {
     mixed_count: 20,
     negative_count: 20 - i,
     positive_pct: 60 + i,
-    avg_sentiment: 72.0 + i,
+    avg_steam_pct: 72.0 + i,
     avg_metacritic: 72.0,
   })),
 }
@@ -217,8 +215,8 @@ export const MOCK_EARLY_ACCESS = {
     total_releases: 200 + i * 10,
     ea_count: 30 + i,
     ea_pct: 15 + i * 0.5,
-    ea_avg_sentiment: 65.0,   // 0–100 scale (AVG of games.positive_pct)
-    non_ea_avg_sentiment: 72.0,
+    ea_avg_steam_pct: 65.0,   // 0–100 scale (AVG of games.positive_pct)
+    non_ea_avg_steam_pct: 72.0,
   })),
 }
 
@@ -353,11 +351,11 @@ export const MOCK_PRICE_POSITIONING = {
   genre: 'Action',
   genre_slug: 'action',
   distribution: [
-    { price_range: 'Free', game_count: 45, avg_sentiment: 72.3, median_price: 0 },
-    { price_range: '$5-10', game_count: 120, avg_sentiment: 68.5, median_price: 7.99 },
-    { price_range: '$10-15', game_count: 95, avg_sentiment: 78.2, median_price: 12.99 },
-    { price_range: '$15-20', game_count: 68, avg_sentiment: 74.1, median_price: 17.49 },
-    { price_range: '$20-30', game_count: 42, avg_sentiment: 71.8, median_price: 24.99 },
+    { price_range: 'Free', game_count: 45, avg_steam_pct: 72.3, median_price: 0 },
+    { price_range: '$5-10', game_count: 120, avg_steam_pct: 68.5, median_price: 7.99 },
+    { price_range: '$10-15', game_count: 95, avg_steam_pct: 78.2, median_price: 12.99 },
+    { price_range: '$15-20', game_count: 68, avg_steam_pct: 74.1, median_price: 17.49 },
+    { price_range: '$20-30', game_count: 42, avg_steam_pct: 71.8, median_price: 24.99 },
   ],
   summary: {
     avg_price: 14.99, median_price: 9.99,
@@ -368,21 +366,21 @@ export const MOCK_PRICE_POSITIONING = {
 export const MOCK_RELEASE_TIMING = {
   genre: 'Action',
   monthly: [
-    { month: 1, month_name: 'January', releases: 28, avg_sentiment: 74.2, avg_reviews: 320 },
-    { month: 2, month_name: 'February', releases: 35, avg_sentiment: 78.3, avg_reviews: 410 },
-    { month: 3, month_name: 'March', releases: 42, avg_sentiment: 72.1, avg_reviews: 350 },
-    { month: 4, month_name: 'April', releases: 38, avg_sentiment: 71.0, avg_reviews: 300 },
-    { month: 5, month_name: 'May', releases: 40, avg_sentiment: 73.5, avg_reviews: 380 },
-    { month: 6, month_name: 'June', releases: 55, avg_sentiment: 70.2, avg_reviews: 450 },
-    { month: 7, month_name: 'July', releases: 30, avg_sentiment: 75.0, avg_reviews: 290 },
-    { month: 8, month_name: 'August', releases: 32, avg_sentiment: 74.8, avg_reviews: 310 },
-    { month: 9, month_name: 'September', releases: 60, avg_sentiment: 69.5, avg_reviews: 500 },
-    { month: 10, month_name: 'October', releases: 85, avg_sentiment: 67.3, avg_reviews: 550 },
-    { month: 11, month_name: 'November', releases: 50, avg_sentiment: 64.2, avg_reviews: 420 },
-    { month: 12, month_name: 'December', releases: 25, avg_sentiment: 76.1, avg_reviews: 270 },
+    { month: 1, month_name: 'January', releases: 28, avg_steam_pct: 74.2, avg_reviews: 320 },
+    { month: 2, month_name: 'February', releases: 35, avg_steam_pct: 78.3, avg_reviews: 410 },
+    { month: 3, month_name: 'March', releases: 42, avg_steam_pct: 72.1, avg_reviews: 350 },
+    { month: 4, month_name: 'April', releases: 38, avg_steam_pct: 71.0, avg_reviews: 300 },
+    { month: 5, month_name: 'May', releases: 40, avg_steam_pct: 73.5, avg_reviews: 380 },
+    { month: 6, month_name: 'June', releases: 55, avg_steam_pct: 70.2, avg_reviews: 450 },
+    { month: 7, month_name: 'July', releases: 30, avg_steam_pct: 75.0, avg_reviews: 290 },
+    { month: 8, month_name: 'August', releases: 32, avg_steam_pct: 74.8, avg_reviews: 310 },
+    { month: 9, month_name: 'September', releases: 60, avg_steam_pct: 69.5, avg_reviews: 500 },
+    { month: 10, month_name: 'October', releases: 85, avg_steam_pct: 67.3, avg_reviews: 550 },
+    { month: 11, month_name: 'November', releases: 50, avg_steam_pct: 64.2, avg_reviews: 420 },
+    { month: 12, month_name: 'December', releases: 25, avg_steam_pct: 76.1, avg_reviews: 270 },
   ],
-  best_month: { month: 2, month_name: 'February', avg_sentiment: 78.3 },
-  worst_month: { month: 11, month_name: 'November', avg_sentiment: 64.2 },
+  best_month: { month: 2, month_name: 'February', avg_steam_pct: 78.3 },
+  worst_month: { month: 11, month_name: 'November', avg_steam_pct: 64.2 },
   quietest_month: { month: 12, month_name: 'December', releases: 25 },
   busiest_month: { month: 10, month_name: 'October', releases: 85 },
 }
@@ -391,9 +389,9 @@ export const MOCK_PLATFORM_GAPS = {
   genre: 'Action',
   total_games: 500,
   platforms: {
-    windows: { count: 498, pct: 99.6, avg_sentiment: 71.2 },
-    mac: { count: 175, pct: 35.0, avg_sentiment: 73.5 },
-    linux: { count: 110, pct: 22.0, avg_sentiment: 75.1 },
+    windows: { count: 498, pct: 99.6, avg_steam_pct: 71.2 },
+    mac: { count: 175, pct: 35.0, avg_steam_pct: 73.5 },
+    linux: { count: 110, pct: 22.0, avg_steam_pct: 75.1 },
   },
   underserved: 'linux',
 }
@@ -401,12 +399,12 @@ export const MOCK_PLATFORM_GAPS = {
 export const MOCK_TAG_TREND = {
   tag: 'Roguelike', tag_slug: 'roguelike',
   yearly: [
-    { year: 2018, game_count: 45, avg_sentiment: 71.2 },
-    { year: 2019, game_count: 62, avg_sentiment: 69.8 },
-    { year: 2020, game_count: 78, avg_sentiment: 73.5 },
-    { year: 2021, game_count: 95, avg_sentiment: 74.1 },
-    { year: 2022, game_count: 110, avg_sentiment: 72.8 },
-    { year: 2023, game_count: 130, avg_sentiment: 75.2 },
+    { year: 2018, game_count: 45, avg_steam_pct: 71.2 },
+    { year: 2019, game_count: 62, avg_steam_pct: 69.8 },
+    { year: 2020, game_count: 78, avg_steam_pct: 73.5 },
+    { year: 2021, game_count: 95, avg_steam_pct: 74.1 },
+    { year: 2022, game_count: 110, avg_steam_pct: 72.8 },
+    { year: 2023, game_count: 130, avg_steam_pct: 75.2 },
   ],
   growth_rate: 1.89, peak_year: 2023, total_games: 520,
 }
@@ -414,7 +412,7 @@ export const MOCK_TAG_TREND = {
 export const MOCK_DEVELOPER_PORTFOLIO = {
   developer: 'Valve', developer_slug: 'valve',
   summary: {
-    total_games: 3, total_reviews: 10500000, avg_sentiment: 88.5,
+    total_games: 3, total_reviews: 10500000, avg_steam_pct: 88.5,
     first_release: '2004-11-16', latest_release: '2023-09-27',
     avg_price: 9.99, free_games: 2, well_received: 3, poorly_received: 0,
     sentiment_trajectory: 'stable' as const,

@@ -37,7 +37,7 @@ export function TrendBarChart({
 
   if (secondaryLine) {
     // sameAxis=true: MA overlay shares left axis (same unit as bars)
-    // sameAxis=false (default): secondary line on right axis (different unit, e.g. avg_sentiment)
+    // sameAxis=false (default): secondary line on right axis (different unit, e.g. avg_steam_pct)
     const lineAxisId = secondaryLine.sameAxis ? "left" : "right";
     return (
       <ResponsiveContainer width="100%" height={height}>

@@ -20,13 +20,7 @@ from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
 )
 from library_layer.utils.scores import (
-    compute_sentiment_score as _compute_sentiment_score,
-)
-from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
-)
-from library_layer.utils.scores import (
-    sentiment_label as _sentiment_label,
 )
 
 logger = Logger()
@@ -76,7 +70,7 @@ and keep it only where the definition fits best:
 - "Game crashes every 30 min" → technical_issues ONLY (not gameplay_friction)
 - "DLC is overpriced" → monetization_sentiment ONLY (not gameplay_friction)
 - "Dead multiplayer lobbies" → community_health ONLY (not churn_triggers)
-- "Refunded after 2 hours" → refund_risk ONLY (not churn_triggers)
+- "Refunded after 2 hours" → refund_signals ONLY (not churn_triggers)
 - player_wishlist = features that DON'T EXIST; fixes to broken things = gameplay_friction
 - "Store page says X but reviews disagree" → store_page_alignment ONLY (not gameplay_friction)
 - "Reviewers love X but store page doesn't mention it" → store_page_alignment ONLY (not design_strengths)
@@ -260,15 +254,22 @@ def _build_synthesis_user_message(
     aggregated_signals: dict,
     game_name: str,
     total_reviews: int,
-    sentiment_score: float,
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
+    steam_positive_pct: int | float | None = None,
+    steam_review_score_desc: str | None = None,
     temporal: GameTemporalContext | None = None,
     metadata: GameMetadataContext | None = None,
 ) -> str:
-    overall_sentiment = _sentiment_label(sentiment_score)
     signals_json = json.dumps(aggregated_signals, indent=2)
+    steam_sentiment_line = ""
+    if steam_positive_pct is not None or steam_review_score_desc is not None:
+        pct_str = f"{int(steam_positive_pct)}%" if steam_positive_pct is not None else "unknown"
+        desc_str = steam_review_score_desc or "unknown"
+        steam_sentiment_line = (
+            f"\n  Steam sentiment (canonical, do NOT recompute): {pct_str} positive ({desc_str})"
+        )
 
     temporal_lines = ""
     if temporal is not None:
@@ -343,8 +344,7 @@ def _build_synthesis_user_message(
     return f"""\
 <game_context>
   Game: {game_name}
-  Total reviews analyzed: {total_reviews}
-  Pre-computed sentiment_score: {sentiment_score} ({overall_sentiment})
+  Total reviews analyzed: {total_reviews}{steam_sentiment_line}
   Pre-computed hidden_gem_score: {hidden_gem_score}
   Pre-computed sentiment_trend: {sentiment_trend} ({sentiment_trend_note}){temporal_lines}{metadata_lines}
 </game_context>
@@ -380,10 +380,11 @@ def _build_synthesis_user_message(
     Format: "Issue — severity — affected % of negative reviews".
     Empty array if none reported.
   </section>
-  <section name="refund_risk" type="object">
+  <section name="refund_signals" type="object">
     refund_language_frequency: none|rare|moderate|frequent
     primary_refund_drivers: 1-3 reasons (array)
     risk_level: low|medium|high
+    NOTE: this describes refund LANGUAGE found in reviews, not a refund prediction.
   </section>
   <section name="community_health" type="object">
     overall: thriving|active|declining|dead|not_applicable
@@ -400,6 +401,8 @@ def _build_synthesis_user_message(
     replayability: low|medium|high
     value_perception: poor|fair|good|excellent
     signals: 2-3 content volume descriptions (array)
+    confidence: low|medium|high — your confidence given the sample
+    sample_size: integer — count of reviews mentioning playtime/content depth
   </section>
   <section name="dev_priorities" type="array" constraint="3-5 items, RANKED by impact x frequency">
     Each: {{action, why_it_matters, frequency, effort: low|medium|high}}
@@ -423,12 +426,12 @@ Before returning, verify:
 {store_check_items}</self_check>
 
 <output_format>
-Return the complete GameReport JSON. Include pre-computed values exactly as given:
-  "sentiment_score": {sentiment_score},
+Return the complete GameReport JSON. Do NOT include any sentiment_score or
+overall_sentiment fields — Steam owns the sentiment number, this report is
+narrative only. Include pre-computed values exactly as given:
   "hidden_gem_score": {hidden_gem_score},
   "sentiment_trend": "{sentiment_trend}",
-  "sentiment_trend_note": "{sentiment_trend_note}",
-  "overall_sentiment": "{overall_sentiment}"
+  "sentiment_trend_note": "{sentiment_trend_note}"
 </output_format>\
 """
 
@@ -480,10 +483,11 @@ def _synthesize(
     aggregated_signals: dict,
     game_name: str,
     total_reviews: int,
-    sentiment_score: float,
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
+    steam_positive_pct: int | float | None = None,
+    steam_review_score_desc: str | None = None,
     temporal: GameTemporalContext | None = None,
     metadata: GameMetadataContext | None = None,
 ) -> GameReport:
@@ -493,7 +497,7 @@ def _synthesize(
         extra={
             "total_reviews": total_reviews,
             "model": _config.model_for("summarizer"),
-            "sentiment_score": sentiment_score,
+            "steam_positive_pct": steam_positive_pct,
         },
     )
     t0 = time.monotonic()
@@ -516,10 +520,11 @@ def _synthesize(
                     aggregated_signals,
                     game_name,
                     total_reviews,
-                    sentiment_score,
                     hidden_gem_score,
                     sentiment_trend,
                     sentiment_trend_note,
+                    steam_positive_pct=steam_positive_pct,
+                    steam_review_score_desc=steam_review_score_desc,
                     temporal=temporal,
                     metadata=metadata,
                 ),
@@ -527,8 +532,7 @@ def _synthesize(
         ],
     )
     elapsed_ms = round((time.monotonic() - t0) * 1000)
-    overall_sentiment = _sentiment_label(sentiment_score)
-    logger.info("synthesis_done", extra={"sentiment": overall_sentiment, "latency_ms": elapsed_ms})
+    logger.info("synthesis_done", extra={"latency_ms": elapsed_ms})
     return report
 
 
@@ -538,12 +542,20 @@ def analyze_reviews(
     appid: int | None = None,
     temporal: GameTemporalContext | None = None,
     metadata: GameMetadataContext | None = None,
+    steam_positive_pct: int | float | None = None,
+    steam_review_count: int | None = None,
+    steam_review_score_desc: str | None = None,
 ) -> dict:
     """Full two-pass LLM analysis pipeline.
 
     Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING).
     Pass 2: synthesize aggregated chunk signals into a structured report (LLM_MODEL__SUMMARIZER).
-    sentiment_score, hidden_gem_score, and sentiment_trend are computed in Python — not LLM-guessed.
+
+    Sentiment magnitude is owned by Steam — pass `steam_positive_pct` and
+    `steam_review_count` from the Game record so hidden_gem_score and the LLM's
+    sentiment context use the canonical Steam numbers, not sampled batch_stats.
+    `sentiment_trend` is still computed locally from the review sample's
+    voted_up flags (it's a window-comparison, not a magnitude).
     """
     if not reviews:
         raise ValueError("No reviews to analyze")
@@ -562,10 +574,9 @@ def analyze_reviews(
         for i, chunk in enumerate(chunks)
     ]
 
-    # Compute numeric scores and trend in Python before calling Sonnet
-    sentiment_score = _compute_sentiment_score(chunk_summaries)
-    hidden_gem_score = _compute_hidden_gem_score(len(reviews), sentiment_score)
-    sentiment_trend, sentiment_trend_note = _compute_sentiment_trend(reviews)
+    # Hidden gem and trend are computed in Python before calling Sonnet
+    hidden_gem_score = _compute_hidden_gem_score(steam_positive_pct, steam_review_count)
+    trend = _compute_sentiment_trend(reviews)
 
     # Pass 2
     result: GameReport = _synthesize(
@@ -573,19 +584,21 @@ def analyze_reviews(
         _aggregate_chunk_summaries(chunk_summaries),
         game_name,
         len(reviews),
-        sentiment_score,
         hidden_gem_score,
-        sentiment_trend,
-        sentiment_trend_note,
+        trend["trend"],
+        trend["note"],
+        steam_positive_pct=steam_positive_pct,
+        steam_review_score_desc=steam_review_score_desc,
         temporal=temporal,
         metadata=metadata,
     )
 
     # Override with Python-computed values — more reliable than LLM-guessed values
-    result.sentiment_score = sentiment_score
     result.hidden_gem_score = hidden_gem_score
-    result.sentiment_trend = sentiment_trend
-    result.sentiment_trend_note = sentiment_trend_note
+    result.sentiment_trend = trend["trend"]  # type: ignore[typeddict-item]
+    result.sentiment_trend_note = trend["note"]
+    result.sentiment_trend_reliable = trend["reliable"]
+    result.sentiment_trend_sample_size = trend["sample_size"]
 
     if appid is not None:
         result.appid = appid
@@ -595,8 +608,8 @@ def analyze_reviews(
         "analysis_complete",
         extra={
             "appid": appid,
-            "sentiment": result.overall_sentiment,
-            "score": result.sentiment_score,
+            "trend": result.sentiment_trend,
+            "hidden_gem_score": result.hidden_gem_score,
             "latency_ms": elapsed_ms,
         },
     )

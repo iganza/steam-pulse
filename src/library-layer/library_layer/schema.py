@@ -230,6 +230,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_compatibility INTEGER",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS deck_test_results JSONB",
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS reviews_completed_at TIMESTAMPTZ",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_crawled_at TIMESTAMPTZ",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS tags_crawled_at TIMESTAMPTZ",
     # 0009_game_velocity_cache
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_velocity_lifetime NUMERIC(10,2)",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_velocity_computed_at TIMESTAMPTZ",
@@ -245,7 +247,8 @@ TABLES: tuple[str, ...] = (
         views_refreshed TEXT[]
     )""",
     # 0017_denormalize_scores
-    "ALTER TABLE games ADD COLUMN IF NOT EXISTS sentiment_score REAL",
+    # NOTE: sentiment_score was dropped in 0021_drop_sentiment_score — Steam's
+    # positive_pct is now the only sentiment number. Do not re-add it.
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS hidden_gem_score REAL",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_analyzed TIMESTAMPTZ",
 )
@@ -268,7 +271,6 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_tags_slug ON tags(slug)",
     "CREATE INDEX IF NOT EXISTS idx_games_review_count ON games(review_count DESC NULLS LAST)",
     # 0018_score_indexes
-    "CREATE INDEX IF NOT EXISTS idx_games_sentiment_score ON games(sentiment_score DESC NULLS LAST)",
     "CREATE INDEX IF NOT EXISTS idx_games_hidden_gem_score ON games(hidden_gem_score DESC NULLS LAST)",
     "CREATE INDEX IF NOT EXISTS idx_games_last_analyzed ON games(last_analyzed DESC NULLS LAST)",
 )
@@ -301,7 +303,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
             ELSE '$50+'
         END AS price_range,
         COUNT(*) AS game_count,
-        ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+        ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY COALESCE(g.price_usd, 0))::numeric, 2)
             AS median_price
     FROM games g
@@ -315,7 +317,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         gn.slug AS genre_slug, gn.name AS genre_name,
         EXTRACT(MONTH FROM g.release_date)::int AS month,
         COUNT(*) AS releases,
-        ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+        ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
         ROUND(AVG(g.review_count), 0) AS avg_reviews
     FROM games g
     JOIN game_genres gg ON gg.appid = g.appid
@@ -332,9 +334,9 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         COUNT(*) FILTER (WHERE (g.platforms->>'windows')::boolean) AS windows,
         COUNT(*) FILTER (WHERE (g.platforms->>'mac')::boolean) AS mac,
         COUNT(*) FILTER (WHERE (g.platforms->>'linux')::boolean) AS linux,
-        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'windows')::boolean), 1) AS windows_avg_sentiment,
-        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'mac')::boolean), 1) AS mac_avg_sentiment,
-        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'linux')::boolean), 1) AS linux_avg_sentiment
+        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'windows')::boolean), 1) AS windows_avg_steam_pct,
+        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'mac')::boolean), 1) AS mac_avg_steam_pct,
+        ROUND(AVG(g.positive_pct) FILTER (WHERE (g.platforms->>'linux')::boolean), 1) AS linux_avg_steam_pct
     FROM games g
     JOIN game_genres gg ON gg.appid = g.appid
     JOIN genres gn ON gg.genre_id = gn.id
@@ -346,7 +348,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         t.slug AS tag_slug, t.name AS tag_name,
         EXTRACT(YEAR FROM g.release_date)::int AS year,
         COUNT(*) AS game_count,
-        ROUND(AVG(g.positive_pct), 1) AS avg_sentiment
+        ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct
     FROM games g
     JOIN game_tags gt ON gt.appid = g.appid
     JOIN tags t ON gt.tag_id = t.id
@@ -358,9 +360,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     SELECT
         gn.slug AS genre_slug,
         g.appid, g.name, g.slug, g.developer, g.header_image,
-        g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
+        g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
+        g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
-        g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
+        g.hidden_gem_score, g.last_analyzed,
         EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
     FROM games g
     JOIN game_genres gg2 ON gg2.appid = g.appid
@@ -371,9 +374,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     SELECT
         t.slug AS tag_slug,
         g.appid, g.name, g.slug, g.developer, g.header_image,
-        g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
+        g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
+        g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
-        g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
+        g.hidden_gem_score, g.last_analyzed,
         EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
     FROM games g
     JOIN game_tags gt ON gt.appid = g.appid
@@ -407,6 +411,12 @@ def create_all(conn: object) -> None:
     with conn.cursor() as cur:  # type: ignore[union-attr]
         for ddl in TABLES:
             cur.execute(ddl)
+        # Persistent test DBs may still have the old AI sentiment_score column
+        # from a previous run. Drop it so the matview recreate (which no longer
+        # references it) can succeed and so repository tests don't accidentally
+        # fall back on the stale denormalized value. Mirrors migration 0021.
+        cur.execute("DROP INDEX IF EXISTS idx_games_sentiment_score")
+        cur.execute("ALTER TABLE games DROP COLUMN IF EXISTS sentiment_score")
     conn.commit()  # type: ignore[union-attr]
 
 
@@ -434,8 +444,18 @@ def create_matviews(conn: object) -> None:
     current definition (with last_analyzed) on persistent test databases.
     """
     with conn.cursor() as cur:  # type: ignore[union-attr]
-        cur.execute("DROP MATERIALIZED VIEW IF EXISTS mv_genre_games")
-        cur.execute("DROP MATERIALIZED VIEW IF EXISTS mv_tag_games")
+        # Drop matviews whose column shape changed (data-source-clarity refactor:
+        # avg_sentiment → avg_steam_pct, removal of g.sentiment_score). IF NOT EXISTS
+        # below would otherwise leave the stale definition on persistent test DBs.
+        for view in (
+            "mv_genre_games",
+            "mv_tag_games",
+            "mv_price_positioning",
+            "mv_release_timing",
+            "mv_platform_distribution",
+            "mv_tag_trend",
+        ):
+            cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         for ddl in MATERIALIZED_VIEWS:
             cur.execute(ddl)
     conn.commit()  # type: ignore[union-attr]

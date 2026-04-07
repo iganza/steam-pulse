@@ -407,12 +407,12 @@ def test_playtime_sentiment_buckets(
 def test_playtime_sentiment_churn_wall_detected(
     game_repo: GameRepository, review_repo: ReviewRepository
 ) -> None:
-    """A drop of >= 10 pts between adjacent buckets (both >= 5 reviews) is flagged."""
+    """A drop of >= 10 pts between adjacent buckets (both >= 20 reviews) is flagged."""
     _seed_priced_game(game_repo)
-    # 5 reviews in 2-5h bucket: all positive (100%)
-    reviews = [_make_review_pt(440, f"low-{i}", 3, True) for i in range(5)]
-    # 5 reviews in 5-10h bucket: all negative (0%) → drop of 100 pts
-    reviews += [_make_review_pt(440, f"high-{i}", 7, False) for i in range(5)]
+    # 20 reviews in 2-5h bucket: all positive (100%)
+    reviews = [_make_review_pt(440, f"low-{i}", 3, True) for i in range(20)]
+    # 20 reviews in 5-10h bucket: all negative (0%) → drop of 100 pts
+    reviews += [_make_review_pt(440, f"high-{i}", 7, False) for i in range(20)]
     review_repo.bulk_upsert(reviews)
 
     result = review_repo.find_playtime_sentiment(440)
@@ -606,9 +606,9 @@ def test_review_velocity_trend_accelerating(
     """last_3_months_avg > avg_monthly * 1.2 → trend 'accelerating'."""
     _seed_game(game_repo)
     reviews = []
-    # Months 23 down to 4 ago: 2 reviews each — anchored to 1st of each month
+    # Months 23 down to 4 ago: 5 reviews each — meaningful (>=5) baseline
     for m in range(23, 3, -1):
-        for j in range(2):
+        for j in range(5):
             reviews.append(
                 {
                     "appid": 440,
@@ -619,9 +619,9 @@ def test_review_velocity_trend_accelerating(
                     "posted_at": _month_start(m).replace(day=1 + j),
                 }
             )
-    # Months 3, 2, 1 ago: 10 reviews each (well above avg)
+    # Months 3, 2, 1 ago: 15 reviews each (well above 1.2x baseline)
     for m in range(1, 4):
-        for j in range(10):
+        for j in range(15):
             reviews.append(
                 {
                     "appid": 440,

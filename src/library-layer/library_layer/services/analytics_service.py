@@ -69,8 +69,8 @@ class AnalyticsService:
                 {
                     "period": self._format_period(r["period"], g),
                     "releases": int(r["releases"]),
-                    "avg_sentiment": float(r["avg_sentiment"])
-                    if r["avg_sentiment"] is not None
+                    "avg_steam_pct": float(r["avg_steam_pct"])
+                    if r["avg_steam_pct"] is not None
                     else None,
                     "avg_reviews": int(r["avg_reviews"]) if r["avg_reviews"] is not None else 0,
                     "free_count": int(r["free_count"]),
@@ -115,8 +115,8 @@ class AnalyticsService:
                     "mixed_count": int(r["mixed_count"]),
                     "negative_count": int(r["negative_count"]),
                     "positive_pct": self._safe_pct(int(r["positive_count"]), total),
-                    "avg_sentiment": float(r["avg_sentiment"])
-                    if r["avg_sentiment"] is not None
+                    "avg_steam_pct": float(r["avg_steam_pct"])
+                    if r["avg_steam_pct"] is not None
                     else None,
                     "avg_metacritic": float(r["avg_metacritic"])
                     if r["avg_metacritic"] is not None
@@ -238,11 +238,11 @@ class AnalyticsService:
                     "total_releases": total,
                     "ea_count": ea_count,
                     "ea_pct": self._safe_pct(ea_count, total),
-                    "ea_avg_sentiment": float(r["ea_avg_sentiment"])
-                    if r["ea_avg_sentiment"] is not None
+                    "ea_avg_steam_pct": float(r["ea_avg_steam_pct"])
+                    if r["ea_avg_steam_pct"] is not None
                     else None,
-                    "non_ea_avg_sentiment": float(r["non_ea_avg_sentiment"])
-                    if r["non_ea_avg_sentiment"] is not None
+                    "non_ea_avg_steam_pct": float(r["non_ea_avg_steam_pct"])
+                    if r["non_ea_avg_steam_pct"] is not None
                     else None,
                 }
             )

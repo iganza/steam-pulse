@@ -219,13 +219,13 @@ class ReviewRepository(BaseRepository):
         ]
 
         # Churn wall: first bucket where pct_positive drops >= 10 pts from previous
-        # (both buckets must have >= 5 reviews to filter noise; skip 'unknown' playtime)
+        # (both buckets must have >= 20 reviews — fragile metric, needs strong evidence)
         known_buckets = [b for b in buckets if b["bucket"] != "unknown"]
         churn_point: dict[str, Any] | None = None
         for i in range(1, len(known_buckets)):
             prev = known_buckets[i - 1]
             curr = known_buckets[i]
-            if prev["total"] >= 5 and curr["total"] >= 5:
+            if prev["total"] >= 20 and curr["total"] >= 20:
                 delta = curr["pct_positive"] - prev["pct_positive"]
                 if delta <= -10:
                     churn_point = {
@@ -286,6 +286,9 @@ class ReviewRepository(BaseRepository):
             else:
                 post_data = entry
 
+        ea_count = ea_data["total"] if ea_data else 0
+        post_count = post_data["total"] if post_data else 0
+
         if ea_data is None:
             return {
                 "has_ea_reviews": False,
@@ -293,6 +296,9 @@ class ReviewRepository(BaseRepository):
                 "post_launch": post_data,
                 "impact_delta": None,
                 "verdict": "no_ea",
+                "ea_reviews": ea_count,
+                "post_reviews": post_count,
+                "reliable": False,
             }
 
         if post_data is None:
@@ -302,6 +308,9 @@ class ReviewRepository(BaseRepository):
                 "post_launch": None,
                 "impact_delta": None,
                 "verdict": "no_post",
+                "ea_reviews": ea_count,
+                "post_reviews": post_count,
+                "reliable": False,
             }
 
         delta = post_data["pct_positive"] - ea_data["pct_positive"]
@@ -318,6 +327,9 @@ class ReviewRepository(BaseRepository):
             "post_launch": post_data,
             "impact_delta": round(delta, 1),
             "verdict": verdict,
+            "ea_reviews": ea_count,
+            "post_reviews": post_count,
+            "reliable": ea_count >= 50 and post_count >= 50,
         }
 
     def find_review_velocity(self, appid: int) -> dict:
@@ -352,6 +364,7 @@ class ReviewRepository(BaseRepository):
         if not monthly:
             return {
                 "monthly": [],
+                "smoothed": [],
                 "summary": {
                     "avg_monthly": 0.0,
                     "last_30_days": 0,
@@ -367,20 +380,32 @@ class ReviewRepository(BaseRepository):
         )
         last_30_days = int(last_30_row["total"]) if last_30_row else 0
 
+        # avg_monthly excludes months with <5 reviews (early/dead months distort the mean)
+        meaningful_totals = [m["total"] for m in monthly if m["total"] >= 5]
+        avg_monthly = (
+            round(sum(meaningful_totals) / len(meaningful_totals), 1) if meaningful_totals else 0.0
+        )
         totals = [m["total"] for m in monthly]
-        avg_monthly = round(sum(totals) / len(totals), 1)
         last_3_avg = round(sum(totals[-3:]) / min(3, len(totals)), 1)
         peak = max(monthly, key=lambda m: m["total"])
 
-        if last_3_avg > avg_monthly * 1.2:
+        # 3-month centered rolling average for charting
+        smoothed: list[dict] = []
+        for i, m in enumerate(monthly):
+            window = monthly[max(0, i - 1) : i + 2]
+            avg = round(sum(w["total"] for w in window) / len(window), 1)
+            smoothed.append({"month": m["month"], "total_smoothed": avg})
+
+        if avg_monthly > 0 and last_3_avg > avg_monthly * 1.2:
             trend = "accelerating"
-        elif last_3_avg < avg_monthly * 0.8:
+        elif avg_monthly > 0 and last_3_avg < avg_monthly * 0.8:
             trend = "decelerating"
         else:
             trend = "stable"
 
         return {
             "monthly": monthly,
+            "smoothed": smoothed,
             "summary": {
                 "avg_monthly": avg_monthly,
                 "last_30_days": last_30_days,

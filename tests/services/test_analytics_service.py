@@ -87,14 +87,14 @@ def test_get_release_volume(svc: AnalyticsService, mock_repo: MagicMock) -> None
         {
             "period": datetime(2024, 1, 1),
             "releases": 100,
-            "avg_sentiment": 71.5,
+            "avg_steam_pct": 71.5,
             "avg_reviews": 400,
             "free_count": 20,
         },
         {
             "period": datetime(2024, 2, 1),
             "releases": 120,
-            "avg_sentiment": 68.0,
+            "avg_steam_pct": 68.0,
             "avg_reviews": 350,
             "free_count": 25,
         },
@@ -120,7 +120,7 @@ def test_get_sentiment_distribution(svc: AnalyticsService, mock_repo: MagicMock)
             "positive_count": 60,
             "mixed_count": 30,
             "negative_count": 10,
-            "avg_sentiment": 70.0,
+            "avg_steam_pct": 70.0,
             "avg_metacritic": 72.0,
         },
     ]
@@ -179,8 +179,8 @@ def test_get_ea_trend_ea_pct(svc: AnalyticsService, mock_repo: MagicMock) -> Non
             "period": datetime(2024, 1, 1),
             "total_releases": 100,
             "ea_count": 25,
-            "ea_avg_sentiment": 74.0,
-            "non_ea_avg_sentiment": 68.0,
+            "ea_avg_steam_pct": 74.0,
+            "non_ea_avg_steam_pct": 68.0,
         },
     ]
     result = svc.get_ea_trend(granularity="year")
@@ -265,7 +265,7 @@ def test_get_category_trend_adoption(svc: AnalyticsService, mock_repo: MagicMock
         {
             "period": datetime(2024, 1, 1),
             "releases": 200,
-            "avg_sentiment": None,
+            "avg_steam_pct": None,
             "avg_reviews": None,
             "free_count": 0,
         },

@@ -149,15 +149,23 @@ def _trigger_analysis(appid: int, game_name: str) -> str:
     )
 
 
-def _preview_fields(report: dict) -> dict:
-    return {
+def _preview_fields(report: dict, game_meta: dict | None = None) -> dict:
+    """Preview shape for the public landing analysis card.
+
+    Sentiment magnitude (`positive_pct`, `review_score_desc`) is sourced from the
+    `Game` row, NOT the report — the report is narrative-only after the
+    data-source-clarity refactor.
+    """
+    fields = {
         "game_name": report.get("game_name", ""),
-        "overall_sentiment": report.get("overall_sentiment", ""),
-        "sentiment_score": report.get("sentiment_score", 0.0),
         "one_liner": report.get("one_liner", ""),
         "audience_profile": report.get("audience_profile", {}),
         "appid": report.get("appid"),
     }
+    if game_meta is not None:
+        fields["positive_pct"] = game_meta.get("positive_pct")
+        fields["review_score_desc"] = game_meta.get("review_score_desc")
+    return fields
 
 
 def _backend_name() -> str:
@@ -185,7 +193,16 @@ async def preview(body: PreviewRequest) -> JSONResponse | dict:
     # Cache hit — return preview fields only
     cached = _get_report(appid)
     if cached:
-        return _preview_fields(cached)
+        cached_game = _game_repo.find_by_appid(appid)
+        cached_meta = (
+            {
+                "positive_pct": cached_game.positive_pct,
+                "review_score_desc": cached_game.review_score_desc,
+            }
+            if cached_game
+            else None
+        )
+        return _preview_fields(cached, cached_meta)
 
     # Fetch game details to get name
     try:
@@ -326,9 +343,7 @@ async def list_games(
         # Complex filters — exact total unknown without an expensive scan.
         total = None
 
-    has_more = (
-        (offset + len(games) < total) if total is not None else len(games) == limit
-    )
+    has_more = (offset + len(games) < total) if total is not None else len(games) == limit
 
     return {"total": total, "has_more": has_more, "games": games}
 
@@ -356,6 +371,20 @@ async def get_game_report(appid: int) -> dict:
             "tags": tags,
             "deck_compatibility": game.deck_compatibility,
             "deck_test_results": game.deck_test_results,
+            # Steam-sourced sentiment numbers
+            "positive_pct": float(game.positive_pct) if game.positive_pct is not None else None,
+            "review_score_desc": game.review_score_desc,
+            "review_count": game.review_count,
+            # Per-source freshness — UI renders these in the Steam Facts zone
+            "meta_crawled_at": game.meta_crawled_at.isoformat() if game.meta_crawled_at else None,
+            "review_crawled_at": game.review_crawled_at.isoformat()
+            if game.review_crawled_at
+            else None,
+            "reviews_completed_at": game.reviews_completed_at.isoformat()
+            if game.reviews_completed_at
+            else None,
+            "tags_crawled_at": game.tags_crawled_at.isoformat() if game.tags_crawled_at else None,
+            "last_analyzed": game.last_analyzed.isoformat() if game.last_analyzed else None,
         }
 
     report = _get_report(appid)

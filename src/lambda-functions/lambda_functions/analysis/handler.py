@@ -88,7 +88,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
     ea_data = _review_repo.find_early_access_impact(req.appid)
     temporal = build_temporal_context(game, velocity_data, ea_data)
 
-    result = analyze_reviews(reviews_for_llm, name, appid=req.appid, temporal=temporal)
+    result = analyze_reviews(
+        reviews_for_llm,
+        name,
+        appid=req.appid,
+        temporal=temporal,
+        steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
+        steam_review_count=game.review_count or None,
+        steam_review_score_desc=game.review_score_desc,
+    )
     _report_repo.upsert(result)
 
     if temporal.review_velocity_lifetime is not None:
@@ -101,7 +109,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
             ReportReadyEvent(
                 appid=req.appid,
                 game_name=req.game_name,
-                sentiment=result.get("overall_sentiment", "Unknown"),
+                review_score_desc=game.review_score_desc,
             ),
         )
     except EventPublishError:
@@ -112,6 +120,6 @@ def handler(event: dict, context: LambdaContext) -> dict:
     return {
         "appid": req.appid,
         "game_name": req.game_name,
-        "overall_sentiment": result.get("overall_sentiment"),
+        "review_score_desc": game.review_score_desc,
         "one_liner": result.get("one_liner"),
     }

@@ -71,8 +71,8 @@ export function ReleaseTiming({ data }: ReleaseTimingProps) {
             <Line
               yAxisId="right"
               type="monotone"
-              dataKey="avg_sentiment"
-              name="Avg Sentiment %"
+              dataKey="avg_steam_pct"
+              name="Avg Steam %"
               stroke="#22c55e"
               strokeWidth={2}
               dot={{ r: 3, fill: "#22c55e" }}
@@ -90,7 +90,7 @@ export function ReleaseTiming({ data }: ReleaseTimingProps) {
                 Best: {data.best_month.month_name}
               </span>
               <span className="text-muted-foreground">
-                {" "}({data.best_month.avg_sentiment ?? "\u2014"}% avg)
+                {" "}({data.best_month.avg_steam_pct ?? "\u2014"}% avg)
               </span>
             </div>
           )}

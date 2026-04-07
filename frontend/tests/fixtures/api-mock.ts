@@ -105,8 +105,8 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({
       json: {
         game_name: MOCK_GAME_ANALYZED.name,
-        overall_sentiment: 'Overwhelmingly Positive',
-        sentiment_score: 87,
+        review_score_desc: 'Very Positive',
+        positive_pct: 87,
         one_liner: MOCK_REPORT.one_liner,
       },
     })

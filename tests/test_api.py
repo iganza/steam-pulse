@@ -31,6 +31,11 @@ class _MemGameRepo:
     def ensure_stub(self, appid: int, name: str | None = None) -> None:
         pass
 
+    def find_by_appid(self, appid: int) -> None:
+        # Returns None — preview test only needs the cache-hit path, which
+        # short-circuits before sentiment magnitude is required.
+        return None
+
     def list_games(self, **kwargs: object) -> dict:
         return {"total": None, "games": []}
 
@@ -149,8 +154,6 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
 
     report = {
         "game_name": "Team Fortress 2",
-        "overall_sentiment": "Very Positive",
-        "sentiment_score": 0.93,
         "one_liner": "A timeless class-based shooter with wild humor.",
         "audience_profile": {"ideal_player": "FPS fans who enjoy team play"},
         "appid": 440,
@@ -166,9 +169,10 @@ def test_preview_returns_partial_report(client: TestClient) -> None:
 
     # Preview fields present
     assert data["game_name"] == "Team Fortress 2"
-    assert data["overall_sentiment"] == "Very Positive"
-    assert "sentiment_score" in data
     assert "one_liner" in data
+    # Sentiment magnitude no longer surfaced via preview (Steam owns it on the Game row)
+    assert "sentiment_score" not in data
+    assert "overall_sentiment" not in data
 
     # Premium fields NOT in preview response
     assert "dev_priorities" not in data
@@ -182,8 +186,6 @@ def test_preview_unconditional(client: TestClient) -> None:
 
     report = {
         "game_name": "Team Fortress 2",
-        "overall_sentiment": "Very Positive",
-        "sentiment_score": 0.93,
         "one_liner": "Great game.",
         "audience_profile": {},
         "appid": 440,

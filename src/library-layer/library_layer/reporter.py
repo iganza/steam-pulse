@@ -32,20 +32,15 @@ def print_rich_report(result: dict, console: Console | None = None) -> None:
         console = Console()
 
     game_name = result.get("game_name", "Unknown Game")
-    sentiment = result.get("overall_sentiment", "Unknown")
-    score = result.get("sentiment_score", 0.0)
     total = result.get("total_reviews_analyzed", 0)
     one_liner = result.get("one_liner", "")
-
-    # Determine sentiment color
-    score_color = "green" if score >= 0.7 else "yellow" if score >= 0.45 else "red"
+    trend = result.get("sentiment_trend", "stable")
 
     console.print()
     console.print(
         Panel.fit(
             f"[bold cyan]{game_name}[/bold cyan]\n"
-            f"[{score_color}]{sentiment}[/{score_color}] — score: [{score_color}]{score:.0%}[/{score_color}] "
-            f"([dim]{total} reviews analyzed[/dim])\n\n"
+            f"[dim]trend: {trend} · {total} reviews analyzed[/dim]\n\n"
             f"[italic]{one_liner}[/italic]",
             title="[bold]SteamPulse Analysis[/bold]",
             border_style="cyan",

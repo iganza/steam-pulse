@@ -122,9 +122,9 @@ export function DeveloperPortfolio({ data }: DeveloperPortfolioProps) {
             className="rounded-lg px-3 py-2 text-xs"
             style={{ background: "var(--card)", border: "1px solid var(--border)" }}
           >
-            <span className="text-muted-foreground">Avg Sentiment: </span>
-            <span className="font-medium" style={{ color: sentimentColor(summary.avg_sentiment) }}>
-              {summary.avg_sentiment}%
+            <span className="text-muted-foreground">👍 Avg Steam: </span>
+            <span className="font-medium" style={{ color: sentimentColor(summary.avg_steam_pct) }}>
+              {summary.avg_steam_pct}%
             </span>
           </div>
           <div

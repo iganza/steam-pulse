@@ -114,7 +114,7 @@ class AnalyticsRepository(BaseRepository):
         """Price distribution + sentiment correlation within a genre (from matview)."""
         dist_rows = self._fetchall(
             """
-            SELECT genre_name, price_range, game_count, avg_sentiment, median_price
+            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price
             FROM mv_price_positioning
             WHERE genre_slug = %s
             ORDER BY median_price
@@ -130,8 +130,8 @@ class AnalyticsRepository(BaseRepository):
             {
                 "price_range": r["price_range"],
                 "game_count": int(r["game_count"]),
-                "avg_sentiment": float(r["avg_sentiment"])
-                if r["avg_sentiment"] is not None
+                "avg_steam_pct": float(r["avg_steam_pct"])
+                if r["avg_steam_pct"] is not None
                 else None,
                 "median_price": float(r["median_price"]) if r["median_price"] is not None else 0.0,
             }
@@ -139,10 +139,10 @@ class AnalyticsRepository(BaseRepository):
         ]
 
         eligible = [
-            d for d in distribution if d["game_count"] >= 10 and d["avg_sentiment"] is not None
+            d for d in distribution if d["game_count"] >= 10 and d["avg_steam_pct"] is not None
         ]
         sweet_spot = (
-            max(eligible, key=lambda x: x["avg_sentiment"])["price_range"] if eligible else None
+            max(eligible, key=lambda x: x["avg_steam_pct"])["price_range"] if eligible else None
         )
 
         # Summary stats from pre-computed matview (one row per genre).
@@ -176,24 +176,22 @@ class AnalyticsRepository(BaseRepository):
         """Monthly release density and avg sentiment by month (from matview)."""
         rows = self._fetchall(
             """
-            SELECT genre_name, month, releases, avg_sentiment, avg_reviews
+            SELECT genre_name, month, releases, avg_steam_pct, avg_reviews
             FROM mv_release_timing
             WHERE genre_slug = %s
             ORDER BY month
             """,
             (genre_slug,),
         )
-        genre_name = (
-            rows[0]["genre_name"] if rows else self._resolve_genre_name(genre_slug)
-        )
+        genre_name = rows[0]["genre_name"] if rows else self._resolve_genre_name(genre_slug)
 
         monthly = [
             {
                 "month": r["month"],
                 "month_name": _MONTH_NAMES[r["month"]],
                 "releases": int(r["releases"]),
-                "avg_sentiment": float(r["avg_sentiment"])
-                if r["avg_sentiment"] is not None
+                "avg_steam_pct": float(r["avg_steam_pct"])
+                if r["avg_steam_pct"] is not None
                 else None,
                 "avg_reviews": int(r["avg_reviews"]) if r["avg_reviews"] is not None else 0,
             }
@@ -210,10 +208,10 @@ class AnalyticsRepository(BaseRepository):
                 "busiest_month": None,
             }
 
-        has_sentiment = [m for m in monthly if m["avg_sentiment"] is not None]
-        best_month = max(has_sentiment, key=lambda x: x["avg_sentiment"]) if has_sentiment else None
+        has_sentiment = [m for m in monthly if m["avg_steam_pct"] is not None]
+        best_month = max(has_sentiment, key=lambda x: x["avg_steam_pct"]) if has_sentiment else None
         worst_month = (
-            min(has_sentiment, key=lambda x: x["avg_sentiment"]) if has_sentiment else None
+            min(has_sentiment, key=lambda x: x["avg_steam_pct"]) if has_sentiment else None
         )
         quietest_month = min(monthly, key=lambda x: x["releases"])
         busiest_month = max(monthly, key=lambda x: x["releases"])
@@ -224,7 +222,7 @@ class AnalyticsRepository(BaseRepository):
             return {
                 "month": m["month"],
                 "month_name": m["month_name"],
-                "avg_sentiment": m.get("avg_sentiment"),
+                "avg_steam_pct": m.get("avg_steam_pct"),
                 "releases": m["releases"],
             }
 
@@ -242,7 +240,7 @@ class AnalyticsRepository(BaseRepository):
         row = self._fetchone(
             """
             SELECT genre_name, total, windows, mac, linux,
-                   windows_avg_sentiment, mac_avg_sentiment, linux_avg_sentiment
+                   windows_avg_steam_pct, mac_avg_steam_pct, linux_avg_steam_pct
             FROM mv_platform_distribution
             WHERE genre_slug = %s
             """,
@@ -262,22 +260,22 @@ class AnalyticsRepository(BaseRepository):
             "windows": {
                 "count": int(row["windows"] or 0),
                 "pct": _pct(int(row["windows"] or 0)),
-                "avg_sentiment": float(row["windows_avg_sentiment"])
-                if row["windows_avg_sentiment"] is not None
+                "avg_steam_pct": float(row["windows_avg_steam_pct"])
+                if row["windows_avg_steam_pct"] is not None
                 else None,
             },
             "mac": {
                 "count": int(row["mac"] or 0),
                 "pct": _pct(int(row["mac"] or 0)),
-                "avg_sentiment": float(row["mac_avg_sentiment"])
-                if row["mac_avg_sentiment"] is not None
+                "avg_steam_pct": float(row["mac_avg_steam_pct"])
+                if row["mac_avg_steam_pct"] is not None
                 else None,
             },
             "linux": {
                 "count": int(row["linux"] or 0),
                 "pct": _pct(int(row["linux"] or 0)),
-                "avg_sentiment": float(row["linux_avg_sentiment"])
-                if row["linux_avg_sentiment"] is not None
+                "avg_steam_pct": float(row["linux_avg_steam_pct"])
+                if row["linux_avg_steam_pct"] is not None
                 else None,
             },
         }
@@ -296,7 +294,7 @@ class AnalyticsRepository(BaseRepository):
         """Game count per year for a specific tag (from matview)."""
         rows = self._fetchall(
             """
-            SELECT tag_name, year, game_count, avg_sentiment
+            SELECT tag_name, year, game_count, avg_steam_pct
             FROM mv_tag_trend
             WHERE tag_slug = %s
             ORDER BY year
@@ -309,8 +307,8 @@ class AnalyticsRepository(BaseRepository):
             {
                 "year": r["year"],
                 "game_count": int(r["game_count"]),
-                "avg_sentiment": float(r["avg_sentiment"])
-                if r["avg_sentiment"] is not None
+                "avg_steam_pct": float(r["avg_steam_pct"])
+                if r["avg_steam_pct"] is not None
                 else None,
             }
             for r in rows
@@ -356,7 +354,7 @@ class AnalyticsRepository(BaseRepository):
             SELECT
                 COUNT(*) AS total_games,
                 SUM(g.review_count) AS total_reviews,
-                ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
                 MIN(g.release_date) AS first_release,
                 MAX(g.release_date) AS latest_release,
                 ROUND(AVG(g.price_usd) FILTER (WHERE NOT g.is_free), 2) AS avg_price,
@@ -372,8 +370,8 @@ class AnalyticsRepository(BaseRepository):
         developer_name = games_rows[0]["developer"] if games_rows else developer_slug
         total_games = int(summary_row["total_games"]) if summary_row else 0
         overall_avg = (
-            float(summary_row["avg_sentiment"])
-            if summary_row and summary_row["avg_sentiment"] is not None
+            float(summary_row["avg_steam_pct"])
+            if summary_row and summary_row["avg_steam_pct"] is not None
             else 0.0
         )
 
@@ -427,7 +425,7 @@ class AnalyticsRepository(BaseRepository):
                 "total_reviews": int(summary_row["total_reviews"])
                 if summary_row and summary_row["total_reviews"]
                 else 0,
-                "avg_sentiment": overall_avg,
+                "avg_steam_pct": overall_avg,
                 "first_release": str(summary_row["first_release"])
                 if summary_row and summary_row["first_release"]
                 else None,
@@ -505,7 +503,7 @@ class AnalyticsRepository(BaseRepository):
                 SELECT
                     DATE_TRUNC(%s, g.release_date) AS period,
                     COUNT(*) AS releases,
-                    ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                    ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
                     ROUND(AVG(g.review_count), 0) AS avg_reviews,
                     COUNT(*) FILTER (WHERE g.is_free) AS free_count
                 FROM games g
@@ -547,7 +545,7 @@ class AnalyticsRepository(BaseRepository):
                     COUNT(*) FILTER (WHERE g.positive_pct >= 70) AS positive_count,
                     COUNT(*) FILTER (WHERE g.positive_pct >= 40 AND g.positive_pct < 70) AS mixed_count,
                     COUNT(*) FILTER (WHERE g.positive_pct < 40) AS negative_count,
-                    ROUND(AVG(g.positive_pct), 1) AS avg_sentiment,
+                    ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
                     ROUND(AVG(g.metacritic_score) FILTER (WHERE g.metacritic_score IS NOT NULL), 1) AS avg_metacritic
                 FROM games g
                 {genre_join}
@@ -717,11 +715,11 @@ class AnalyticsRepository(BaseRepository):
                     ROUND(
                         AVG(g.positive_pct) FILTER (WHERE COALESCE(ef.has_ea, FALSE)),
                         1
-                    ) AS ea_avg_sentiment,
+                    ) AS ea_avg_steam_pct,
                     ROUND(
                         AVG(g.positive_pct) FILTER (WHERE NOT COALESCE(ef.has_ea, FALSE)),
                         1
-                    ) AS non_ea_avg_sentiment
+                    ) AS non_ea_avg_steam_pct
                 FROM games g
                 LEFT JOIN ea_flags ef ON ef.appid = g.appid
                 WHERE g.release_date IS NOT NULL

@@ -10,7 +10,8 @@ interface GameCardProps {
 
 export function GameCard({ game }: GameCardProps) {
   const href = `/games/${game.appid}/${game.slug}`;
-  const score = game.sentiment_score ?? game.positive_pct;
+  // Steam's positive_pct is the only sentiment number on cards
+  const score = game.positive_pct;
   const scoreColor =
     (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
 

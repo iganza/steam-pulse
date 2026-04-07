@@ -52,7 +52,7 @@ export default async function DeveloperPage({ params }: Props) {
   const games: Game[] = gamesResult.value.games ?? [];
   const portfolio = portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
 
-  const avgScore = avg(games, "sentiment_score") ?? avg(games, "positive_pct");
+  const avgScore = avg(games, "positive_pct");
   const totalReviews = games.reduce((a, g) => a + (g.review_count ?? 0), 0);
 
   return (
@@ -101,7 +101,7 @@ export default async function DeveloperPage({ params }: Props) {
             </p>
             <div className="space-y-2">
               {games.slice(0, 8).map((game) => {
-                const score = game.sentiment_score ?? game.positive_pct;
+                const score = game.positive_pct;
                 const color =
                   (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
                 return (

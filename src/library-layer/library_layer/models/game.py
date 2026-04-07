@@ -42,10 +42,13 @@ class Game(BaseModel):
     metacritic_score: int | None = None
     deck_compatibility: int | None = None
     deck_test_results: list[dict] = []
-    sentiment_score: float | None = None
     hidden_gem_score: float | None = None
     last_analyzed: datetime | None = None
     crawled_at: datetime | None = None
+    meta_crawled_at: datetime | None = None
+    review_crawled_at: datetime | None = None
+    reviews_completed_at: datetime | None = None
+    tags_crawled_at: datetime | None = None
     data_source: str = "steam_direct"
 
     @field_validator("developers", "publishers", mode="before")

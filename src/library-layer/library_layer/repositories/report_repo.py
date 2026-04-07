@@ -18,10 +18,13 @@ class ReportRepository(BaseRepository):
         overwritten wholesale on conflict (no merge). Partial dicts will
         discard previously stored keys from report_json.
 
-        Also syncs denormalized sentiment_score, hidden_gem_score, and
-        last_analyzed onto the games table so catalog queries avoid the
-        JSONB LEFT JOIN. The games sync only updates keys present in the
-        dict as a defensive measure.
+        Also syncs denormalized hidden_gem_score and last_analyzed onto the
+        games table so catalog queries avoid the JSONB LEFT JOIN. The games
+        sync only updates keys present in the dict as a defensive measure.
+
+        Note: sentiment_score was dropped from games in 0021 — Steam's
+        positive_pct is the only sentiment number now. Even if a legacy report
+        dict still contains a "sentiment_score" key, it is ignored here.
         """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)
@@ -42,9 +45,6 @@ class ReportRepository(BaseRepository):
             # last_analyzed is always set to NOW() on every upsert.
             score_sets: list[str] = ["last_analyzed = NOW()"]
             score_vals: list[object] = []
-            if "sentiment_score" in report:
-                score_sets.append("sentiment_score = %s")
-                score_vals.append(report["sentiment_score"])
             if "hidden_gem_score" in report:
                 score_sets.append("hidden_gem_score = %s")
                 score_vals.append(report["hidden_gem_score"])

@@ -1,17 +1,127 @@
 "use client";
 
-import { getLens } from "@/lib/lens-registry";
-import { LensIcon } from "../LensIcon";
+import { useEffect } from "react";
+import { useToolkitState } from "@/lib/toolkit-state";
+import { useCompareData } from "@/lib/use-compare-data";
+import { GamePicker } from "../compare/GamePicker";
+import { MetricsGrid } from "../compare/MetricsGrid";
+import { CompareRadar } from "../compare/CompareRadar";
+import { PromiseGapDiff } from "../compare/PromiseGapDiff";
+import { WinsSummary } from "../compare/WinsSummary";
 import type { LensProps } from "@/lib/toolkit-state";
 
-const def = getLens("compare");
+// Two well-known appids suggested on the empty state. TF2 and Apex Legends.
+const SUGGESTED = [
+  { appid: 440, name: "Team Fortress 2" },
+  { appid: 1172470, name: "Apex Legends" },
+];
 
-export function CompareLens(_props: LensProps) {
+function CompareSkeleton({ count }: { count: number }) {
   return (
-    <div className="py-20 text-center">
-      <LensIcon name={def.icon} className="w-10 h-10 mx-auto mb-4 text-muted-foreground" />
-      <h2 className="font-serif text-xl font-semibold mb-2">{def.label}</h2>
-      <p className="text-muted-foreground text-sm">This lens is under construction.</p>
+    <div className="rounded-xl bg-card border border-border p-6" data-testid="compare-skeleton">
+      <div className="grid gap-3" style={{ gridTemplateColumns: `200px repeat(${Math.max(1, count)}, minmax(0, 1fr))` }}>
+        {Array.from({ length: 8 * (count + 1) }).map((_, i) => (
+          <div key={i} className="h-6 rounded bg-muted/50 animate-pulse" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ComparePromptEmpty({ onAdd }: { onAdd: (appid: number) => void }) {
+  return (
+    <div
+      data-testid="compare-empty-prompt"
+      className="rounded-xl border-2 border-dashed border-border p-10 text-center"
+    >
+      <h3 className="font-serif text-lg font-semibold mb-2">Pick at least 2 games to begin</h3>
+      <p className="text-sm text-muted-foreground mb-4">
+        Try{" "}
+        <button
+          type="button"
+          onClick={() => onAdd(SUGGESTED[0].appid)}
+          className="hover:underline"
+          style={{ color: "var(--teal)" }}
+        >
+          {SUGGESTED[0].name}
+        </button>{" "}
+        vs{" "}
+        <button
+          type="button"
+          onClick={() => onAdd(SUGGESTED[1].appid)}
+          className="hover:underline"
+          style={{ color: "var(--teal)" }}
+        >
+          {SUGGESTED[1].name}
+        </button>
+        .
+      </p>
+    </div>
+  );
+}
+
+export function CompareLens({ filters, isPro }: LensProps) {
+  const [state, setState] = useToolkitState();
+  const maxGames = isPro ? 4 : 2;
+
+  // Read appids directly from URL state (not `filters.appids`) because the
+  // shell's `lockedFilters` overrides `filters.appids` — on the game detail
+  // page that would clobber any appid the user adds via the picker.
+  // Seed once from the locked value so the current game is pre-loaded.
+  const urlAppids = state.appids ?? [];
+  const lockedAppids = filters.appids ?? [];
+  useEffect(() => {
+    if (urlAppids.length === 0 && lockedAppids.length > 0) {
+      setState({ appids: lockedAppids.slice(0, maxGames) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const appids = urlAppids.slice(0, maxGames);
+  const { data, loading, error } = useCompareData(appids);
+
+  const setAppids = (next: number[]) => setState({ appids: next });
+  const onAdd = (appid: number) => {
+    if (appids.length >= maxGames) return;
+    if (appids.includes(appid)) return;
+    setAppids([...appids, appid]);
+  };
+  const onRemove = (appid: number) => setAppids(appids.filter((a) => a !== appid));
+  const onClear = () => setAppids([]);
+
+  return (
+    <div className="space-y-6" data-testid="compare-lens">
+      <GamePicker
+        selectedAppids={appids}
+        maxGames={maxGames}
+        isPro={isPro}
+        onAdd={onAdd}
+        onRemove={onRemove}
+        onClear={onClear}
+      />
+
+      {appids.length < 2 && !loading && <ComparePromptEmpty onAdd={onAdd} />}
+
+      {loading && appids.length >= 2 && <CompareSkeleton count={appids.length} />}
+
+      {error && (
+        <div
+          className="rounded-xl border border-border p-6 text-sm"
+          style={{ color: "var(--negative)" }}
+          data-testid="compare-error"
+        >
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && data.length >= 2 && (
+        <>
+          <MetricsGrid data={data} isPro={isPro} />
+          {isPro && <CompareRadar data={data} />}
+          {isPro && <PromiseGapDiff data={data} />}
+          <WinsSummary data={data} />
+        </>
+      )}
     </div>
   );
 }

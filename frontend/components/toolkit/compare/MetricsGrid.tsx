@@ -58,7 +58,14 @@ function LeaderCell({
   isLeader: boolean;
 }) {
   const value = metric.render(d);
-  const isMissing = metric.numeric(d) == null && metric.direction !== "neutral";
+  // Consider a cell "missing" either when the numeric accessor returns null
+  // (for scorable metrics) or when the rendered text reduces to the "—"
+  // placeholder (for neutral/text metrics like Ideal Player, Released).
+  const renderedText = nodeToText(value).trim();
+  const isMissing =
+    renderedText === "" ||
+    renderedText === "—" ||
+    (metric.numeric(d) == null && metric.direction !== "neutral");
   return (
     <td
       data-testid={isLeader ? "metric-leader" : undefined}
@@ -152,7 +159,7 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto relative">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border">
@@ -183,45 +190,37 @@ export function MetricsGrid({ data, isPro }: MetricsGridProps) {
             </tr>
           </thead>
           <tbody>{renderGroupRows(freeMetrics)}</tbody>
-        </table>
-
-        {/* Pro block: either visible or blurred behind a single overlay */}
-        <div className="relative">
-          <div
-            className={
-              isPro
-                ? ""
-                : "blur-sm pointer-events-none select-none"
-            }
+          <tbody
+            className={isPro ? "" : "blur-sm pointer-events-none select-none"}
             aria-hidden={!isPro}
           >
-            <table className="w-full border-collapse">
-              <tbody>{renderGroupRows(proMetrics)}</tbody>
-            </table>
-          </div>
-          {!isPro && (
-            <div
-              data-testid="compare-pro-gate"
-              className="absolute inset-0 flex items-center justify-center p-8"
-            >
-              <div className="rounded-xl bg-card/95 border border-border shadow-xl px-6 py-5 text-center max-w-sm">
-                <Lock className="w-5 h-5 mx-auto mb-2 text-[color:var(--teal)]" />
-                <div className="font-semibold mb-1">Unlock 12+ Pro metrics</div>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Hidden Gem Score, Promise Gap diff, Churn Triggers, Content Depth, Radar
-                  comparison, CSV export and more.
-                </p>
-                <Link
-                  href="/pro"
-                  className="inline-block text-sm font-medium px-4 py-2 rounded-full"
-                  style={{ background: "var(--teal)", color: "#000" }}
-                >
-                  Upgrade to Pro →
-                </Link>
-              </div>
+            {renderGroupRows(proMetrics)}
+          </tbody>
+        </table>
+
+        {!isPro && (
+          <div
+            data-testid="compare-pro-gate"
+            className="absolute inset-x-0 bottom-0 flex items-center justify-center p-8"
+            style={{ top: "50%" }}
+          >
+            <div className="rounded-xl bg-card/95 border border-border shadow-xl px-6 py-5 text-center max-w-sm">
+              <Lock className="w-5 h-5 mx-auto mb-2 text-[color:var(--teal)]" />
+              <div className="font-semibold mb-1">Unlock 12+ Pro metrics</div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Hidden Gem Score, Promise Gap diff, Churn Triggers, Content Depth, Radar
+                comparison, CSV export and more.
+              </p>
+              <Link
+                href="/pro"
+                className="inline-block text-sm font-medium px-4 py-2 rounded-full"
+                style={{ background: "var(--teal)", color: "#000" }}
+              >
+                Upgrade to Pro →
+              </Link>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

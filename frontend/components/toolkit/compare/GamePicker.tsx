@@ -106,7 +106,7 @@ export function GamePicker({
     setLoading(true);
     const t = setTimeout(async () => {
       try {
-        const res = await getGames({ q: query, limit: 8 });
+        const res = await getGames({ q: query, limit: 8 }, controller.signal);
         if (!controller.signal.aborted) setResults(res.games);
       } catch {
         if (!controller.signal.aborted) setResults([]);

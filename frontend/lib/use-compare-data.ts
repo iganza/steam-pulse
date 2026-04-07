@@ -202,6 +202,7 @@ export function useCompareData(appids: number[]): {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setData([]);
 
     (async () => {
       try {

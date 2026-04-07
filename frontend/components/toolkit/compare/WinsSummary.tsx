@@ -7,12 +7,17 @@ import type { CompareGameData } from "@/lib/compare-types";
 
 interface WinsSummaryProps {
   data: CompareGameData[];
+  isPro?: boolean;
 }
 
-export function WinsSummary({ data }: WinsSummaryProps) {
+export function WinsSummary({ data, isPro = false }: WinsSummaryProps) {
   if (data.length < 2) return null;
 
-  const scorable = COMPARE_METRICS.filter((m) => m.direction !== "neutral");
+  // Free users should never see Pro metric labels leak through the summary —
+  // restrict the scoring set to the free tier when !isPro.
+  const scorable = COMPARE_METRICS.filter(
+    (m) => m.direction !== "neutral" && (isPro || m.free),
+  );
   const total = scorable.length;
 
   // wins[i] = array of metric labels where game i leads

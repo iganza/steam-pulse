@@ -70,6 +70,8 @@ export function CompareLens({ filters, isPro }: LensProps) {
   // Seed once from the locked value so the current game is pre-loaded.
   const urlAppids = state.appids ?? [];
   const lockedAppids = filters.appids ?? [];
+
+  // Seed URL once from the locked appid (used on game detail pages).
   useEffect(() => {
     if (urlAppids.length === 0 && lockedAppids.length > 0) {
       setState({ appids: lockedAppids.slice(0, maxGames) });
@@ -77,7 +79,18 @@ export function CompareLens({ filters, isPro }: LensProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const appids = urlAppids.slice(0, maxGames);
+  // Normalize: dedupe + trim to maxGames. Keeps URL in sync with the rendered
+  // state so toggling Pro/free can't surface hidden extra appids later.
+  const normalized = Array.from(new Set(urlAppids)).slice(0, maxGames);
+  useEffect(() => {
+    const same =
+      urlAppids.length === normalized.length &&
+      urlAppids.every((id, i) => id === normalized[i]);
+    if (!same) setState({ appids: normalized });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlAppids.join(","), maxGames]);
+
+  const appids = normalized;
   const { data, loading, error } = useCompareData(appids);
 
   const setAppids = (next: number[]) => setState({ appids: next });
@@ -119,7 +132,7 @@ export function CompareLens({ filters, isPro }: LensProps) {
           <MetricsGrid data={data} isPro={isPro} />
           {isPro && <CompareRadar data={data} />}
           {isPro && <PromiseGapDiff data={data} />}
-          <WinsSummary data={data} />
+          <WinsSummary data={data} isPro={isPro} />
         </>
       )}
     </div>

@@ -114,7 +114,9 @@ export const COMPARE_METRICS: MetricRow[] = [
     direction: "neutral",
     free: true,
     render: ({ meta }) => relativeAge(meta.release_date),
-    numeric: ({ meta }) => (meta.release_date ? new Date(meta.release_date).getTime() : null),
+    // Neutral metric — return null so CSV export falls back to the rendered
+    // text (relative age) instead of an opaque epoch timestamp.
+    numeric: () => null,
   },
 
   // ---------- Intelligence ----------

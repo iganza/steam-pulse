@@ -21,6 +21,8 @@ export type LensId = (typeof LENS_IDS)[number];
 const SENTIMENT_VALUES = ["positive", "mixed", "negative"] as const;
 const PRICE_TIER_VALUES = ["free", "under_10", "10_to_20", "over_20"] as const;
 
+export const DEFAULT_SORT = "review_count";
+
 export const toolkitParsers = {
   lens: parseAsStringLiteral(LENS_IDS),
   genre: parseAsString.withDefault(""),
@@ -34,7 +36,7 @@ export const toolkitParsers = {
   year_to: parseAsInteger,
   deck: parseAsString.withDefault(""),
   has_analysis: parseAsBoolean,
-  sort: parseAsString.withDefault("review_count"),
+  sort: parseAsString.withDefault(DEFAULT_SORT),
   appids: parseAsArrayOf(parseAsInteger, ",").withDefault([]),
 };
 

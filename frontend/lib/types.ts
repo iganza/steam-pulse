@@ -44,7 +44,16 @@ export interface GameReport {
   competitive_context: CompetitorRef[];
   genre_context: string;
   hidden_gem_score: number; // 0.0–1.0 (backend scale); UI scales x100 at the badge boundary
+  store_page_alignment?: StorePageAlignment | null;
   last_analyzed?: string; // ISO timestamp
+}
+
+export interface StorePageAlignment {
+  promises_delivered: string[];
+  promises_broken: string[];
+  hidden_strengths: string[];
+  audience_match: "aligned" | "partial_mismatch" | "significant_mismatch";
+  audience_match_note: string;
 }
 
 /** Free preview — returned by POST /api/preview.

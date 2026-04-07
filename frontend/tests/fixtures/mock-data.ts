@@ -89,6 +89,22 @@ export const MOCK_REPORT = {
   genre_context: 'Dominates the class-based shooter genre. No direct competitor matches its longevity.',
   // 0.0-1.0 scale (backend); UI multiplies by 100 for the HiddenGemBadge
   hidden_gem_score: 0.12,
+  store_page_alignment: {
+    promises_delivered: [
+      'Nine distinct classes provide tactical variety',
+      'Free-to-play with cosmetic-only monetization',
+    ],
+    promises_broken: [
+      'Regular content updates (last major update was years ago)',
+    ],
+    hidden_strengths: [
+      'Vibrant community-created content and modding scene',
+      'Surprisingly deep competitive meta at high ranks',
+    ],
+    audience_match: 'partial_mismatch' as const,
+    audience_match_note:
+      'Store page targets new players but the current playerbase skews heavily toward veterans. Matchmaking issues mean new players face a steep onboarding curve not mentioned in the description.',
+  },
   last_analyzed: _DAYS_AGO(3),
 }
 

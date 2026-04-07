@@ -23,6 +23,7 @@ test.describe('Game report page — analyzed game', () => {
       /developer priorities/i,
       /competitive context/i,
       /genre context/i,
+      /promise gap/i,
     ]
     for (const section of sections) {
       await expect(page.getByText(section)).toBeVisible()
@@ -148,6 +149,19 @@ test.describe('Data-driven insights — analyzed game', () => {
     await expect(chart).toBeVisible()
     // Insight text renders (blurred but present in DOM)
     await expect(chart.locator('p.italic')).toBeAttached()
+  })
+
+  test('promise gap renders verdict rows and audience match', async ({ page }) => {
+    const promiseGap = page.getByTestId('promise-gap')
+    await expect(promiseGap).toBeVisible()
+    await expect(promiseGap.getByText('VALIDATED').first()).toBeVisible()
+    await expect(promiseGap.getByText('UNDERDELIVERED').first()).toBeVisible()
+    await expect(promiseGap.getByText('HIDDEN STRENGTH').first()).toBeVisible()
+    await expect(promiseGap.getByText('PARTIAL MISMATCH')).toBeVisible()
+    // isPro = true — full audience note rendered, no blur, no upgrade CTA
+    await expect(promiseGap.locator('.blur-sm')).not.toBeAttached()
+    await expect(promiseGap.getByRole('link', { name: /upgrade to pro/i })).not.toBeVisible()
+    await expect(promiseGap.getByText(/Store page targets new players/i)).toBeVisible()
   })
 
   test('competitive benchmark section is present in DOM and fully visible', async ({ page }) => {

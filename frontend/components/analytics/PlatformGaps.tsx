@@ -20,7 +20,7 @@ function PlatformBar({ label, stats, totalGames, color }: PlatformBarProps) {
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground">
-          {stats.count}/{totalGames} games &middot; {stats.avg_sentiment != null ? `${stats.avg_sentiment}%` : "\u2014"} avg sentiment
+          {stats.count}/{totalGames} games &middot; 👍 {stats.avg_steam_pct != null ? `${stats.avg_steam_pct}%` : "\u2014"} avg Steam
         </span>
       </div>
       <div
@@ -93,7 +93,7 @@ export function PlatformGaps({ data }: PlatformGapsProps) {
               <span className="font-medium" style={{ color: "var(--teal)" }}>Opportunity: </span>
               Only {underservedStats.pct}% of {data.genre} games support{" "}
               {underservedPlatform === "mac" ? "macOS" : underservedPlatform === "linux" ? "Linux" : "Windows"}
-              {" "}&mdash; those that do average {underservedStats.avg_sentiment != null ? `${underservedStats.avg_sentiment}%` : "\u2014"} positive
+              {" "}&mdash; those that do average {underservedStats.avg_steam_pct != null ? `${underservedStats.avg_steam_pct}%` : "\u2014"} positive
             </p>
           </div>
         )}

@@ -20,20 +20,14 @@ from library_layer.models.analyzer_models import (
     DevPriority,
     GameReport,
     MonetizationSentiment,
-    RefundRisk,
+    RefundSignals,
 )
 from library_layer.models.metadata import GameMetadataContext
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
 )
 from library_layer.utils.scores import (
-    compute_sentiment_score as _compute_sentiment_score,
-)
-from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
-)
-from library_layer.utils.scores import (
-    sentiment_label as _sentiment_label,
 )
 from pydantic import ValidationError
 
@@ -42,7 +36,7 @@ from pydantic import ValidationError
 # ---------------------------------------------------------------------------
 
 _MINIMAL_NEW_SECTIONS: dict = {
-    "refund_risk": RefundRisk(
+    "refund_signals": RefundSignals(
         refund_language_frequency="none",
         primary_refund_drivers=[],
         risk_level="low",
@@ -128,56 +122,10 @@ def test_chunk_summary_rejects_invalid_sentiment() -> None:
         CompetitorRef(game="Hades", sentiment="unknown", context="compared favourably")  # type: ignore[arg-type]
 
 
-def test_game_report_rejects_sentiment_score_out_of_range() -> None:
-    with pytest.raises(ValidationError):
-        GameReport(
-            game_name="Test",
-            total_reviews_analyzed=10,
-            overall_sentiment="Mixed",
-            sentiment_score=1.5,
-            sentiment_trend="stable",
-            sentiment_trend_note="N/A",
-            one_liner="A game.",
-            audience_profile=AudienceProfile(
-                ideal_player="Anyone",
-                casual_friendliness="medium",
-                archetypes=["Gamer", "Explorer"],
-                not_for=["Speedrunners", "Completionists"],
-            ),
-            design_strengths=["A", "B"],
-            gameplay_friction=["X"],
-            player_wishlist=["F1"],
-            churn_triggers=["T1"],
-            dev_priorities=[],
-            genre_context="Average for the genre.",
-            **_MINIMAL_NEW_SECTIONS,
-        )
-
-
-def test_game_report_rejects_invalid_overall_sentiment() -> None:
-    with pytest.raises(ValidationError):
-        GameReport(
-            game_name="Test",
-            total_reviews_analyzed=10,
-            overall_sentiment="Positive",  # type: ignore[arg-type]  # not in Literal
-            sentiment_score=0.7,
-            sentiment_trend="stable",
-            sentiment_trend_note="N/A",
-            one_liner="A game.",
-            audience_profile=AudienceProfile(
-                ideal_player="Anyone",
-                casual_friendliness="medium",
-                archetypes=["Gamer", "Explorer"],
-                not_for=["Speedrunners", "Completionists"],
-            ),
-            design_strengths=["A", "B"],
-            gameplay_friction=["X"],
-            player_wishlist=["F1"],
-            churn_triggers=["T1"],
-            dev_priorities=[],
-            genre_context="Average for the genre.",
-            **_MINIMAL_NEW_SECTIONS,
-        )
+def test_game_report_no_longer_has_sentiment_score_field() -> None:
+    """sentiment_score / overall_sentiment were dropped — Steam owns sentiment magnitude."""
+    assert "sentiment_score" not in GameReport.model_fields
+    assert "overall_sentiment" not in GameReport.model_fields
 
 
 def test_game_report_enforces_list_lengths() -> None:
@@ -186,8 +134,6 @@ def test_game_report_enforces_list_lengths() -> None:
         GameReport(
             game_name="Test",
             total_reviews_analyzed=10,
-            overall_sentiment="Mixed",
-            sentiment_score=0.5,
             sentiment_trend="stable",
             sentiment_trend_note="N/A",
             one_liner="A game.",
@@ -212,8 +158,6 @@ def test_game_report_lowered_minimums() -> None:
     report = GameReport(
         game_name="Test",
         total_reviews_analyzed=10,
-        overall_sentiment="Mixed",
-        sentiment_score=0.5,
         sentiment_trend="stable",
         sentiment_trend_note="Stable.",
         one_liner="A decent game.",
@@ -240,8 +184,6 @@ def test_game_report_new_sections() -> None:
     report = GameReport(
         game_name="Test",
         total_reviews_analyzed=100,
-        overall_sentiment="Mixed",
-        sentiment_score=0.5,
         sentiment_trend="stable",
         sentiment_trend_note="Stable.",
         one_liner="A decent game.",
@@ -256,7 +198,7 @@ def test_game_report_new_sections() -> None:
         player_wishlist=["Co-op mode"],
         churn_triggers=["Tutorial is confusing"],
         technical_issues=["Crashes on Mac"],
-        refund_risk=RefundRisk(
+        refund_signals=RefundSignals(
             refund_language_frequency="rare",
             primary_refund_drivers=["crashes"],
             risk_level="low",
@@ -281,7 +223,7 @@ def test_game_report_new_sections() -> None:
         competitive_context=[],
         genre_context="A solid entry in the genre.",
     )
-    assert report.refund_risk.risk_level == "low"
+    assert report.refund_signals.risk_level == "low"
     assert report.community_health.overall == "active"
     assert report.monetization_sentiment.overall == "fair"
     assert report.content_depth.perceived_length == "medium"
@@ -313,37 +255,17 @@ def test_dev_priority_effort_literal() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_compute_sentiment_score_all_positive() -> None:
-    chunks = [ChunkSummary(batch_stats=BatchStats(positive_count=10, negative_count=0))]
-    assert _compute_sentiment_score(chunks) == 1.0
-
-
-def test_compute_sentiment_score_mixed() -> None:
-    chunks = [ChunkSummary(batch_stats=BatchStats(positive_count=5, negative_count=5))]
-    score = _compute_sentiment_score(chunks)
-    assert score == pytest.approx(0.5)
-
-
-def test_compute_sentiment_score_empty() -> None:
-    assert _compute_sentiment_score([]) == 0.5
-
-
-def test_compute_hidden_gem_score_low_reviews() -> None:
-    # Low review count + high sentiment should boost score
-    score = _compute_hidden_gem_score(total_reviews=100, sentiment_score=0.9)
+def test_compute_hidden_gem_score_quality_and_scarcity() -> None:
+    # Steam-derived: low review count + high positive_pct should boost score
+    score = _compute_hidden_gem_score(positive_pct=95, review_count=500)
     assert score > 0.0
-    # Very high review count should return 0
-    assert _compute_hidden_gem_score(total_reviews=100_000, sentiment_score=0.9) == 0.0
-
-
-def test_sentiment_label_boundaries() -> None:
-    assert _sentiment_label(0.95) == "Overwhelmingly Positive"
-    assert _sentiment_label(0.80) == "Very Positive"
-    assert _sentiment_label(0.65) == "Mostly Positive"
-    assert _sentiment_label(0.45) == "Mixed"
-    assert _sentiment_label(0.30) == "Mostly Negative"
-    assert _sentiment_label(0.15) == "Very Negative"
-    assert _sentiment_label(0.10) == "Overwhelmingly Negative"
+    # Above 10k reviews → not a hidden gem
+    assert _compute_hidden_gem_score(positive_pct=95, review_count=15_000) == 0.0
+    # Below 80% positive → not a gem regardless of scarcity
+    assert _compute_hidden_gem_score(positive_pct=70, review_count=500) == 0.0
+    # Missing inputs → safe zero
+    assert _compute_hidden_gem_score(None, 500) == 0.0
+    assert _compute_hidden_gem_score(95, None) == 0.0
 
 
 def test_chunk_reviews_exact_size() -> None:
@@ -382,9 +304,11 @@ def test_sentiment_trend_improving() -> None:
     reviews = [{"voted_up": i < 5, "posted_at": prior} for i in range(10)] + [
         {"voted_up": True, "posted_at": recent} for _ in range(10)
     ]
-    trend, note = _compute_sentiment_trend(reviews)
-    assert trend == "improving"
-    assert "rose" in note.lower()
+    result = _compute_sentiment_trend(reviews)
+    assert result["trend"] == "improving"
+    assert "rose" in result["note"].lower()
+    assert result["sample_size"] == 20
+    assert result["reliable"] is False  # 10 + 10 < 50 each
 
 
 def test_sentiment_trend_declining() -> None:
@@ -393,9 +317,9 @@ def test_sentiment_trend_declining() -> None:
     reviews = [{"voted_up": True, "posted_at": prior} for _ in range(10)] + [
         {"voted_up": i < 3, "posted_at": recent} for i in range(10)
     ]
-    trend, note = _compute_sentiment_trend(reviews)
-    assert trend == "declining"
-    assert "dropped" in note.lower()
+    result = _compute_sentiment_trend(reviews)
+    assert result["trend"] == "declining"
+    assert "dropped" in result["note"].lower()
 
 
 def test_sentiment_trend_stable() -> None:
@@ -404,17 +328,29 @@ def test_sentiment_trend_stable() -> None:
     reviews = [{"voted_up": True, "posted_at": prior} for _ in range(10)] + [
         {"voted_up": True, "posted_at": recent} for _ in range(10)
     ]
-    trend, note = _compute_sentiment_trend(reviews)
-    assert trend == "stable"
-    assert "steady" in note.lower()
+    result = _compute_sentiment_trend(reviews)
+    assert result["trend"] == "stable"
+    assert "steady" in result["note"].lower()
+
+
+def test_sentiment_trend_reliable_when_both_windows_have_50() -> None:
+    """50+ reviews per window → reliable=True."""
+    prior, recent = _trend_dates()
+    reviews = [{"voted_up": True, "posted_at": prior} for _ in range(50)] + [
+        {"voted_up": True, "posted_at": recent} for _ in range(50)
+    ]
+    result = _compute_sentiment_trend(reviews)
+    assert result["reliable"] is True
+    assert result["sample_size"] == 100
 
 
 def test_sentiment_trend_insufficient_data() -> None:
     """Too few reviews → 'stable' with note about insufficient data."""
     reviews = [{"voted_up": True, "posted_at": "2026-02-01T00:00:00"} for _ in range(5)]
-    trend, note = _compute_sentiment_trend(reviews)
-    assert trend == "stable"
-    assert "insufficient" in note.lower()
+    result = _compute_sentiment_trend(reviews)
+    assert result["trend"] == "stable"
+    assert "insufficient" in result["note"].lower()
+    assert result["reliable"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -426,8 +362,6 @@ def _fake_report() -> GameReport:
     return GameReport(
         game_name="Test Game",
         total_reviews_analyzed=10,
-        overall_sentiment="Very Positive",
-        sentiment_score=0.8,
         sentiment_trend="stable",
         sentiment_trend_note="Reviews have been consistent over time.",
         one_liner="A polished experience that rewards patient players.",
@@ -451,7 +385,7 @@ def _fake_report() -> GameReport:
         player_wishlist=["Co-op mode", "Map editor", "Controller remapping"],
         churn_triggers=["Tutorial failure within first 10 minutes", "Difficulty spike at hour 3"],
         technical_issues=["Occasional FPS drops in dense areas"],
-        refund_risk=RefundRisk(
+        refund_signals=RefundSignals(
             refund_language_frequency="rare",
             primary_refund_drivers=["performance issues"],
             risk_level="low",
@@ -515,8 +449,6 @@ def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(result, dict)
     for key in (
         "game_name",
-        "overall_sentiment",
-        "sentiment_score",
         "one_liner",
         "audience_profile",
         "design_strengths",
@@ -524,7 +456,7 @@ def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
         "player_wishlist",
         "churn_triggers",
         "technical_issues",
-        "refund_risk",
+        "refund_signals",
         "community_health",
         "monetization_sentiment",
         "content_depth",
@@ -537,6 +469,9 @@ def test_analyze_reviews_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
         "total_reviews_analyzed",
     ):
         assert key in result, f"missing key: {key}"
+    # The data-source-clarity refactor removed these — Steam owns sentiment magnitude.
+    assert "sentiment_score" not in result
+    assert "overall_sentiment" not in result
 
 
 def test_analyze_reviews_adds_appid(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -602,10 +537,11 @@ def _call_synthesis_msg(metadata: GameMetadataContext | None = None) -> str:
         _MINIMAL_AGGREGATED,
         "Test Game",
         total_reviews=10,
-        sentiment_score=0.7,
         hidden_gem_score=0.3,
         sentiment_trend="stable",
         sentiment_trend_note="No change",
+        steam_positive_pct=72,
+        steam_review_score_desc="Mostly Positive",
         metadata=metadata,
     )
 

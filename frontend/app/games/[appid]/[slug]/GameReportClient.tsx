@@ -58,6 +58,15 @@ interface GameReportClientProps {
   deckCompatibility?: number | null;
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
   isEarlyAccess?: boolean;
+  // Steam-sourced sentiment + per-source freshness (data-source-clarity refactor).
+  // The "Steam Facts" zone reads these directly from Steam — never from the LLM.
+  positivePct?: number | null;
+  reviewScoreDesc?: string | null;
+  metaCrawledAt?: string | null;
+  reviewCrawledAt?: string | null;
+  reviewsCompletedAt?: string | null;
+  tagsCrawledAt?: string | null;
+  lastAnalyzed?: string | null;
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -79,6 +88,20 @@ function scoreContextSentence(score: number): string {
   if (score >= 70) return "Mostly Positive — above the median for reviewed Steam games.";
   if (score >= 50) return "Mixed — roughly half of players recommend it.";
   return "Mostly Negative — significant player dissatisfaction.";
+}
+
+/** Render an ISO timestamp as a short relative-time string ("2h ago", "3d ago"). */
+function relativeTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (diffSec < 60) return "just now";
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
+  if (diffSec < 86400 * 30) return `${Math.round(diffSec / 86400)}d ago`;
+  if (diffSec < 86400 * 365) return `${Math.round(diffSec / (86400 * 30))}mo ago`;
+  return `${Math.round(diffSec / (86400 * 365))}y ago`;
 }
 
 function momentumLabel(reviewsLast30: number, reviewsPerDay: number): { label: string; color: string } {
@@ -106,6 +129,13 @@ export function GameReportClient({
   deckCompatibility,
   deckTestResults,
   isEarlyAccess,
+  positivePct,
+  reviewScoreDesc,
+  metaCrawledAt,
+  reviewCrawledAt,
+  reviewsCompletedAt,
+  tagsCrawledAt,
+  lastAnalyzed,
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -399,17 +429,27 @@ export function GameReportClient({
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             {isEarlyAccess && <EarlyAccessBadge />}
-            <HiddenGemBadge score={report.hidden_gem_score ?? 0} />
+            <HiddenGemBadge score={Math.round((report.hidden_gem_score ?? 0) * 100)} />
             <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
-            <span
-              className="inline-block px-3 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.1)",
-              }}
-            >
-              {report.overall_sentiment ?? "\u2014"}
-            </span>
+            {/* Steam-sourced sentiment chip — only Steam's review_score_desc is shown here.
+                If we don't have Steam's label yet, render nothing rather than fabricate. */}
+            {reviewScoreDesc && (
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+                title={
+                  positivePct != null
+                    ? `${positivePct}% positive on Steam`
+                    : "Source: Steam"
+                }
+              >
+                <span aria-hidden>👍</span>
+                <span>Steam · {reviewScoreDesc}</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -427,10 +467,54 @@ export function GameReportClient({
           >
             &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
           </blockquote>
-          <ScoreBar score={report.sentiment_score ?? 0} />
-          <p className="mt-2 text-sm text-muted-foreground font-mono" data-testid="score-context">
-            {scoreContextSentence(report.sentiment_score ?? 0)}
-          </p>
+          {/* Steam Facts zone — sentiment magnitude is owned by Steam, not the LLM */}
+          <div
+            className="rounded-xl p-4 mb-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center justify-between mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden>👍</span>
+                Steam Facts
+              </span>
+              {(() => {
+                const ts =
+                  relativeTime(reviewCrawledAt) ??
+                  relativeTime(reviewsCompletedAt) ??
+                  relativeTime(metaCrawledAt);
+                return ts ? <span>Crawled {ts}</span> : null;
+              })()}
+            </div>
+            {positivePct != null ? (
+              <ScoreBar score={positivePct} label={reviewScoreDesc ?? undefined} />
+            ) : (
+              <p className="text-sm text-muted-foreground font-mono">
+                Steam sentiment unavailable for this game.
+              </p>
+            )}
+            {positivePct != null && (
+              <p className="mt-2 text-sm text-muted-foreground font-mono" data-testid="score-context">
+                {scoreContextSentence(positivePct)}
+              </p>
+            )}
+          </div>
+
+          {/* SteamPulse Analysis zone marker — the rest of the report is the AI narrative */}
+          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden>✨</span>
+              SteamPulse Analysis
+            </span>
+            <span className="flex items-center gap-3">
+              {report.total_reviews_analyzed != null && (
+                <span>{report.total_reviews_analyzed.toLocaleString()} reviews</span>
+              )}
+              {(() => {
+                const ts = relativeTime(lastAnalyzed);
+                return ts ? <span>Analyzed {ts}</span> : null;
+              })()}
+            </span>
+          </div>
         </section>
 
         {/* Section 2 - Quick Stats */}

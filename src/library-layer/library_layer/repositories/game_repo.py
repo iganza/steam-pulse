@@ -86,8 +86,24 @@ class GameRepository(BaseRepository):
             cur.execute(sql, game_data)
         self.conn.commit()
 
+    # SELECT shared between find_by_appid and find_by_slug — joins app_catalog so that
+    # callers (notably the /api/games/{appid}/report endpoint) can surface per-source
+    # freshness timestamps in the UI.
+    _GAME_SELECT_WITH_FRESHNESS = """
+        SELECT g.*,
+               ac.meta_crawled_at,
+               ac.review_crawled_at,
+               ac.reviews_completed_at,
+               ac.tags_crawled_at
+        FROM games g
+        LEFT JOIN app_catalog ac ON ac.appid = g.appid
+    """
+
     def find_by_appid(self, appid: int) -> Game | None:
-        row = self._fetchone("SELECT * FROM games WHERE appid = %s", (appid,))
+        row = self._fetchone(
+            f"{self._GAME_SELECT_WITH_FRESHNESS} WHERE g.appid = %s",
+            (appid,),
+        )
         if row is None:
             return None
         return Game.model_validate(dict(row))
@@ -100,7 +116,10 @@ class GameRepository(BaseRepository):
         return game
 
     def find_by_slug(self, slug: str) -> Game | None:
-        row = self._fetchone("SELECT * FROM games WHERE slug = %s", (slug,))
+        row = self._fetchone(
+            f"{self._GAME_SELECT_WITH_FRESHNESS} WHERE g.slug = %s",
+            (slug,),
+        )
         if row is None:
             return None
         return Game.model_validate(dict(row))
@@ -193,14 +212,13 @@ class GameRepository(BaseRepository):
         if has_analysis:
             conditions.append(f"{p}last_analyzed IS NOT NULL")
         if sentiment:
+            # Sentiment buckets are derived from Steam's positive_pct (0-100), not from any AI score
             if sentiment == "positive":
-                conditions.append(f"{p}sentiment_score >= 0.65")
+                conditions.append(f"{p}positive_pct >= 65")
             elif sentiment == "mixed":
-                conditions.append(
-                    f"{p}sentiment_score >= 0.45 AND {p}sentiment_score < 0.65"
-                )
+                conditions.append(f"{p}positive_pct >= 45 AND {p}positive_pct < 65")
             elif sentiment == "negative":
-                conditions.append(f"{p}sentiment_score < 0.45")
+                conditions.append(f"{p}positive_pct < 45")
         if price_tier:
             if price_tier == "free":
                 conditions.append(f"{p}is_free = TRUE")
@@ -221,10 +239,13 @@ class GameRepository(BaseRepository):
 
         return conditions, params
 
+    # Note: legacy `sentiment_score` wire value is mapped to `positive_pct DESC` so that
+    # any in-the-wild bookmarks/links continue to sort sensibly without a coordinated
+    # frontend rename. Steam's positive_pct is the only sentiment number we sort on.
     _MV_SORT_COLS: ClassVar[dict[str, str]] = {
         "review_count": "review_count DESC NULLS LAST",
         "hidden_gem_score": "hidden_gem_score DESC NULLS LAST",
-        "sentiment_score": "sentiment_score DESC NULLS LAST",
+        "sentiment_score": "positive_pct DESC NULLS LAST",
         "positive_pct": "positive_pct DESC NULLS LAST",
         "release_date": "release_date DESC NULLS LAST",
         "last_analyzed": "last_analyzed DESC NULLS LAST",
@@ -252,8 +273,11 @@ class GameRepository(BaseRepository):
         params: list[object] = [slug_val]
 
         extra_conds, extra_params = self._build_game_filters(
-            min_reviews=min_reviews, has_analysis=has_analysis,
-            sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+            min_reviews=min_reviews,
+            has_analysis=has_analysis,
+            sentiment=sentiment,
+            price_tier=price_tier,
+            deck_status=deck_status,
         )
         conditions.extend(extra_conds)
         params.extend(extra_params)
@@ -264,9 +288,10 @@ class GameRepository(BaseRepository):
         rows = self._fetchall(
             f"""
             SELECT appid, name, slug, developer, header_image,
-                   review_count, review_count_english, positive_pct, price_usd, is_free,
+                   review_count, review_count_english, positive_pct, review_score_desc,
+                   price_usd, is_free,
                    release_date, deck_compatibility,
-                   hidden_gem_score, sentiment_score, last_analyzed, is_early_access
+                   hidden_gem_score, last_analyzed, is_early_access
             FROM {view}
             WHERE {where}
             ORDER BY {order}
@@ -312,24 +337,41 @@ class GameRepository(BaseRepository):
         """
         # Fast path: genre or tag filter with matview-compatible extra filters.
         # Only q, search, developer, year range, and genre+tag combined force the slow path.
-        needs_slow = (q or search or developer or year_from is not None or year_to is not None)
+        needs_slow = q or search or developer or year_from is not None or year_to is not None
         if genre and not tag and not needs_slow:
             return self._list_from_matview(
-                "mv_genre_games", "genre_slug", genre, sort, limit, offset,
-                min_reviews=min_reviews, has_analysis=has_analysis,
-                sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+                "mv_genre_games",
+                "genre_slug",
+                genre,
+                sort,
+                limit,
+                offset,
+                min_reviews=min_reviews,
+                has_analysis=has_analysis,
+                sentiment=sentiment,
+                price_tier=price_tier,
+                deck_status=deck_status,
             )
         if tag and not genre and not needs_slow:
             return self._list_from_matview(
-                "mv_tag_games", "tag_slug", tag, sort, limit, offset,
-                min_reviews=min_reviews, has_analysis=has_analysis,
-                sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+                "mv_tag_games",
+                "tag_slug",
+                tag,
+                sort,
+                limit,
+                offset,
+                min_reviews=min_reviews,
+                has_analysis=has_analysis,
+                sentiment=sentiment,
+                price_tier=price_tier,
+                deck_status=deck_status,
             )
 
+        # See _MV_SORT_COLS — `sentiment_score` is a legacy alias mapped to positive_pct
         _sort_cols = {
             "review_count": "g.review_count DESC NULLS LAST",
             "hidden_gem_score": "g.hidden_gem_score DESC NULLS LAST",
-            "sentiment_score": "g.sentiment_score DESC NULLS LAST",
+            "sentiment_score": "g.positive_pct DESC NULLS LAST",
             "positive_pct": "g.positive_pct DESC NULLS LAST",
             "release_date": "g.release_date DESC NULLS LAST",
             "last_analyzed": "g.last_analyzed DESC NULLS LAST",
@@ -367,8 +409,12 @@ class GameRepository(BaseRepository):
             conditions.append("EXTRACT(YEAR FROM g.release_date) <= %s")
             params.append(year_to)
         extra_conds, extra_params = self._build_game_filters(
-            "g.", min_reviews=min_reviews, has_analysis=has_analysis,
-            sentiment=sentiment, price_tier=price_tier, deck_status=deck_status,
+            "g.",
+            min_reviews=min_reviews,
+            has_analysis=has_analysis,
+            sentiment=sentiment,
+            price_tier=price_tier,
+            deck_status=deck_status,
         )
         conditions.extend(extra_conds)
         params.extend(extra_params)
@@ -378,9 +424,10 @@ class GameRepository(BaseRepository):
         # Data-only query — no JOIN to reports. Scores are denormalized on games.
         sql = f"""
             SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
-                   g.review_count, g.review_count_english, g.positive_pct, g.price_usd, g.is_free,
+                   g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
+                   g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
-                   g.hidden_gem_score, g.sentiment_score, g.last_analyzed,
+                   g.hidden_gem_score, g.last_analyzed, g.crawled_at,
                    EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
             FROM games g
             WHERE {where}

@@ -228,7 +228,7 @@ export function AnalyticsClient() {
               granularity={g}
               secondaryLine={
                 isPro
-                  ? { dataKey: "avg_sentiment", color: "#f59e0b" }
+                  ? { dataKey: "avg_steam_pct", color: "#f59e0b" }
                   : { dataKey: "releases_ma3", color: "#6b7280", sameAxis: true }
               }
             />
@@ -365,8 +365,8 @@ export function AnalyticsClient() {
               lines={isPro
                 ? [
                     { dataKey: "ea_pct", label: "EA %", color: "#f59e0b" },
-                    { dataKey: "ea_avg_sentiment", label: "EA Sentiment", color: "#22c55e" },
-                    { dataKey: "non_ea_avg_sentiment", label: "Non-EA Sentiment", color: "#ef4444" },
+                    { dataKey: "ea_avg_steam_pct", label: "EA Steam %", color: "#22c55e" },
+                    { dataKey: "non_ea_avg_steam_pct", label: "Non-EA Steam %", color: "#ef4444" },
                   ]
                 : []}
               granularity={isPro ? granularity : "quarter"}

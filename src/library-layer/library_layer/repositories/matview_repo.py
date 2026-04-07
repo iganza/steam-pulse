@@ -19,6 +19,7 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_price_summary",
 )
 
+
 class MatviewRepository(BaseRepository):
     """Read from materialized views and manage refresh cycles."""
 
@@ -125,7 +126,9 @@ class MatviewRepository(BaseRepository):
         grouped = list(grouped_by_category.values())
         grouped.sort(
             key=lambda g: (
-                TAG_CATEGORY_ORDER.index(g["category"]) if g["category"] in TAG_CATEGORY_ORDER else 99
+                TAG_CATEGORY_ORDER.index(g["category"])
+                if g["category"] in TAG_CATEGORY_ORDER
+                else 99
             ),
         )
         return grouped
@@ -133,7 +136,7 @@ class MatviewRepository(BaseRepository):
     def find_price_positioning(self, genre_slug: str) -> list[dict]:
         rows = self._fetchall(
             """
-            SELECT genre_name, price_range, game_count, avg_sentiment, median_price
+            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price
             FROM mv_price_positioning
             WHERE genre_slug = %s
             ORDER BY median_price
@@ -145,7 +148,7 @@ class MatviewRepository(BaseRepository):
     def find_release_timing(self, genre_slug: str) -> list[dict]:
         rows = self._fetchall(
             """
-            SELECT genre_name, month, releases, avg_sentiment, avg_reviews
+            SELECT genre_name, month, releases, avg_steam_pct, avg_reviews
             FROM mv_release_timing
             WHERE genre_slug = %s
             ORDER BY month
@@ -158,7 +161,7 @@ class MatviewRepository(BaseRepository):
         row = self._fetchone(
             """
             SELECT genre_name, total, windows, mac, linux,
-                   windows_avg_sentiment, mac_avg_sentiment, linux_avg_sentiment
+                   windows_avg_steam_pct, mac_avg_steam_pct, linux_avg_steam_pct
             FROM mv_platform_distribution
             WHERE genre_slug = %s
             """,
@@ -169,7 +172,7 @@ class MatviewRepository(BaseRepository):
     def find_tag_trend(self, tag_slug: str) -> list[dict]:
         rows = self._fetchall(
             """
-            SELECT tag_name, year, game_count, avg_sentiment
+            SELECT tag_name, year, game_count, avg_steam_pct
             FROM mv_tag_trend
             WHERE tag_slug = %s
             ORDER BY year

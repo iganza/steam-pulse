@@ -21,7 +21,7 @@ from library_layer.models.analyzer_models import (
     DevPriority,
     GameReport,
     MonetizationSentiment,
-    RefundRisk,
+    RefundSignals,
 )
 from library_layer.models.review import Review
 from moto import mock_aws
@@ -61,13 +61,15 @@ def _make_review(
     )
 
 
-def _minimal_game_report_json(appid: int = 440, sentiment_score: float = 0.6) -> str:
-    """Return a minimal valid GameReport as a JSON string (for use as LLM output)."""
+def _minimal_game_report_json(appid: int = 440) -> str:
+    """Return a minimal valid GameReport as a JSON string (for use as LLM output).
+
+    Sentiment magnitude (positive_pct / review_score_desc) lives on the Game row,
+    not the report — see the data-source-clarity refactor.
+    """
     return GameReport(
         game_name="Test Game",
         total_reviews_analyzed=100,
-        overall_sentiment="Mixed",
-        sentiment_score=sentiment_score,
         sentiment_trend="stable",
         sentiment_trend_note="Steady over 180 days.",
         one_liner="A decent game worth trying.",
@@ -82,7 +84,7 @@ def _minimal_game_report_json(appid: int = 440, sentiment_score: float = 0.6) ->
         player_wishlist=["More content"],
         churn_triggers=["Tutorial is too long"],
         technical_issues=[],
-        refund_risk=RefundRisk(
+        refund_signals=RefundSignals(
             refund_language_frequency="none", primary_refund_drivers=[], risk_level="low"
         ),
         community_health=CommunityHealth(
@@ -579,17 +581,17 @@ def test_process_results_applies_precomputed_scores(lambda_context: Any) -> None
     s3.create_bucket(Bucket=_BUCKET)
     mock_sns = MagicMock()
 
-    # LLM output has sentiment_score=0.5 — precomputed overrides with 0.85
-    _write_pass2_output(s3, _minimal_game_report_json(appid=440, sentiment_score=0.5), appid=440)
+    # LLM output has hidden_gem_score=0.2 — precomputed overrides with 0.3 + trend
+    _write_pass2_output(s3, _minimal_game_report_json(appid=440), appid=440)
     _write_scores_json(
         s3,
         440,
         {
-            "sentiment_score": 0.85,
             "hidden_gem_score": 0.3,
             "sentiment_trend": "improving",
             "sentiment_trend_note": "Sentiment rose.",
-            "overall_sentiment": "Very Positive",
+            "sentiment_trend_reliable": True,
+            "sentiment_trend_sample_size": 200,
         },
     )
 
@@ -606,9 +608,11 @@ def test_process_results_applies_precomputed_scores(lambda_context: Any) -> None
     assert result["failed"] == 0
 
     upserted: dict = mock_repo.upsert.call_args[0][0]
-    assert upserted["sentiment_score"] == 0.85
-    assert upserted["overall_sentiment"] == "Very Positive"
+    assert upserted["hidden_gem_score"] == 0.3
     assert upserted["sentiment_trend"] == "improving"
+    assert upserted["sentiment_trend_reliable"] is True
+    assert "sentiment_score" not in upserted
+    assert "overall_sentiment" not in upserted
 
 
 @mock_aws
@@ -618,7 +622,7 @@ def test_process_results_uses_llm_values_when_no_scores(lambda_context: Any) -> 
     s3.create_bucket(Bucket=_BUCKET)
     mock_sns = MagicMock()
 
-    _write_pass2_output(s3, _minimal_game_report_json(appid=440, sentiment_score=0.6), appid=440)
+    _write_pass2_output(s3, _minimal_game_report_json(appid=440), appid=440)
     # No scores.json — _read_scores_from_s3 will catch the error and return {}
 
     h = _load_process_results()
@@ -632,7 +636,7 @@ def test_process_results_uses_llm_values_when_no_scores(lambda_context: Any) -> 
 
     assert result["processed"] == 1
     upserted: dict = mock_repo.upsert.call_args[0][0]
-    assert upserted["sentiment_score"] == 0.6  # LLM value kept
+    assert upserted["hidden_gem_score"] == 0.2  # LLM value kept (no override)
 
 
 @mock_aws

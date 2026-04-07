@@ -107,7 +107,7 @@ class ReportReadyEvent(BaseEvent):
     event_type: Literal["report-ready"] = "report-ready"
     appid: int
     game_name: str
-    sentiment: str
+    review_score_desc: str | None = None
 
 
 # --- System Events (published to system-events topic) ---

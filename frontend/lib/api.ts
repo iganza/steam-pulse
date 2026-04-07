@@ -70,6 +70,15 @@ export async function getGameReport(appid: number): Promise<{
     tags?: string[];
     deck_compatibility?: number | null;
     deck_test_results?: DeckTestResult[];
+    // Steam-sourced sentiment + freshness (data-source-clarity refactor)
+    positive_pct?: number | null;
+    review_score_desc?: string | null;
+    review_count?: number | null;
+    meta_crawled_at?: string | null;
+    review_crawled_at?: string | null;
+    reviews_completed_at?: string | null;
+    tags_crawled_at?: string | null;
+    last_analyzed?: string | null;
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {

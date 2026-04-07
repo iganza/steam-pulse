@@ -25,9 +25,7 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.db import get_conn
 from library_layer.utils.scores import (
     compute_hidden_gem_score,
-    compute_sentiment_score,
     compute_sentiment_trend,
-    sentiment_label,
 )
 
 logger = Logger(service="batch-prepare-pass2")
@@ -119,23 +117,22 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     for appid, chunks in chunks_by_appid.items():
         aggregated = _aggregate_chunk_summaries(chunks)
-
-        # Compute Python scores
-        sentiment_score = compute_sentiment_score(chunks)
         total_reviews = (
             aggregated["total_stats"]["positive_count"]
             + aggregated["total_stats"]["negative_count"]
         )
-        hidden_gem_score = compute_hidden_gem_score(total_reviews, sentiment_score)
-
-        # Compute sentiment trend from DB review timestamps
-        reviews_for_trend = review_repo.find_by_appid(appid, limit=2000)
-        sentiment_trend, sentiment_trend_note = compute_sentiment_trend(
-            [r.model_dump() for r in reviews_for_trend]
-        )
 
         # Game must exist — chunks were produced from its reviews, so absence is a data integrity error
         game = game_repo.get_by_appid(appid)
+
+        # Hidden gem score uses Steam's canonical numbers (not sampled batch_stats)
+        steam_positive_pct = float(game.positive_pct) if game.positive_pct is not None else None
+        steam_review_count = game.review_count or None
+        hidden_gem_score = compute_hidden_gem_score(steam_positive_pct, steam_review_count)
+
+        # Sentiment trend (window comparison) from DB review timestamps
+        reviews_for_trend = review_repo.find_by_appid(appid, limit=2000)
+        trend = compute_sentiment_trend([r.model_dump() for r in reviews_for_trend])
 
         # Build temporal context from existing repo data
         velocity_data = review_repo.find_review_velocity(appid)
@@ -147,11 +144,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
         # Store pre-computed scores (ProcessResults will use these to override LLM output)
         scores_by_appid[str(appid)] = {
-            "sentiment_score": sentiment_score,
             "hidden_gem_score": hidden_gem_score,
-            "sentiment_trend": sentiment_trend,
-            "sentiment_trend_note": sentiment_trend_note,
-            "overall_sentiment": sentiment_label(sentiment_score),
+            "sentiment_trend": trend["trend"],
+            "sentiment_trend_note": trend["note"],
+            "sentiment_trend_reliable": trend["reliable"],
+            "sentiment_trend_sample_size": trend["sample_size"],
             "review_velocity_lifetime": temporal.review_velocity_lifetime,
         }
 
@@ -161,10 +158,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
             aggregated,
             game_name,
             total_reviews,
-            sentiment_score,
             hidden_gem_score,
-            sentiment_trend,
-            sentiment_trend_note,
+            trend["trend"],
+            trend["note"],
+            steam_positive_pct=steam_positive_pct,
+            steam_review_score_desc=game.review_score_desc,
             temporal=temporal,
             metadata=metadata,
         )

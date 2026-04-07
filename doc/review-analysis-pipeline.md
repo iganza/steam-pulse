@@ -65,30 +65,30 @@ Plus `batch_stats`: positive/negative counts, average playtime, high-playtime co
 
 ## Between Passes — Python Score Computation
 
-**Scores are computed in Python before Pass 2, never by the LLM.** This is critical — leaving numeric scores to the LLM introduces inconsistency and hallucination risk.
+**Sentiment magnitude is owned by Steam, not the LLM and not the analyzer.** Steam's `positive_pct` (0–100) and `review_score_desc` on the `Game` row are the only sentiment numbers shown to users. The analyzer never recomputes them — see `scripts/prompts/data-source-clarity.md` for the rationale and `scripts/prompts/completed/data-source-clarity.md` if it has been moved.
 
-Three values computed from `ChunkSummary` objects:
-
-### `sentiment_score` (float 0.0–1.0)
-Simple ratio of positive reviews across all chunks:
-```
-positive_count / (positive_count + negative_count)
-```
-Mapped to a label (`Overwhelmingly Positive` → `Overwhelmingly Negative`) by `sentiment_label()` in `utils/scores.py`.
+Two derived values are still computed in Python before Pass 2 (never by the LLM — leaving numeric output to the LLM introduces inconsistency and hallucination risk):
 
 ### `hidden_gem_score` (float 0.0–1.0)
-Rewards high-sentiment games with low review counts (under-discovered quality):
+Rewards high-quality games with low discoverability. Both inputs come from the `Game` row (Steam-sourced), not from the sampled batch:
 ```
-review_scarcity = max(0, 1 - (total_reviews / 10,000))
-quality_signal  = max(0, sentiment_score - 0.65) / 0.35
-hidden_gem_score = review_scarcity × quality_signal
+scarcity = 1 - (review_count / 10_000)   # 0 at 10k+, 1 at 0
+quality  = (positive_pct - 80) / 20       # 0 at 80%, 1 at 100%
+score    = scarcity * quality
 ```
-Games with >50,000 reviews score 0.0 — they are not hidden.
+Games with ≥10,000 reviews score 0.0 (not hidden). Games below 80% positive score 0.0 (not a gem). The signature is `compute_hidden_gem_score(positive_pct, review_count)`.
 
-### `sentiment_trend` ("improving" | "stable" | "declining")
-Compares positive % of last 90 days vs. prior 90 days (180-day window). Requires at least 10 reviews in each window; defaults to `"stable"` with an insufficient-volume note otherwise. A delta >5pp = improving or declining.
+### `sentiment_trend` (dict)
+Compares positive vote ratio of the last 90 days vs. the prior 90 days from the local review sample (a window comparison, not a magnitude). Returns:
+```python
+{"trend": "improving" | "stable" | "declining",
+ "note": str,
+ "sample_size": int,    # total reviews across both windows
+ "reliable": bool}      # True iff each window has >= 50 reviews
+```
+Requires at least 10 reviews in each window or it falls back to `"stable"` with an insufficient-volume note. A delta >5pp = improving or declining.
 
-These three values are passed into the Pass 2 prompt as pre-computed facts, and then **overwritten onto the `GameReport` after the LLM responds** to prevent the LLM from substituting its own values.
+These values, plus Steam's `positive_pct` / `review_score_desc` for narrative context, are passed into the Pass 2 prompt. After the LLM responds, `hidden_gem_score`, `sentiment_trend`, `sentiment_trend_note`, `sentiment_trend_reliable`, and `sentiment_trend_sample_size` are overwritten on the `GameReport` to prevent any LLM substitution.
 
 ---
 
@@ -109,32 +109,34 @@ These three values are passed into the Pass 2 prompt as pre-computed facts, and 
 
 **Output model:** `GameReport` (Pydantic). Key sections:
 
-| Section                  | Type     | Notes                                                                            |
-|--------------------------|----------|----------------------------------------------------------------------------------|
-| `game_name`, `appid`     | str, int |                                                                                  |
-| `total_reviews_analyzed` | int      |                                                                                  |
-| `overall_sentiment`      | Literal  | 7-point scale from "Overwhelmingly Positive" to "Overwhelmingly Negative"        |
-| `sentiment_score`        | float    | Pre-computed, overwritten post-LLM                                               |
-| `sentiment_trend`        | Literal  | Pre-computed, overwritten post-LLM                                               |
-| `sentiment_trend_note`   | str      | Narrative explanation of trend                                                   |
-| `hidden_gem_score`       | float    | Pre-computed, overwritten post-LLM                                               |
-| `one_liner`              | str      | Max 25 words, for gamers deciding to buy                                         |
-| `audience_profile`       | object   | `ideal_player`, `casual_friendliness`, `archetypes[]`, `not_for[]`               |
-| `design_strengths`       | list     | 2–8 items — what design decisions work                                           |
-| `gameplay_friction`      | list     | 1–7 items — in-game UX/design problems only                                      |
-| `player_wishlist`        | list     | 1–6 items — net-new features only                                                |
-| `churn_triggers`         | list     | 1–4 items — moments causing dropout, with timing                                 |
-| `technical_issues`       | list     | 0–6 items — bugs, crashes, performance                                           |
-| `refund_risk`            | object   | frequency, primary drivers, risk level                                           |
-| `community_health`       | object   | overall status, signals, multiplayer population                                  |
-| `monetization_sentiment` | object   | overall, signals, DLC sentiment                                                  |
-| `content_depth`          | object   | perceived length, replayability, value perception                                |
-| `dev_priorities`         | list     | 3–5 `{action, why_it_matters, frequency, effort}` — ranked by impact × frequency |
-| `competitive_context`    | list     | Named competitor references only                                                 |
-| `genre_context`          | str      | 1–2 sentence genre benchmark, no named competitors                               |
+| Section                       | Type     | Notes                                                                            |
+|-------------------------------|----------|----------------------------------------------------------------------------------|
+| `game_name`, `appid`          | str, int |                                                                                  |
+| `total_reviews_analyzed`      | int      |                                                                                  |
+| `sentiment_trend`             | Literal  | Pre-computed window comparison, overwritten post-LLM                             |
+| `sentiment_trend_note`        | str      | Narrative explanation of trend                                                   |
+| `sentiment_trend_reliable`    | bool     | True iff each 90-day window has ≥50 reviews                                      |
+| `sentiment_trend_sample_size` | int      | Total reviews across both trend windows                                          |
+| `hidden_gem_score`            | float    | Pre-computed from Steam's `positive_pct` + `review_count`, overwritten post-LLM  |
+| `one_liner`                   | str      | Max 25 words, for gamers deciding to buy                                         |
+| `audience_profile`            | object   | `ideal_player`, `casual_friendliness`, `archetypes[]`, `not_for[]`               |
+| `design_strengths`            | list     | 2–8 items — what design decisions work                                           |
+| `gameplay_friction`           | list     | 1–7 items — in-game UX/design problems only                                      |
+| `player_wishlist`             | list     | 1–6 items — net-new features only                                                |
+| `churn_triggers`              | list     | 1–4 items — moments causing dropout, with timing                                 |
+| `technical_issues`            | list     | 0–6 items — bugs, crashes, performance                                           |
+| `refund_signals`              | object   | frequency, primary drivers, risk level (renamed from `refund_risk` — describes language found in reviews, not a prediction) |
+| `community_health`            | object   | overall status, signals, multiplayer population                                  |
+| `monetization_sentiment`      | object   | overall, signals, DLC sentiment                                                  |
+| `content_depth`               | object   | perceived length, replayability, value perception, plus `confidence` and `sample_size` |
+| `dev_priorities`              | list     | 3–5 `{action, why_it_matters, frequency, effort}` — ranked by impact × frequency |
+| `competitive_context`         | list     | Named competitor references only                                                 |
+| `genre_context`               | str      | 1–2 sentence genre benchmark, no named competitors                               |
+
+**Sentiment magnitude is NOT in the report.** `sentiment_score` and `overall_sentiment` were dropped in the data-source-clarity refactor. Steam's `positive_pct` (0–100) and `review_score_desc` live on the `Game` row and are joined at the API/UI layer (e.g. `/api/games/{appid}/report` returns them in the `game` block alongside per-source freshness timestamps).
 
 **Free vs. Pro sections:**
-- **Free** (visible to all): `design_strengths`, `gameplay_friction`, `technical_issues`, `genre_context`, `one_liner`, sentiment fields
+- **Free** (visible to all): `design_strengths`, `gameplay_friction`, `technical_issues`, `genre_context`, `one_liner`, trend fields, hidden_gem_score
 - **Pro** (gated): `player_wishlist`, `churn_triggers`, `dev_priorities`, `competitive_context`
 
 ---
@@ -187,7 +189,7 @@ In the batch path, system prompts are included inline in each JSONL record (Bedr
 |-------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
 | `library_layer/analyzer.py`               | Prompts, chunking logic, `_aggregate_chunk_summaries()`, score functions wiring, real-time `analyze_reviews()` entry point |
 | `library_layer/models/analyzer_models.py` | `ChunkSummary`, `GameReport`, and all nested Pydantic models                                                               |
-| `library_layer/utils/scores.py`           | `compute_sentiment_score()`, `compute_hidden_gem_score()`, `compute_sentiment_trend()`, `sentiment_label()`                |
+| `library_layer/utils/scores.py`           | `compute_hidden_gem_score(positive_pct, review_count)`, `compute_sentiment_trend(reviews) -> SentimentTrend dict`           |
 | `library_layer/models/temporal.py`        | `GameTemporalContext` — velocity, EA delta, launch trajectory                                                              |
 | `batch_analysis/prepare_pass1.py`         | Reads reviews from DB, builds Pass 1 JSONL, uploads to S3                                                                  |
 | `batch_analysis/submit_batch_job.py`      | Creates Bedrock Batch Inference job                                                                                        |
@@ -201,7 +203,8 @@ In the batch path, system prompts are included inline in each JSONL record (Bedr
 
 - **Never add `min_length` constraints to list fields in `ChunkSummary`.** If a signal is absent from a chunk, an empty list is correct. Validation failures in batch processing crash the entire game's record — use `max_length` only.
 - **`min_length` on `GameReport` list fields is intentional** (e.g. `design_strengths` requires 2–8) — these are synthesis-level fields where the LLM has the full picture and an empty result indicates a prompt failure.
-- **Numeric scores (`sentiment_score`, `hidden_gem_score`, `sentiment_trend`) must always be computed in Python** and overwritten on the `GameReport` after LLM response. Never rely on LLM-generated values for these fields.
+- **Numeric values (`hidden_gem_score`, `sentiment_trend*`) must always be computed in Python** and overwritten on the `GameReport` after LLM response. Never rely on LLM-generated values for these fields.
+- **Never reintroduce `sentiment_score` or `overall_sentiment` to the `GameReport`.** Sentiment magnitude is owned by Steam — consume `positive_pct` / `review_score_desc` from the `Game` row instead. The LLM is fed Steam's `positive_pct` as canonical context for narrative tone, but never asked to produce a sentiment number.
 - **Each section answers exactly one question.** Do not add a field that overlaps semantically with an existing one. Consult the anti-duplication rules in `SYNTHESIS_SYSTEM_PROMPT` before adding sections.
 - **The batch path is the active production path.** The real-time path in `analysis/handler.py` is deprecated and not in use — do not add features to it.
 - **Temporal context is optional** — `temporal=None` is valid for games missing velocity data. The synthesis prompt omits the temporal block when it's absent.

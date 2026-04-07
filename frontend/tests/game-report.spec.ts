@@ -39,9 +39,30 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.getByText(/\$7/)).not.toBeVisible()
   })
 
-  test('sentiment score is shown', async ({ page }) => {
-    // ScoreBar always renders the "Sentiment Score" label
-    await expect(page.getByText('Sentiment Score')).toBeVisible()
+  test('Steam-branded sentiment score is shown', async ({ page }) => {
+    // ScoreBar is now labelled "Steam Sentiment" with a 👍 prefix — sentiment
+    // magnitude is Steam-owned post-data-source-clarity, never AI-derived.
+    await expect(page.getByText('Steam Sentiment')).toBeVisible()
+  })
+
+  test('Steam Facts zone header renders with crawl freshness', async ({ page }) => {
+    // Verdict section's Steam-facts zone identifies the source and shows when
+    // Steam data was last fetched via the relativeTime() helper.
+    await expect(page.getByText(/Steam Facts/i)).toBeVisible()
+    await expect(page.getByText(/Crawled \d+[mhd] ago/)).toBeVisible()
+  })
+
+  test('SteamPulse Analysis zone header renders with analyzed freshness', async ({ page }) => {
+    // The AI-narrative zone is clearly demarcated from Steam Facts and carries
+    // its own freshness stamp sourced from reports.last_analyzed.
+    await expect(page.getByText(/SteamPulse Analysis/i)).toBeVisible()
+    await expect(page.getByText(/Analyzed \d+[mhd] ago/)).toBeVisible()
+  })
+
+  test('hero renders Steam chip with review_score_desc', async ({ page }) => {
+    // The hero badge block replaces the old `report.overall_sentiment` pill
+    // with a Steam-attributed chip reading "Steam · {review_score_desc}".
+    await expect(page.getByText(/Steam · Very Positive/i)).toBeVisible()
   })
 
   test('tag chips are rendered and link to /tag/', async ({ page }) => {
@@ -64,8 +85,11 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.getByRole('main')).toBeVisible()
   })
 
-  test('overall sentiment label is shown', async ({ page }) => {
-    await expect(page.getByText(/overwhelmingly positive/i)).toBeVisible()
+  test('Steam review_score_desc label is shown', async ({ page }) => {
+    // The old test asserted /overwhelmingly positive/ from the now-deleted
+    // report.overall_sentiment. The mock game's Steam review_score_desc is
+    // "Very Positive" — that's what the UI surfaces post-data-source-clarity.
+    await expect(page.getByText(/very positive/i).first()).toBeVisible()
   })
 
   test('displays Deck Playable badge for analyzed game', async ({ page }) => {
@@ -148,6 +172,43 @@ test.describe('Data-driven insights — analyzed game', () => {
   })
 })
 
+test.describe('Hidden Gem badge — 0.0-1.0 backend scale', () => {
+  test('renders the badge when backend returns a high 0-1 score', async ({ page }) => {
+    // Regression for the scaling bug flagged in PR #51 review: the backend
+    // returns hidden_gem_score on a 0.0-1.0 scale and the UI must multiply by
+    // 100 before feeding HiddenGemBadge (whose thresholds are 50/70/85).
+    // 0.75 → 75 → "Underrated" label should render.
+    await mockAllApiRoutes(page)
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: { ...MOCK_REPORT, hidden_gem_score: 0.75 },
+          game: {
+            short_desc: MOCK_GAME_ANALYZED.short_desc,
+            developer: MOCK_GAME_ANALYZED.developer,
+            release_date: MOCK_GAME_ANALYZED.release_date,
+            price_usd: null,
+            is_free: true,
+            genres: MOCK_GAME_ANALYZED.genres,
+            tags: MOCK_GAME_ANALYZED.tags,
+            deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
+            deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+            positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+            review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+            review_count: MOCK_GAME_ANALYZED.review_count,
+            meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+            review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+            last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
+          },
+        },
+      })
+    )
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByText(/underrated/i)).toBeVisible()
+  })
+})
+
 test.describe('Steam Deck badge — Verified override', () => {
   test('displays Deck Verified badge', async ({ page }) => {
     await mockAllApiRoutes(page)
@@ -167,6 +228,15 @@ test.describe('Steam Deck badge — Verified override', () => {
             deck_test_results: [
               { display_type: 2, loc_token: '#SteamDeckVerified_TestResult_DefaultConfigurationIsPerformant' },
             ],
+            // Steam-sourced fields so the Verdict section renders the full
+            // post-data-source-clarity layout, not the empty-Steam fallback.
+            positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+            review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+            review_count: MOCK_GAME_ANALYZED.review_count,
+            meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+            review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+            reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
+            last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
           },
         },
       })
@@ -258,6 +328,14 @@ test.describe('Early Access badge', () => {
             tags: MOCK_GAME_ANALYZED.tags,
             deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
             deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+            // Steam-sourced fields — same rationale as the Deck override
+            positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+            review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+            review_count: MOCK_GAME_ANALYZED.review_count,
+            meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+            review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+            reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
+            last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
           },
         },
       })

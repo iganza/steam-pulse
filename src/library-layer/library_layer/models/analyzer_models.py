@@ -63,7 +63,10 @@ class CompetitiveRef(BaseModel):
     note: str
 
 
-class RefundRisk(BaseModel):
+class RefundSignals(BaseModel):
+    """Refund-related language extracted from reviews. NOT a prediction —
+    these are observed patterns ('refunded', 'got my money back', etc.)."""
+
     refund_language_frequency: Literal["none", "rare", "moderate", "frequent"]
     primary_refund_drivers: list[str] = Field(default_factory=list, max_length=3)
     risk_level: Literal["low", "medium", "high"]
@@ -86,23 +89,28 @@ class ContentDepth(BaseModel):
     replayability: Literal["low", "medium", "high"]
     value_perception: Literal["poor", "fair", "good", "excellent"]
     signals: list[str] = Field(default_factory=list, max_length=3)
+    confidence: Literal["low", "medium", "high"] = "medium"
+    # Number of reviews mentioning playtime/content depth. Bounded so a broken
+    # upstream (LLM or Python) can't emit negative or absurdly large values.
+    sample_size: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class GameReport(BaseModel):
+    """LLM-synthesized game intelligence report.
+
+    NOTE: sentiment magnitude (Steam's `positive_pct` / `review_score_desc`) is
+    NOT part of this report. Steam owns the sentiment number; this report owns
+    the narrative. The two are joined at the API/UI layer, not here.
+    """
+
     game_name: str
     total_reviews_analyzed: int
-    overall_sentiment: Literal[
-        "Overwhelmingly Positive",
-        "Very Positive",
-        "Mostly Positive",
-        "Mixed",
-        "Mostly Negative",
-        "Very Negative",
-        "Overwhelmingly Negative",
-    ]
-    sentiment_score: float = Field(ge=0.0, le=1.0)
     sentiment_trend: Literal["improving", "stable", "declining"]
     sentiment_trend_note: str
+    sentiment_trend_reliable: bool = False
+    # Total reviews across the two 90-day windows used by compute_sentiment_trend.
+    # Non-negative by construction — guard anyway.
+    sentiment_trend_sample_size: int = Field(default=0, ge=0)
     one_liner: str
     audience_profile: AudienceProfile
     design_strengths: list[str] = Field(min_length=2, max_length=8)
@@ -110,7 +118,7 @@ class GameReport(BaseModel):
     player_wishlist: list[str] = Field(min_length=1, max_length=6)
     churn_triggers: list[str] = Field(min_length=1, max_length=4)
     technical_issues: list[str] = Field(default_factory=list, max_length=6)
-    refund_risk: RefundRisk
+    refund_signals: RefundSignals
     community_health: CommunityHealth
     monetization_sentiment: MonetizationSentiment
     content_depth: ContentDepth

@@ -502,7 +502,7 @@ def test_developer_portfolio_summary(
     assert s["total_reviews"] == 3000
     assert s["well_received"] == 3
     assert s["poorly_received"] == 0
-    assert s["avg_sentiment"] == pytest.approx(80.0, abs=0.1)
+    assert s["avg_steam_pct"] == pytest.approx(80.0, abs=0.1)
 
 
 def test_developer_portfolio_trajectory_improving(

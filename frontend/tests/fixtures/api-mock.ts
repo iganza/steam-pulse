@@ -105,8 +105,8 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({
       json: {
         game_name: MOCK_GAME_ANALYZED.name,
-        overall_sentiment: 'Overwhelmingly Positive',
-        sentiment_score: 87,
+        review_score_desc: 'Very Positive',
+        positive_pct: 87,
         one_liner: MOCK_REPORT.one_liner,
       },
     })
@@ -138,6 +138,15 @@ export async function mockAllApiRoutes(page: Page) {
           tags: MOCK_GAME_ANALYZED.tags,
           deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
           deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+          // Steam-sourced sentiment + freshness (data-source-clarity refactor)
+          positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+          review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+          review_count: MOCK_GAME_ANALYZED.review_count,
+          meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+          review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+          reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
+          tags_crawled_at: MOCK_GAME_ANALYZED.tags_crawled_at,
+          last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
         },
       },
     })
@@ -157,6 +166,10 @@ export async function mockAllApiRoutes(page: Page) {
           is_early_access: false,
           deck_compatibility: MOCK_GAME_UNANALYZED.deck_compatibility,
           deck_test_results: MOCK_GAME_UNANALYZED.deck_test_results,
+          // Steam-sourced fields are present even for unanalyzed games
+          positive_pct: MOCK_GAME_UNANALYZED.positive_pct,
+          review_score_desc: MOCK_GAME_UNANALYZED.review_score_desc,
+          review_count: MOCK_GAME_UNANALYZED.review_count,
         },
       },
     })

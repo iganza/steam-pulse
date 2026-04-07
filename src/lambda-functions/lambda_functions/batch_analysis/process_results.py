@@ -103,11 +103,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 # Override with Python-computed scores from PreparePass2
                 pre_computed = scores_by_appid.get(str(appid))
                 if pre_computed:
-                    report.sentiment_score = pre_computed["sentiment_score"]
                     report.hidden_gem_score = pre_computed["hidden_gem_score"]
                     report.sentiment_trend = pre_computed["sentiment_trend"]
                     report.sentiment_trend_note = pre_computed["sentiment_trend_note"]
-                    report.overall_sentiment = pre_computed["overall_sentiment"]  # type: ignore[assignment]
+                    report.sentiment_trend_reliable = pre_computed.get(
+                        "sentiment_trend_reliable", False
+                    )
+                    report.sentiment_trend_sample_size = pre_computed.get(
+                        "sentiment_trend_sample_size", 0
+                    )
 
                 report.appid = appid
                 report_repo.upsert(report.model_dump())

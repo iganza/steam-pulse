@@ -10,7 +10,8 @@ interface GameCardProps {
 
 export function GameCard({ game }: GameCardProps) {
   const href = `/games/${game.appid}/${game.slug}`;
-  const score = game.sentiment_score ?? game.positive_pct;
+  // Steam's positive_pct is the only sentiment number on cards
+  const score = game.positive_pct;
   const scoreColor =
     (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
 
@@ -35,7 +36,7 @@ export function GameCard({ game }: GameCardProps) {
             <EarlyAccessBadge />
           </div>
         )}
-        {(game.hidden_gem_score ?? 0) >= 70 && (
+        {Math.round((game.hidden_gem_score ?? 0) * 100) >= 70 && (
           <div
             className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono uppercase tracking-widest"
             style={{ background: "rgba(201,151,60,0.85)", color: "#0c0c0f" }}

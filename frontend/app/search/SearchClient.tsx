@@ -18,7 +18,9 @@ interface SearchClientProps {
 
 const SORT_OPTIONS = [
   { value: "review_count", label: "Most Reviewed" },
-  { value: "sentiment_score", label: "Best Sentiment" },
+  // Wire value stays "sentiment_score" for bookmark compatibility — the API
+  // handler maps it to ORDER BY positive_pct DESC server-side.
+  { value: "sentiment_score", label: "Best on Steam" },
   { value: "hidden_gem_score", label: "Hidden Gem Score" },
   { value: "release_date", label: "Recently Released" },
   { value: "last_analyzed", label: "Recently Analyzed" },
@@ -477,7 +479,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                   <div className="col-span-2 text-right">Released</div>
                 </div>
                 {games.map((game) => {
-                  const score = game.sentiment_score ?? game.positive_pct;
+                  const score = game.positive_pct;
                   const scoreColor = (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
                   return (
                     <Link

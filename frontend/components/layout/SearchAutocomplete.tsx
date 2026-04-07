@@ -23,21 +23,27 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 // ── Sentiment helpers ─────────────────────────────────────────────────────────
+//
+// Steam's positive_pct is the only sentiment number we render in autocomplete.
+// Prefer Steam's own `review_score_desc` label when present (e.g. "Very Positive"),
+// fall back to the Steam-pct-derived label otherwise. The legacy AI sentiment_score
+// path used to call sentimentLabel(undefined) for unanalysed games and crash —
+// the explicit null-check below makes the row degrade gracefully instead.
 
-function sentimentLabel(score: number | undefined): string {
-  if (score == null) return "";
-  if (score >= 95) return "Overwhelmingly Positive";
-  if (score >= 80) return "Very Positive";
-  if (score >= 70) return "Mostly Positive";
-  if (score >= 50) return "Mixed";
-  if (score >= 30) return "Mostly Negative";
+function sentimentLabel(pct: number | undefined): string {
+  if (pct == null) return "";
+  if (pct >= 95) return "Overwhelmingly Positive";
+  if (pct >= 80) return "Very Positive";
+  if (pct >= 70) return "Mostly Positive";
+  if (pct >= 50) return "Mixed";
+  if (pct >= 30) return "Mostly Negative";
   return "Overwhelmingly Negative";
 }
 
-function sentimentColor(score: number | undefined): string {
-  if (score == null) return "var(--muted-foreground)";
-  if (score >= 70) return "#22c55e";
-  if (score >= 50) return "#f59e0b";
+function sentimentColor(pct: number | undefined): string {
+  if (pct == null) return "var(--muted-foreground)";
+  if (pct >= 70) return "#22c55e";
+  if (pct >= 50) return "#f59e0b";
   return "#ef4444";
 }
 
@@ -251,8 +257,8 @@ export function SearchAutocomplete({
         >
           {suggestions.map((game, i) => {
             const isActive = i === activeIndex;
-            const label = sentimentLabel(game.sentiment_score);
-            const color = sentimentColor(game.sentiment_score);
+            const label = game.review_score_desc ?? sentimentLabel(game.positive_pct);
+            const color = sentimentColor(game.positive_pct);
 
             return (
               <li

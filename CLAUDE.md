@@ -256,7 +256,13 @@ counts. Age-gated games require bypass cookies (handled in `_get_store_page()`).
 `monetization_sentiment`, `content_depth`
 
 **Pass 2 (Sonnet — synthesis):** All chunk signals → structured `GameReport` JSON.
-`sentiment_score` and `hidden_gem_score` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
+`hidden_gem_score` and `sentiment_trend` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
+
+**Sentiment magnitude is owned by Steam, not the LLM.** The `GameReport` does NOT contain
+`sentiment_score` or `overall_sentiment`. Steam's `positive_pct` (0–100) and `review_score_desc`
+on the `Game` row are the only sentiment numbers shown to users. The LLM produces narrative
+sections only; the analyzer prompt receives Steam's positive_pct as canonical context.
+See `scripts/prompts/data-source-clarity.md` for the rationale.
 
 **Execution path:** Real-time only — `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`).
 Model-agnostic — swap model ID via env var, zero code changes. Batch Inference path is designed
@@ -296,7 +302,7 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | Endpoint | Notes |
 |---|---|
 | `GET /health` | Storage backend + version |
-| `POST /api/preview` | Free: triggers analysis, returns `game_name`, `overall_sentiment`, `sentiment_score`, `one_liner`. 1 per IP. |
+| `POST /api/preview` | Free: triggers analysis, returns `game_name`, `one_liner`, plus Steam's `positive_pct` / `review_score_desc` from the Game row. 1 per IP. |
 | `GET /api/status/{job_id}` | Step Functions job polling |
 | `GET /api/games` | List games with filters (genre, tag, sentiment, etc.) |
 | `GET /api/games/{appid}/report` | Full report + game metadata |
@@ -323,21 +329,22 @@ Rate limit on `/api/preview`: 1 free analysis per IP. Returns `402 {"error": "fr
 ## Report JSON Schema (`GameReport` in `analyzer_models.py`)
 
 ```
-# Core
+# Core — narrative only. Sentiment magnitude lives on the Game row (Steam's
+# positive_pct / review_score_desc), NOT here. Joined at the API/UI layer.
 game_name, appid, total_reviews_analyzed
-overall_sentiment           # "Overwhelmingly Positive" … "Overwhelmingly Negative"
-sentiment_score             # float 0.0–1.0, computed in Python
-sentiment_trend             # "improving" | "stable" | "declining"
+sentiment_trend             # "improving" | "stable" | "declining" (Python-computed, window comparison)
 sentiment_trend_note        # narrative explanation
+sentiment_trend_reliable    # bool — True when each window has >= 50 reviews
+sentiment_trend_sample_size # int  — total reviews across both trend windows
 one_liner                   # gamer-facing, max 25 words
-hidden_gem_score            # float 0.0–1.0, computed in Python
+hidden_gem_score            # float 0.0-1.0, computed in Python from Steam's positive_pct + review_count
 
 # Structured objects
 audience_profile            # {ideal_player, casual_friendliness, archetypes[], not_for[]}
-refund_risk                 # {refund_language_frequency, primary_refund_drivers[], risk_level}
+refund_signals              # {refund_language_frequency, primary_refund_drivers[], risk_level}
 community_health            # {overall, signals[], multiplayer_population}
 monetization_sentiment      # {overall, signals[], dlc_sentiment}
-content_depth               # {perceived_length, replayability, value_perception, signals[]}
+content_depth               # {perceived_length, replayability, value_perception, signals[], confidence, sample_size}
 
 # Free sections
 design_strengths[]          # what design decisions are working

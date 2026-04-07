@@ -76,7 +76,8 @@ class AnalysisService:
         self._report_repo.upsert(result)
 
         logger.info(
-            "Report stored", extra={"appid": appid, "sentiment": result.get("overall_sentiment")}
+            "Report stored",
+            extra={"appid": appid, "trend": result.get("sentiment_trend")},
         )
 
         report = self._report_repo.find_by_appid(appid)

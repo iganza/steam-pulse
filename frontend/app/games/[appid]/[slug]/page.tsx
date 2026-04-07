@@ -96,6 +96,14 @@ export default async function GameReportPage({ params }: Props) {
     deckCompatibility?: number | null;
     deckTestResults?: Array<{ display_type: number; loc_token: string }>;
     isEarlyAccess?: boolean;
+    // Steam-sourced sentiment + freshness — surfaced in the Steam Facts zone
+    positivePct?: number | null;
+    reviewScoreDesc?: string | null;
+    metaCrawledAt?: string | null;
+    reviewCrawledAt?: string | null;
+    reviewsCompletedAt?: string | null;
+    tagsCrawledAt?: string | null;
+    lastAnalyzed?: string | null;
   } = {};
 
   try {
@@ -118,6 +126,15 @@ export default async function GameReportPage({ params }: Props) {
       if (g.deck_compatibility != null) gameData.deckCompatibility = g.deck_compatibility;
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
       if (g.is_early_access != null) gameData.isEarlyAccess = g.is_early_access;
+      // Steam-sourced sentiment + freshness fields — wired through to the client
+      if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
+      if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
+      if (g.review_count != null) gameData.reviewCount = g.review_count;
+      if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
+      if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
+      if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
+      if (g.tags_crawled_at) gameData.tagsCrawledAt = g.tags_crawled_at;
+      if (g.last_analyzed) gameData.lastAnalyzed = g.last_analyzed;
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
@@ -145,15 +162,20 @@ export default async function GameReportPage({ params }: Props) {
     ...(gameData.reviewCount != null
       ? { "numberOfPlayers": { "@type": "QuantitativeValue", "value": gameData.reviewCount } }
       : {}),
-    ...(report ? {
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": ((report.sentiment_score / 10).toFixed(1)),
-        "bestRating": "10",
-        "worstRating": "0",
-        "ratingCount": String(report.total_reviews_analyzed ?? 0),
-      },
-    } : {}),
+    // aggregateRating is sourced from Steam's positive_pct (canonical) — never
+    // from the LLM. Only emitted when both the percentage and a meaningful
+    // review count are available.
+    ...(gameData.positivePct != null && (gameData.reviewCount ?? 0) > 0
+      ? {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": (gameData.positivePct / 10).toFixed(1),
+            "bestRating": "10",
+            "worstRating": "0",
+            "ratingCount": String(gameData.reviewCount ?? 0),
+          },
+        }
+      : {}),
   };
 
   return (
@@ -181,6 +203,13 @@ export default async function GameReportPage({ params }: Props) {
               deckCompatibility={gameData.deckCompatibility}
               deckTestResults={gameData.deckTestResults}
               isEarlyAccess={gameData.isEarlyAccess}
+              positivePct={gameData.positivePct}
+              reviewScoreDesc={gameData.reviewScoreDesc}
+              metaCrawledAt={gameData.metaCrawledAt}
+              reviewCrawledAt={gameData.reviewCrawledAt}
+              reviewsCompletedAt={gameData.reviewsCompletedAt}
+              tagsCrawledAt={gameData.tagsCrawledAt}
+              lastAnalyzed={gameData.lastAnalyzed}
             />
           }
         >

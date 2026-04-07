@@ -260,42 +260,36 @@ def test_find_benchmarks_excludes_different_release_year(
 # ---------------------------------------------------------------------------
 
 
-def test_list_games_sentiment_positive_filter(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
-    """sentiment='positive' returns only games with sentiment_score >= 0.65."""
-    game_repo.upsert(_game_data(440, "High Sentiment"))
-    game_repo.upsert({**_game_data(441, "Low Sentiment"), "slug": "low-sentiment-441"})
-    report_repo.upsert({"appid": 440, "sentiment_score": 0.90, "total_reviews_analyzed": 100})
-    report_repo.upsert({"appid": 441, "sentiment_score": 0.40, "total_reviews_analyzed": 100})
+def test_list_games_sentiment_positive_filter(game_repo: GameRepository) -> None:
+    """sentiment='positive' returns only games with Steam positive_pct >= 65."""
+    game_repo.upsert({**_game_data(440, "High Sentiment"), "positive_pct": 90})
+    game_repo.upsert(
+        {**_game_data(441, "Low Sentiment"), "slug": "low-sentiment-441", "positive_pct": 40}
+    )
     result = game_repo.list_games(sentiment="positive")
     appids = [g["appid"] for g in result["games"]]
     assert 440 in appids
     assert 441 not in appids
 
 
-def test_list_games_sentiment_mixed_filter(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
-    """sentiment='mixed' returns only games with 0.45 <= sentiment_score < 0.65."""
-    game_repo.upsert(_game_data(440, "Mixed Game"))
-    game_repo.upsert({**_game_data(441, "Positive Game"), "slug": "positive-game-441"})
-    report_repo.upsert({"appid": 440, "sentiment_score": 0.55, "total_reviews_analyzed": 100})
-    report_repo.upsert({"appid": 441, "sentiment_score": 0.90, "total_reviews_analyzed": 100})
+def test_list_games_sentiment_mixed_filter(game_repo: GameRepository) -> None:
+    """sentiment='mixed' returns only games with 45 <= positive_pct < 65."""
+    game_repo.upsert({**_game_data(440, "Mixed Game"), "positive_pct": 55})
+    game_repo.upsert(
+        {**_game_data(441, "Positive Game"), "slug": "positive-game-441", "positive_pct": 90}
+    )
     result = game_repo.list_games(sentiment="mixed")
     appids = [g["appid"] for g in result["games"]]
     assert 440 in appids
     assert 441 not in appids
 
 
-def test_list_games_sentiment_negative_filter(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
-    """sentiment='negative' returns only games with sentiment_score < 0.45."""
-    game_repo.upsert(_game_data(440, "Bad Game"))
-    game_repo.upsert({**_game_data(441, "Good Game"), "slug": "good-game-441"})
-    report_repo.upsert({"appid": 440, "sentiment_score": 0.30, "total_reviews_analyzed": 100})
-    report_repo.upsert({"appid": 441, "sentiment_score": 0.80, "total_reviews_analyzed": 100})
+def test_list_games_sentiment_negative_filter(game_repo: GameRepository) -> None:
+    """sentiment='negative' returns only games with positive_pct < 45."""
+    game_repo.upsert({**_game_data(440, "Bad Game"), "positive_pct": 30})
+    game_repo.upsert(
+        {**_game_data(441, "Good Game"), "slug": "good-game-441", "positive_pct": 80}
+    )
     result = game_repo.list_games(sentiment="negative")
     appids = [g["appid"] for g in result["games"]]
     assert 440 in appids
@@ -370,21 +364,18 @@ def test_list_games_price_tier_over_20(game_repo: GameRepository) -> None:
     assert 441 not in appids
 
 
-def test_list_games_sentiment_and_price_tier_combined(
-    game_repo: GameRepository, report_repo: ReportRepository
-) -> None:
+def test_list_games_sentiment_and_price_tier_combined(game_repo: GameRepository) -> None:
     """Both sentiment and price_tier must match — a game passing only one is excluded."""
-    match = {**_game_data(440, "Match"), "is_free": False, "price_usd": 4.99}
+    match = {**_game_data(440, "Match"), "is_free": False, "price_usd": 4.99, "positive_pct": 80}
     game_repo.upsert(match)
     no_match = {
         **_game_data(441, "Pricey"),
         "is_free": False,
         "price_usd": 39.99,
         "slug": "pricey-441",
+        "positive_pct": 80,
     }
     game_repo.upsert(no_match)
-    report_repo.upsert({"appid": 440, "sentiment_score": 0.80, "total_reviews_analyzed": 100})
-    report_repo.upsert({"appid": 441, "sentiment_score": 0.80, "total_reviews_analyzed": 100})
     result = game_repo.list_games(sentiment="positive", price_tier="under_10")
     appids = [g["appid"] for g in result["games"]]
     assert 440 in appids

@@ -503,7 +503,27 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
 
 ## Data Freshness Strategy
 
-TBD
+Two EventBridge rules on the crawler Lambda keep `app_catalog` and game metadata current:
+
+**1. Hourly catalog refresh** (`CatalogRefreshRule`)
+- Fires `CatalogService.refresh()`: pulls Steam `IStoreService/GetAppList`, `bulk_upsert` into `app_catalog` (`ON CONFLICT DO NOTHING` — new rows default to `meta_status='pending'`), then `enqueue_pending()` sends `task=metadata` SQS messages for every pending appid.
+- Net effect: new Steam releases appear and start crawling within ~1h.
+
+**2. Daily stale re-crawl** (`StaleMetaRefreshRule` → `{"action": "stale_refresh"}`)
+- Fires `CatalogService.enqueue_stale(limit=2000)` → `CatalogRepository.find_stale_meta()`.
+- Tiered staleness (priority order):
+  | Tier | Criteria | Refresh after |
+  |---|---|---|
+  | 1 | `coming_soon=TRUE` OR has genre 70 (Early Access) | 7 days |
+  | 2 | `review_count >= 1000` (popular) | 7 days |
+  | 3 | Everything else with `meta_status='done'` | 30 days |
+- `NULLS FIRST` so legacy rows (pre-`meta_crawled_at`) refresh first.
+- Enqueues **both** `task=metadata` and `task=tags` per appid so `meta_crawled_at` and `tags_crawled_at` advance together. The ingest path is identical to a fresh crawl.
+
+**Delete-and-replace invariant for associations**
+- `tag_repo.upsert_genres / upsert_categories / upsert_tags` delete any existing rows for the appid that are NOT in the incoming set, then insert. This is required so that genres/categories/tags removed on Steam's side (e.g. genre 70 disappearing when a game leaves Early Access) actually disappear from our DB. Never use `INSERT ... ON CONFLICT DO NOTHING` for associations — that path leaks stale rows forever.
+
+**Review re-crawl** is handled by the separate review pipeline with cursor-based continuation — not in scope for these rules.
 
 ---
 

@@ -740,7 +740,7 @@ class ComputeStack(cdk.Stack):
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
         # Daily stale metadata refresh — re-crawls games whose metadata/tags
-        # are past their freshness tier (EA 7d, popular 14d, rest 30d).
+        # are past their freshness tier (EA 7d, popular 7d, rest 30d).
         stale_refresh_rule = events.Rule(
             self,
             "StaleMetaRefreshRule",

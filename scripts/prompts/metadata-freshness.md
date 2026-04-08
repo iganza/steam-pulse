@@ -127,7 +127,7 @@ Priority-tiered staleness query:
 | Tier | Criteria | Re-crawl after |
 |------|----------|----------------|
 | 1 | `coming_soon = TRUE` or has genre 70 (Early Access) | 7 days |
-| 2 | `review_count >= 1000` (popular games) | 14 days |
+| 2 | `review_count >= 1000` (popular games) | 7 days |
 | 3 | Everything else with `meta_status = 'done'` | 30 days |
 
 ```sql
@@ -140,9 +140,9 @@ WHERE ac.meta_status = 'done'
     ((g.coming_soon = TRUE OR gg.genre_id IS NOT NULL)
       AND ac.meta_crawled_at < NOW() - INTERVAL '7 days')
     OR
-    -- Tier 2: popular games, stale > 14 days
+    -- Tier 2: popular games, stale > 7 days
     (ac.review_count >= 1000
-      AND ac.meta_crawled_at < NOW() - INTERVAL '14 days')
+      AND ac.meta_crawled_at < NOW() - INTERVAL '7 days')
     OR
     -- Tier 3: everything else, stale > 30 days
     (ac.meta_crawled_at < NOW() - INTERVAL '30 days')
@@ -302,7 +302,7 @@ FIFO. No coordination needed.
 | `src/lambda-functions/lambda_functions/crawler/handler.py` | Add `stale_refresh` dispatch |
 | `infra/stacks/compute_stack.py` | Add daily `StaleMetaRefreshRule` + enable existing `CatalogRefreshRule` at hourly rate |
 | `scripts/sp.py` | Add `queue stale` command |
-| `src/lambda-functions/migrations/0014_add_stale_meta_index.sql` | Create partial index |
+| `src/lambda-functions/migrations/0033_add_stale_meta_index.sql` | Create partial index |
 | `src/library-layer/library_layer/schema.py` | Add ALTER TABLE stub + index for test suite |
 
 ## Testing

@@ -55,7 +55,7 @@ class CatalogRepository(BaseRepository):
 
         Priority tiers (ordered most to least urgent):
           1. Early Access / coming-soon games → stale after 7 days
-          2. Popular games (review_count >= 1000) → stale after 14 days
+          2. Popular games (review_count >= 1000) → stale after 7 days
           3. Everything else with meta_status='done' → stale after 30 days
 
         NULLS FIRST ensures legacy rows (no meta_crawled_at) get refreshed first.

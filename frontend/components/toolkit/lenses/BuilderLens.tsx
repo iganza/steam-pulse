@@ -46,6 +46,11 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   // re-fetch. Lives for the lifetime of the component instance.
   const cacheRef = useRef<Map<string, TrendQueryResult>>(new Map());
 
+  // Tracks whether the user has explicitly chosen a chart type this session.
+  // While false, selection changes auto-update b_chart from the first
+  // metric's default_chart_hint (smart-default rule from the prompt).
+  const userPickedChartRef = useRef<boolean>(false);
+
   const maxMetrics = isPro ? 6 : 1;
   const allowedGranularities = isPro ? PRO_GRANULARITIES : FREE_GRANULARITIES;
 
@@ -66,6 +71,10 @@ export function BuilderLens({ filters, isPro }: LensProps) {
 
   // If the URL diverges from the normalized list (dupes, over-cap, reorder
   // from Pro→free), sync it back so cap checks and share-links stay honest.
+  // Depend on the RAW URL string, not the normalized one — otherwise a URL
+  // like `b_metrics=releases,releases` that normalizes to the same
+  // `selectedIds` wouldn't trigger the effect and stay un-deduped.
+  const rawMetricsKey = (state.b_metrics ?? []).join(",");
   useEffect(() => {
     const raw = state.b_metrics ?? [];
     const same =
@@ -73,13 +82,24 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       raw.every((id, i) => id === selectedIds[i]);
     if (!same) setState({ b_metrics: selectedIds });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds.join(",")]);
+  }, [rawMetricsKey]);
   const chartType: BuilderChartType = state.b_chart ?? "bar";
   const requestedGranularity: Granularity =
     state.b_gran && allowedGranularities.includes(state.b_gran)
       ? state.b_gran
       : "month";
+
   const normalize = state.b_norm ?? false;
+
+  // If the URL contains a disallowed granularity (e.g. a Pro-only value on
+  // free tier), sync it back to the effective fallback so URL ↔ render stay
+  // in agreement.
+  useEffect(() => {
+    if (state.b_gran && !allowedGranularities.includes(state.b_gran)) {
+      setState({ b_gran: requestedGranularity });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.b_gran, isPro]);
 
   const genreSlug = filters.genre || undefined;
   const tagSlug = filters.tag || undefined;
@@ -111,7 +131,13 @@ export function BuilderLens({ filters, isPro }: LensProps) {
     if ((state.b_metrics ?? []).length > 0) return;
     const preferred = catalog.find((m) => m.id === DEFAULT_METRIC) ?? catalog[0];
     if (preferred) {
-      setState({ b_metrics: [preferred.id] });
+      // Seed chart type from the metric's default_chart_hint so the first
+      // render matches the metric's natural shape (e.g. line for pct).
+      const patch: { b_metrics: string[]; b_chart?: BuilderChartType } = {
+        b_metrics: [preferred.id],
+      };
+      if (!state.b_chart) patch.b_chart = preferred.default_chart_hint;
+      setState(patch);
     }
     // Intentionally only runs when the catalog first arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,6 +151,19 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       .map((id) => byId.get(id))
       .filter((m): m is MetricDefinition => Boolean(m));
   }, [catalog, selectedIds]);
+
+  // Smart chart-type hint: while the user hasn't explicitly chosen a chart
+  // type, follow the first selected metric's default_chart_hint so e.g.
+  // picking a pct metric shows a line chart, not bars.
+  useEffect(() => {
+    if (userPickedChartRef.current) return;
+    if (selectedDefs.length === 0) return;
+    const hint = selectedDefs[0].default_chart_hint;
+    if (hint !== state.b_chart) {
+      setState({ b_chart: hint });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDefs.map((m) => m.id).join(",")]);
 
   // Build the fetch key — this is the cache key and the effect dep.
   const fetchKey = useMemo(() => {
@@ -216,6 +255,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
 
   const onChartTypeChange = useCallback(
     (t: BuilderChartType) => {
+      userPickedChartRef.current = true;
       setFallbackNote(null);
       setState({ b_chart: t });
     },
@@ -250,6 +290,14 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   // Pro normalize toggle is only meaningful when every metric is a count.
   const allCounts =
     selectedDefs.length > 0 && selectedDefs.every((m) => m.unit === "count");
+
+  // Clamp `normalize`: the URL can carry b_norm=1 even when the current
+  // selection/chart is ineligible (e.g. a shared link with pct metrics).
+  // Passing that through to ChartResolver would produce nonsensical "percent
+  // share" computations on non-count series, so gate it here.
+  const effectiveChart = effectiveChartType(selectedDefs, chartType);
+  const effectiveNormalize =
+    normalize && isPro && allCounts && effectiveChart === "stacked_area";
 
   if (catalogError) {
     return (
@@ -430,7 +478,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
                 chartType={chartType}
                 data={result.periods}
                 granularity={result.granularity}
-                normalize={normalize}
+                normalize={effectiveNormalize}
               />
             ) : null}
           </CardContent>

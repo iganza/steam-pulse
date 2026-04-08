@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import type { BuilderChartType, MetricDefinition, MetricUnit } from "@/lib/types";
 
 const CHART_LABELS: Record<BuilderChartType, string> = {
@@ -39,6 +40,46 @@ interface ChartTypePickerProps {
 export function ChartTypePicker({ value, selected, onChange }: ChartTypePickerProps) {
   const compat = chartTypeCompatibility(selected);
   const types: BuilderChartType[] = ["bar", "line", "stacked_area", "composed"];
+  const btnRefs = useRef<Record<BuilderChartType, HTMLButtonElement | null>>({
+    bar: null,
+    line: null,
+    stacked_area: null,
+    composed: null,
+  });
+
+  function focusType(t: BuilderChartType | undefined) {
+    if (!t) return;
+    const el = btnRefs.current[t];
+    if (el && !el.disabled) el.focus();
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, t: BuilderChartType) {
+    const idx = types.indexOf(t);
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      for (let i = idx + 1; i < types.length; i++) {
+        const next = types[i];
+        if (!compat[next]) { focusType(next); onChange(next); return; }
+      }
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      for (let i = idx - 1; i >= 0; i--) {
+        const prev = types[i];
+        if (!compat[prev]) { focusType(prev); onChange(prev); return; }
+      }
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      const first = types.find((x) => !compat[x]);
+      if (first) { focusType(first); onChange(first); }
+    } else if (e.key === "End") {
+      e.preventDefault();
+      const last = [...types].reverse().find((x) => !compat[x]);
+      if (last) { focusType(last); onChange(last); }
+    } else if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (!compat[t]) onChange(t);
+    }
+  }
 
   return (
     <div
@@ -53,13 +94,17 @@ export function ChartTypePicker({ value, selected, onChange }: ChartTypePickerPr
         return (
           <button
             key={t}
+            ref={(el) => { btnRefs.current[t] = el; }}
             type="button"
             role="radio"
             aria-checked={isActive}
+            // Roving tabindex: only the active option is in the tab order.
+            tabIndex={isActive ? 0 : -1}
             disabled={disabledReason !== null}
             data-testid={`builder-chart-type-${t}`}
             title={disabledReason ?? CHART_LABELS[t]}
             onClick={() => onChange(t)}
+            onKeyDown={(e) => onKeyDown(e, t)}
             className={`px-3 py-1 transition-colors ${
               isActive
                 ? "bg-teal-500/20 text-teal-400"

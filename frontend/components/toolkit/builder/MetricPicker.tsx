@@ -33,6 +33,8 @@ interface MetricPickerProps {
   catalog: MetricDefinition[];
   selected: string[];
   maxMetrics: number;
+  /** Pro-tier cap, used only for the disabled-chip tooltip wording. */
+  proMaxMetrics?: number;
   onToggle: (metricId: string) => void;
   onClear: () => void;
 }
@@ -41,6 +43,7 @@ export function MetricPicker({
   catalog,
   selected,
   maxMetrics,
+  proMaxMetrics = 6,
   onToggle,
   onClear,
 }: MetricPickerProps) {
@@ -137,7 +140,7 @@ export function MetricPicker({
                     onKeyDown={(e) => onChipKeyDown(e, m.id)}
                     title={
                       disabled
-                        ? `Free tier: 1 metric. Upgrade to Pro to combine up to ${maxMetrics}.`
+                        ? `Free tier: ${maxMetrics} metric${maxMetrics === 1 ? "" : "s"}. Upgrade to Pro to combine up to ${proMaxMetrics}.`
                         : m.description
                     }
                     aria-pressed={isSelected}

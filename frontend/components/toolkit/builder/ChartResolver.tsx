@@ -170,6 +170,12 @@ export function ChartResolver({
 /**
  * If the requested chart type is incompatible with the current selection,
  * fall back to the most reasonable compatible type.
+ *
+ * Rules (mirror the render-time routing in <ChartResolver/>):
+ *  - Mixed-unit multi-metric → always `composed` (dual-axis).
+ *  - `stacked_area` requires ≥2 metrics of the same unit ∈ {count, pct}.
+ *  - `composed` requires ≥2 metrics.
+ *  - Otherwise the requested type is honored.
  */
 export function effectiveChartType(
   selected: MetricDefinition[],
@@ -177,6 +183,14 @@ export function effectiveChartType(
 ): BuilderChartType {
   const units = new Set(selected.map((m) => m.unit));
   const count = selected.length;
+
+  // Mixed-unit multi-metric is always rendered as dual-axis composed — so
+  // encode that in the effective type. Without this, the fallback note and
+  // the chart-type UI can disagree with what the chart resolver actually
+  // draws.
+  if (count >= 2 && units.size > 1) {
+    return "composed";
+  }
 
   if (requested === "stacked_area") {
     const sameUnit = units.size === 1;

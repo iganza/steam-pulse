@@ -442,21 +442,24 @@ def test_analytics_metrics_endpoint(client: TestClient) -> None:
         assert {"id", "label", "unit", "category", "source", "column", "default_chart_hint"} <= m.keys()
 
 
-def test_analytics_trend_query_success(client: TestClient) -> None:
+def test_analytics_trend_query_success(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/analytics/trend-query returns shaped periods for valid metrics."""
     from datetime import datetime
     from unittest.mock import MagicMock
 
     import lambda_functions.api.handler as api_module
+    from library_layer.services.analytics_service import AnalyticsService
 
     mock_repo = MagicMock()
     mock_repo.query_metrics.return_value = [
         {"period": datetime(2024, 10, 1), "releases": 120},
         {"period": datetime(2024, 11, 1), "releases": 135},
     ]
-    from library_layer.services.analytics_service import AnalyticsService
-
-    api_module._analytics_service = AnalyticsService(mock_repo)  # type: ignore[assignment]
+    # monkeypatch restores the original service after the test — avoids
+    # bleeding the mock into subsequent API tests that share the module.
+    monkeypatch.setattr(api_module, "_analytics_service", AnalyticsService(mock_repo))
 
     resp = client.get("/api/analytics/trend-query?metrics=releases&granularity=month&limit=12")
     assert resp.status_code == 200

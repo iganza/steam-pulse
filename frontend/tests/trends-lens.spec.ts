@@ -75,17 +75,20 @@ test.describe('Trends lens — filter propagation', () => {
   })
 })
 
-test.describe('Trends lens — genre page integration', () => {
-  test('Trends tab on /genre/action renders the lens scoped to action', async ({ page }) => {
+// After UI consolidation, /genre/[slug] and /tag/[slug] render a long-form
+// game list (SearchClient) instead of wrapping the toolkit. Genre/tag-scoped
+// Trends now lives on /explore with filters in the URL.
+test.describe('Trends lens — genre/tag scoping via /explore', () => {
+  test('/explore?genre=action&lens=trends scopes Trends to action', async ({ page }) => {
     await mockAllApiRoutes(page)
-    await page.goto('/genre/action?lens=trends')
+    await page.goto('/explore?genre=action&lens=trends')
     await expect(page.getByText('Release Volume')).toBeVisible()
     await expect(page.getByTestId('trends-segment-caption')).toContainText(/genre=action/i)
   })
 
-  test('Trends tab on /tag/roguelike renders the lens scoped to roguelike', async ({ page }) => {
+  test('/explore?tag=roguelike&lens=trends scopes Trends to roguelike', async ({ page }) => {
     await mockAllApiRoutes(page)
-    await page.goto('/tag/roguelike?lens=trends')
+    await page.goto('/explore?tag=roguelike&lens=trends')
     await expect(page.getByText('Release Volume')).toBeVisible()
     await expect(page.getByTestId('trends-segment-caption')).toContainText(/tag=roguelike/i)
   })

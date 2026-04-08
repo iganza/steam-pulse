@@ -16,12 +16,12 @@ interface SteamFactsCardProps {
 // canonical Steam sentiment context.
 function scoreContextSentence(score: number): string {
   if (score >= 95)
-    return "Overwhelmingly Positive — fewer than 5% of Steam games with 1,000+ reviews achieve this.";
+    return "Fewer than 5% of Steam games with 1,000+ reviews achieve this.";
   if (score >= 80)
-    return "Very Positive — this puts the game in the top 30% of all reviewed games on Steam.";
-  if (score >= 70) return "Mostly Positive — above the median for reviewed Steam games.";
-  if (score >= 50) return "Mixed — roughly half of players recommend it.";
-  return "Mostly Negative — significant player dissatisfaction.";
+    return "This puts the game in the top 30% of all reviewed games on Steam.";
+  if (score >= 70) return "Above the median for reviewed Steam games.";
+  if (score >= 50) return "Roughly half of players recommend it.";
+  return "Significant player dissatisfaction.";
 }
 
 export function SteamFactsCard({
@@ -41,13 +41,11 @@ export function SteamFactsCard({
       className="rounded-xl p-4"
       style={{ background: "var(--card)", border: "1px solid var(--border)" }}
     >
-      <div className="flex items-center justify-between mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden>👍</span>
-          Steam Facts
-        </span>
-        {crawledAt && <span data-testid="steam-facts-crawled">Crawled {crawledAt}</span>}
-      </div>
+      {crawledAt && (
+        <div className="flex justify-end mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+          <span data-testid="steam-facts-crawled">Crawled {crawledAt}</span>
+        </div>
+      )}
       {positivePct != null ? (
         <ScoreBar score={positivePct} label={reviewScoreDesc ?? undefined} />
       ) : (

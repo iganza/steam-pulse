@@ -59,3 +59,22 @@ test.describe('Developer page', () => {
     await expect(page.getByText(/developer intelligence.*pro|competitive analysis/i)).toBeVisible()
   })
 })
+
+test.describe('Publisher page', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/publisher/valve')
+  })
+
+  test('renders publisher name', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /valve/i })).toBeVisible()
+  })
+
+  test('shows publisher games', async ({ page }) => {
+    await expect(page.getByText('Team Fortress 2').first()).toBeVisible()
+  })
+
+  test('shows Pro CTA for publisher intelligence', async ({ page }) => {
+    await expect(page.getByText(/publisher intelligence.*pro|competitive analysis/i)).toBeVisible()
+  })
+})

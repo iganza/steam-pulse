@@ -154,6 +154,15 @@ export async function mockPerEntityAnalyticsRoutes(page: Page) {
   await page.route('**/api/developers/*/analytics', route =>
     route.fulfill({ json: MOCK_DEVELOPER_PORTFOLIO })
   )
+  await page.route('**/api/publishers/*/analytics', route =>
+    route.fulfill({
+      json: {
+        ...MOCK_DEVELOPER_PORTFOLIO,
+        publisher: MOCK_DEVELOPER_PORTFOLIO.developer,
+        publisher_slug: MOCK_DEVELOPER_PORTFOLIO.developer_slug,
+      },
+    })
+  )
 }
 
 export async function mockAllApiRoutes(page: Page) {

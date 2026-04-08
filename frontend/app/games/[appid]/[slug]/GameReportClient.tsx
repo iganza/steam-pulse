@@ -45,6 +45,9 @@ interface GameReportClientProps {
   headerImage?: string;
   releaseDate?: string;
   developer?: string;
+  developerSlug?: string;
+  publisher?: string;
+  publisherSlug?: string;
   priceUsd?: number | null;
   isFree?: boolean;
   genres?: string[];
@@ -86,6 +89,9 @@ export function GameReportClient({
   headerImage,
   releaseDate,
   developer,
+  developerSlug,
+  publisher,
+  publisherSlug,
   priceUsd,
   isFree,
   genres,
@@ -153,6 +159,10 @@ export function GameReportClient({
         hiddenGemScore={report?.hidden_gem_score ?? null}
         positivePct={positivePct ?? null}
         reviewScoreDesc={reviewScoreDesc ?? null}
+        developer={developer}
+        developerSlug={developerSlug}
+        publisher={publisher}
+        publisherSlug={publisherSlug}
       />
 
       <div className="max-w-4xl mx-auto px-6 py-12 space-y-16">
@@ -230,7 +240,6 @@ export function GameReportClient({
           totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
           releaseDate={releaseDate}
           price={price}
-          developer={developer}
           lastAnalyzed={report?.last_analyzed ?? lastAnalyzed ?? null}
           reviewStats={reviewStats}
           statsLoading={statsLoading}

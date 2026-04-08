@@ -293,6 +293,7 @@ async def list_games(
     genre: str | None = None,
     tag: str | None = None,
     developer: str | None = None,
+    publisher: str | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
     min_reviews: int | None = None,
@@ -309,6 +310,7 @@ async def list_games(
         genre=genre,
         tag=tag,
         developer=developer,
+        publisher=publisher,
         year_from=year_from,
         year_to=year_to,
         min_reviews=min_reviews,
@@ -326,6 +328,7 @@ async def list_games(
     has_extra = (
         q is not None
         or developer is not None
+        or publisher is not None
         or year_from is not None
         or year_to is not None
         or min_reviews is not None
@@ -366,6 +369,9 @@ async def get_game_report(appid: int) -> dict:
         game_meta = {
             "short_desc": game.short_desc,
             "developer": game.developer,
+            "developer_slug": game.developer_slug,
+            "publisher": game.publisher,
+            "publisher_slug": game.publisher_slug,
             "release_date": game.release_date,
             "price_usd": float(game.price_usd) if game.price_usd else None,
             "is_free": game.is_free,
@@ -563,6 +569,11 @@ async def get_tag_trend(slug: str) -> dict:
 @app.get("/api/developers/{slug}/analytics")
 async def get_developer_analytics(slug: str) -> dict:
     return _analytics_repo.find_developer_portfolio(slug)
+
+
+@app.get("/api/publishers/{slug}/analytics")
+async def get_publisher_analytics(slug: str) -> dict:
+    return _analytics_repo.find_publisher_portfolio(slug)
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, Calendar, Clock, DollarSign, Star, Zap } from "lucide-react";
+import { BarChart3, Calendar, Clock, DollarSign, Zap } from "lucide-react";
 import { SectionLabel } from "@/components/game/SectionLabel";
-import { relativeTime, slugify } from "@/lib/format";
+import { relativeTime } from "@/lib/format";
 import type { ReviewStats } from "@/lib/types";
 
 interface QuickStatsProps {
@@ -15,9 +15,8 @@ interface QuickStatsProps {
   totalReviewsAnalyzed: number | null;
   releaseDate?: string;
   price: string;
-  developer?: string;
   /** Non-null when the game has been analyzed. Triggers the extra "Analyzed"
-   *  tile and bumps the grid from 5 columns to 6. */
+   *  tile and bumps the grid from 4 columns to 5. */
   lastAnalyzed: string | null;
   reviewStats: ReviewStats | null;
   statsLoading: boolean;
@@ -49,7 +48,6 @@ export function QuickStats({
   totalReviewsAnalyzed,
   releaseDate,
   price,
-  developer,
   lastAnalyzed,
   reviewStats,
   statsLoading,
@@ -61,10 +59,12 @@ export function QuickStats({
   const showEnSuffix = totalReviewsAnalyzed != null;
   const reviewsTs = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
   const metaTs = relativeTime(metaCrawledAt);
-  // 6 columns when analyzed (extra "Analyzed" tile); 5 otherwise.
+  // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.
+  // Developer/Publisher credits moved into <GameHero /> as inline text so the
+  // tile grid stays numeric-only and never squishes on long studio names.
   const gridClass = lastAnalyzed
-    ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
-    : "grid grid-cols-2 md:grid-cols-5 gap-4";
+    ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"
+    : "grid grid-cols-2 md:grid-cols-4 gap-4";
 
   return (
     <section className="animate-fade-up stagger-2">
@@ -121,24 +121,6 @@ export function QuickStats({
             <span className="text-sm uppercase tracking-widest font-mono">Price</span>
           </div>
           <p className="font-mono text-base font-medium truncate">{price}</p>
-        </div>
-        {/* Developer */}
-        <div className={TILE_CLASS} style={TILE_STYLE}>
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <Star className="w-4 h-4" />
-            <span className="text-sm uppercase tracking-widest font-mono">Developer</span>
-          </div>
-          {developer ? (
-            <Link
-              href={`/developer/${slugify(developer)}`}
-              className="font-mono text-base font-medium hover:underline truncate block"
-              style={{ color: "var(--teal)" }}
-            >
-              {developer}
-            </Link>
-          ) : (
-            <p className="font-mono text-base font-medium">—</p>
-          )}
         </div>
         {/* Analyzed — only when the game has a report */}
         {lastAnalyzed && (

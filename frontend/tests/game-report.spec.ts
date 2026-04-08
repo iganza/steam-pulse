@@ -51,10 +51,9 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.getByText('Steam Sentiment')).toBeVisible()
   })
 
-  test('Steam Facts zone header renders with crawl freshness', async ({ page }) => {
-    // Verdict section's Steam-facts zone identifies the source and shows when
-    // Steam data was last fetched via the relativeTime() helper.
-    await expect(page.getByText(/Steam Facts/i)).toBeVisible()
+  test('Steam Facts zone shows crawl freshness', async ({ page }) => {
+    // Verdict section's Steam-facts zone shows when Steam data was last
+    // fetched via the relativeTime() helper.
     await expect(page.getByTestId('steam-facts-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
   })
 

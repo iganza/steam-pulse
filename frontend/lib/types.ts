@@ -125,6 +125,9 @@ export interface Game {
   slug: string;
   short_desc?: string;
   developer?: string;
+  developer_slug?: string;
+  publisher?: string;
+  publisher_slug?: string;
   header_image?: string;
   review_count?: number;
   review_count_english?: number;
@@ -506,6 +509,17 @@ export interface DeveloperGame {
   metacritic_score: number | null;
   achievements_total: number | null;
 }
+
+// Feature 11b: Publisher Portfolio — mirrors DeveloperPortfolio
+export interface PublisherPortfolio {
+  publisher: string;
+  publisher_slug: string;
+  summary: PublisherSummary;
+  games: PublisherGame[];
+}
+
+export type PublisherSummary = DeveloperSummary;
+export type PublisherGame = DeveloperGame;
 
 // ---------------------------------------------------------------------------
 // Builder lens — metric catalog + generic trend query

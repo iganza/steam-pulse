@@ -87,6 +87,9 @@ export default async function GameReportPage({ params }: Props) {
     gameName?: string;
     releaseDate?: string;
     developer?: string;
+    developerSlug?: string;
+    publisher?: string;
+    publisherSlug?: string;
     priceUsd?: number | null;
     isFree?: boolean;
     genres?: string[];
@@ -122,6 +125,9 @@ export default async function GameReportPage({ params }: Props) {
       const g = reportData.game;
       if (g.short_desc) gameData.shortDesc = g.short_desc;
       if (g.developer) gameData.developer = g.developer;
+      if (g.developer_slug) gameData.developerSlug = g.developer_slug;
+      if (g.publisher) gameData.publisher = g.publisher;
+      if (g.publisher_slug) gameData.publisherSlug = g.publisher_slug;
       if (g.release_date) gameData.releaseDate = g.release_date;
       if (g.price_usd != null) gameData.priceUsd = g.price_usd;
       if (g.is_free != null) gameData.isFree = g.is_free;
@@ -203,6 +209,9 @@ export default async function GameReportPage({ params }: Props) {
               headerImage={headerImage}
               releaseDate={gameData.releaseDate}
               developer={gameData.developer}
+              developerSlug={gameData.developerSlug}
+              publisher={gameData.publisher}
+              publisherSlug={gameData.publisherSlug}
               priceUsd={gameData.priceUsd}
               isFree={gameData.isFree ?? false}
               genres={gameData.genres ?? []}
@@ -239,6 +248,9 @@ export default async function GameReportPage({ params }: Props) {
                   headerImage={headerImage}
                   releaseDate={gameData.releaseDate}
                   developer={gameData.developer}
+                  developerSlug={gameData.developerSlug}
+                  publisher={gameData.publisher}
+                  publisherSlug={gameData.publisherSlug}
                   priceUsd={gameData.priceUsd}
                   isFree={gameData.isFree ?? false}
                   genres={gameData.genres ?? []}

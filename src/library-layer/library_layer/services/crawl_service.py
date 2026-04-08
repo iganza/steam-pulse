@@ -342,6 +342,7 @@ class CrawlService:
             "developer": devs[0] if devs else None,
             "developer_slug": slugify(devs[0]) if devs else None,
             "publisher": pubs[0] if pubs else None,
+            "publisher_slug": slugify(pubs[0]) if pubs else None,
             "developers": json.dumps(devs),
             "publishers": json.dumps(pubs),
             "website": details.get("website") or None,

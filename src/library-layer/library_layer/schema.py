@@ -18,6 +18,7 @@ TABLES: tuple[str, ...] = (
         developer        TEXT,                        -- primary developer (display)
         developer_slug   TEXT,                        -- slugified developer for URL routing
         publisher        TEXT,                        -- primary publisher (display)
+        publisher_slug   TEXT,                        -- slugified publisher for URL routing
         developers       JSONB,                       -- full array from Steam API
         publishers       JSONB,                       -- full array from Steam API
         website          TEXT,
@@ -266,6 +267,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_computed_at TIMESTAMPTZ",
     # 0030_add_revenue_estimate_reason
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT",
+    # 0031_add_publisher_slug
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS publisher_slug TEXT",
 )
 
 # Indexes — kept for test suite use only.
@@ -279,6 +282,7 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_funny ON reviews(appid, votes_funny DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_posted ON reviews(appid, posted_at)",
     "CREATE INDEX IF NOT EXISTS idx_games_developer_slug ON games(developer_slug) WHERE developer_slug IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_games_publisher_slug ON games(publisher_slug) WHERE publisher_slug IS NOT NULL",
     # 0015_catalog_query_indexes
     "CREATE INDEX IF NOT EXISTS idx_game_genres_genre_appid ON game_genres(genre_id, appid)",
     "CREATE INDEX IF NOT EXISTS idx_game_tags_tag_appid ON game_tags(tag_id, appid)",

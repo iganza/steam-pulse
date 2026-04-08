@@ -348,22 +348,44 @@ class AnalyticsRepository(BaseRepository):
 
     def find_developer_portfolio(self, developer_slug: str) -> dict:
         """All games by a developer with aggregate stats and sentiment trajectory."""
+        return self._find_entity_portfolio("developer", developer_slug)
+
+    def find_publisher_portfolio(self, publisher_slug: str) -> dict:
+        """All games by a publisher with aggregate stats and sentiment trajectory."""
+        return self._find_entity_portfolio("publisher", publisher_slug)
+
+    def _find_entity_portfolio(self, entity: str, slug: str) -> dict:
+        """Shared portfolio query for developer/publisher pages.
+
+        `entity` must be either "developer" or "publisher" — it selects which
+        slug column (developer_slug/publisher_slug) and display column
+        (developer/publisher) to read from the games table.
+        """
+        if entity == "developer":
+            slug_col = "developer_slug"
+            name_col = "developer"
+        elif entity == "publisher":
+            slug_col = "publisher_slug"
+            name_col = "publisher"
+        else:
+            raise ValueError(f"Unsupported entity: {entity}")
+
         games_rows = self._fetchall(
-            """
+            f"""
             SELECT
                 g.appid, g.name, g.slug, g.header_image,
                 g.release_date, g.price_usd, g.is_free,
                 g.review_count, g.positive_pct, g.review_score_desc,
-                g.metacritic_score, g.achievements_total, g.developer
+                g.metacritic_score, g.achievements_total, g.{name_col} AS entity_name
             FROM games g
-            WHERE g.developer_slug = %s
+            WHERE g.{slug_col} = %s
             ORDER BY g.release_date DESC NULLS LAST
             """,
-            (developer_slug,),
+            (slug,),
         )
 
         summary_row = self._fetchone(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total_games,
                 SUM(g.review_count) AS total_reviews,
@@ -375,12 +397,12 @@ class AnalyticsRepository(BaseRepository):
                 COUNT(*) FILTER (WHERE g.positive_pct >= 70) AS well_received,
                 COUNT(*) FILTER (WHERE g.positive_pct < 50) AS poorly_received
             FROM games g
-            WHERE g.developer_slug = %s
+            WHERE g.{slug_col} = %s
             """,
-            (developer_slug,),
+            (slug,),
         )
 
-        developer_name = games_rows[0]["developer"] if games_rows else developer_slug
+        entity_name = games_rows[0]["entity_name"] if games_rows else slug
         total_games = int(summary_row["total_games"]) if summary_row else 0
         overall_avg = (
             float(summary_row["avg_steam_pct"])
@@ -431,8 +453,8 @@ class AnalyticsRepository(BaseRepository):
         ]
 
         return {
-            "developer": developer_name,
-            "developer_slug": developer_slug,
+            entity: entity_name,
+            f"{entity}_slug": slug,
             "summary": {
                 "total_games": total_games,
                 "total_reviews": int(summary_row["total_reviews"])

@@ -129,12 +129,14 @@ def test_update_revenue_estimate_persists_values(game_repo: GameRepository) -> N
         owners=30000,
         revenue_usd=Decimal("599700.00"),
         method="boxleiter_v1",
+        reason=None,
     )
     with game_repo.conn.cursor() as cur:
         cur.execute(
             """
             SELECT estimated_owners, estimated_revenue_usd,
-                   revenue_estimate_method, revenue_estimate_computed_at
+                   revenue_estimate_method, revenue_estimate_reason,
+                   revenue_estimate_computed_at
             FROM games WHERE appid = %s
             """,
             (440,),
@@ -144,6 +146,7 @@ def test_update_revenue_estimate_persists_values(game_repo: GameRepository) -> N
     assert row["estimated_owners"] == 30000
     assert row["estimated_revenue_usd"] == Decimal("599700.00")
     assert row["revenue_estimate_method"] == "boxleiter_v1"
+    assert row["revenue_estimate_reason"] is None
     assert row["revenue_estimate_computed_at"] is not None
 
 
@@ -151,19 +154,23 @@ def test_update_revenue_estimate_writes_null_method_when_no_estimate(
     game_repo: GameRepository,
 ) -> None:
     """Free-to-play / excluded-type games must land with a NULL method so
-    downstream clients can treat NULL as 'no estimate available'."""
+    downstream clients can treat NULL as 'no estimate available'. The reason
+    code is persisted alongside so the UI can render precise empty-state copy.
+    """
     game_repo.upsert(_game_data())
     game_repo.update_revenue_estimate(
         appid=440,
         owners=None,
         revenue_usd=None,
         method="boxleiter_v1",
+        reason="insufficient_reviews",
     )
     with game_repo.conn.cursor() as cur:
         cur.execute(
             """
             SELECT estimated_owners, estimated_revenue_usd,
-                   revenue_estimate_method, revenue_estimate_computed_at
+                   revenue_estimate_method, revenue_estimate_reason,
+                   revenue_estimate_computed_at
             FROM games WHERE appid = %s
             """,
             (440,),
@@ -173,6 +180,7 @@ def test_update_revenue_estimate_writes_null_method_when_no_estimate(
     assert row["estimated_owners"] is None
     assert row["estimated_revenue_usd"] is None
     assert row["revenue_estimate_method"] is None
+    assert row["revenue_estimate_reason"] == "insufficient_reviews"
     # computed_at is still stamped — tracks the attempt, not the outcome.
     assert row["revenue_estimate_computed_at"] is not None
 
@@ -197,8 +205,8 @@ def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) ->
 
     game_repo.bulk_update_revenue_estimates(
         [
-            (440, 30_000, Decimal("300000.00"), "boxleiter_v1"),
-            (441, None, None, "boxleiter_v1"),  # e.g. free-to-play
+            (440, 30_000, Decimal("300000.00"), "boxleiter_v1", None),
+            (441, None, None, "boxleiter_v1", "free_to_play"),
         ]
     )
 
@@ -206,7 +214,8 @@ def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) ->
         cur.execute(
             """
             SELECT appid, estimated_owners, estimated_revenue_usd,
-                   revenue_estimate_method, revenue_estimate_computed_at
+                   revenue_estimate_method, revenue_estimate_reason,
+                   revenue_estimate_computed_at
             FROM games WHERE appid IN (440, 441) ORDER BY appid
             """
         )
@@ -214,10 +223,12 @@ def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) ->
     assert a["estimated_owners"] == 30_000
     assert a["estimated_revenue_usd"] == Decimal("300000.00")
     assert a["revenue_estimate_method"] == "boxleiter_v1"
+    assert a["revenue_estimate_reason"] is None
     assert a["revenue_estimate_computed_at"] is not None
     assert b["estimated_owners"] is None
     assert b["estimated_revenue_usd"] is None
     assert b["revenue_estimate_method"] is None  # coerced to NULL
+    assert b["revenue_estimate_reason"] == "free_to_play"
     assert b["revenue_estimate_computed_at"] is not None
 
 

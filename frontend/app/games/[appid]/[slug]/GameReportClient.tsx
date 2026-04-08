@@ -40,6 +40,7 @@ import {
   computePlaytimeInsight,
 } from "@/components/game/PlaytimeChart";
 import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
+import { MarketReach } from "@/components/game/MarketReach";
 import { PromiseGap } from "@/components/game/PromiseGap";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 
@@ -68,6 +69,11 @@ interface GameReportClientProps {
   reviewsCompletedAt?: string | null;
   tagsCrawledAt?: string | null;
   lastAnalyzed?: string | null;
+  // Boxleiter v1 revenue estimate — surfaced by <MarketReach />
+  estimatedOwners?: number | null;
+  estimatedRevenueUsd?: number | null;
+  revenueEstimateMethod?: string | null;
+  revenueEstimateReason?: string | null;
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -137,6 +143,10 @@ export function GameReportClient({
   reviewsCompletedAt,
   tagsCrawledAt,
   lastAnalyzed,
+  estimatedOwners,
+  estimatedRevenueUsd,
+  revenueEstimateMethod,
+  revenueEstimateReason,
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -641,6 +651,18 @@ export function GameReportClient({
             ) : null;
           })()}
         </section>
+
+        {/* Market Reach — Boxleiter v1 revenue estimate (Pro-gated).
+            TODO(pro-gating): isPro comes from usePro() context; free tier is
+            the current default until the auth + subscription wiring lands. */}
+        <MarketReach
+          estimatedOwners={estimatedOwners ?? null}
+          estimatedRevenueUsd={estimatedRevenueUsd ?? null}
+          method={revenueEstimateMethod ?? null}
+          reason={revenueEstimateReason ?? null}
+          reviewCount={reviewCount ?? 0}
+          isPro={isPro}
+        />
 
         {/* Section 3 - Design Strengths */}
         <section className="animate-fade-up stagger-3">

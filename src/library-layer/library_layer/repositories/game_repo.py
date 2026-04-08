@@ -604,12 +604,16 @@ class GameRepository(BaseRepository):
         owners: int | None,
         revenue_usd: Decimal | None,
         method: str | None,
+        reason: str | None = None,
     ) -> None:
         """Store the latest Boxleiter revenue estimate for a game.
 
         When both `owners` and `revenue_usd` are None (e.g. free-to-play,
         excluded type, insufficient reviews), `method` is coerced to NULL so
         clients can reliably treat a NULL method as "no estimate available".
+        `reason` is persisted as-is — it's the orthogonal explanation for
+        *why* no numeric estimate is available, and intentionally populated
+        precisely when the numeric fields are NULL.
         `revenue_estimate_computed_at` is always stamped — it tracks that we
         attempted a computation, regardless of outcome.
         """
@@ -621,24 +625,28 @@ class GameRepository(BaseRepository):
                 SET estimated_owners             = %s,
                     estimated_revenue_usd        = %s,
                     revenue_estimate_method      = %s,
+                    revenue_estimate_reason      = %s,
                     revenue_estimate_computed_at = NOW()
                 WHERE appid = %s
                 """,
-                (owners, revenue_usd, persisted_method, appid),
+                (owners, revenue_usd, persisted_method, reason, appid),
             )
         self.conn.commit()
 
     def bulk_update_revenue_estimates(
         self,
-        rows: list[tuple[int, int | None, Decimal | None, str | None]],
+        rows: list[tuple[int, int | None, Decimal | None, str | None, str | None]],
     ) -> None:
         """Apply many revenue estimate updates in one transaction.
 
-        Each row is `(appid, owners, revenue_usd, method)`. The repo still
-        enforces the "NULL method when no estimate" contract: if both
+        Each row is `(appid, owners, revenue_usd, method, reason)`. The repo
+        still enforces the "NULL method when no estimate" contract: if both
         `owners` and `revenue_usd` are None the persisted method is coerced
-        to NULL. One commit per call keeps Lambda hot-loop / backfill runtime
-        predictable (no per-row transaction overhead).
+        to NULL. `reason` is written through as-is — it's the machine-readable
+        explanation (e.g. "free_to_play", "insufficient_reviews") and is
+        meaningful precisely when the numeric fields are NULL. One commit per
+        call keeps Lambda hot-loop / backfill runtime predictable (no per-row
+        transaction overhead).
         """
         if not rows:
             return
@@ -649,9 +657,10 @@ class GameRepository(BaseRepository):
                 owners,
                 revenue_usd,
                 method if (owners is not None or revenue_usd is not None) else None,
+                reason,
                 appid,
             )
-            for appid, owners, revenue_usd, method in rows
+            for appid, owners, revenue_usd, method, reason in rows
         ]
         with self.conn.cursor() as cur:
             execute_values(
@@ -661,12 +670,13 @@ class GameRepository(BaseRepository):
                     estimated_owners             = data.owners,
                     estimated_revenue_usd        = data.revenue_usd,
                     revenue_estimate_method      = data.method,
+                    revenue_estimate_reason      = data.reason,
                     revenue_estimate_computed_at = NOW()
-                FROM (VALUES %s) AS data(owners, revenue_usd, method, appid)
+                FROM (VALUES %s) AS data(owners, revenue_usd, method, reason, appid)
                 WHERE g.appid = data.appid
                 """,
                 payload,
-                template="(%s::bigint, %s::numeric, %s::text, %s::int)",
+                template="(%s::bigint, %s::numeric, %s::text, %s::text, %s::int)",
             )
         self.conn.commit()
 

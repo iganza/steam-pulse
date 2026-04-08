@@ -345,6 +345,7 @@ def test_report_endpoint_includes_revenue_estimate_when_present(client: TestClie
         estimated_owners=30_000,
         estimated_revenue_usd=Decimal("300000.00"),
         revenue_estimate_method="boxleiter_v1",
+        revenue_estimate_reason=None,
     )
     api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
     api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
@@ -355,10 +356,14 @@ def test_report_endpoint_includes_revenue_estimate_when_present(client: TestClie
     assert game_meta["estimated_owners"] == 30_000
     assert game_meta["estimated_revenue_usd"] == 300000.0
     assert game_meta["revenue_estimate_method"] == "boxleiter_v1"
+    # Reason is absent when the estimate succeeded.
+    assert "revenue_estimate_reason" not in game_meta
 
 
 def test_report_endpoint_omits_revenue_estimate_when_null(client: TestClient) -> None:
-    """When owners/revenue are both NULL (e.g. free-to-play), all three keys are omitted."""
+    """When owners/revenue are both NULL (e.g. free-to-play), the numeric
+    keys are omitted but the reason code is surfaced so the UI can render
+    precise empty-state copy."""
     import lambda_functions.api.handler as api_module
 
     game = _build_game_with_revenue(
@@ -367,6 +372,7 @@ def test_report_endpoint_omits_revenue_estimate_when_null(client: TestClient) ->
         estimated_owners=None,
         estimated_revenue_usd=None,
         revenue_estimate_method=None,
+        revenue_estimate_reason="free_to_play",
     )
     api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
     api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
@@ -377,6 +383,7 @@ def test_report_endpoint_omits_revenue_estimate_when_null(client: TestClient) ->
     assert "estimated_owners" not in game_meta
     assert "estimated_revenue_usd" not in game_meta
     assert "revenue_estimate_method" not in game_meta
+    assert game_meta["revenue_estimate_reason"] == "free_to_play"
 
 
 def test_report_endpoint_omits_method_when_only_method_present(client: TestClient) -> None:

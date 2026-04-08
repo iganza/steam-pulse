@@ -61,7 +61,10 @@ TABLES: tuple[str, ...] = (
         estimated_owners BIGINT,
         estimated_revenue_usd NUMERIC(14,2),
         revenue_estimate_method TEXT,
-        revenue_estimate_computed_at TIMESTAMPTZ
+        revenue_estimate_computed_at TIMESTAMPTZ,
+        -- (0030) reason code when no numeric estimate is available
+        -- (e.g. free_to_play, insufficient_reviews, excluded_type, missing_price)
+        revenue_estimate_reason TEXT
     )
     """,
     """
@@ -261,6 +264,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS estimated_revenue_usd NUMERIC(14,2)",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_method TEXT",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_computed_at TIMESTAMPTZ",
+    # 0030_add_revenue_estimate_reason
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT",
 )
 
 # Indexes — kept for test suite use only.

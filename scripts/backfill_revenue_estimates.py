@@ -140,7 +140,9 @@ def main() -> None:
         genres_by_appid = tag_repo.find_genres_for_appids(appids)
         tags_by_appid = tag_repo.find_tags_for_appids(appids)
 
-        batch_updates: list[tuple[int, int | None, Decimal | None, str | None]] = []
+        batch_updates: list[
+            tuple[int, int | None, Decimal | None, str | None, str | None]
+        ] = []
         for appid in appids:
             game = games_by_appid.get(appid)
             if game is None:
@@ -156,13 +158,39 @@ def main() -> None:
             else:
                 reasons["_computed"] += 1
             batch_updates.append(
-                (appid, estimate.estimated_owners, estimate.estimated_revenue_usd, estimate.method)
+                (
+                    appid,
+                    estimate.estimated_owners,
+                    estimate.estimated_revenue_usd,
+                    estimate.method,
+                    estimate.reason,
+                )
             )
 
         if not args.dry_run and batch_updates:
             # One bulk UPDATE + one commit per batch instead of per row.
-            game_repo.bulk_update_revenue_estimates(batch_updates)
-            updated += len(batch_updates)
+            try:
+                game_repo.bulk_update_revenue_estimates(batch_updates)
+                updated += len(batch_updates)
+            except psycopg2.errors.NumericValueOutOfRange:
+                # Fall back to per-row so one bogus estimate doesn't kill the batch.
+                game_repo.conn.rollback()
+                print(
+                    "  WARN: numeric overflow in batch — retrying row-by-row",
+                    flush=True,
+                )
+                for row in batch_updates:
+                    try:
+                        game_repo.bulk_update_revenue_estimates([row])
+                        updated += 1
+                    except psycopg2.errors.NumericValueOutOfRange:
+                        game_repo.conn.rollback()
+                        reasons["_overflow_skipped"] += 1
+                        print(
+                            f"  WARN: skipping appid={row[0]} — revenue estimate "
+                            f"{row[2]} overflows column, likely bogus data",
+                            flush=True,
+                        )
 
         print(
             f"  processed batch of {len(appids)} (running total: {total}, updated: {updated})",

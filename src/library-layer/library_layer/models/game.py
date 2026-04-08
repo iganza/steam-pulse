@@ -55,6 +55,7 @@ class Game(BaseModel):
     estimated_revenue_usd: Decimal | None = None
     revenue_estimate_method: str | None = None
     revenue_estimate_computed_at: datetime | None = None
+    revenue_estimate_reason: str | None = None
 
     @field_validator("developers", "publishers", mode="before")
     @classmethod

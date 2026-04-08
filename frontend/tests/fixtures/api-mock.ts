@@ -228,6 +228,11 @@ export async function mockAllApiRoutes(page: Page) {
           reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
           tags_crawled_at: MOCK_GAME_ANALYZED.tags_crawled_at,
           last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
+          // Boxleiter v1 revenue estimate (populated state for the default fixture)
+          estimated_owners: 360000,
+          estimated_revenue_usd: 7200000,
+          revenue_estimate_method: 'boxleiter_v1',
+          revenue_estimate_reason: null,
         },
       },
     })
@@ -255,6 +260,8 @@ export async function mockAllApiRoutes(page: Page) {
           review_crawled_at: MOCK_GAME_UNANALYZED.review_crawled_at,
           reviews_completed_at: MOCK_GAME_UNANALYZED.reviews_completed_at,
           tags_crawled_at: MOCK_GAME_UNANALYZED.tags_crawled_at,
+          // Insufficient-reviews empty state for the Market Reach card
+          revenue_estimate_reason: 'insufficient_reviews',
         },
       },
     })

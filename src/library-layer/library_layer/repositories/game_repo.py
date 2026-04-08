@@ -628,6 +628,48 @@ class GameRepository(BaseRepository):
             )
         self.conn.commit()
 
+    def bulk_update_revenue_estimates(
+        self,
+        rows: list[tuple[int, int | None, Decimal | None, str | None]],
+    ) -> None:
+        """Apply many revenue estimate updates in one transaction.
+
+        Each row is `(appid, owners, revenue_usd, method)`. The repo still
+        enforces the "NULL method when no estimate" contract: if both
+        `owners` and `revenue_usd` are None the persisted method is coerced
+        to NULL. One commit per call keeps Lambda hot-loop / backfill runtime
+        predictable (no per-row transaction overhead).
+        """
+        if not rows:
+            return
+        from psycopg2.extras import execute_values
+
+        payload = [
+            (
+                owners,
+                revenue_usd,
+                method if (owners is not None or revenue_usd is not None) else None,
+                appid,
+            )
+            for appid, owners, revenue_usd, method in rows
+        ]
+        with self.conn.cursor() as cur:
+            execute_values(
+                cur,
+                """
+                UPDATE games AS g SET
+                    estimated_owners             = data.owners,
+                    estimated_revenue_usd        = data.revenue_usd,
+                    revenue_estimate_method      = data.method,
+                    revenue_estimate_computed_at = NOW()
+                FROM (VALUES %s) AS data(owners, revenue_usd, method, appid)
+                WHERE g.appid = data.appid
+                """,
+                payload,
+                template="(%s::bigint, %s::numeric, %s::text, %s::int)",
+            )
+        self.conn.commit()
+
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""
         with self.conn.cursor() as cur:

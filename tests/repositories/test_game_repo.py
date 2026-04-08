@@ -187,6 +187,44 @@ def test_find_for_revenue_estimate_returns_minimal_game(game_repo: GameRepositor
     assert game.review_count == 188000
 
 
+def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) -> None:
+    """One UPDATE path covers both estimate-present and estimate-absent rows,
+    coercing `method` to NULL for the latter."""
+    game_repo.upsert(_game_data(440, "TF2"))
+    other = _game_data(441, "Half-Life 2")
+    other["slug"] = "half-life-2-441"
+    game_repo.upsert(other)
+
+    game_repo.bulk_update_revenue_estimates(
+        [
+            (440, 30_000, Decimal("300000.00"), "boxleiter_v1"),
+            (441, None, None, "boxleiter_v1"),  # e.g. free-to-play
+        ]
+    )
+
+    with game_repo.conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT appid, estimated_owners, estimated_revenue_usd,
+                   revenue_estimate_method, revenue_estimate_computed_at
+            FROM games WHERE appid IN (440, 441) ORDER BY appid
+            """
+        )
+        a, b = cur.fetchall()
+    assert a["estimated_owners"] == 30_000
+    assert a["estimated_revenue_usd"] == Decimal("300000.00")
+    assert a["revenue_estimate_method"] == "boxleiter_v1"
+    assert a["revenue_estimate_computed_at"] is not None
+    assert b["estimated_owners"] is None
+    assert b["estimated_revenue_usd"] is None
+    assert b["revenue_estimate_method"] is None  # coerced to NULL
+    assert b["revenue_estimate_computed_at"] is not None
+
+
+def test_bulk_update_revenue_estimates_empty_is_noop(game_repo: GameRepository) -> None:
+    game_repo.bulk_update_revenue_estimates([])  # must not raise
+
+
 def test_find_for_revenue_estimate_returns_none_for_missing(
     game_repo: GameRepository,
 ) -> None:

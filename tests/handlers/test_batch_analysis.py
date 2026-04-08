@@ -932,12 +932,15 @@ def test_process_results_persists_revenue_estimate(lambda_context: Any) -> None:
     mock_tag_repo_pr.find_genres_for_appids.assert_called_once_with([440])
     mock_tag_repo_pr.find_tags_for_appids.assert_called_once_with([440])
 
-    mock_game_repo_pr.update_revenue_estimate.assert_called_once()
-    kwargs = mock_game_repo_pr.update_revenue_estimate.call_args.kwargs
-    assert kwargs["appid"] == 440
-    assert kwargs["owners"] == 30_000  # indie (30) * 1000 reviews
-    assert kwargs["revenue_usd"] == Decimal("300000.00")
-    assert kwargs["method"] == "boxleiter_v1"
+    # Single bulk UPDATE + commit per batch (not per row).
+    mock_game_repo_pr.bulk_update_revenue_estimates.assert_called_once()
+    (rows,) = mock_game_repo_pr.bulk_update_revenue_estimates.call_args.args
+    assert len(rows) == 1
+    appid, owners, revenue_usd, method = rows[0]
+    assert appid == 440
+    assert owners == 30_000  # indie (30) * 1000 reviews
+    assert revenue_usd == Decimal("300000.00")
+    assert method == "boxleiter_v1"
 
 
 @mock_aws
@@ -989,9 +992,11 @@ def test_process_results_revenue_estimate_null_for_free_game(lambda_context: Any
     ):
         h.handler(_handler_event(), lambda_context)
 
-    kwargs = mock_game_repo_pr.update_revenue_estimate.call_args.kwargs
-    assert kwargs["owners"] is None
-    assert kwargs["revenue_usd"] is None
-    # Estimator still returns a method; the repo layer is responsible for
-    # coercing it to NULL when both value fields are None.
-    assert kwargs["method"] == "boxleiter_v1"
+    (rows,) = mock_game_repo_pr.bulk_update_revenue_estimates.call_args.args
+    assert len(rows) == 1
+    _, owners, revenue_usd, method = rows[0]
+    assert owners is None
+    assert revenue_usd is None
+    # Estimator still returns a method; the repo layer's bulk writer is
+    # responsible for coercing it to NULL when both value fields are None.
+    assert method == "boxleiter_v1"

@@ -82,6 +82,7 @@ def _update_revenue_estimates(
     """
     genres_by_appid = tag_repo.find_genres_for_appids(appids)
     tags_by_appid = tag_repo.find_tags_for_appids(appids)
+    updates: list[tuple[int, int | None, object, str | None]] = []
     for appid in appids:
         game = game_repo.find_for_revenue_estimate(appid)
         if game is None:
@@ -91,11 +92,8 @@ def _update_revenue_estimates(
             genres_by_appid.get(appid, []),
             tags_by_appid.get(appid, []),
         )
-        game_repo.update_revenue_estimate(
-            appid=appid,
-            owners=estimate.estimated_owners,
-            revenue_usd=estimate.estimated_revenue_usd,
-            method=estimate.method,
+        updates.append(
+            (appid, estimate.estimated_owners, estimate.estimated_revenue_usd, estimate.method)
         )
         logger.info(
             "revenue estimate computed",
@@ -108,6 +106,8 @@ def _update_revenue_estimates(
                 "reason": estimate.reason,
             },
         )
+    # Single commit for the whole batch — avoids per-row transaction overhead.
+    game_repo.bulk_update_revenue_estimates(updates)  # type: ignore[arg-type]
 
 
 @tracer.capture_lambda_handler

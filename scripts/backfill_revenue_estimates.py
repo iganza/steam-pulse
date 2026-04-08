@@ -46,12 +46,15 @@ from library_layer.utils.db import get_conn
 
 
 def _iter_candidate_appids(
-    game_repo: GameRepository,
     *,
     only_stale: bool,
     batch_size: int,
 ) -> Iterator[list[int]]:
-    """Yield lists of candidate appids in chunks of `batch_size`."""
+    """Stream candidate appids from a named server-side cursor.
+
+    Avoids loading the full games table into memory on large production DBs
+    — psycopg2 will only buffer `itersize` rows at a time.
+    """
     if only_stale:
         sql = (
             "SELECT appid FROM games "
@@ -63,15 +66,18 @@ def _iter_candidate_appids(
         sql = "SELECT appid FROM games ORDER BY appid"
         params = ()
 
-    rows = game_repo._fetchall(sql, params)
-    chunk: list[int] = []
-    for r in rows:
-        chunk.append(int(r["appid"]))
-        if len(chunk) >= batch_size:
-            yield chunk
-            chunk = []
-    if chunk:
-        yield chunk
+    conn = get_conn()
+    # Named cursor => server-side; keep conn.autocommit off so Postgres
+    # actually keeps the cursor open.
+    with conn.cursor(name="backfill_revenue_estimates_appids") as cur:
+        cur.itersize = batch_size
+        cur.execute(sql, params)
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                break
+            # RealDictCursor default → rows are dicts; plain cursors → tuples.
+            yield [int(r["appid"]) if isinstance(r, dict) else int(r[0]) for r in rows]
 
 
 def _fetch_games_bulk(game_repo: GameRepository, appids: list[int]) -> dict[int, Game]:
@@ -112,9 +118,7 @@ def main() -> None:
     updated = 0
     reasons: Counter[str] = Counter()
 
-    for appids in _iter_candidate_appids(
-        game_repo, only_stale=args.only_stale, batch_size=args.batch
-    ):
+    for appids in _iter_candidate_appids(only_stale=args.only_stale, batch_size=args.batch):
         if args.limit is not None and total >= args.limit:
             break
         if args.limit is not None:
@@ -126,6 +130,7 @@ def main() -> None:
         genres_by_appid = tag_repo.find_genres_for_appids(appids)
         tags_by_appid = tag_repo.find_tags_for_appids(appids)
 
+        batch_updates: list[tuple[int, int | None, object, str | None]] = []
         for appid in appids:
             game = games_by_appid.get(appid)
             if game is None:
@@ -140,21 +145,17 @@ def main() -> None:
                 reasons[estimate.reason] += 1
             else:
                 reasons["_computed"] += 1
-
-            if args.dry_run:
-                continue
-
-            game_repo.update_revenue_estimate(
-                appid=appid,
-                owners=estimate.estimated_owners,
-                revenue_usd=estimate.estimated_revenue_usd,
-                method=estimate.method,
+            batch_updates.append(
+                (appid, estimate.estimated_owners, estimate.estimated_revenue_usd, estimate.method)
             )
-            updated += 1
+
+        if not args.dry_run and batch_updates:
+            # One bulk UPDATE + one commit per batch instead of per row.
+            game_repo.bulk_update_revenue_estimates(batch_updates)  # type: ignore[arg-type]
+            updated += len(batch_updates)
 
         print(
-            f"  processed batch of {len(appids)} "
-            f"(running total: {total}, updated: {updated})",
+            f"  processed batch of {len(appids)} (running total: {total}, updated: {updated})",
             flush=True,
         )
 

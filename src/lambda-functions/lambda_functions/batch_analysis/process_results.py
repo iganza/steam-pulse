@@ -77,37 +77,57 @@ def _update_revenue_estimates(
 ) -> None:
     """Compute + persist Boxleiter revenue estimates for a batch of appids.
 
-    Uses the bulk genre/tag fetchers so we issue two queries total for the
-    lookup side instead of two per appid.
+    Best-effort: any per-appid exception (estimator edge case, bad tag data,
+    missing row) is logged and skipped so a single bad record cannot poison
+    the rest of the batch. Uses the bulk genre/tag fetchers so we issue two
+    queries total for the lookup side instead of two per appid, and a single
+    bulk UPDATE + commit at the end.
     """
     genres_by_appid = tag_repo.find_genres_for_appids(appids)
     tags_by_appid = tag_repo.find_tags_for_appids(appids)
     updates: list[tuple[int, int | None, object, str | None]] = []
     for appid in appids:
-        game = game_repo.find_for_revenue_estimate(appid)
-        if game is None:
-            continue
-        estimate = compute_estimate(
-            game,
-            genres_by_appid.get(appid, []),
-            tags_by_appid.get(appid, []),
-        )
-        updates.append(
-            (appid, estimate.estimated_owners, estimate.estimated_revenue_usd, estimate.method)
-        )
-        logger.info(
-            "revenue estimate computed",
-            extra={
-                "appid": appid,
-                "owners": estimate.estimated_owners,
-                "revenue_usd": float(estimate.estimated_revenue_usd)
-                if estimate.estimated_revenue_usd is not None
-                else None,
-                "reason": estimate.reason,
-            },
-        )
+        try:
+            game = game_repo.find_for_revenue_estimate(appid)
+            if game is None:
+                continue
+            estimate = compute_estimate(
+                game,
+                genres_by_appid.get(appid, []),
+                tags_by_appid.get(appid, []),
+            )
+            updates.append(
+                (
+                    appid,
+                    estimate.estimated_owners,
+                    estimate.estimated_revenue_usd,
+                    estimate.method,
+                )
+            )
+            logger.info(
+                "revenue estimate computed",
+                extra={
+                    "appid": appid,
+                    "owners": estimate.estimated_owners,
+                    "revenue_usd": float(estimate.estimated_revenue_usd)
+                    if estimate.estimated_revenue_usd is not None
+                    else None,
+                    "reason": estimate.reason,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "revenue estimate failed; continuing with next appid",
+                extra={"appid": appid},
+            )
     # Single commit for the whole batch — avoids per-row transaction overhead.
-    game_repo.bulk_update_revenue_estimates(updates)  # type: ignore[arg-type]
+    try:
+        game_repo.bulk_update_revenue_estimates(updates)  # type: ignore[arg-type]
+    except Exception:
+        logger.exception(
+            "bulk revenue estimate update failed",
+            extra={"batch_size": len(updates)},
+        )
 
 
 @tracer.capture_lambda_handler
@@ -189,8 +209,22 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # Single bulk pass after record processing so we can reuse the bulk
     # genre/tag repo helpers and avoid N+1 per-record queries. Backend
     # persists unconditionally; Pro-gating is frontend-only.
+    #
+    # Revenue estimates are strictly additive — a failure here must NOT
+    # block batch-complete signalling or fail the Lambda invocation. The
+    # helper is already best-effort per-appid; this outer guard catches any
+    # systemic issue (connection lost, etc.) and keeps the handler alive.
     if successful_appids:
-        _update_revenue_estimates(game_repo, tag_repo, successful_appids)
+        try:
+            _update_revenue_estimates(game_repo, tag_repo, successful_appids)
+        except Exception:
+            logger.exception(
+                "revenue estimate pass failed; continuing to batch-complete",
+                extra={
+                    "execution_id": execution_id,
+                    "successful_appids_count": len(successful_appids),
+                },
+            )
 
     # Publish batch-complete event
     _sns.publish(

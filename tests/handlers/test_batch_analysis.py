@@ -1000,3 +1000,56 @@ def test_process_results_revenue_estimate_null_for_free_game(lambda_context: Any
     # Estimator still returns a method; the repo layer's bulk writer is
     # responsible for coercing it to NULL when both value fields are None.
     assert method == "boxleiter_v1"
+
+
+@mock_aws
+def test_process_results_revenue_estimate_failure_does_not_block_batch_complete(
+    lambda_context: Any,
+) -> None:
+    """Systemic failure in the revenue-estimate pass must not abort the
+    handler — the batch-complete SNS event must still fire and the result
+    should still report the successful record."""
+    s3 = boto3.client("s3", region_name=_REGION)
+    s3.create_bucket(Bucket=_BUCKET)
+    mock_sns = MagicMock()
+
+    _write_pass2_output(s3, _minimal_game_report_json(appid=440), appid=440)
+
+    h = _load_process_results()
+    _configure_process_results(h, s3, mock_sns)
+
+    mock_repo = MagicMock()
+    mock_game_repo_pr = MagicMock()
+    # Force the bulk update path to raise (e.g. lost DB connection).
+    mock_game_repo_pr.find_for_revenue_estimate.side_effect = RuntimeError("boom")
+    mock_tag_repo_pr = MagicMock()
+    mock_tag_repo_pr.find_genres_for_appids.return_value = {440: []}
+    mock_tag_repo_pr.find_tags_for_appids.return_value = {440: []}
+
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
+    ):
+        result = h.handler(_handler_event(), lambda_context)
+
+    # Handler did not raise: report is still counted as processed.
+    assert result["processed"] == 1
+    assert result["failed"] == 0
+
+    # batch-complete still published.
+    batch_complete_calls = [
+        c
+        for c in mock_sns.publish.call_args_list
+        if json.loads(c.kwargs["Message"]).get("event") == "batch-complete"
+    ]
+    assert len(batch_complete_calls) == 1

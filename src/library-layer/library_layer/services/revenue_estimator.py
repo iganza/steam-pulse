@@ -40,7 +40,8 @@ GENRE_MULTIPLIERS: dict[str, int] = {
 _STRATEGY_SIM_GENRES = frozenset({"strategy", "simulation"})
 
 # Tag-name (lowercase) → niche bucket. These are the tag labels whose audiences
-# are well-known to review at a higher rate than they buy.
+# are believed to review at lower rates per purchase, so they map to the most
+# expansive owners-per-review multiplier (70x).
 _NICHE_TAG_NAMES = frozenset(
     {
         "visual novel",

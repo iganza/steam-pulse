@@ -70,6 +70,46 @@ def _read_scores_from_s3(execution_id: str) -> dict[str, dict]:
         return {}
 
 
+def _update_revenue_estimates(
+    game_repo: GameRepository,
+    tag_repo: TagRepository,
+    appids: list[int],
+) -> None:
+    """Compute + persist Boxleiter revenue estimates for a batch of appids.
+
+    Uses the bulk genre/tag fetchers so we issue two queries total for the
+    lookup side instead of two per appid.
+    """
+    genres_by_appid = tag_repo.find_genres_for_appids(appids)
+    tags_by_appid = tag_repo.find_tags_for_appids(appids)
+    for appid in appids:
+        game = game_repo.find_for_revenue_estimate(appid)
+        if game is None:
+            continue
+        estimate = compute_estimate(
+            game,
+            genres_by_appid.get(appid, []),
+            tags_by_appid.get(appid, []),
+        )
+        game_repo.update_revenue_estimate(
+            appid=appid,
+            owners=estimate.estimated_owners,
+            revenue_usd=estimate.estimated_revenue_usd,
+            method=estimate.method,
+        )
+        logger.info(
+            "revenue estimate computed",
+            extra={
+                "appid": appid,
+                "owners": estimate.estimated_owners,
+                "revenue_usd": float(estimate.estimated_revenue_usd)
+                if estimate.estimated_revenue_usd is not None
+                else None,
+                "reason": estimate.reason,
+            },
+        )
+
+
 @tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     pass2_output_s3_uri: str = event["pass2_output_s3_uri"]
@@ -86,6 +126,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
     processed = 0
     failed = 0
     failed_appids: list[int] = []
+    # Appids whose reports upserted successfully — used for a single bulk
+    # revenue-estimate pass after the per-record loop so we can reuse
+    # TagRepository's batch helpers instead of N+1 per-record lookups.
+    successful_appids: list[int] = []
 
     for key in output_keys:
         records = _read_jsonl_from_s3(bucket, key)
@@ -124,33 +168,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 if velocity is not None:
                     game_repo.update_velocity_cache(appid, velocity)
 
-                # Boxleiter v1 revenue estimate — gross, pre-Steam-cut, ±50%.
-                # Backend persists unconditionally; Pro-gating is frontend-only.
-                # Uses lightweight fetch helpers to keep the per-record cost of
-                # this hot loop low (no app_catalog join, no projected columns
-                # we don't need for estimation).
-                game = game_repo.find_for_revenue_estimate(appid)
-                if game is not None:
-                    genres = tag_repo.find_genres_for_game(appid)
-                    tags = tag_repo.find_tags_for_game(appid)
-                    estimate = compute_estimate(game, genres, tags)
-                    game_repo.update_revenue_estimate(
-                        appid=appid,
-                        owners=estimate.estimated_owners,
-                        revenue_usd=estimate.estimated_revenue_usd,
-                        method=estimate.method,
-                    )
-                    logger.info(
-                        "revenue estimate computed",
-                        extra={
-                            "appid": appid,
-                            "owners": estimate.estimated_owners,
-                            "revenue_usd": float(estimate.estimated_revenue_usd)
-                            if estimate.estimated_revenue_usd is not None
-                            else None,
-                            "reason": estimate.reason,
-                        },
-                    )
+                successful_appids.append(appid)
 
                 # Publish report-ready event per game
                 _sns.publish(
@@ -166,6 +184,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 logger.error("failed to process record", extra={"appid": appid, "error": str(exc)})
                 failed += 1
                 failed_appids.append(appid)
+
+    # Boxleiter v1 revenue estimates — gross, pre-Steam-cut, +/-50%.
+    # Single bulk pass after record processing so we can reuse the bulk
+    # genre/tag repo helpers and avoid N+1 per-record queries. Backend
+    # persists unconditionally; Pro-gating is frontend-only.
+    if successful_appids:
+        _update_revenue_estimates(game_repo, tag_repo, successful_appids)
 
     # Publish batch-complete event
     _sns.publish(

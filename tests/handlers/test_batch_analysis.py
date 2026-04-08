@@ -873,3 +873,125 @@ def test_process_results_returns_processed_and_failed_counts(lambda_context: Any
     assert "failed" in result
     assert "failed_appids" in result
     assert isinstance(result["failed_appids"], list)
+
+
+@mock_aws
+def test_process_results_persists_revenue_estimate(lambda_context: Any) -> None:
+    """When a game + tags/genres are available, process_results should compute
+    a Boxleiter estimate and call update_revenue_estimate with the values."""
+    from decimal import Decimal
+
+    from library_layer.models.game import Game
+
+    s3 = boto3.client("s3", region_name=_REGION)
+    s3.create_bucket(Bucket=_BUCKET)
+    mock_sns = MagicMock()
+
+    _write_pass2_output(s3, _minimal_game_report_json(appid=440), appid=440)
+
+    h = _load_process_results()
+    _configure_process_results(h, s3, mock_sns)
+
+    mock_repo = MagicMock()
+    mock_game_repo_pr = MagicMock()
+    # Minimal Game that clears all the estimator guards so compute_estimate
+    # produces non-None values. Indie default bucket, 1000 reviews * 30.
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = Game.model_validate(
+        {
+            "appid": 440,
+            "name": "TF2",
+            "slug": "tf2",
+            "type": "game",
+            "price_usd": Decimal("10.00"),
+            "is_free": False,
+            "review_count": 1000,
+            "release_date": "2024-01-01",
+        }
+    )
+    mock_tag_repo_pr = MagicMock()
+    mock_tag_repo_pr.find_genres_for_appids.return_value = {440: []}
+    mock_tag_repo_pr.find_tags_for_appids.return_value = {440: []}
+
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
+    ):
+        h.handler(_handler_event(), lambda_context)
+
+    # Bulk helpers called once with the full appid list, not per record.
+    mock_tag_repo_pr.find_genres_for_appids.assert_called_once_with([440])
+    mock_tag_repo_pr.find_tags_for_appids.assert_called_once_with([440])
+
+    mock_game_repo_pr.update_revenue_estimate.assert_called_once()
+    kwargs = mock_game_repo_pr.update_revenue_estimate.call_args.kwargs
+    assert kwargs["appid"] == 440
+    assert kwargs["owners"] == 30_000  # indie (30) * 1000 reviews
+    assert kwargs["revenue_usd"] == Decimal("300000.00")
+    assert kwargs["method"] == "boxleiter_v1"
+
+
+@mock_aws
+def test_process_results_revenue_estimate_null_for_free_game(lambda_context: Any) -> None:
+    """Free-to-play games land with owners=None and revenue_usd=None so the
+    repo writes a NULL method downstream."""
+    from library_layer.models.game import Game
+
+    s3 = boto3.client("s3", region_name=_REGION)
+    s3.create_bucket(Bucket=_BUCKET)
+    mock_sns = MagicMock()
+
+    _write_pass2_output(s3, _minimal_game_report_json(appid=440), appid=440)
+
+    h = _load_process_results()
+    _configure_process_results(h, s3, mock_sns)
+
+    mock_repo = MagicMock()
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = Game.model_validate(
+        {
+            "appid": 440,
+            "name": "TF2",
+            "slug": "tf2",
+            "type": "game",
+            "price_usd": None,
+            "is_free": True,
+            "review_count": 1000,
+            "release_date": "2024-01-01",
+        }
+    )
+    mock_tag_repo_pr = MagicMock()
+    mock_tag_repo_pr.find_genres_for_appids.return_value = {440: []}
+    mock_tag_repo_pr.find_tags_for_appids.return_value = {440: []}
+
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
+    ):
+        h.handler(_handler_event(), lambda_context)
+
+    kwargs = mock_game_repo_pr.update_revenue_estimate.call_args.kwargs
+    assert kwargs["owners"] is None
+    assert kwargs["revenue_usd"] is None
+    # Estimator still returns a method; the repo layer is responsible for
+    # coercing it to NULL when both value fields are None.
+    assert kwargs["method"] == "boxleiter_v1"

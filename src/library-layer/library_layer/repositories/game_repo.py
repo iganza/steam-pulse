@@ -363,7 +363,8 @@ class GameRepository(BaseRepository):
         expensive nested-loop joins on cold cache.
         """
         # Fast path: genre or tag filter with matview-compatible extra filters.
-        # Only q, search, developer, year range, and genre+tag combined force the slow path.
+        # Only q, search, developer, publisher, year range, and genre+tag combined
+        # force the slow path; matviews can't satisfy publisher filtering.
         needs_slow = (
             q or search or developer or publisher or year_from is not None or year_to is not None
         )

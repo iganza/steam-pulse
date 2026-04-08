@@ -13,10 +13,10 @@ Industry convention (Steam store, SteamDB, IsThereAnyDeal, PCGamingWiki): show d
 ## Scope
 
 ### 1. Database
-- New migration `0007_add_publisher_slug.sql`:
+- New migration `0031_add_publisher_slug.sql`:
   - `ALTER TABLE games ADD COLUMN IF NOT EXISTS publisher_slug TEXT;`
   - Backfill: `UPDATE games SET publisher_slug = ... WHERE publisher_slug IS NULL AND publisher IS NOT NULL;` (SQL expression mirroring `slugify()` output).
-- Separate migration file `0008_index_publisher_slug.sql` with `-- transactional: false` for `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_games_publisher_slug ON games(publisher_slug);`
+- Separate migration file `0032_index_publisher_slug.sql` with `-- transactional: false` for `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_games_publisher_slug ON games(publisher_slug);`
 - Update `schema.py` `games` CREATE TABLE block to include `publisher_slug TEXT` (reference only).
 
 ### 2. Crawl
@@ -40,7 +40,7 @@ Industry convention (Steam store, SteamDB, IsThereAnyDeal, PCGamingWiki): show d
 ### 6. Frontend
 - `lib/types.ts`: add `PublisherPortfolio`, `PublisherSummary`, `PublisherGame` interfaces (duplicated from developer types; don't genericize yet).
 - `lib/api.ts`: add `getPublisherAnalytics(slug)`; extend `getGames` params with `publisher?: string`.
-- `components/game/QuickStats.tsx` after line 142: add a **Publisher** tile mirroring the Developer tile (same `TILE_CLASS`, `Building2` icon from lucide-react, link to `/publisher/{slug}`). **Hide the tile when `publisher_slug === developer_slug`** — self-published titles should not show a redundant chip. Pass `publisher` + `publisherSlug` down from parent (`app/games/[appid]/[slug]/page.tsx`).
+- `components/game/GameHero.tsx`: add a **Publisher** credit alongside the existing Developer credit as an inline text line under the title (*by Developer · published by Publisher*), linking to `/publisher/{slug}`. **Hide the publisher credit when `publisher_slug === developer_slug`** so self-published titles don't show redundant metadata. Pass `publisher` + `publisherSlug` down from parent (`app/games/[appid]/[slug]/page.tsx`). (Drift note: credits were originally scoped into `QuickStats.tsx` as a tile, but long studio names squished the grid — see "Added things we did" below.)
 - `components/game/GameCard.tsx`: do NOT add publisher — keeps card compact.
 - New page: `frontend/app/publisher/[slug]/page.tsx` — copy `app/developer/[slug]/page.tsx`, swap labels and API call.
 - New component: `components/analytics/PublisherPortfolio.tsx` — copy `DeveloperPortfolio.tsx`, swap labels.
@@ -54,8 +54,8 @@ Industry convention (Steam store, SteamDB, IsThereAnyDeal, PCGamingWiki): show d
 
 ## Critical files
 
-- `src/lambda-functions/migrations/0007_add_publisher_slug.sql` (new)
-- `src/lambda-functions/migrations/0008_index_publisher_slug.sql` (new, non-transactional)
+- `src/lambda-functions/migrations/0031_add_publisher_slug.sql` (new)
+- `src/lambda-functions/migrations/0032_index_publisher_slug.sql` (new, non-transactional)
 - `src/library-layer/library_layer/schema.py`
 - `src/library-layer/library_layer/services/crawl_service.py` (~L340)
 - `src/library-layer/library_layer/models/game.py`
@@ -63,7 +63,7 @@ Industry convention (Steam store, SteamDB, IsThereAnyDeal, PCGamingWiki): show d
 - `src/library-layer/library_layer/repositories/analytics_repo.py` (~L349)
 - `src/lambda-functions/lambda_functions/api/handler.py` (~L295, L368, L563)
 - `frontend/lib/api.ts`, `frontend/lib/types.ts`
-- `frontend/components/game/QuickStats.tsx` (after L142)
+- `frontend/components/game/GameHero.tsx` (credit line under title)
 - `frontend/app/publisher/[slug]/page.tsx` (new)
 - `frontend/components/analytics/PublisherPortfolio.tsx` (new)
 - `frontend/tests/publisher.spec.ts` (new)
@@ -78,7 +78,7 @@ Industry convention (Steam store, SteamDB, IsThereAnyDeal, PCGamingWiki): show d
 ## Verification
 
 1. **Local DB**: `bash scripts/dev/start-local.sh && bash scripts/dev/migrate.sh` — confirm migrations apply idempotently; `\d games` shows `publisher_slug` + index.
-2. **Unit tests**: `poetry run pytest tests/repositories/test_game_repo.py tests/repositories/test_analytics_repo.py tests/handlers/test_api_handler.py -v`.
+2. **Unit tests**: `poetry run pytest tests/repositories/test_game_repo.py tests/repositories/test_analytics_repo.py tests/test_api.py -v`.
 3. **Lint**: `poetry run ruff check . && poetry run ruff format --check .`.
 4. **API smoke**: `./scripts/dev/run-api.sh` then
    - `curl 'http://localhost:8000/api/games?publisher=valve'`

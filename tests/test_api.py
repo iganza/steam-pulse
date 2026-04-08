@@ -422,6 +422,48 @@ def test_benchmarks_endpoint_returns_cohort_data(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# /api/publishers/{slug}/analytics
+# ---------------------------------------------------------------------------
+
+
+class _StubAnalyticsRepo:
+    """Minimal stub that records the entity slug passed to the portfolio methods."""
+
+    def __init__(self) -> None:
+        self.developer_calls: list[str] = []
+        self.publisher_calls: list[str] = []
+
+    def find_developer_portfolio(self, slug: str) -> dict:
+        self.developer_calls.append(slug)
+        return {"developer": "Stub Dev", "developer_slug": slug, "summary": {}, "games": []}
+
+    def find_publisher_portfolio(self, slug: str) -> dict:
+        self.publisher_calls.append(slug)
+        return {
+            "publisher": "Stub Pub",
+            "publisher_slug": slug,
+            "summary": {"total_games": 2, "total_reviews": 300},
+            "games": [{"appid": 1}, {"appid": 2}],
+        }
+
+
+def test_publisher_analytics_endpoint_returns_portfolio(client: TestClient) -> None:
+    """GET /api/publishers/{slug}/analytics shapes the repo response through unchanged."""
+    import lambda_functions.api.handler as api_module
+
+    stub = _StubAnalyticsRepo()
+    api_module._analytics_repo = stub  # type: ignore[assignment]
+    resp = client.get("/api/publishers/big-pub/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["publisher"] == "Stub Pub"
+    assert data["publisher_slug"] == "big-pub"
+    assert data["summary"]["total_games"] == 2
+    assert len(data["games"]) == 2
+    assert stub.publisher_calls == ["big-pub"]
+
+
+# ---------------------------------------------------------------------------
 # waitlist endpoint tests
 # ---------------------------------------------------------------------------
 

@@ -272,8 +272,8 @@ TABLES: tuple[str, ...] = (
 )
 
 # Indexes — kept for test suite use only.
-# Production indexes are managed by yoyo migrations (0006, 0013, 0014, 0015, 0018)
-# which use CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
+# Production indexes are managed by yoyo migrations (0006, 0013, 0014, 0015,
+# 0018, 0032) which use CREATE INDEX CONCURRENTLY to avoid write-blocking locks.
 INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_author_appid ON reviews(appid, author_steamid) WHERE author_steamid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_reviews_appid_playtime ON reviews(appid, playtime_hours, voted_up)",

@@ -14,12 +14,12 @@ interface MarketReachProps {
 }
 
 // ±50% confidence band — matches the documented Boxleiter v1 precision.
-// Range is computed in the frontend so the backend can keep a single point
-// estimate in the `games` row.
+// We display a single point estimate (less noisy, easier to compare across
+// games) and surface the full range as a hover tooltip for power users.
 const CONFIDENCE = 0.5;
 
-/** Round to 2 significant figures so the displayed range reads as honest
- * ("180k – 540k") rather than fake-precise ("182,194 – 546,582"). */
+/** Round to 2 significant figures so the displayed value reads as honest
+ * ("480M") rather than fake-precise ("483,127,914"). */
 function roundToSigFigs(value: number, sigFigs = 2): number {
   if (value === 0 || !Number.isFinite(value)) return value;
   const magnitude = Math.pow(10, sigFigs - Math.ceil(Math.log10(Math.abs(value))));
@@ -93,19 +93,25 @@ function MethodPill({ method }: { method: string }) {
 
 function Stat({
   label,
-  low,
-  high,
+  value,
   formatter,
   isPro,
 }: {
   label: string;
-  low: number;
-  high: number;
+  value: number;
   formatter: (n: number) => string;
   isPro: boolean;
 }) {
+  // Point estimate with the ±50% range exposed as a title tooltip.
+  // Rounding is applied to the point (≈) AND to the range endpoints so the
+  // hover value stays coarse too.
+  const point = roundToSigFigs(value);
+  const low = roundToSigFigs(value * (1 - CONFIDENCE));
+  const high = roundToSigFigs(value * (1 + CONFIDENCE));
+  const rangeTooltip = `Range: ${formatter(low)} – ${formatter(high)} (±50%)`;
+
   // Labels and confidence pills remain fully readable on the free tier —
-  // only the numeric range is blurred + hidden from screen readers.
+  // only the numeric estimate is blurred + hidden from screen readers.
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -121,8 +127,10 @@ function Stat({
             : "font-mono text-lg font-medium blur-sm pointer-events-none select-none"
         }
         aria-hidden={!isPro}
+        title={isPro ? rangeTooltip : undefined}
       >
-        {formatter(low)} <span className="text-muted-foreground">–</span> {formatter(high)}
+        <span className="text-muted-foreground mr-0.5">≈</span>
+        {formatter(point)}
       </p>
       {!isPro && <span className="sr-only">{label} available with Pro.</span>}
     </div>
@@ -158,15 +166,13 @@ export function MarketReach({
             <div className="grid gap-5 md:grid-cols-2">
               <Stat
                 label="Estimated owners"
-                low={roundToSigFigs(estimatedOwners! * (1 - CONFIDENCE))}
-                high={roundToSigFigs(estimatedOwners! * (1 + CONFIDENCE))}
+                value={estimatedOwners!}
                 formatter={formatOwners}
                 isPro={isPro}
               />
               <Stat
                 label="Estimated gross revenue"
-                low={roundToSigFigs(estimatedRevenueUsd! * (1 - CONFIDENCE))}
-                high={roundToSigFigs(estimatedRevenueUsd! * (1 + CONFIDENCE))}
+                value={estimatedRevenueUsd!}
                 formatter={formatRevenue}
                 isPro={isPro}
               />

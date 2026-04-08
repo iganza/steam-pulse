@@ -85,23 +85,31 @@ class AnalysisService:
         )
 
         # Boxleiter v1 revenue estimate — gross, pre-Steam-cut, ±50%.
-        genres = self._tag_repo.find_genres_for_game(appid)
-        tags = self._tag_repo.find_tags_for_game(appid)
-        estimate = compute_estimate(game, genres, tags)
-        self._game_repo.update_revenue_estimate(
-            appid=appid,
-            owners=estimate.estimated_owners,
-            revenue_usd=estimate.estimated_revenue_usd,
-            method=estimate.method,
-        )
-        logger.info(
-            "Revenue estimate computed",
-            extra={
-                "appid": appid,
-                "owners": estimate.estimated_owners,
-                "reason": estimate.reason,
-            },
-        )
+        # Best-effort: additive to the report, so a transient DB/tag issue
+        # must not fail the whole analysis run.
+        try:
+            genres = self._tag_repo.find_genres_for_game(appid)
+            tags = self._tag_repo.find_tags_for_game(appid)
+            estimate = compute_estimate(game, genres, tags)
+            self._game_repo.update_revenue_estimate(
+                appid=appid,
+                owners=estimate.estimated_owners,
+                revenue_usd=estimate.estimated_revenue_usd,
+                method=estimate.method,
+            )
+            logger.info(
+                "Revenue estimate computed",
+                extra={
+                    "appid": appid,
+                    "owners": estimate.estimated_owners,
+                    "reason": estimate.reason,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Revenue estimate computation/persistence failed",
+                extra={"appid": appid},
+            )
 
         report = self._report_repo.find_by_appid(appid)
         if report is None:

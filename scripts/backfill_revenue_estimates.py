@@ -37,6 +37,7 @@ import os
 import sys
 from collections import Counter
 from collections.abc import Iterator
+from decimal import Decimal
 
 from library_layer.models.game import Game
 from library_layer.repositories.game_repo import GameRepository
@@ -130,7 +131,7 @@ def main() -> None:
         genres_by_appid = tag_repo.find_genres_for_appids(appids)
         tags_by_appid = tag_repo.find_tags_for_appids(appids)
 
-        batch_updates: list[tuple[int, int | None, object, str | None]] = []
+        batch_updates: list[tuple[int, int | None, Decimal | None, str | None]] = []
         for appid in appids:
             game = games_by_appid.get(appid)
             if game is None:
@@ -151,7 +152,7 @@ def main() -> None:
 
         if not args.dry_run and batch_updates:
             # One bulk UPDATE + one commit per batch instead of per row.
-            game_repo.bulk_update_revenue_estimates(batch_updates)  # type: ignore[arg-type]
+            game_repo.bulk_update_revenue_estimates(batch_updates)
             updated += len(batch_updates)
 
         print(

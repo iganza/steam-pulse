@@ -7,6 +7,7 @@ Output: {processed: int, failed: int, failed_appids: list[int]}
 import json
 import os
 import re
+from decimal import Decimal
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -85,7 +86,7 @@ def _update_revenue_estimates(
     """
     genres_by_appid = tag_repo.find_genres_for_appids(appids)
     tags_by_appid = tag_repo.find_tags_for_appids(appids)
-    updates: list[tuple[int, int | None, object, str | None]] = []
+    updates: list[tuple[int, int | None, Decimal | None, str | None]] = []
     for appid in appids:
         try:
             game = game_repo.find_for_revenue_estimate(appid)
@@ -122,7 +123,7 @@ def _update_revenue_estimates(
             )
     # Single commit for the whole batch — avoids per-row transaction overhead.
     try:
-        game_repo.bulk_update_revenue_estimates(updates)  # type: ignore[arg-type]
+        game_repo.bulk_update_revenue_estimates(updates)
     except Exception:
         logger.exception(
             "bulk revenue estimate update failed",

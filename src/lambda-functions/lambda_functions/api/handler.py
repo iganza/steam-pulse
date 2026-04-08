@@ -16,11 +16,13 @@ from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
 from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.matview_repo import MatviewRepository
+from library_layer.repositories.new_releases_repo import NewReleasesRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.repositories.waitlist_repo import WaitlistRepository
 from library_layer.services.analytics_service import AnalyticsService
+from library_layer.services.new_releases_service import NewReleasesService
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.db import get_conn
 from pydantic import BaseModel, EmailStr
@@ -72,6 +74,8 @@ _job_repo = JobRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
 _waitlist_repo = WaitlistRepository(get_conn)
 _matview_repo = MatviewRepository(get_conn)
+_new_releases_repo = NewReleasesRepository(get_conn)
+_new_releases_service = NewReleasesService(_new_releases_repo)
 _analytics_service = AnalyticsService(_analytics_repo)
 
 
@@ -777,6 +781,53 @@ async def get_analytics_trend_query(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+_NEW_RELEASES_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
+_VALID_NR_WINDOWS = ("today", "week", "month", "quarter")
+
+
+@app.get("/api/new-releases/released")
+async def new_releases_released(
+    window: str = "week",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
+    genre: str | None = None,
+    tag: str | None = None,
+) -> JSONResponse:
+    if window not in _VALID_NR_WINDOWS:
+        raise HTTPException(status_code=400, detail={"error": "invalid_window"})
+    data = _new_releases_service.get_released(
+        window, page, page_size, genre=genre, tag=tag,  # type: ignore[arg-type]
+    )
+    return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
+
+
+@app.get("/api/new-releases/upcoming")
+async def new_releases_upcoming(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
+    genre: str | None = None,
+    tag: str | None = None,
+) -> JSONResponse:
+    data = _new_releases_service.get_upcoming(page, page_size, genre=genre, tag=tag)
+    return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
+
+
+@app.get("/api/new-releases/added")
+async def new_releases_added(
+    window: str = "week",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
+    genre: str | None = None,
+    tag: str | None = None,
+) -> JSONResponse:
+    if window not in _VALID_NR_WINDOWS:
+        raise HTTPException(status_code=400, detail={"error": "invalid_window"})
+    data = _new_releases_service.get_added(
+        window, page, page_size, genre=genre, tag=tag,  # type: ignore[arg-type]
+    )
+    return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
 
 
 @app.post("/api/waitlist")

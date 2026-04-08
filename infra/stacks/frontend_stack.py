@@ -1,7 +1,7 @@
 """FrontendStack — uploads Next.js static assets to S3.
 
 Kept as a separate stack so that frontend-only deploys don't re-synthesise
-ComputeStack. Looks up the assets bucket by deterministic name.
+ComputeStack. Looks up the frontend bucket by deterministic name.
 """
 
 import os
@@ -27,10 +27,10 @@ class FrontendStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         env = config.ENVIRONMENT
-        assets_bucket = s3.Bucket.from_bucket_name(
+        frontend_bucket = s3.Bucket.from_bucket_name(
             self,
-            "AssetsBucket",
-            f"steampulse-assets-{env}",
+            "FrontendBucket",
+            f"steampulse-frontend-{env}",
         )
 
         if os.path.isdir(_OPEN_NEXT_ASSETS):
@@ -38,6 +38,6 @@ class FrontendStack(cdk.Stack):
                 self,
                 "AssetsDeployment",
                 sources=[s3deploy.Source.asset(_OPEN_NEXT_ASSETS)],
-                destination_bucket=assets_bucket,
+                destination_bucket=frontend_bucket,
                 prune=True,
             )

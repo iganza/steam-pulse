@@ -69,6 +69,11 @@ class ComputeStack(cdk.Stack):
             "AssetsBucket",
             f"steampulse-assets-{env}",
         )
+        frontend_bucket = s3.Bucket.from_bucket_name(
+            self,
+            "FrontendBucket",
+            f"steampulse-frontend-{env}",
+        )
 
         # ── Shared Lambda Layer ───────────────────────────────────────────────
         self.library_layer = PythonLayerVersion(
@@ -291,7 +296,7 @@ class ComputeStack(cdk.Stack):
                 "API_URL": self.api_fn_url.url,
                 # OpenNext ISR cache — must point at a real bucket or every
                 # cache read/write will fail with NoSuchBucket.
-                "CACHE_BUCKET_NAME": f"steampulse-assets-{env}",
+                "CACHE_BUCKET_NAME": f"steampulse-frontend-{env}",
                 "CACHE_BUCKET_REGION": self.region,
                 "CACHE_BUCKET_KEY_PREFIX": "cache/",
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
@@ -300,7 +305,7 @@ class ComputeStack(cdk.Stack):
         cdk.Tags.of(frontend_fn).add("steampulse:service", "frontend")
         cdk.Tags.of(frontend_fn).add("steampulse:tier", "critical")
 
-        assets_bucket.grant_read_write(frontend_fn)
+        frontend_bucket.grant_read_write(frontend_fn)
         opennext_cache_table.grant_read_write_data(frontend_fn)
 
         self.frontend_fn_url = frontend_fn.add_function_url(

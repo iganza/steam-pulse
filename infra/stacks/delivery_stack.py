@@ -45,19 +45,19 @@ class DeliveryStack(cdk.Stack):
 
         env = config.ENVIRONMENT
 
-        # ── S3 Assets Bucket ──────────────────────────────────────────────────
+        # ── S3 Frontend Bucket ────────────────────────────────────────────────
         # Looked up by deterministic name — avoids cross-stack CDK construct
         # references that would create a Data ↔ Delivery cycle.
         # OAC bucket policy lives in DataStack (account-scoped).
-        self.assets_bucket = s3.Bucket.from_bucket_name(
+        self.frontend_bucket = s3.Bucket.from_bucket_name(
             self,
-            "AssetsBucket",
-            f"steampulse-assets-{env}",
+            "FrontendBucket",
+            f"steampulse-frontend-{env}",
         )
 
         oac = cloudfront.S3OriginAccessControl(self, "AssetsOac")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(
-            self.assets_bucket,
+            self.frontend_bucket,
             origin_access_control=oac,
         )
 
@@ -158,7 +158,7 @@ class DeliveryStack(cdk.Stack):
         )
         ssm.StringParameter(
             self,
-            "AssetsBucketNameParam",
-            parameter_name=f"/steampulse/{env}/delivery/assets-bucket-name",
-            string_value=self.assets_bucket.bucket_name,
+            "FrontendBucketNameParam",
+            parameter_name=f"/steampulse/{env}/delivery/frontend-bucket-name",
+            string_value=self.frontend_bucket.bucket_name,
         )

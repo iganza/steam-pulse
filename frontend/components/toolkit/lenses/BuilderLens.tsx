@@ -81,8 +81,11 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       raw.length === selectedIds.length &&
       raw.every((id, i) => id === selectedIds[i]);
     if (!same) setState({ b_metrics: selectedIds });
+    // Depend on both the raw URL AND maxMetrics so a Pro→free transition
+    // (which changes the cap but not the raw URL) still re-runs normalization
+    // and clamps the URL back down.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawMetricsKey]);
+  }, [rawMetricsKey, maxMetrics]);
   const chartType: BuilderChartType = state.b_chart ?? "bar";
   const requestedGranularity: Granularity =
     state.b_gran && allowedGranularities.includes(state.b_gran)
@@ -296,8 +299,29 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   // Passing that through to ChartResolver would produce nonsensical "percent
   // share" computations on non-count series, so gate it here.
   const effectiveChart = effectiveChartType(selectedDefs, chartType);
-  const effectiveNormalize =
-    normalize && isPro && allCounts && effectiveChart === "stacked_area";
+  const normalizeEligible =
+    isPro && allCounts && effectiveChart === "stacked_area" && selectedDefs.length >= 2;
+  const effectiveNormalize = normalize && normalizeEligible;
+
+  // Keep URL state honest: if the selection/chart has made normalization
+  // ineligible, reset `b_norm` so the URL doesn't carry a stale "on" flag.
+  useEffect(() => {
+    if (!normalizeEligible && state.b_norm) {
+      setState({ b_norm: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizeEligible, state.b_norm]);
+
+  // Keep URL's `b_chart` normalized to the effective chart type so that if
+  // a shared link carries e.g. stacked_area+1metric, the picker's active
+  // button isn't stuck disabled (which would break roving-tabindex).
+  useEffect(() => {
+    if (selectedDefs.length === 0) return;
+    if (effectiveChart !== chartType) {
+      setState({ b_chart: effectiveChart });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChart, chartType, selectedDefs.length]);
 
   if (catalogError) {
     return (
@@ -392,7 +416,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
             </div>
           </div>
 
-          {isPro && allCounts && chartType === "stacked_area" && (
+          {normalizeEligible && (
             <div className="space-y-2">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
                 Normalize
@@ -402,7 +426,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
                   type="button"
                   onClick={() => onNormalizeChange(true)}
                   className={`px-3 py-1 transition-colors ${
-                    normalize ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground"
+                    effectiveNormalize ? "bg-teal-500/20 text-teal-400" : "text-muted-foreground"
                   }`}
                 >
                   % Share

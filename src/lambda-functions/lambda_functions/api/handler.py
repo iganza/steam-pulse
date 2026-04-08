@@ -727,7 +727,17 @@ async def get_analytics_trend_query(
     limit: int = 24,
 ) -> dict:
     """Generic trend query — pick any combination of metrics from the catalog."""
-    metric_ids = [m.strip() for m in metrics.split(",") if m.strip()]
+    # De-duplicate while preserving order so `metrics=releases,releases`
+    # doesn't double-count toward the 6-metric cap or duplicate entries in
+    # the returned metric metadata.
+    seen: set[str] = set()
+    metric_ids: list[str] = []
+    for m in metrics.split(","):
+        cleaned = m.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        metric_ids.append(cleaned)
     try:
         return _analytics_service.trend_query(
             metric_ids=metric_ids,

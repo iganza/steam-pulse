@@ -59,23 +59,59 @@ export function ChartResolver({
   const units = new Set(selected.map((m) => m.unit));
   const mixedUnits = units.size > 1;
 
-  // Mixed-unit multi-metric → always dual-axis composed.
+  // Mixed-unit multi-metric → dual-axis composed. Group metrics by unit;
+  // the first unit goes on the left axis (as bars when it is `count`, else
+  // as lines), the remaining units go on the right axis as lines. This
+  // keeps e.g. `avg_paid_price` (currency) and `avg_steam_pct` (pct) on
+  // separate axes instead of squashing them onto one scale.
   if (mixedUnits && selected.length >= 2) {
-    const bars = selected
-      .filter((m) => m.unit === "count")
-      .map((m, i) => ({ dataKey: m.id, label: m.label, color: colorForIndex(i) }));
-    const lines = selected
-      .filter((m) => m.unit !== "count")
-      .map((m, i) => ({
-        dataKey: m.id,
-        label: m.label,
-        color: colorForIndex(i + bars.length),
-      }));
+    const byUnit = new Map<string, MetricDefinition[]>();
+    for (const m of selected) {
+      const bucket = byUnit.get(m.unit) ?? [];
+      bucket.push(m);
+      byUnit.set(m.unit, bucket);
+    }
+    const units = Array.from(byUnit.keys());
+    // Prefer `count` on the left axis (bars) when present, otherwise the
+    // first declared unit — keeps counts as bars wherever possible.
+    const leftUnit = units.includes("count") ? "count" : units[0];
+    const leftMetrics = byUnit.get(leftUnit) ?? [];
+    const rightMetrics = units
+      .filter((u) => u !== leftUnit)
+      .flatMap((u) => byUnit.get(u) ?? []);
+
+    const bars =
+      leftUnit === "count"
+        ? leftMetrics.map((m, i) => ({
+            dataKey: m.id,
+            label: m.label,
+            color: colorForIndex(i),
+          }))
+        : [];
+    // When the left unit isn't `count`, render its metrics as left-axis
+    // lines. Right-axis lines get explicit `axis: "right"` so TrendComposed
+    // forces the dual axis on even if there are no bars.
+    const leftLines =
+      leftUnit === "count"
+        ? []
+        : leftMetrics.map((m, i) => ({
+            dataKey: m.id,
+            label: m.label,
+            color: colorForIndex(i),
+            axis: "left" as const,
+          }));
+    const rightLines = rightMetrics.map((m, i) => ({
+      dataKey: m.id,
+      label: m.label,
+      color: colorForIndex(i + leftMetrics.length),
+      axis: "right" as const,
+    }));
+
     return (
       <TrendComposed
         data={rows}
         bars={bars}
-        lines={lines}
+        lines={[...leftLines, ...rightLines]}
         granularity={granularity}
         height={360}
       />

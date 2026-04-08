@@ -40,6 +40,13 @@ interface ChartTypePickerProps {
 export function ChartTypePicker({ value, selected, onChange }: ChartTypePickerProps) {
   const compat = chartTypeCompatibility(selected);
   const types: BuilderChartType[] = ["bar", "line", "stacked_area", "composed"];
+  // The active button gets tabIndex=0, unless it's disabled (e.g. a shared
+  // URL carries `b_chart=stacked_area` with 1 metric) — in that case the
+  // first enabled option becomes tabbable so the radiogroup stays reachable.
+  const activeIsEnabled = compat[value] === null;
+  const fallbackTabTarget: BuilderChartType | undefined = activeIsEnabled
+    ? undefined
+    : types.find((t) => compat[t] === null);
   const btnRefs = useRef<Record<BuilderChartType, HTMLButtonElement | null>>({
     bar: null,
     line: null,
@@ -98,8 +105,17 @@ export function ChartTypePicker({ value, selected, onChange }: ChartTypePickerPr
             type="button"
             role="radio"
             aria-checked={isActive}
-            // Roving tabindex: only the active option is in the tab order.
-            tabIndex={isActive ? 0 : -1}
+            // Roving tabindex: only the active option is in the tab order,
+            // unless it's disabled — then the first enabled fallback is.
+            tabIndex={
+              activeIsEnabled
+                ? isActive
+                  ? 0
+                  : -1
+                : t === fallbackTabTarget
+                  ? 0
+                  : -1
+            }
             disabled={disabledReason !== null}
             data-testid={`builder-chart-type-${t}`}
             title={disabledReason ?? CHART_LABELS[t]}

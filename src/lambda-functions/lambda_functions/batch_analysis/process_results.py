@@ -15,6 +15,8 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.models.analyzer_models import GameReport
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.tag_repo import TagRepository
+from library_layer.services.revenue_estimator import compute_estimate
 from library_layer.utils.db import get_conn
 
 logger = Logger(service="batch-process-results")
@@ -79,6 +81,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     report_repo = ReportRepository(get_conn)
     game_repo = GameRepository(get_conn)
+    tag_repo = TagRepository(get_conn)
 
     processed = 0
     failed = 0
@@ -120,6 +123,31 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 velocity = pre_computed.get("review_velocity_lifetime") if pre_computed else None
                 if velocity is not None:
                     game_repo.update_velocity_cache(appid, velocity)
+
+                # Boxleiter v1 revenue estimate — gross, pre-Steam-cut, ±50%.
+                # Backend persists unconditionally; Pro-gating is frontend-only.
+                game = game_repo.find_by_appid(appid)
+                if game is not None:
+                    genres = tag_repo.find_genres_for_game(appid)
+                    tags = tag_repo.find_tags_for_game(appid)
+                    estimate = compute_estimate(game, genres, tags)
+                    game_repo.update_revenue_estimate(
+                        appid=appid,
+                        owners=estimate.estimated_owners,
+                        revenue_usd=estimate.estimated_revenue_usd,
+                        method=estimate.method,
+                    )
+                    logger.info(
+                        "revenue estimate computed",
+                        extra={
+                            "appid": appid,
+                            "owners": estimate.estimated_owners,
+                            "revenue_usd": float(estimate.estimated_revenue_usd)
+                            if estimate.estimated_revenue_usd is not None
+                            else None,
+                            "reason": estimate.reason,
+                        },
+                    )
 
                 # Publish report-ready event per game
                 _sns.publish(

@@ -599,8 +599,22 @@ def test_process_results_applies_precomputed_scores(lambda_context: Any) -> None
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 
@@ -629,8 +643,22 @@ def test_process_results_uses_llm_values_when_no_scores(lambda_context: Any) -> 
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 
@@ -659,8 +687,22 @@ def test_process_results_skips_unrecognised_record_ids(lambda_context: Any) -> N
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 
@@ -692,8 +734,22 @@ def test_process_results_handles_failed_records(lambda_context: Any) -> None:
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 
@@ -714,8 +770,22 @@ def test_process_results_publishes_report_ready_per_game(lambda_context: Any) ->
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         h.handler(_handler_event(), lambda_context)
 
@@ -739,8 +809,22 @@ def test_process_results_publishes_batch_complete_summary(lambda_context: Any) -
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 
@@ -767,8 +851,22 @@ def test_process_results_returns_processed_and_failed_counts(lambda_context: Any
     _configure_process_results(h, s3, mock_sns)
 
     mock_repo = MagicMock()
-    with patch(
-        "lambda_functions.batch_analysis.process_results.ReportRepository", return_value=mock_repo
+    mock_game_repo_pr = MagicMock()
+    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_tag_repo_pr = MagicMock()
+    with (
+        patch(
+            "lambda_functions.batch_analysis.process_results.ReportRepository",
+            return_value=mock_repo,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.GameRepository",
+            return_value=mock_game_repo_pr,
+        ),
+        patch(
+            "lambda_functions.batch_analysis.process_results.TagRepository",
+            return_value=mock_tag_repo_pr,
+        ),
     ):
         result = h.handler(_handler_event(), lambda_context)
 

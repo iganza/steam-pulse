@@ -50,6 +50,11 @@ class Game(BaseModel):
     reviews_completed_at: datetime | None = None
     tags_crawled_at: datetime | None = None
     data_source: str = "steam_direct"
+    # Boxleiter v1 revenue estimates — gross, pre-Steam-cut, ±50%
+    estimated_owners: int | None = None
+    estimated_revenue_usd: Decimal | None = None
+    revenue_estimate_method: str | None = None
+    revenue_estimate_computed_at: datetime | None = None
 
     @field_validator("developers", "publishers", mode="before")
     @classmethod

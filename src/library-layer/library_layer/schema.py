@@ -56,7 +56,12 @@ TABLES: tuple[str, ...] = (
         data_source      TEXT DEFAULT 'steam_direct',
         -- temporal velocity cache (0009)
         review_velocity_lifetime NUMERIC(10,2),
-        last_velocity_computed_at TIMESTAMPTZ
+        last_velocity_computed_at TIMESTAMPTZ,
+        -- revenue estimates (0026) — Boxleiter ratio; gross, pre-Steam-cut, ±50%
+        estimated_owners BIGINT,
+        estimated_revenue_usd NUMERIC(14,2),
+        revenue_estimate_method TEXT,
+        revenue_estimate_computed_at TIMESTAMPTZ
     )
     """,
     """
@@ -273,6 +278,8 @@ INDEXES: tuple[str, ...] = (
     # 0018_score_indexes
     "CREATE INDEX IF NOT EXISTS idx_games_hidden_gem_score ON games(hidden_gem_score DESC NULLS LAST)",
     "CREATE INDEX IF NOT EXISTS idx_games_last_analyzed ON games(last_analyzed DESC NULLS LAST)",
+    # 0027_add_revenue_estimate_index
+    "CREATE INDEX IF NOT EXISTS idx_games_estimated_revenue ON games(estimated_revenue_usd DESC NULLS LAST)",
 )
 
 
@@ -364,6 +371,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
         g.hidden_gem_score, g.last_analyzed,
+        g.estimated_owners, g.estimated_revenue_usd, g.revenue_estimate_method,
         EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
     FROM games g
     JOIN game_genres gg2 ON gg2.appid = g.appid
@@ -378,6 +386,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
         g.hidden_gem_score, g.last_analyzed,
+        g.estimated_owners, g.estimated_revenue_usd, g.revenue_estimate_method,
         EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = 70) AS is_early_access
     FROM games g
     JOIN game_tags gt ON gt.appid = g.appid

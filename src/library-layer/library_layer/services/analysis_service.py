@@ -9,6 +9,8 @@ from library_layer.models.report import Report
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
+from library_layer.services.revenue_estimator import compute_estimate
 
 logger = Logger()
 
@@ -23,11 +25,13 @@ class AnalysisService:
         report_repo: ReportRepository,
         review_repo: ReviewRepository,
         game_repo: GameRepository,
+        tag_repo: TagRepository,
         analyzer: Any,  # library_layer.analyzer.analyze_reviews (async callable)
     ) -> None:
         self._report_repo = report_repo
         self._review_repo = review_repo
         self._game_repo = game_repo
+        self._tag_repo = tag_repo
         self._analyzer = analyzer
 
     async def analyze(self, appid: int) -> Report:
@@ -78,6 +82,25 @@ class AnalysisService:
         logger.info(
             "Report stored",
             extra={"appid": appid, "trend": result.get("sentiment_trend")},
+        )
+
+        # Boxleiter v1 revenue estimate — gross, pre-Steam-cut, ±50%.
+        genres = self._tag_repo.find_genres_for_game(appid)
+        tags = self._tag_repo.find_tags_for_game(appid)
+        estimate = compute_estimate(game, genres, tags)
+        self._game_repo.update_revenue_estimate(
+            appid=appid,
+            owners=estimate.estimated_owners,
+            revenue_usd=estimate.estimated_revenue_usd,
+            method=estimate.method,
+        )
+        logger.info(
+            "Revenue estimate computed",
+            extra={
+                "appid": appid,
+                "owners": estimate.estimated_owners,
+                "reason": estimate.reason,
+            },
         )
 
         report = self._report_repo.find_by_appid(appid)

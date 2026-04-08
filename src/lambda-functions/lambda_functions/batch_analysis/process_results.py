@@ -86,7 +86,7 @@ def _update_revenue_estimates(
     """
     genres_by_appid = tag_repo.find_genres_for_appids(appids)
     tags_by_appid = tag_repo.find_tags_for_appids(appids)
-    updates: list[tuple[int, int | None, Decimal | None, str | None]] = []
+    updates: list[tuple[int, int | None, Decimal | None, str | None, str | None]] = []
     for appid in appids:
         try:
             game = game_repo.find_for_revenue_estimate(appid)
@@ -103,6 +103,7 @@ def _update_revenue_estimates(
                     estimate.estimated_owners,
                     estimate.estimated_revenue_usd,
                     estimate.method,
+                    estimate.reason,
                 )
             )
             logger.info(

@@ -936,11 +936,12 @@ def test_process_results_persists_revenue_estimate(lambda_context: Any) -> None:
     mock_game_repo_pr.bulk_update_revenue_estimates.assert_called_once()
     (rows,) = mock_game_repo_pr.bulk_update_revenue_estimates.call_args.args
     assert len(rows) == 1
-    appid, owners, revenue_usd, method = rows[0]
+    appid, owners, revenue_usd, method, reason = rows[0]
     assert appid == 440
     assert owners == 30_000  # indie (30) * 1000 reviews
     assert revenue_usd == Decimal("300000.00")
     assert method == "boxleiter_v1"
+    assert reason is None
 
 
 @mock_aws
@@ -994,12 +995,13 @@ def test_process_results_revenue_estimate_null_for_free_game(lambda_context: Any
 
     (rows,) = mock_game_repo_pr.bulk_update_revenue_estimates.call_args.args
     assert len(rows) == 1
-    _, owners, revenue_usd, method = rows[0]
+    _, owners, revenue_usd, method, reason = rows[0]
     assert owners is None
     assert revenue_usd is None
     # Estimator still returns a method; the repo layer's bulk writer is
     # responsible for coercing it to NULL when both value fields are None.
     assert method == "boxleiter_v1"
+    assert reason == "free_to_play"
 
 
 @mock_aws

@@ -402,6 +402,11 @@ async def get_game_report(appid: int) -> dict:
             has_revenue_estimate = True
         if has_revenue_estimate and game.revenue_estimate_method is not None:
             game_meta["revenue_estimate_method"] = game.revenue_estimate_method
+        # Reason code is surfaced independently of the numeric estimate so the
+        # frontend empty-state can render precise, reason-specific copy
+        # (e.g. "Free-to-play — revenue estimates don't apply").
+        if game.revenue_estimate_reason is not None:
+            game_meta["revenue_estimate_reason"] = game.revenue_estimate_reason
 
     report = _get_report(appid)
     if report:

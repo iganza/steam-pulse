@@ -104,6 +104,10 @@ export default async function GameReportPage({ params }: Props) {
     reviewsCompletedAt?: string | null;
     tagsCrawledAt?: string | null;
     lastAnalyzed?: string | null;
+    estimatedOwners?: number | null;
+    estimatedRevenueUsd?: number | null;
+    revenueEstimateMethod?: string | null;
+    revenueEstimateReason?: string | null;
   } = {};
 
   try {
@@ -135,6 +139,11 @@ export default async function GameReportPage({ params }: Props) {
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
       if (g.tags_crawled_at) gameData.tagsCrawledAt = g.tags_crawled_at;
       if (g.last_analyzed) gameData.lastAnalyzed = g.last_analyzed;
+      // Boxleiter v1 revenue estimate fields — forwarded to <MarketReach />
+      if (g.estimated_owners != null) gameData.estimatedOwners = g.estimated_owners;
+      if (g.estimated_revenue_usd != null) gameData.estimatedRevenueUsd = g.estimated_revenue_usd;
+      if (g.revenue_estimate_method) gameData.revenueEstimateMethod = g.revenue_estimate_method;
+      if (g.revenue_estimate_reason) gameData.revenueEstimateReason = g.revenue_estimate_reason;
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
@@ -210,6 +219,10 @@ export default async function GameReportPage({ params }: Props) {
               reviewsCompletedAt={gameData.reviewsCompletedAt}
               tagsCrawledAt={gameData.tagsCrawledAt}
               lastAnalyzed={gameData.lastAnalyzed}
+              estimatedOwners={gameData.estimatedOwners}
+              estimatedRevenueUsd={gameData.estimatedRevenueUsd}
+              revenueEstimateMethod={gameData.revenueEstimateMethod}
+              revenueEstimateReason={gameData.revenueEstimateReason}
             />
           }
         >
@@ -242,6 +255,10 @@ export default async function GameReportPage({ params }: Props) {
                   reviewsCompletedAt={gameData.reviewsCompletedAt}
                   tagsCrawledAt={gameData.tagsCrawledAt}
                   lastAnalyzed={gameData.lastAnalyzed}
+                  estimatedOwners={gameData.estimatedOwners}
+                  estimatedRevenueUsd={gameData.estimatedRevenueUsd}
+                  revenueEstimateMethod={gameData.revenueEstimateMethod}
+                  revenueEstimateReason={gameData.revenueEstimateReason}
                 />
               ),
             }}

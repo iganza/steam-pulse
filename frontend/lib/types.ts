@@ -145,6 +145,16 @@ export interface Game {
   reviews_completed_at?: string | null;
   tags_crawled_at?: string | null;
   last_analyzed?: string | null;
+  // Boxleiter v1 revenue estimate — surfaced by the report endpoint on the
+  // `game` block (handler.py omits keys when unset). Ranges and Pro gating
+  // are rendered frontend-side by <MarketReach />.
+  estimated_owners?: number | null;
+  estimated_revenue_usd?: number | null;
+  revenue_estimate_method?: string | null;
+  // Machine-readable reason code when no numeric estimate is available —
+  // one of: "insufficient_reviews" | "free_to_play" | "missing_price" |
+  // "excluded_type". Populated independently of the numeric fields.
+  revenue_estimate_reason?: string | null;
 }
 
 export interface TimelineEntry {

@@ -35,8 +35,13 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.locator('.premium-overlay')).not.toBeAttached()
   })
 
-  test('no unlock or pricing CTAs', async ({ page }) => {
-    await expect(page.getByText(/unlock/i)).not.toBeVisible()
+  test('no unlock or pricing CTAs outside the Market Reach card', async ({ page }) => {
+    // Market Reach is the one deliberately Pro-gated surface on this page.
+    // Assert any unlock CTA is confined to that subtree — there should be
+    // exactly one on the page and it must live inside [data-testid="market-reach"].
+    const marketReach = page.getByTestId('market-reach')
+    await expect(marketReach.getByText(/unlock/i)).toHaveCount(1)
+    await expect(page.getByText(/unlock/i)).toHaveCount(1)
     await expect(page.getByText(/\$7/)).not.toBeVisible()
   })
 

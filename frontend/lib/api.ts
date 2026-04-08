@@ -90,6 +90,11 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
     reviews_completed_at?: string | null;
     tags_crawled_at?: string | null;
     last_analyzed?: string | null;
+    // Boxleiter v1 revenue estimate — present only when the backend has values.
+    estimated_owners?: number | null;
+    estimated_revenue_usd?: number | null;
+    revenue_estimate_method?: string | null;
+    revenue_estimate_reason?: string | null;
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {

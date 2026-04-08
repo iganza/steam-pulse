@@ -96,6 +96,7 @@ class AnalysisService:
                 owners=estimate.estimated_owners,
                 revenue_usd=estimate.estimated_revenue_usd,
                 method=estimate.method,
+                reason=estimate.reason,
             )
             logger.info(
                 "Revenue estimate computed",

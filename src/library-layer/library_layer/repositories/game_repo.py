@@ -604,16 +604,24 @@ class GameRepository(BaseRepository):
         owners: int | None,
         revenue_usd: Decimal | None,
         method: str | None,
+        reason: str | None = None,
     ) -> None:
         """Store the latest Boxleiter revenue estimate for a game.
 
         When both `owners` and `revenue_usd` are None (e.g. free-to-play,
         excluded type, insufficient reviews), `method` is coerced to NULL so
         clients can reliably treat a NULL method as "no estimate available".
+        Symmetrically, `reason` is coerced to NULL whenever a numeric
+        estimate IS present — the reason code is only meaningful when the
+        numeric fields are NULL, and enforcing that at the repo layer
+        prevents stale reason codes from leaking onto rows that later
+        acquire a real estimate.
         `revenue_estimate_computed_at` is always stamped — it tracks that we
         attempted a computation, regardless of outcome.
         """
-        persisted_method = method if (owners is not None or revenue_usd is not None) else None
+        has_estimate = owners is not None or revenue_usd is not None
+        persisted_method = method if has_estimate else None
+        persisted_reason = None if has_estimate else reason
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -621,38 +629,46 @@ class GameRepository(BaseRepository):
                 SET estimated_owners             = %s,
                     estimated_revenue_usd        = %s,
                     revenue_estimate_method      = %s,
+                    revenue_estimate_reason      = %s,
                     revenue_estimate_computed_at = NOW()
                 WHERE appid = %s
                 """,
-                (owners, revenue_usd, persisted_method, appid),
+                (owners, revenue_usd, persisted_method, persisted_reason, appid),
             )
         self.conn.commit()
 
     def bulk_update_revenue_estimates(
         self,
-        rows: list[tuple[int, int | None, Decimal | None, str | None]],
+        rows: list[tuple[int, int | None, Decimal | None, str | None, str | None]],
     ) -> None:
         """Apply many revenue estimate updates in one transaction.
 
-        Each row is `(appid, owners, revenue_usd, method)`. The repo still
-        enforces the "NULL method when no estimate" contract: if both
-        `owners` and `revenue_usd` are None the persisted method is coerced
-        to NULL. One commit per call keeps Lambda hot-loop / backfill runtime
+        Each row is `(appid, owners, revenue_usd, method, reason)`. The repo
+        enforces two symmetric contracts:
+          - `method` is coerced to NULL when neither numeric field is set,
+            so clients can treat a NULL method as "no estimate available".
+          - `reason` is coerced to NULL when a numeric estimate IS present,
+            so stale reason codes cannot leak onto rows that subsequently
+            acquire a real estimate.
+        One commit per call keeps Lambda hot-loop / backfill runtime
         predictable (no per-row transaction overhead).
         """
         if not rows:
             return
         from psycopg2.extras import execute_values
 
-        payload = [
-            (
-                owners,
-                revenue_usd,
-                method if (owners is not None or revenue_usd is not None) else None,
-                appid,
+        payload = []
+        for appid, owners, revenue_usd, method, reason in rows:
+            has_estimate = owners is not None or revenue_usd is not None
+            payload.append(
+                (
+                    owners,
+                    revenue_usd,
+                    method if has_estimate else None,
+                    None if has_estimate else reason,
+                    appid,
+                )
             )
-            for appid, owners, revenue_usd, method in rows
-        ]
         with self.conn.cursor() as cur:
             execute_values(
                 cur,
@@ -661,12 +677,13 @@ class GameRepository(BaseRepository):
                     estimated_owners             = data.owners,
                     estimated_revenue_usd        = data.revenue_usd,
                     revenue_estimate_method      = data.method,
+                    revenue_estimate_reason      = data.reason,
                     revenue_estimate_computed_at = NOW()
-                FROM (VALUES %s) AS data(owners, revenue_usd, method, appid)
+                FROM (VALUES %s) AS data(owners, revenue_usd, method, reason, appid)
                 WHERE g.appid = data.appid
                 """,
                 payload,
-                template="(%s::bigint, %s::numeric, %s::text, %s::int)",
+                template="(%s::bigint, %s::numeric, %s::text, %s::text, %s::int)",
             )
         self.conn.commit()
 

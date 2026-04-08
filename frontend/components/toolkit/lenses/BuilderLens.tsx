@@ -51,6 +51,10 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   // metric's default_chart_hint (smart-default rule from the prompt).
   const userPickedChartRef = useRef<boolean>(false);
 
+  // Bumped on error-state Retry to force the fetch effect to re-run even
+  // when `fetchKey` (derived from URL state) is unchanged.
+  const [retryKey, setRetryKey] = useState<number>(0);
+
   const maxMetrics = isPro ? 6 : 1;
   const allowedGranularities = isPro ? PRO_GRANULARITIES : FREE_GRANULARITIES;
 
@@ -155,6 +159,21 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       .filter((m): m is MetricDefinition => Boolean(m));
   }, [catalog, selectedIds]);
 
+  // Once the catalog has loaded, strip any URL metric ids that aren't in it
+  // (e.g. a shared link referencing a removed/renamed metric). Without this,
+  // `fetchKey` would keep requesting invalid ids and the lens would sit in a
+  // permanent error state.
+  useEffect(() => {
+    if (!catalog) return;
+    if (selectedIds.length === 0) return;
+    const validIds = new Set(catalog.map((m) => m.id));
+    const filtered = selectedIds.filter((id) => validIds.has(id));
+    if (filtered.length !== selectedIds.length) {
+      setState({ b_metrics: filtered });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, selectedIds.join(",")]);
+
   // Smart chart-type hint: while the user hasn't explicitly chosen a chart
   // type, follow the first selected metric's default_chart_hint so e.g.
   // picking a pct metric shows a line chart, not bars.
@@ -236,7 +255,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [fetchKey]);
+  }, [fetchKey, retryKey]);
 
   // Toggle a metric on/off in the selection. Cap checks run against the
   // normalized selectedIds so hand-edited/duplicate URL state can't bypass
@@ -477,11 +496,12 @@ export function BuilderLens({ filters, isPro }: LensProps) {
                   type="button"
                   className="px-3 py-1 rounded bg-teal-500/20 text-teal-400 text-xs"
                   onClick={() => {
-                    // Clear cache for the current key and retry.
+                    // Clear cache for the current key and bump retryKey to
+                    // force the fetch effect to re-run reliably, regardless
+                    // of whether `fetchKey` / URL state changed.
                     if (fetchKey) cacheRef.current.delete(fetchKey);
                     setError(null);
-                    // Force re-run: bump the state via a no-op.
-                    setState({ b_metrics: [...selectedIds] });
+                    setRetryKey((k) => k + 1);
                   }}
                 >
                   Retry

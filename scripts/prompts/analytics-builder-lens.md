@@ -59,7 +59,12 @@ Already exposed by `/api/analytics/trends/*` endpoints as **live `DATE_TRUNC` ag
 - Velocity: `velocity_under_1`, `velocity_1_10`, `velocity_10_50`, `velocity_50_plus`
 - Early access: `ea_count`, `ea_pct`, `ea_avg_steam_pct`, `non_ea_avg_steam_pct`
 - Platform: `mac_pct`, `linux_pct`, `deck_verified_pct`, `deck_playable_pct`, `deck_unsupported_pct`
-- Engagement: `playtime_*_pct` (5 buckets)
+
+> **Note**: Engagement metrics (`playtime_*_pct` buckets) are sourced from
+> `index_insights` rather than the trend matviews, and require the
+> cross-source merge path in `query_metrics`. They are **deferred to a
+> follow-up** — v1 of the registry exposes only `source="trend_matview"`
+> metrics so the Builder lens ships with a single, uniform query path.
 
 ---
 
@@ -139,16 +144,16 @@ All builder state (`metrics`, `chartType`, `normalize`, plus inherited filters) 
    - Columns: `granularity`, `period`, `[genre_slug | tag_slug]`, `releases`, `free_count`, `positive_count`, `mixed_count`, `negative_count`, `avg_steam_pct`, `avg_metacritic`, `avg_paid_price`, `free_pct`, `velocity_under_1`, `velocity_1_10`, `velocity_10_50`, `velocity_50_plus`, `mac_pct`, `linux_pct`, `deck_verified_pct`, `ea_count`, `ea_avg_steam_pct`, `non_ea_avg_steam_pct`.
    - **Two migration files**: one for `CREATE MATERIALIZED VIEW IF NOT EXISTS` (transactional), one marked `-- transactional: false` for the unique `CREATE INDEX CONCURRENTLY` statements. Unique indexes are required so future refreshes can use `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
    - Add the three new view names to `analytics_repo.refresh_matviews()` so the existing post-ingest refresh path picks them up — no new cron, no new Lambda.
-   - **Engagement (playtime) metrics continue to read `index_insights`** — already pre-computed, no change.
+   - **Engagement (playtime) metrics are deferred out of v1.** The `index_insights` source + cross-source merge path will land in a follow-up; this PR ships the Builder lens with a single `trend_matview` source path to keep the implementation scoped.
 
 1. **Metric registry** — `src/library-layer/library_layer/analytics/metrics.py` (new)
-   - Pydantic `MetricDefinition` model: `id`, `label`, `description`, `category` (`volume` | `sentiment` | `pricing` | `velocity` | `early_access` | `platform` | `engagement`), `unit` (`count` | `pct` | `currency` | `score`), `source` (`trend_matview` | `index_insights`), `column` (the column name in the source relation), `default_chart_hint` (`bar` | `line` | `stacked_area` | `composed`).
+   - Pydantic `MetricDefinition` model: `id`, `label`, `description`, `category` (`volume` | `sentiment` | `pricing` | `velocity` | `early_access` | `platform`), `unit` (`count` | `pct` | `currency` | `score`), `source` (`trend_matview` — engagement/`index_insights` deferred), `column` (the column name in the source relation), `default_chart_hint` (`bar` | `line` | `stacked_area` | `composed`).
    - Module-level `METRIC_REGISTRY: dict[str, MetricDefinition]` with one entry per seed metric listed above.
    - Helper `get_metric(metric_id: str) -> MetricDefinition` that raises a clear error on unknown ids.
 
 2. **Repository** — extend `analytics_repo.py`
    - New method `query_metrics(metric_ids: list[str], granularity: Granularity, filters: TrendFilters, limit: int) -> list[dict]`.
-   - Group requested metrics by `source`. For the `trend_matview` group, pick the right physical matview based on filters: no filter → `mv_trend_catalog`; `genre_slug` set → `mv_trend_by_genre WHERE genre_slug = %s`; `tag_slug` set → `mv_trend_by_tag WHERE tag_slug = %s`. Issue one SELECT with only the requested columns. For the `index_insights` group, query as `find_engagement_depth_rows` already does.
+   - All v1 metrics share `source="trend_matview"`. Pick the right physical matview based on filters: no filter → `mv_trend_catalog`; `genre_slug` set → `mv_trend_by_genre WHERE genre_slug = %s`; `tag_slug` set → `mv_trend_by_tag WHERE tag_slug = %s`. Issue one SELECT with only the requested columns — no GROUP BY, no joins. (A future cross-source merge path will be added when engagement/`index_insights` metrics land.)
    - If both source groups are used, merge in Python (dict-of-period → row). If only one source is used (the common case), return directly without merging.
    - Filters honored: `genre`, `tag` (mutually exclusive in v1 — combined genre+tag returns 400). Advanced filters are a follow-up.
    - Return rows in `{"period": ..., "<metric_id>": value, ...}` shape.
@@ -165,8 +170,8 @@ All builder state (`metrics`, `chartType`, `normalize`, plus inherited filters) 
    - Both routes are non-Pro at the API level — gating is enforced on the frontend (matches the rest of the analytics surface).
 
 5. **Tests**
-   - `tests/services/test_analytics_service.py`: trend-query with single metric, multi-metric (same source), multi-metric (cross-source `trend_matview` + `index_insights`, period merge), filter applied, invalid metric id (→ raises), unknown granularity (→ raises).
-   - `tests/repositories/test_analytics_repo.py` (against `steampulse_test`): seed games + refresh matviews, assert `query_metrics` reads from the right matview per filter shape and returns expected columns; cross-source merge produces a row with both `trend_matview` and `index_insights` keys.
+   - `tests/services/test_analytics_service.py`: trend-query with single metric, multi-metric, filter applied, invalid metric id (→ raises), unknown granularity (→ raises).
+   - `tests/repositories/test_analytics_repo.py` (against `steampulse_test`): seed games + refresh matviews, assert `query_metrics` reads from the right `mv_trend_*` matview per filter shape and returns expected columns.
    - Handler test for both new routes: success path + 400 on unknown metric.
 
 ### Frontend

@@ -6,6 +6,12 @@ from collections.abc import Callable
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.sql
+
+# Accepted query shapes: a raw SQL string or a psycopg2.sql Composable
+# (SQL/Identifier/Composed) for safely interpolating identifiers like
+# table or column names. Both are passed straight through to cur.execute().
+SqlQuery = str | psycopg2.sql.Composable
 
 
 class BaseRepository:
@@ -25,19 +31,23 @@ class BaseRepository:
         """Get a validated connection — reconnects transparently if stale."""
         return self._get_conn()
 
-    def _execute(self, sql: str, params: tuple = ()) -> psycopg2.extensions.cursor:
+    def _execute(self, sql: SqlQuery, params: tuple = ()) -> psycopg2.extensions.cursor:
         """Execute a statement and return the cursor (for rowcount / lastrowid)."""
         cur = self.conn.cursor()
         cur.execute(sql, params)
         return cur
 
-    def _fetchone(self, sql: str, params: tuple = ()) -> psycopg2.extras.RealDictRow | None:
+    def _fetchone(
+        self, sql: SqlQuery, params: tuple = ()
+    ) -> psycopg2.extras.RealDictRow | None:
         """Execute a SELECT and return the first row as a RealDictRow, or None."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             return cur.fetchone()  # type: ignore[return-value]
 
-    def _fetchall(self, sql: str, params: tuple = ()) -> list[psycopg2.extras.RealDictRow]:
+    def _fetchall(
+        self, sql: SqlQuery, params: tuple = ()
+    ) -> list[psycopg2.extras.RealDictRow]:
         """Execute a SELECT and return all rows as RealDictRows."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)

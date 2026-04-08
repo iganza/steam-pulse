@@ -450,6 +450,15 @@ def _pending_meta(n: int) -> list[int]:
     return [e.appid for e in entries]
 
 
+def _stale_meta(n: int) -> list[int]:
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        entries = catalog_repo.find_stale_meta(limit=n)
+    finally:
+        conn.close()
+    return [e.appid for e in entries]
+
+
 def _eligible_reviews(n: int) -> list[int]:
     """Return appids that genuinely need review crawling, newest first.
 
@@ -1083,6 +1092,15 @@ def _build_parser() -> argparse.ArgumentParser:
     qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qt.add_argument("--dry-run", action="store_true")
 
+    qs = qu_sub.add_parser(
+        "stale",
+        help="Re-crawl stale metadata — enqueues metadata + tags tasks",
+    )
+    qs.add_argument(
+        "--limit", type=int, default=2000, metavar="N", help="Max appids to enqueue (default: 2000)"
+    )
+    qs.add_argument("--dry-run", action="store_true")
+
     # ── logs (query spoke logs across regions)
     lg = sub.add_parser("logs", help="Query spoke logs across all regions")
     lg.add_argument(
@@ -1176,6 +1194,11 @@ def main() -> None:
             if args.all_games:
                 appids = _all_games(args.limit or 200_000)
             cmd_queue("tags", appids, args.dry_run, args.env)
+        elif args.queue_cmd == "stale":
+            stale_ids = _stale_meta(args.limit)
+            _info(f"Found {len(stale_ids)} stale appids")
+            cmd_queue("metadata", stale_ids, args.dry_run, args.env)
+            cmd_queue("tags", stale_ids, args.dry_run, args.env)
 
     elif args.cmd == "logs":
         if args.logs_cmd == "errors":

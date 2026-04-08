@@ -92,3 +92,45 @@ def test_get_reviews_completed_at_returns_timestamp_after_complete(
 
 def test_get_reviews_completed_at_none_for_missing_appid(catalog_repo: CatalogRepository) -> None:
     assert catalog_repo.get_reviews_completed_at(99999) is None
+
+
+def _set_meta_crawled_at(catalog_repo: CatalogRepository, appid: int, days_ago: int) -> None:
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_catalog SET meta_crawled_at = NOW() - (%s || ' days')::interval WHERE appid = %s",
+            (days_ago, appid),
+        )
+    catalog_repo.conn.commit()
+
+
+def test_find_stale_meta_tier3_default(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 7001, "name": "A"}, {"appid": 7002, "name": "B"}])
+    catalog_repo.set_meta_status(7001, "done")
+    catalog_repo.set_meta_status(7002, "done")
+    _set_meta_crawled_at(catalog_repo, 7001, days_ago=40)  # stale tier 3
+    _set_meta_crawled_at(catalog_repo, 7002, days_ago=5)  # fresh
+    stale = catalog_repo.find_stale_meta(limit=10)
+    appids = [e.appid for e in stale]
+    assert 7001 in appids
+    assert 7002 not in appids
+
+
+def test_find_stale_meta_nulls_first(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 7100, "name": "Legacy"}])
+    # Legacy row: set meta_status='done' but keep meta_crawled_at NULL
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_catalog SET meta_status='done', meta_crawled_at=NULL WHERE appid = 7100"
+        )
+    catalog_repo.conn.commit()
+    stale = catalog_repo.find_stale_meta(limit=10)
+    assert 7100 in [e.appid for e in stale]
+
+
+def test_find_stale_meta_respects_limit(catalog_repo: CatalogRepository) -> None:
+    catalog_repo.bulk_upsert([{"appid": 7200 + i, "name": f"G{i}"} for i in range(5)])
+    for i in range(5):
+        catalog_repo.set_meta_status(7200 + i, "done")
+        _set_meta_crawled_at(catalog_repo, 7200 + i, days_ago=60)
+    stale = catalog_repo.find_stale_meta(limit=3)
+    assert len(stale) == 3

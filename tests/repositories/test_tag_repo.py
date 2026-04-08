@@ -105,3 +105,63 @@ def test_upsert_tags_updates_votes(game_repo: GameRepository, tag_repo: TagRepos
     tags = tag_repo.find_tags_for_game(440)
     action_tag = next(t for t in tags if t["name"] == "Action")
     assert action_tag["votes"] == 150
+
+
+def test_upsert_genres_removes_stale(game_repo: GameRepository, tag_repo: TagRepository) -> None:
+    _seed_game(game_repo)
+    tag_repo.upsert_genres(
+        440,
+        [
+            {"id": "1", "description": "Action"},
+            {"id": "70", "description": "Early Access"},
+        ],
+    )
+    # Simulate EA graduation — genre 70 removed upstream
+    tag_repo.upsert_genres(440, [{"id": "1", "description": "Action"}])
+    names = [r["name"] for r in tag_repo.find_genres_for_game(440)]
+    assert names == ["Action"]
+
+
+def test_upsert_genres_empty_clears_all(game_repo: GameRepository, tag_repo: TagRepository) -> None:
+    _seed_game(game_repo)
+    tag_repo.upsert_genres(440, [{"id": "1", "description": "Action"}])
+    tag_repo.upsert_genres(440, [])
+    assert tag_repo.find_genres_for_game(440) == []
+
+
+def test_upsert_categories_removes_stale(
+    game_repo: GameRepository, tag_repo: TagRepository
+) -> None:
+    _seed_game(game_repo)
+    tag_repo.upsert_categories(
+        440,
+        [
+            {"id": 1, "description": "Multi-player"},
+            {"id": 22, "description": "Steam Achievements"},
+        ],
+    )
+    tag_repo.upsert_categories(440, [{"id": 22, "description": "Steam Achievements"}])
+    with game_repo.conn.cursor() as cur:
+        cur.execute("SELECT category_id FROM game_categories WHERE appid = 440")
+        ids = [r["category_id"] for r in cur.fetchall()]
+    assert ids == [22]
+
+
+def test_upsert_tags_removes_stale(game_repo: GameRepository, tag_repo: TagRepository) -> None:
+    _seed_game(game_repo)
+    tag_repo.upsert_tags(
+        [
+            {"appid": 440, "name": "Action", "votes": 100},
+            {"appid": 440, "name": "FPS", "votes": 200},
+            {"appid": 440, "name": "Co-op", "votes": 50},
+        ]
+    )
+    # Re-crawl with a smaller set — Co-op should be removed
+    tag_repo.upsert_tags(
+        [
+            {"appid": 440, "name": "Action", "votes": 110},
+            {"appid": 440, "name": "FPS", "votes": 210},
+        ]
+    )
+    names = {t["name"] for t in tag_repo.find_tags_for_game(440)}
+    assert names == {"Action", "FPS"}

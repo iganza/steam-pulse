@@ -106,6 +106,29 @@ class CatalogService:
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         return len(messages)
 
+    def enqueue_stale(self, limit: int = 2000) -> int:
+        """Find games with stale metadata and enqueue both metadata + tags re-crawl.
+
+        Enqueues two messages per stale appid (task=metadata, task=tags) so
+        meta_crawled_at and tags_crawled_at both advance on the same re-crawl cycle.
+        Returns the number of appids enqueued (not the number of messages).
+        """
+        stale = self._catalog_repo.find_stale_meta(limit=limit)
+        if not stale:
+            logger.info("No stale games to re-crawl")
+            return 0
+
+        messages: list[dict] = []
+        for entry in stale:
+            messages.append({"appid": entry.appid, "task": "metadata"})
+            messages.append({"appid": entry.appid, "task": "tags"})
+        send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
+        logger.info(
+            "Stale metadata enqueued",
+            extra={"appids": len(stale), "messages": len(messages)},
+        )
+        return len(stale)
+
     def status(self) -> dict:
         """Return counts per status from catalog_repo.status_summary()."""
         return self._catalog_repo.status_summary()

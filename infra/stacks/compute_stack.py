@@ -729,14 +729,30 @@ class ComputeStack(cdk.Stack):
             )
         )
 
-        # Weekly catalog refresh — disabled until we're ready to run on a schedule.
+        # Hourly catalog refresh — fetches Steam GetAppList, upserts new apps,
+        # and enqueues any pending metadata crawls.
         catalog_rule = events.Rule(
             self,
             "CatalogRefreshRule",
-            schedule=events.Schedule.rate(cdk.Duration.days(7)),
-            enabled=False,
+            schedule=events.Schedule.rate(cdk.Duration.hours(1)),
+            enabled=True,
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
+
+        # Daily stale metadata refresh — re-crawls games whose metadata/tags
+        # are past their freshness tier (EA 7d, popular 14d, rest 30d).
+        stale_refresh_rule = events.Rule(
+            self,
+            "StaleMetaRefreshRule",
+            schedule=events.Schedule.rate(cdk.Duration.days(1)),
+            enabled=True,
+        )
+        stale_refresh_rule.add_target(
+            events_targets.LambdaFunction(
+                crawler_fn,
+                event=events.RuleTargetInput.from_object({"action": "stale_refresh"}),
+            )
+        )
 
         # Override logical ID to match the pipeline-era stack.
         # Staging only — production was never deployed via CDK Pipelines.

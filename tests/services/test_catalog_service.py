@@ -164,3 +164,40 @@ def test_status_returns_counts(
     assert status["meta"]["done"] >= 1
     assert status["meta"]["failed"] >= 1
     assert status["meta"]["pending"] >= 2
+
+
+@mock_aws
+def test_enqueue_stale_sends_metadata_and_tags(
+    catalog_repo: CatalogRepository,
+) -> None:
+    import boto3
+
+    sqs = boto3.client("sqs", region_name="us-east-1")
+    queue_url = sqs.create_queue(QueueName="app-crawl-stale")["QueueUrl"]
+
+    catalog_repo.bulk_upsert([{"appid": 800 + i, "name": f"S{i}"} for i in range(2)])
+    for i in range(2):
+        catalog_repo.set_meta_status(800 + i, "done")
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_catalog SET meta_crawled_at = NOW() - INTERVAL '40 days' "
+            "WHERE appid IN (800, 801)"
+        )
+    catalog_repo.conn.commit()
+
+    with httpx.Client() as http_client:
+        svc = _make_service(catalog_repo, sqs, queue_url, http_client)
+        count = svc.enqueue_stale(limit=10)
+
+    assert count == 2
+
+    # 2 appids x 2 tasks (metadata + tags) = 4 messages
+    import json as _json
+
+    received: list[dict] = []
+    for _ in range(5):
+        resp = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
+        for m in resp.get("Messages", []):
+            received.append(_json.loads(m["Body"]))
+    tasks = sorted(m["task"] for m in received)
+    assert tasks == ["metadata", "metadata", "tags", "tags"]

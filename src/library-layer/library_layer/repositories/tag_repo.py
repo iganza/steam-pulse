@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from library_layer.repositories.base import BaseRepository
 from library_layer.utils.slugify import slugify
 
@@ -102,16 +104,37 @@ class TagRepository(BaseRepository):
                        ON CONFLICT (appid, tag_id) DO UPDATE SET votes = EXCLUDED.votes""",
                     game_tag_rows,
                 )
+
+                # Delete stale tag associations per appid (tags removed on Steam's side).
+                appid_tag_ids: dict[int, list[int]] = defaultdict(list)
+                for aid, tid, _ in game_tag_rows:
+                    appid_tag_ids[aid].append(tid)
+                for aid, tids in appid_tag_ids.items():
+                    cur.execute(
+                        "DELETE FROM game_tags WHERE appid = %s AND tag_id != ALL(%s)",
+                        (aid, tids),
+                    )
         self.conn.commit()
 
     def upsert_genres(self, appid: int, genres: list[dict]) -> None:
-        """Upsert genres and game_genre associations.
+        """Upsert genres and game_genre associations (delete-and-replace).
+
+        Removes any existing game_genre associations for this appid that are NOT in the
+        incoming set, so genres dropped by Steam (e.g. leaving Early Access) disappear.
 
         Args:
             appid: The game's appid.
             genres: List of Steam genre dicts: [{"id": "1", "description": "Action"}, ...]
         """
+        valid_genre_ids = [int(g.get("id") or 0) for g in genres if int(g.get("id") or 0)]
         with self.conn.cursor() as cur:
+            if valid_genre_ids:
+                cur.execute(
+                    "DELETE FROM game_genres WHERE appid = %s AND genre_id != ALL(%s)",
+                    (appid, valid_genre_ids),
+                )
+            else:
+                cur.execute("DELETE FROM game_genres WHERE appid = %s", (appid,))
             for genre in genres:
                 genre_id = int(genre.get("id") or 0)
                 genre_name: str = genre.get("description") or ""
@@ -135,13 +158,24 @@ class TagRepository(BaseRepository):
         self.conn.commit()
 
     def upsert_categories(self, appid: int, categories: list[dict]) -> None:
-        """Upsert category associations for a game.
+        """Upsert category associations for a game (delete-and-replace).
+
+        Removes any existing game_category associations for this appid that are NOT in
+        the incoming set, so categories dropped by Steam disappear.
 
         Args:
             appid: The game's appid.
             categories: List of Steam category dicts: [{"id": 1, "description": "Multi-player"}, ...]
         """
+        valid_cat_ids = [int(c.get("id") or 0) for c in categories if int(c.get("id") or 0)]
         with self.conn.cursor() as cur:
+            if valid_cat_ids:
+                cur.execute(
+                    "DELETE FROM game_categories WHERE appid = %s AND category_id != ALL(%s)",
+                    (appid, valid_cat_ids),
+                )
+            else:
+                cur.execute("DELETE FROM game_categories WHERE appid = %s", (appid,))
             for cat in categories:
                 cat_id = int(cat.get("id") or 0)
                 cat_name: str = cat.get("description") or ""

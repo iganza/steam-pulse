@@ -294,6 +294,8 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_games_last_analyzed ON games(last_analyzed DESC NULLS LAST)",
     # 0027_add_revenue_estimate_index
     "CREATE INDEX IF NOT EXISTS idx_games_estimated_revenue ON games(estimated_revenue_usd DESC NULLS LAST)",
+    # 0033_add_stale_meta_index
+    "CREATE INDEX IF NOT EXISTS idx_catalog_stale_meta ON app_catalog(meta_crawled_at) WHERE meta_status = 'done'",
 )
 
 

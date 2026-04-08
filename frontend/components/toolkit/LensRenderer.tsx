@@ -7,6 +7,7 @@ import { ExplorerLens } from "./lenses/ExplorerLens";
 import { BenchmarkLens } from "./lenses/BenchmarkLens";
 import { MarketMapLens } from "./lenses/MarketMapLens";
 import { TrendsLens } from "./lenses/TrendsLens";
+import { BuilderLens } from "./lenses/BuilderLens";
 
 interface LensRendererProps {
   lens: LensId;
@@ -38,6 +39,8 @@ export function LensRenderer({
       return <MarketMapLens {...props} />;
     case "trends":
       return <TrendsLens {...props} />;
+    case "builder":
+      return <BuilderLens {...props} />;
     default: {
       const _exhaustive: never = lens;
       return null;

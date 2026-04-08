@@ -4,6 +4,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from library_layer.analytics.metrics import METRIC_REGISTRY
 from library_layer.services.analytics_service import AnalyticsService
 
 
@@ -308,3 +309,94 @@ def test_empty_rows_no_crash(svc: AnalyticsService, mock_repo: MagicMock) -> Non
     mock_repo.find_category_trend_rows.return_value = []
     mock_repo.find_release_volume_rows.return_value = []
     assert svc.get_category_trend()["periods"] == []
+
+
+# -------------------------------------------------------------------
+# trend_query (Builder lens)
+# -------------------------------------------------------------------
+
+
+def test_list_metrics_returns_catalog(svc: AnalyticsService) -> None:
+    metrics = svc.list_metrics()
+    assert len(metrics) == len(METRIC_REGISTRY)
+    ids = {m["id"] for m in metrics}
+    assert "releases" in ids
+    assert "avg_steam_pct" in ids
+    # Every metric has required shape.
+    for m in metrics:
+        assert set(m.keys()) >= {"id", "label", "unit", "category", "source", "column", "default_chart_hint"}
+
+
+def test_trend_query_single_metric(svc: AnalyticsService, mock_repo: MagicMock) -> None:
+    mock_repo.query_metrics.return_value = [
+        {"period": datetime(2024, 1, 1), "releases": 42},
+        {"period": datetime(2024, 2, 1), "releases": 55},
+    ]
+    result = svc.trend_query(metric_ids=["releases"], granularity="month")
+
+    assert result["granularity"] == "month"
+    assert result["periods"] == [
+        {"period": "2024-01", "releases": 42},
+        {"period": "2024-02", "releases": 55},
+    ]
+    assert len(result["metrics"]) == 1
+    assert result["metrics"][0]["id"] == "releases"
+    assert result["metrics"][0]["unit"] == "count"
+
+    mock_repo.query_metrics.assert_called_once_with(
+        metric_ids=["releases"],
+        granularity="month",
+        genre_slug=None,
+        tag_slug=None,
+        limit=24,
+    )
+
+
+def test_trend_query_multi_metric_mixed_units(
+    svc: AnalyticsService, mock_repo: MagicMock
+) -> None:
+    mock_repo.query_metrics.return_value = [
+        {"period": datetime(2024, 1, 1), "releases": 10, "avg_paid_price": 19.99},
+        {"period": datetime(2024, 2, 1), "releases": 12, "avg_paid_price": None},
+    ]
+    result = svc.trend_query(
+        metric_ids=["releases", "avg_paid_price"],
+        granularity="month",
+        genre_slug="action",
+    )
+    # Counts cast to int, currency cast to float, None preserved.
+    assert result["periods"][0]["releases"] == 10
+    assert result["periods"][0]["avg_paid_price"] == pytest.approx(19.99)
+    assert result["periods"][1]["avg_paid_price"] is None
+    assert [m["id"] for m in result["metrics"]] == ["releases", "avg_paid_price"]
+
+
+def test_trend_query_unknown_metric_raises(svc: AnalyticsService) -> None:
+    with pytest.raises(ValueError, match="unknown metric"):
+        svc.trend_query(metric_ids=["not_a_metric"], granularity="month")
+
+
+def test_trend_query_empty_metrics_raises(svc: AnalyticsService) -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        svc.trend_query(metric_ids=[], granularity="month")
+
+
+def test_trend_query_too_many_metrics_raises(svc: AnalyticsService) -> None:
+    with pytest.raises(ValueError, match="at most 6"):
+        svc.trend_query(
+            metric_ids=[
+                "releases",
+                "free_count",
+                "positive_count",
+                "mixed_count",
+                "negative_count",
+                "avg_steam_pct",
+                "avg_metacritic",
+            ],
+            granularity="month",
+        )
+
+
+def test_trend_query_invalid_granularity_raises(svc: AnalyticsService) -> None:
+    with pytest.raises(ValueError, match="Invalid granularity"):
+        svc.trend_query(metric_ids=["releases"], granularity="daily")

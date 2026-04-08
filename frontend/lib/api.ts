@@ -4,6 +4,7 @@ import type {
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio,
+  MetricDefinition, TrendQueryResult,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -320,6 +321,35 @@ export async function getAnalyticsTrendCategories(params: {
   granularity?: Granularity; top_n?: number; type?: string; limit?: number;
 }): Promise<{ granularity: string; categories: string[]; periods: CategoryTrendPeriod[] }> {
   return apiFetch(`/api/analytics/trends/categories${trendParams(params)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Builder lens — metric catalog + generic trend query
+// ---------------------------------------------------------------------------
+
+export async function getAnalyticsMetricsCatalog(
+  signal?: AbortSignal,
+): Promise<{ metrics: MetricDefinition[] }> {
+  return apiFetch("/api/analytics/metrics", { signal });
+}
+
+export async function getAnalyticsTrendQuery(
+  params: {
+    metrics: string[];
+    granularity?: Granularity;
+    genre?: string;
+    tag?: string;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<TrendQueryResult> {
+  const qs = new URLSearchParams();
+  qs.set("metrics", params.metrics.join(","));
+  if (params.granularity) qs.set("granularity", params.granularity);
+  if (params.genre) qs.set("genre", params.genre);
+  if (params.tag) qs.set("tag", params.tag);
+  if (params.limit) qs.set("limit", String(params.limit));
+  return apiFetch(`/api/analytics/trend-query?${qs.toString()}`, { signal });
 }
 
 export { ApiError };

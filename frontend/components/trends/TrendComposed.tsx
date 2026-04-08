@@ -15,7 +15,13 @@ export function TrendComposed({
 }: {
   data: TrendPeriod[];
   bars: { dataKey: string; label: string; color: string }[];
-  lines: { dataKey: string; label: string; color: string }[];
+  /** Per-line `axis` defaults to "left". Set to "right" to put a specific
+   *  line on the right axis — useful for mixed-unit charts (e.g. currency
+   *  + pct) where dumping all lines onto one axis would squash the smaller
+   *  series. When any line explicitly asks for the right axis, the dual
+   *  axis layout is forced on regardless of whether any bars are present.
+   */
+  lines: { dataKey: string; label: string; color: string; axis?: "left" | "right" }[];
   granularity: Granularity;
   height?: number;
 }) {
@@ -27,11 +33,14 @@ export function TrendComposed({
     );
   }
 
-  // Only use a dual axis when there are both bars and lines — mixing bars and
-  // lines on the same axis is fine when there are no bars (lines-only charts).
-  // Rendering a right axis for a lines-only chart produces an unused axis.
-  const hasDualAxis = bars.length > 0 && lines.length > 0;
-  const lineAxisId = hasDualAxis ? "right" : "left";
+  // Dual axis is needed when any line explicitly targets the right axis OR
+  // when bars and lines coexist (bars always live on the left axis). When
+  // only lines are present and none ask for the right axis, render a single
+  // left axis to avoid an empty right axis.
+  const anyLineOnRight = lines.some((l) => l.axis === "right");
+  const hasDualAxis = anyLineOnRight || (bars.length > 0 && lines.length > 0);
+  const defaultLineAxis: "left" | "right" =
+    hasDualAxis && bars.length > 0 && !anyLineOnRight ? "right" : "left";
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -46,7 +55,16 @@ export function TrendComposed({
           <Bar key={b.dataKey} yAxisId="left" dataKey={b.dataKey} name={b.label} fill={b.color} radius={[2, 2, 0, 0]} />
         ))}
         {lines.map((l) => (
-          <Line key={l.dataKey} yAxisId={lineAxisId} type="monotone" dataKey={l.dataKey} name={l.label} stroke={l.color} strokeWidth={2} dot={false} />
+          <Line
+            key={l.dataKey}
+            yAxisId={l.axis ?? defaultLineAxis}
+            type="monotone"
+            dataKey={l.dataKey}
+            name={l.label}
+            stroke={l.color}
+            strokeWidth={2}
+            dot={false}
+          />
         ))}
       </ComposedChart>
     </ResponsiveContainer>

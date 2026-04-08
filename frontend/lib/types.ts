@@ -496,3 +496,47 @@ export interface DeveloperGame {
   metacritic_score: number | null;
   achievements_total: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Builder lens — metric catalog + generic trend query
+// ---------------------------------------------------------------------------
+
+export type MetricUnit = "count" | "pct" | "currency" | "score";
+export type MetricCategory =
+  | "volume"
+  | "sentiment"
+  | "pricing"
+  | "velocity"
+  | "early_access"
+  | "platform";
+export type BuilderChartType = "bar" | "line" | "stacked_area" | "composed";
+
+export interface MetricDefinition {
+  id: string;
+  label: string;
+  description: string;
+  category: MetricCategory;
+  unit: MetricUnit;
+  source: string;
+  column: string;
+  default_chart_hint: BuilderChartType;
+}
+
+export interface TrendQueryMetricMeta {
+  id: string;
+  label: string;
+  unit: MetricUnit;
+  category: MetricCategory;
+  default_chart_hint: BuilderChartType;
+}
+
+export interface TrendQueryPeriod {
+  period: string;
+  [metricId: string]: number | string | null;
+}
+
+export interface TrendQueryResult {
+  granularity: Granularity;
+  periods: TrendQueryPeriod[];
+  metrics: TrendQueryMetricMeta[];
+}

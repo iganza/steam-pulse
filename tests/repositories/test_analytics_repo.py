@@ -582,3 +582,91 @@ def test_developer_portfolio_single_title(
 
     result = analytics_repo.find_developer_portfolio("solo-dev")
     assert result["summary"]["sentiment_trajectory"] == "single_title"
+
+
+# ---------------------------------------------------------------------------
+# query_metrics (Builder lens)
+# ---------------------------------------------------------------------------
+
+
+def test_query_metrics_catalog_single_metric(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Reads from mv_trend_catalog with no filter; returns releases per period."""
+    _seed_game(game_repo, 18000, release_date="2024-01-15", positive_pct=80)
+    _seed_game(game_repo, 18001, release_date="2024-01-20", positive_pct=72)
+    _seed_game(game_repo, 18002, release_date="2024-02-10", positive_pct=90)
+    refresh_matviews()
+
+    rows = analytics_repo.query_metrics(
+        metric_ids=["releases"], granularity="month", limit=12
+    )
+    # Two periods (2024-01 with 2 games, 2024-02 with 1).
+    periods = {r["period"].strftime("%Y-%m"): r["releases"] for r in rows}
+    assert periods["2024-01"] == 2
+    assert periods["2024-02"] == 1
+
+
+def test_query_metrics_multi_metric(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Multi-metric returns all requested keys per period."""
+    _seed_game(game_repo, 18100, release_date="2024-03-01", positive_pct=80, price_usd=19.99)
+    _seed_game(game_repo, 18101, release_date="2024-03-05", positive_pct=60, price_usd=9.99)
+    refresh_matviews()
+
+    rows = analytics_repo.query_metrics(
+        metric_ids=["releases", "avg_steam_pct", "avg_paid_price"],
+        granularity="month",
+        limit=12,
+    )
+    assert len(rows) >= 1
+    march = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-03")
+    assert march["releases"] == 2
+    assert float(march["avg_steam_pct"]) == pytest.approx(70.0, abs=0.1)
+    assert float(march["avg_paid_price"]) == pytest.approx(14.99, abs=0.01)
+
+
+def test_query_metrics_filter_by_genre(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """genre_slug routes to mv_trend_by_genre and filters correctly."""
+    genre_id = _seed_genre(db_conn, "Action", "action-q")
+    _seed_game(game_repo, 18200, release_date="2024-04-01")
+    _link_genre(db_conn, 18200, genre_id)
+    _seed_game(game_repo, 18201, release_date="2024-04-15")  # no genre
+    refresh_matviews()
+
+    rows = analytics_repo.query_metrics(
+        metric_ids=["releases"], granularity="month", genre_slug="action-q", limit=12
+    )
+    april = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-04")
+    assert april["releases"] == 1  # only the game linked to action-q
+
+
+def test_query_metrics_combined_genre_and_tag_raises(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    with pytest.raises(ValueError, match="combining"):
+        analytics_repo.query_metrics(
+            metric_ids=["releases"],
+            granularity="month",
+            genre_slug="action",
+            tag_slug="indie",
+        )
+
+
+def test_query_metrics_unknown_metric_raises(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    with pytest.raises(ValueError, match="unknown metric"):
+        analytics_repo.query_metrics(
+            metric_ids=["not_a_metric"], granularity="month"
+        )

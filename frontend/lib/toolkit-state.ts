@@ -14,7 +14,10 @@ export const LENS_IDS = [
   "benchmark",
   "market-map",
   "trends",
+  "builder",
 ] as const;
+
+const BUILDER_CHART_TYPES = ["bar", "line", "stacked_area", "composed"] as const;
 
 export type LensId = (typeof LENS_IDS)[number];
 
@@ -38,6 +41,12 @@ export const toolkitParsers = {
   has_analysis: parseAsBoolean,
   sort: parseAsString.withDefault(DEFAULT_SORT),
   appids: parseAsArrayOf(parseAsInteger, ",").withDefault([]),
+  // Builder lens — lens-local URL state. Prefixed with `b_` so it can't
+  // collide with other lenses' params.
+  b_metrics: parseAsArrayOf(parseAsString, ",").withDefault([]),
+  b_chart: parseAsStringLiteral(BUILDER_CHART_TYPES),
+  b_norm: parseAsBoolean,
+  b_gran: parseAsStringLiteral(["week", "month", "quarter", "year"] as const),
 };
 
 export type ToolkitState = {

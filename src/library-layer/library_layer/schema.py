@@ -256,6 +256,11 @@ TABLES: tuple[str, ...] = (
     # positive_pct is now the only sentiment number. Do not re-add it.
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS hidden_gem_score REAL",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS last_analyzed TIMESTAMPTZ",
+    # 0026_add_revenue_estimates — Boxleiter v1 per-game revenue columns.
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS estimated_owners BIGINT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS estimated_revenue_usd NUMERIC(14,2)",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_method TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_computed_at TIMESTAMPTZ",
 )
 
 # Indexes — kept for test suite use only.

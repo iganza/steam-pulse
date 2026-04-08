@@ -90,8 +90,17 @@ class RevenueEstimate(BaseModel):
 Single public function:
 
 ```python
-def compute_estimate(game: Game) -> RevenueEstimate: ...
+def compute_estimate(
+    game: Game,
+    genres: list[dict],
+    tags: list[dict],
+) -> RevenueEstimate: ...
 ```
+
+Genres and tags are passed in (not derived from `Game`) because the `Game`
+model doesn't denormalize them. Callers must fetch them via
+`TagRepository.find_genres_for_game(appid)` and `find_tags_for_game(appid)`
+(or the `find_*_for_appids` bulk helpers in hot loops).
 
 Contains the `GENRE_MULTIPLIERS` constant with a source-citation comment, the age/price/floor adjustments, and excluded-type guards. Extend `models/game.py` with:
 
@@ -110,25 +119,38 @@ def update_revenue_estimate(
     appid: int,
     owners: int | None,
     revenue_usd: Decimal | None,
-    method: str,
+    method: str | None,
 ) -> None:
 ```
 
-Single `UPDATE games SET ... WHERE appid = %s` with `revenue_estimate_computed_at = NOW()`. Match the style of existing update methods in `game_repo.py`.
+Single `UPDATE games SET ... WHERE appid = %s` with `revenue_estimate_computed_at = NOW()`. Match the style of existing update methods in `game_repo.py`. When both `owners` and `revenue_usd` are None (free-to-play, excluded type, insufficient reviews), the repo must coerce `method` to NULL so downstream clients can treat NULL as "no estimate available".
 
 ### 4. Wire into analysis
 
-In `analysis_service.py`, at the end of the analyze path (after the `GameReport` is persisted, alongside the `last_analyzed` update), call:
+`AnalysisService` takes a `TagRepository` as a required constructor dependency
+(it doesn't have one today — add it). At the end of the analyze path (after the
+`GameReport` is persisted, alongside the `last_analyzed` update), fetch
+genres/tags and call the estimator:
 
 ```python
-estimate = compute_estimate(game)
-game_repo.update_revenue_estimate(
+genres = self._tag_repo.find_genres_for_game(appid)
+tags = self._tag_repo.find_tags_for_game(appid)
+estimate = compute_estimate(game, genres, tags)
+self._game_repo.update_revenue_estimate(
     appid=game.appid,
     owners=estimate.estimated_owners,
     revenue_usd=estimate.estimated_revenue_usd,
     method=estimate.method,
 )
 ```
+
+The real production analyze path is `lambda_functions/batch_analysis/process_results.py`,
+not the deprecated real-time `AnalysisService`. In `process_results`, collect the
+successful appids during the per-record loop and run a single bulk revenue-estimate
+pass *after* the loop using `TagRepository.find_genres_for_appids` /
+`find_tags_for_appids` to avoid N+1 lookups across large batches. Use the
+lightweight `GameRepository.find_for_revenue_estimate(appid)` (no `app_catalog`
+LEFT JOIN) in that hot loop.
 
 No new Lambda, no new Step Functions state, no new queue. Every game analyzed from today onward gets an estimate. Method bumps are handled by a one-off backfill script (follow-up).
 

@@ -116,7 +116,8 @@ class AnalyticsRepository(BaseRepository):
         """Price distribution + sentiment correlation within a genre (from matview)."""
         dist_rows = self._fetchall(
             """
-            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price
+            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price,
+                   revenue_q1, revenue_median, revenue_q3, revenue_sample_size
             FROM mv_price_positioning
             WHERE genre_slug = %s
             ORDER BY median_price
@@ -136,6 +137,16 @@ class AnalyticsRepository(BaseRepository):
                 if r["avg_steam_pct"] is not None
                 else None,
                 "median_price": float(r["median_price"]) if r["median_price"] is not None else 0.0,
+                # Boxleiter v1 gross revenue quartiles (pre-Steam-cut, +/-50%).
+                # Precomputed in mv_price_positioning (see migration 0029).
+                "revenue_quartiles": {
+                    "q1": float(r["revenue_q1"]) if r["revenue_q1"] is not None else None,
+                    "median": float(r["revenue_median"])
+                    if r["revenue_median"] is not None
+                    else None,
+                    "q3": float(r["revenue_q3"]) if r["revenue_q3"] is not None else None,
+                    "sample_size": int(r["revenue_sample_size"] or 0),
+                },
             }
             for r in dist_rows
         ]
@@ -211,9 +222,7 @@ class AnalyticsRepository(BaseRepository):
             }
 
         has_steam_pct = [m for m in monthly if m["avg_steam_pct"] is not None]
-        best_month = (
-            max(has_steam_pct, key=lambda x: x["avg_steam_pct"]) if has_steam_pct else None
-        )
+        best_month = max(has_steam_pct, key=lambda x: x["avg_steam_pct"]) if has_steam_pct else None
         worst_month = (
             min(has_steam_pct, key=lambda x: x["avg_steam_pct"]) if has_steam_pct else None
         )

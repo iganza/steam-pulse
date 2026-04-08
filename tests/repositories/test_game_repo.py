@@ -1,11 +1,11 @@
 """Tests for GameRepository."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.report_repo import ReportRepository
 
 
 def _game_data(appid: int = 440, name: str = "Team Fortress 2") -> dict:
@@ -120,6 +120,115 @@ def test_update_velocity_cache(game_repo: GameRepository) -> None:
     assert row is not None
     assert float(row["review_velocity_lifetime"]) == 2.5
     assert row["last_velocity_computed_at"] is not None
+
+
+def test_update_revenue_estimate_persists_values(game_repo: GameRepository) -> None:
+    game_repo.upsert(_game_data())
+    game_repo.update_revenue_estimate(
+        appid=440,
+        owners=30000,
+        revenue_usd=Decimal("599700.00"),
+        method="boxleiter_v1",
+    )
+    with game_repo.conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT estimated_owners, estimated_revenue_usd,
+                   revenue_estimate_method, revenue_estimate_computed_at
+            FROM games WHERE appid = %s
+            """,
+            (440,),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["estimated_owners"] == 30000
+    assert row["estimated_revenue_usd"] == Decimal("599700.00")
+    assert row["revenue_estimate_method"] == "boxleiter_v1"
+    assert row["revenue_estimate_computed_at"] is not None
+
+
+def test_update_revenue_estimate_writes_null_method_when_no_estimate(
+    game_repo: GameRepository,
+) -> None:
+    """Free-to-play / excluded-type games must land with a NULL method so
+    downstream clients can treat NULL as 'no estimate available'."""
+    game_repo.upsert(_game_data())
+    game_repo.update_revenue_estimate(
+        appid=440,
+        owners=None,
+        revenue_usd=None,
+        method="boxleiter_v1",
+    )
+    with game_repo.conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT estimated_owners, estimated_revenue_usd,
+                   revenue_estimate_method, revenue_estimate_computed_at
+            FROM games WHERE appid = %s
+            """,
+            (440,),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["estimated_owners"] is None
+    assert row["estimated_revenue_usd"] is None
+    assert row["revenue_estimate_method"] is None
+    # computed_at is still stamped — tracks the attempt, not the outcome.
+    assert row["revenue_estimate_computed_at"] is not None
+
+
+def test_find_for_revenue_estimate_returns_minimal_game(game_repo: GameRepository) -> None:
+    game_repo.upsert(_game_data())
+    game = game_repo.find_for_revenue_estimate(440)
+    assert game is not None
+    assert game.appid == 440
+    assert game.type == "game"
+    assert game.is_free is True
+    assert game.review_count == 188000
+
+
+def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) -> None:
+    """One UPDATE path covers both estimate-present and estimate-absent rows,
+    coercing `method` to NULL for the latter."""
+    game_repo.upsert(_game_data(440, "TF2"))
+    other = _game_data(441, "Half-Life 2")
+    other["slug"] = "half-life-2-441"
+    game_repo.upsert(other)
+
+    game_repo.bulk_update_revenue_estimates(
+        [
+            (440, 30_000, Decimal("300000.00"), "boxleiter_v1"),
+            (441, None, None, "boxleiter_v1"),  # e.g. free-to-play
+        ]
+    )
+
+    with game_repo.conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT appid, estimated_owners, estimated_revenue_usd,
+                   revenue_estimate_method, revenue_estimate_computed_at
+            FROM games WHERE appid IN (440, 441) ORDER BY appid
+            """
+        )
+        a, b = cur.fetchall()
+    assert a["estimated_owners"] == 30_000
+    assert a["estimated_revenue_usd"] == Decimal("300000.00")
+    assert a["revenue_estimate_method"] == "boxleiter_v1"
+    assert a["revenue_estimate_computed_at"] is not None
+    assert b["estimated_owners"] is None
+    assert b["estimated_revenue_usd"] is None
+    assert b["revenue_estimate_method"] is None  # coerced to NULL
+    assert b["revenue_estimate_computed_at"] is not None
+
+
+def test_bulk_update_revenue_estimates_empty_is_noop(game_repo: GameRepository) -> None:
+    game_repo.bulk_update_revenue_estimates([])  # must not raise
+
+
+def test_find_for_revenue_estimate_returns_none_for_missing(
+    game_repo: GameRepository,
+) -> None:
+    assert game_repo.find_for_revenue_estimate(9999999) is None
 
 
 def test_ensure_stub_creates_minimal_row(game_repo: GameRepository) -> None:
@@ -287,9 +396,7 @@ def test_list_games_sentiment_mixed_filter(game_repo: GameRepository) -> None:
 def test_list_games_sentiment_negative_filter(game_repo: GameRepository) -> None:
     """sentiment='negative' returns only games with positive_pct < 45."""
     game_repo.upsert({**_game_data(440, "Bad Game"), "positive_pct": 30})
-    game_repo.upsert(
-        {**_game_data(441, "Good Game"), "slug": "good-game-441", "positive_pct": 80}
-    )
+    game_repo.upsert({**_game_data(441, "Good Game"), "slug": "good-game-441", "positive_pct": 80})
     result = game_repo.list_games(sentiment="negative")
     appids = [g["appid"] for g in result["games"]]
     assert 440 in appids

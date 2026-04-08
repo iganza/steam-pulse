@@ -239,11 +239,19 @@ class _MemGameRepoWithBenchmarks(_MemGameRepo):
 class _MemTagRepo:
     """Minimal mock for TagRepository."""
 
-    def __init__(self, genres: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        genres: list[dict] | None = None,
+        tags: list[dict] | None = None,
+    ) -> None:
         self._genres = genres or []
+        self._tags = tags or []
 
     def find_genres_for_game(self, appid: int) -> list[dict]:
         return self._genres
+
+    def find_tags_for_game(self, appid: int) -> list[dict]:
+        return self._tags
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +297,107 @@ def test_benchmarks_endpoint_returns_404_for_unknown_game(client: TestClient) ->
     resp = client.get("/api/games/9999/benchmarks")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# /api/games/{appid}/report revenue-estimate shaping
+# ---------------------------------------------------------------------------
+
+
+def _build_game_with_revenue(**overrides: object) -> object:
+    """Construct a real Game pydantic model with sensible defaults so the
+    report endpoint can serialize it."""
+    from decimal import Decimal
+
+    from library_layer.models.game import Game
+
+    base: dict = {
+        "appid": 440,
+        "name": "Team Fortress 2",
+        "slug": "team-fortress-2",
+        "type": "game",
+        "developer": "Valve",
+        "price_usd": Decimal("10.00"),
+        "is_free": False,
+        "review_count": 1000,
+        "positive_pct": Decimal("90"),
+        "release_date": "2024-01-01",
+    }
+    base.update(overrides)
+    return Game.model_validate(base)
+
+
+class _MemGameRepoWithGame(_MemGameRepo):
+    def __init__(self, game: object | None) -> None:
+        self._game = game
+
+    def find_by_appid(self, appid: int) -> object | None:
+        return self._game if appid == 440 else None
+
+
+def test_report_endpoint_includes_revenue_estimate_when_present(client: TestClient) -> None:
+    """GET /api/games/{appid}/report surfaces owners/revenue/method when all non-null."""
+    from decimal import Decimal
+
+    import lambda_functions.api.handler as api_module
+
+    game = _build_game_with_revenue(
+        estimated_owners=30_000,
+        estimated_revenue_usd=Decimal("300000.00"),
+        revenue_estimate_method="boxleiter_v1",
+    )
+    api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
+
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    game_meta = resp.json()["game"]
+    assert game_meta["estimated_owners"] == 30_000
+    assert game_meta["estimated_revenue_usd"] == 300000.0
+    assert game_meta["revenue_estimate_method"] == "boxleiter_v1"
+
+
+def test_report_endpoint_omits_revenue_estimate_when_null(client: TestClient) -> None:
+    """When owners/revenue are both NULL (e.g. free-to-play), all three keys are omitted."""
+    import lambda_functions.api.handler as api_module
+
+    game = _build_game_with_revenue(
+        is_free=True,
+        price_usd=None,
+        estimated_owners=None,
+        estimated_revenue_usd=None,
+        revenue_estimate_method=None,
+    )
+    api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
+
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    game_meta = resp.json()["game"]
+    assert "estimated_owners" not in game_meta
+    assert "estimated_revenue_usd" not in game_meta
+    assert "revenue_estimate_method" not in game_meta
+
+
+def test_report_endpoint_omits_method_when_only_method_present(client: TestClient) -> None:
+    """Defense-in-depth: if only method is set (shouldn't happen post-repo fix) we must
+    still omit the method to match the 'method present == estimate available' contract."""
+    import lambda_functions.api.handler as api_module
+
+    game = _build_game_with_revenue(
+        estimated_owners=None,
+        estimated_revenue_usd=None,
+        revenue_estimate_method="boxleiter_v1",
+    )
+    api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
+
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    game_meta = resp.json()["game"]
+    assert "estimated_owners" not in game_meta
+    assert "estimated_revenue_usd" not in game_meta
+    assert "revenue_estimate_method" not in game_meta
 
 
 def test_benchmarks_endpoint_returns_cohort_data(client: TestClient) -> None:
@@ -439,12 +548,18 @@ def test_analytics_metrics_endpoint(client: TestClient) -> None:
     assert "avg_steam_pct" in ids
     # Every entry has the shape the frontend expects.
     for m in body["metrics"]:
-        assert {"id", "label", "unit", "category", "source", "column", "default_chart_hint"} <= m.keys()
+        assert {
+            "id",
+            "label",
+            "unit",
+            "category",
+            "source",
+            "column",
+            "default_chart_hint",
+        } <= m.keys()
 
 
-def test_analytics_trend_query_success(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_analytics_trend_query_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/analytics/trend-query returns shaped periods for valid metrics."""
     from datetime import datetime
     from unittest.mock import MagicMock

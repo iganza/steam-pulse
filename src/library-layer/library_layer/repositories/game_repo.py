@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import ClassVar
 
 from library_layer.models.game import Game
@@ -119,6 +120,24 @@ class GameRepository(BaseRepository):
         row = self._fetchone(
             f"{self._GAME_SELECT_WITH_FRESHNESS} WHERE g.slug = %s",
             (slug,),
+        )
+        if row is None:
+            return None
+        return Game.model_validate(dict(row))
+
+    def find_for_revenue_estimate(self, appid: int) -> Game | None:
+        """Lightweight SELECT of only the columns `compute_estimate` needs.
+
+        Avoids the full `g.* + LEFT JOIN app_catalog` cost of `find_by_appid`
+        in hot loops like `process_results` where we touch every analyzed game.
+        """
+        row = self._fetchone(
+            """
+            SELECT appid, name, slug, type, price_usd, is_free, review_count, release_date
+            FROM games
+            WHERE appid = %s
+            """,
+            (appid,),
         )
         if row is None:
             return None
@@ -249,6 +268,7 @@ class GameRepository(BaseRepository):
         "positive_pct": "positive_pct DESC NULLS LAST",
         "release_date": "release_date DESC NULLS LAST",
         "last_analyzed": "last_analyzed DESC NULLS LAST",
+        "revenue_desc": "estimated_revenue_usd DESC NULLS LAST",
         "name": "name ASC",
     }
 
@@ -291,7 +311,8 @@ class GameRepository(BaseRepository):
                    review_count, review_count_english, positive_pct, review_score_desc,
                    price_usd, is_free,
                    release_date, deck_compatibility,
-                   hidden_gem_score, last_analyzed, is_early_access
+                   hidden_gem_score, last_analyzed, is_early_access,
+                   estimated_owners, estimated_revenue_usd, revenue_estimate_method
             FROM {view}
             WHERE {where}
             ORDER BY {order}
@@ -304,6 +325,8 @@ class GameRepository(BaseRepository):
             d = dict(row)
             if d.get("release_date"):
                 d["release_date"] = str(d["release_date"])
+            if d.get("estimated_revenue_usd") is not None:
+                d["estimated_revenue_usd"] = float(d["estimated_revenue_usd"])
             result.append(d)
         return {"total": None, "games": result}
 
@@ -375,6 +398,7 @@ class GameRepository(BaseRepository):
             "positive_pct": "g.positive_pct DESC NULLS LAST",
             "release_date": "g.release_date DESC NULLS LAST",
             "last_analyzed": "g.last_analyzed DESC NULLS LAST",
+            "revenue_desc": "g.estimated_revenue_usd DESC NULLS LAST",
             "name": "g.name ASC",
         }
         order = _sort_cols.get(sort, _sort_cols["review_count"])
@@ -428,6 +452,7 @@ class GameRepository(BaseRepository):
                    g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,
                    g.hidden_gem_score, g.last_analyzed, g.crawled_at,
+                   g.estimated_owners, g.estimated_revenue_usd, g.revenue_estimate_method,
                    EXISTS (SELECT 1 FROM game_genres gg WHERE gg.appid = g.appid AND gg.genre_id = {EARLY_ACCESS_GENRE_ID}) AS is_early_access
             FROM games g
             WHERE {where}
@@ -442,6 +467,8 @@ class GameRepository(BaseRepository):
             d = dict(row)
             if d.get("release_date"):
                 d["release_date"] = str(d["release_date"])
+            if d.get("estimated_revenue_usd") is not None:
+                d["estimated_revenue_usd"] = float(d["estimated_revenue_usd"])
             result.append(d)
         return {"total": None, "games": result}
 
@@ -570,6 +597,78 @@ class GameRepository(BaseRepository):
             ),
         )
         return grouped
+
+    def update_revenue_estimate(
+        self,
+        appid: int,
+        owners: int | None,
+        revenue_usd: Decimal | None,
+        method: str | None,
+    ) -> None:
+        """Store the latest Boxleiter revenue estimate for a game.
+
+        When both `owners` and `revenue_usd` are None (e.g. free-to-play,
+        excluded type, insufficient reviews), `method` is coerced to NULL so
+        clients can reliably treat a NULL method as "no estimate available".
+        `revenue_estimate_computed_at` is always stamped — it tracks that we
+        attempted a computation, regardless of outcome.
+        """
+        persisted_method = method if (owners is not None or revenue_usd is not None) else None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE games
+                SET estimated_owners             = %s,
+                    estimated_revenue_usd        = %s,
+                    revenue_estimate_method      = %s,
+                    revenue_estimate_computed_at = NOW()
+                WHERE appid = %s
+                """,
+                (owners, revenue_usd, persisted_method, appid),
+            )
+        self.conn.commit()
+
+    def bulk_update_revenue_estimates(
+        self,
+        rows: list[tuple[int, int | None, Decimal | None, str | None]],
+    ) -> None:
+        """Apply many revenue estimate updates in one transaction.
+
+        Each row is `(appid, owners, revenue_usd, method)`. The repo still
+        enforces the "NULL method when no estimate" contract: if both
+        `owners` and `revenue_usd` are None the persisted method is coerced
+        to NULL. One commit per call keeps Lambda hot-loop / backfill runtime
+        predictable (no per-row transaction overhead).
+        """
+        if not rows:
+            return
+        from psycopg2.extras import execute_values
+
+        payload = [
+            (
+                owners,
+                revenue_usd,
+                method if (owners is not None or revenue_usd is not None) else None,
+                appid,
+            )
+            for appid, owners, revenue_usd, method in rows
+        ]
+        with self.conn.cursor() as cur:
+            execute_values(
+                cur,
+                """
+                UPDATE games AS g SET
+                    estimated_owners             = data.owners,
+                    estimated_revenue_usd        = data.revenue_usd,
+                    revenue_estimate_method      = data.method,
+                    revenue_estimate_computed_at = NOW()
+                FROM (VALUES %s) AS data(owners, revenue_usd, method, appid)
+                WHERE g.appid = data.appid
+                """,
+                payload,
+                template="(%s::bigint, %s::numeric, %s::text, %s::int)",
+            )
+        self.conn.commit()
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""

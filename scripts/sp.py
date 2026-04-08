@@ -451,16 +451,24 @@ def _pending_meta(n: int) -> list[int]:
 
 
 def _eligible_reviews(n: int) -> list[int]:
-    """Return appids eligible for review crawl that have not yet completed, newest first."""
+    """Return appids that genuinely need review crawling, newest first.
+
+    A game is skipped if it already has ≥95% of its target reviews stored
+    (target = min(review_count_english, 2000)).  This avoids queueing thousands
+    of Lambda invocations for games that are already complete or nearly complete
+    but never had reviews_completed_at set (e.g. killed mid-pagination).
+    """
     with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
         cur.execute(
             """SELECT ac.appid FROM app_catalog ac
                JOIN games g ON g.appid = ac.appid
+               LEFT JOIN mv_review_counts rc ON rc.appid = ac.appid
                WHERE ac.meta_status = 'done'
                  AND ac.reviews_completed_at IS NULL
                  AND g.coming_soon = false
                  AND g.review_count_english >= %s
                  AND g.release_date IS NOT NULL
+                 AND COALESCE(rc.stored_count, 0) < LEAST(g.review_count_english, 2000) * 0.95
                ORDER BY g.release_date DESC NULLS LAST LIMIT %s""",
             (_REVIEW_ELIGIBILITY_THRESHOLD, n),
         )

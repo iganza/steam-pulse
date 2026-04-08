@@ -81,12 +81,12 @@ PRO+ UPSELL  → "What's the biggest unmet need in my genre?"
 |---|----------------------------------------------------|-------------------|-------------------------------------------------------------------------------------------|
 | 6 | `scripts/prompts/store-page-alignment-frontend.md` | Written           | Promise Gap tab within Sentiment Drill lens (teaser free, full Pro)                       |
 | 7 | `scripts/prompts/analytics-dashboard-frontend.md`  | Written | Trends lens preset — `/analytics` page, 9 charts, granularity + genre filter              |
-| 8 | `scripts/prompts/toolkit-compare.md`               | **Needs writing** | **Compare lens — Pro conversion trigger.** Game picker, side-by-side metrics, radar chart |
+| 8 | `scripts/prompts/toolkit-compare.md`               | Written | **Compare lens — Pro conversion trigger.** Game picker, side-by-side metrics, radar chart |
 
 ### 5. Pro Data & Monetization
 | #  | Prompt                                 | Status            | Delivers                                                                              |
 |----|----------------------------------------|-------------------|---------------------------------------------------------------------------------------|
-| 9  | `scripts/prompts/revenue-estimates.md` | **Needs writing** | Boxleiter ratio, genre-calibrated `estimated_owners` + `estimated_revenue` — Pro only |
+| 9  | `scripts/prompts/revenue-estimates.md` | Written | Boxleiter ratio, genre-calibrated `estimated_owners` + `estimated_revenue` — Pro only |
 | 10 | `scripts/prompts/pro-gating.md`        | **Needs writing** | `usePro()` context, Free + Pro tiers, Stripe, `/pro` pricing page, blur/lock pattern  |
 
 ---

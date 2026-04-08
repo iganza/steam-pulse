@@ -35,6 +35,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
 
   const [catalog, setCatalog] = useState<MetricDefinition[] | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogReloadKey, setCatalogReloadKey] = useState<number>(0);
 
   const [result, setResult] = useState<TrendQueryResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -48,12 +49,31 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   const maxMetrics = isPro ? 6 : 1;
   const allowedGranularities = isPro ? PRO_GRANULARITIES : FREE_GRANULARITIES;
 
-  // Normalize state derived from URL. We do NOT mutate state.b_metrics here
-  // to keep the render pure; smart-default effect below writes it once.
-  const selectedIds = useMemo<string[]>(
-    () => (state.b_metrics ?? []).slice(0, maxMetrics),
-    [state.b_metrics, maxMetrics],
-  );
+  // Normalize state derived from URL: dedupe + trim to maxMetrics so a hand-
+  // edited/shared URL with duplicates or >cap entries can't wedge the UI.
+  const selectedIds = useMemo<string[]>(() => {
+    const raw = state.b_metrics ?? [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const id of raw) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      if (out.length >= maxMetrics) break;
+    }
+    return out;
+  }, [state.b_metrics, maxMetrics]);
+
+  // If the URL diverges from the normalized list (dupes, over-cap, reorder
+  // from Pro→free), sync it back so cap checks and share-links stay honest.
+  useEffect(() => {
+    const raw = state.b_metrics ?? [];
+    const same =
+      raw.length === selectedIds.length &&
+      raw.every((id, i) => id === selectedIds[i]);
+    if (!same) setState({ b_metrics: selectedIds });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds.join(",")]);
   const chartType: BuilderChartType = state.b_chart ?? "bar";
   const requestedGranularity: Granularity =
     state.b_gran && allowedGranularities.includes(state.b_gran)
@@ -64,13 +84,17 @@ export function BuilderLens({ filters, isPro }: LensProps) {
   const genreSlug = filters.genre || undefined;
   const tagSlug = filters.tag || undefined;
 
-  // Fetch catalog once on mount.
+  // Fetch catalog on mount and whenever the user clicks Retry
+  // (catalogReloadKey bump triggers a refetch).
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
       try {
         const res = await getAnalyticsMetricsCatalog(controller.signal);
-        if (!controller.signal.aborted) setCatalog(res.metrics);
+        if (!controller.signal.aborted) {
+          setCatalog(res.metrics);
+          setCatalogError(null);
+        }
       } catch (e) {
         if (!controller.signal.aborted) {
           setCatalogError(e instanceof Error ? e.message : "Failed to load catalog");
@@ -78,7 +102,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [catalogReloadKey]);
 
   // Smart default: if no metric is selected, pre-select one so the canvas is
   // never blank on first load. Runs after the catalog resolves.
@@ -172,18 +196,18 @@ export function BuilderLens({ filters, isPro }: LensProps) {
     };
   }, [fetchKey]);
 
-  // Toggle a metric on/off in the selection.
+  // Toggle a metric on/off in the selection. Cap checks run against the
+  // normalized selectedIds so hand-edited/duplicate URL state can't bypass
+  // the Free-tier cap.
   const onToggleMetric = useCallback(
     (metricId: string) => {
-      const current = state.b_metrics ?? [];
-      if (current.includes(metricId)) {
-        const next = current.filter((id) => id !== metricId);
-        setState({ b_metrics: next });
-      } else if (current.length < maxMetrics) {
-        setState({ b_metrics: [...current, metricId] });
+      if (selectedIds.includes(metricId)) {
+        setState({ b_metrics: selectedIds.filter((id) => id !== metricId) });
+      } else if (selectedIds.length < maxMetrics) {
+        setState({ b_metrics: [...selectedIds, metricId] });
       }
     },
-    [state.b_metrics, maxMetrics, setState],
+    [selectedIds, maxMetrics, setState],
   );
 
   const onClearMetrics = useCallback(() => {
@@ -241,8 +265,7 @@ export function BuilderLens({ filters, isPro }: LensProps) {
           onClick={() => {
             setCatalogError(null);
             setCatalog(null);
-            // Trigger remount of the catalog fetch via a no-op state bump.
-            setState({ b_metrics: state.b_metrics ?? [] });
+            setCatalogReloadKey((k) => k + 1);
           }}
         >
           Retry

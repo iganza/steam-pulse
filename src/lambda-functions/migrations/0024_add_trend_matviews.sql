@@ -65,6 +65,10 @@ SELECT
     ROUND(AVG(b.metacritic_score) FILTER (WHERE b.metacritic_score IS NOT NULL)::numeric, 1) AS avg_metacritic,
     ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
     ROUND(
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd)
+        FILTER (WHERE NOT b.is_free)::numeric, 2
+    ) AS median_price,
+    ROUND(
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
@@ -84,6 +88,14 @@ SELECT
         COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS deck_verified_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 2)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_playable_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 1)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_unsupported_pct,
     COUNT(*) FILTER (WHERE b.has_ea) AS ea_count,
     ROUND(
         COUNT(*) FILTER (WHERE b.has_ea)::numeric
@@ -146,6 +158,10 @@ SELECT
     ROUND(AVG(b.metacritic_score) FILTER (WHERE b.metacritic_score IS NOT NULL)::numeric, 1) AS avg_metacritic,
     ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
     ROUND(
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd)
+        FILTER (WHERE NOT b.is_free)::numeric, 2
+    ) AS median_price,
+    ROUND(
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
@@ -165,6 +181,14 @@ SELECT
         COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS deck_verified_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 2)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_playable_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 1)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_unsupported_pct,
     COUNT(*) FILTER (WHERE b.has_ea) AS ea_count,
     ROUND(
         COUNT(*) FILTER (WHERE b.has_ea)::numeric
@@ -227,6 +251,10 @@ SELECT
     ROUND(AVG(b.metacritic_score) FILTER (WHERE b.metacritic_score IS NOT NULL)::numeric, 1) AS avg_metacritic,
     ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
     ROUND(
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd)
+        FILTER (WHERE NOT b.is_free)::numeric, 2
+    ) AS median_price,
+    ROUND(
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
@@ -246,6 +274,14 @@ SELECT
         COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS deck_verified_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 2)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_playable_pct,
+    ROUND(
+        COUNT(*) FILTER (WHERE b.deck_compatibility = 1)::numeric
+        / NULLIF(COUNT(*), 0) * 100, 1
+    ) AS deck_unsupported_pct,
     COUNT(*) FILTER (WHERE b.has_ea) AS ea_count,
     ROUND(
         COUNT(*) FILTER (WHERE b.has_ea)::numeric

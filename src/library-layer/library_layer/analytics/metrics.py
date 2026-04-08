@@ -78,6 +78,8 @@ _METRICS: list[MetricDefinition] = [
     # Pricing
     _m("avg_paid_price", "Avg Paid Price", "Average price of non-free releases.",
        "pricing", "currency", "avg_paid_price", "line"),
+    _m("median_price", "Median Price", "Median price of non-free releases.",
+       "pricing", "currency", "median_price", "line"),
     _m("free_pct", "Free %", "Share of releases that are free-to-play.",
        "pricing", "pct", "free_pct", "line"),
     # Velocity
@@ -105,6 +107,10 @@ _METRICS: list[MetricDefinition] = [
        "platform", "pct", "linux_pct", "line"),
     _m("deck_verified_pct", "Deck Verified %", "Share of releases marked Steam Deck Verified.",
        "platform", "pct", "deck_verified_pct", "line"),
+    _m("deck_playable_pct", "Deck Playable %", "Share of releases marked Steam Deck Playable.",
+       "platform", "pct", "deck_playable_pct", "line"),
+    _m("deck_unsupported_pct", "Deck Unsupported %", "Share of releases marked Steam Deck Unsupported.",
+       "platform", "pct", "deck_unsupported_pct", "line"),
 ]
 
 METRIC_REGISTRY: dict[str, MetricDefinition] = {m.id: m for m in _METRICS}

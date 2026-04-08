@@ -32,8 +32,9 @@ interface ChartResolverProps {
  *    is the only legitimate dual-axis case.
  *
  * If the caller's chartType is incompatible with the current selection, this
- * component falls back to a compatible type and calls `onFallback` so the
- * parent can surface a toast + update URL state.
+ * component silently renders a compatible type via `effectiveChartType()`.
+ * The parent lens watches the same helper to surface a "Switched to X" note
+ * — see `BuilderLens.tsx` fallback note.
  */
 export function ChartResolver({
   selected,

@@ -421,3 +421,64 @@ def test_waitlist_rejects_empty_email(client: TestClient) -> None:
     """POST /api/waitlist with an empty string returns 422."""
     resp = client.post("/api/waitlist", json={"email": ""})
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Builder lens — /api/analytics/metrics + /api/analytics/trend-query
+# ---------------------------------------------------------------------------
+
+
+def test_analytics_metrics_endpoint(client: TestClient) -> None:
+    """GET /api/analytics/metrics returns the registry catalog."""
+    resp = client.get("/api/analytics/metrics")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "metrics" in body
+    ids = {m["id"] for m in body["metrics"]}
+    assert "releases" in ids
+    assert "avg_steam_pct" in ids
+    # Every entry has the shape the frontend expects.
+    for m in body["metrics"]:
+        assert {"id", "label", "unit", "category", "source", "column", "default_chart_hint"} <= m.keys()
+
+
+def test_analytics_trend_query_success(client: TestClient) -> None:
+    """GET /api/analytics/trend-query returns shaped periods for valid metrics."""
+    from datetime import datetime
+    from unittest.mock import MagicMock
+
+    import lambda_functions.api.handler as api_module
+
+    mock_repo = MagicMock()
+    mock_repo.query_metrics.return_value = [
+        {"period": datetime(2024, 10, 1), "releases": 120},
+        {"period": datetime(2024, 11, 1), "releases": 135},
+    ]
+    from library_layer.services.analytics_service import AnalyticsService
+
+    api_module._analytics_service = AnalyticsService(mock_repo)  # type: ignore[assignment]
+
+    resp = client.get("/api/analytics/trend-query?metrics=releases&granularity=month&limit=12")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["granularity"] == "month"
+    assert len(body["periods"]) == 2
+    assert body["periods"][0]["releases"] == 120
+    assert [m["id"] for m in body["metrics"]] == ["releases"]
+
+
+def test_analytics_trend_query_unknown_metric_returns_400(client: TestClient) -> None:
+    resp = client.get("/api/analytics/trend-query?metrics=not_a_metric&granularity=month")
+    assert resp.status_code == 400
+    assert "unknown metric" in resp.json()["detail"]
+
+
+def test_analytics_trend_query_invalid_granularity_returns_400(client: TestClient) -> None:
+    resp = client.get("/api/analytics/trend-query?metrics=releases&granularity=daily")
+    assert resp.status_code == 400
+    assert "Invalid granularity" in resp.json()["detail"]
+
+
+def test_analytics_trend_query_empty_metrics_returns_400(client: TestClient) -> None:
+    resp = client.get("/api/analytics/trend-query?metrics=&granularity=month")
+    assert resp.status_code == 400

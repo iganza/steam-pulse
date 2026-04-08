@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { X } from "lucide-react";
 import type { MetricDefinition, MetricCategory, MetricUnit } from "@/lib/types";
 
@@ -51,6 +52,49 @@ export function MetricPicker({
 
   const atCap = selected.length >= maxMetrics;
 
+  // Flat order across categories used for roving arrow-key navigation.
+  // Build it in the same order as render (CATEGORY_ORDER) so Tab+Arrow match
+  // visual left→right / top→bottom.
+  const flatOrder: string[] = [];
+  for (const cat of CATEGORY_ORDER) {
+    const metrics = byCategory.get(cat);
+    if (!metrics) continue;
+    for (const m of metrics) flatOrder.push(m.id);
+  }
+
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  function focusById(id: string | undefined) {
+    if (!id) return;
+    const el = chipRefs.current[id];
+    if (el && !el.disabled) el.focus();
+  }
+
+  function onChipKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, id: string) {
+    const idx = flatOrder.indexOf(id);
+    if (idx === -1) return;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      // Find next non-disabled chip.
+      for (let i = idx + 1; i < flatOrder.length; i++) {
+        const el = chipRefs.current[flatOrder[i]];
+        if (el && !el.disabled) { el.focus(); return; }
+      }
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      for (let i = idx - 1; i >= 0; i--) {
+        const el = chipRefs.current[flatOrder[i]];
+        if (el && !el.disabled) { el.focus(); return; }
+      }
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focusById(flatOrder.find((fid) => !chipRefs.current[fid]?.disabled));
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focusById([...flatOrder].reverse().find((fid) => !chipRefs.current[fid]?.disabled));
+    }
+  }
+
   return (
     <div data-testid="builder-metric-picker" className="space-y-3">
       <div className="flex items-center justify-between">
@@ -84,11 +128,13 @@ export function MetricPicker({
                 return (
                   <button
                     key={m.id}
+                    ref={(el) => { chipRefs.current[m.id] = el; }}
                     type="button"
                     disabled={disabled}
                     data-testid={`builder-metric-chip-${m.id}`}
                     data-selected={isSelected ? "true" : "false"}
                     onClick={() => onToggle(m.id)}
+                    onKeyDown={(e) => onChipKeyDown(e, m.id)}
                     title={
                       disabled
                         ? `Free tier: 1 metric. Upgrade to Pro to combine up to ${maxMetrics}.`

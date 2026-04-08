@@ -27,7 +27,8 @@ class GameRepository(BaseRepository):
         """INSERT ... ON CONFLICT (appid) DO UPDATE with all game columns."""
         sql = """
             INSERT INTO games (
-                appid, name, slug, type, developer, developer_slug, publisher, developers, publishers,
+                appid, name, slug, type, developer, developer_slug, publisher, publisher_slug,
+                developers, publishers,
                 website, release_date, coming_soon, price_usd, is_free,
                 short_desc, detailed_description, about_the_game,
                 review_count, review_count_english, total_positive, total_negative, positive_pct,
@@ -37,7 +38,8 @@ class GameRepository(BaseRepository):
                 deck_compatibility, deck_test_results,
                 crawled_at, data_source
             ) VALUES (
-                %(appid)s, %(name)s, %(slug)s, %(type)s, %(developer)s, %(developer_slug)s, %(publisher)s,
+                %(appid)s, %(name)s, %(slug)s, %(type)s, %(developer)s, %(developer_slug)s,
+                %(publisher)s, %(publisher_slug)s,
                 %(developers)s, %(publishers)s,
                 %(website)s, %(release_date)s, %(coming_soon)s, %(price_usd)s, %(is_free)s,
                 %(short_desc)s, %(detailed_description)s, %(about_the_game)s,
@@ -55,6 +57,7 @@ class GameRepository(BaseRepository):
                 developer            = EXCLUDED.developer,
                 developer_slug       = EXCLUDED.developer_slug,
                 publisher            = EXCLUDED.publisher,
+                publisher_slug       = EXCLUDED.publisher_slug,
                 developers           = EXCLUDED.developers,
                 publishers           = EXCLUDED.publishers,
                 website              = EXCLUDED.website,
@@ -336,6 +339,7 @@ class GameRepository(BaseRepository):
         genre: str | None = None,
         tag: str | None = None,
         developer: str | None = None,
+        publisher: str | None = None,
         year_from: int | None = None,
         year_to: int | None = None,
         min_reviews: int | None = None,
@@ -359,8 +363,11 @@ class GameRepository(BaseRepository):
         expensive nested-loop joins on cold cache.
         """
         # Fast path: genre or tag filter with matview-compatible extra filters.
-        # Only q, search, developer, year range, and genre+tag combined force the slow path.
-        needs_slow = q or search or developer or year_from is not None or year_to is not None
+        # Only q, search, developer, publisher, year range, and genre+tag combined
+        # force the slow path; matviews can't satisfy publisher filtering.
+        needs_slow = (
+            q or search or developer or publisher or year_from is not None or year_to is not None
+        )
         if genre and not tag and not needs_slow:
             return self._list_from_matview(
                 "mv_genre_games",
@@ -426,6 +433,9 @@ class GameRepository(BaseRepository):
         if developer:
             conditions.append("g.developer_slug = %s")
             params.append(developer)
+        if publisher:
+            conditions.append("g.publisher_slug = %s")
+            params.append(publisher)
         if year_from is not None:
             conditions.append("EXTRACT(YEAR FROM g.release_date) >= %s")
             params.append(year_from)

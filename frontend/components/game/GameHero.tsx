@@ -19,6 +19,10 @@ interface GameHeroProps {
   hiddenGemScore: number | null;
   positivePct: number | null;
   reviewScoreDesc: string | null;
+  developer?: string;
+  developerSlug?: string;
+  publisher?: string;
+  publisherSlug?: string;
 }
 
 export function GameHero({
@@ -31,7 +35,16 @@ export function GameHero({
   hiddenGemScore,
   positivePct,
   reviewScoreDesc,
+  developer,
+  developerSlug,
+  publisher,
+  publisherSlug,
 }: GameHeroProps) {
+  // Hide publisher credit when it matches developer (self-published titles),
+  // matching the Steam store convention.
+  const showPublisher = Boolean(
+    publisher && (publisherSlug ? publisherSlug !== developerSlug : publisher !== developer),
+  );
   return (
     <div className="relative h-[50vh] min-h-[360px] overflow-hidden">
       {headerImage ? (
@@ -66,11 +79,40 @@ export function GameHero({
           ))}
         </div>
         <h1
-          className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-3"
+          className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-2"
           style={{ letterSpacing: "-0.03em" }}
         >
           {name}
         </h1>
+        {(developer || publisher) && (
+          <p className="text-sm text-muted-foreground font-mono mb-3">
+            {developer && (
+              <>
+                by{" "}
+                <Link
+                  href={`/developer/${developerSlug ?? slugify(developer)}`}
+                  className="hover:underline"
+                  style={{ color: "var(--teal)" }}
+                >
+                  {developer}
+                </Link>
+              </>
+            )}
+            {showPublisher && (
+              <>
+                {developer && <span className="mx-1.5">·</span>}
+                published by{" "}
+                <Link
+                  href={`/publisher/${publisherSlug ?? slugify(publisher!)}`}
+                  className="hover:underline"
+                  style={{ color: "var(--teal)" }}
+                >
+                  {publisher}
+                </Link>
+              </>
+            )}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           {isEarlyAccess && <EarlyAccessBadge />}
           {hiddenGemScore != null && (

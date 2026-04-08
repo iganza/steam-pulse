@@ -15,6 +15,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
             "developer": "Valve",
             "developer_slug": "valve",
             "publisher": "Valve",
+            "publisher_slug": "valve",
             "developers": "[]",
             "publishers": "[]",
             "website": None,

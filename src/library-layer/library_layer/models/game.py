@@ -17,6 +17,7 @@ class Game(BaseModel):
     developer: str | None = None
     developer_slug: str | None = None
     publisher: str | None = None
+    publisher_slug: str | None = None
     developers: list[str] = []
     publishers: list[str] = []
     website: str | None = None
@@ -121,6 +122,8 @@ class GameSummary(BaseModel):
     name: str
     slug: str
     developer: str | None = None
+    publisher: str | None = None
+    publisher_slug: str | None = None
     header_image: str | None = None
     review_count: int = 0
     positive_pct: int | None = None

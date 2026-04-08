@@ -17,6 +17,7 @@ def _game_data(appid: int = 440, name: str = "Team Fortress 2") -> dict:
         "developer": "Valve",
         "developer_slug": "valve",
         "publisher": "Valve",
+        "publisher_slug": "valve",
         "developers": '["Valve"]',
         "publishers": '["Valve"]',
         "website": "http://www.teamfortress.com/",

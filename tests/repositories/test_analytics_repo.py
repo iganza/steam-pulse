@@ -23,7 +23,8 @@ def _seed_game(game_repo: GameRepository, appid: int = 440, **kw: Any) -> None:
             "type": "game",
             "developer": kw.get("developer", "Test Dev"),
             "developer_slug": kw.get("developer_slug", "test-dev"),
-            "publisher": None,
+            "publisher": kw.get("publisher"),
+            "publisher_slug": kw.get("publisher_slug"),
             "developers": "[]",
             "publishers": "[]",
             "website": None,
@@ -643,6 +644,43 @@ def test_developer_portfolio_single_title(
 
     result = analytics_repo.find_developer_portfolio("solo-dev")
     assert result["summary"]["sentiment_trajectory"] == "single_title"
+
+
+# ---------------------------------------------------------------------------
+# find_publisher_portfolio — mirrors find_developer_portfolio
+# ---------------------------------------------------------------------------
+
+
+def test_publisher_portfolio_basic(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+) -> None:
+    """Publisher portfolio returns entity_name under `publisher` key + games."""
+    _seed_game(
+        game_repo,
+        18000,
+        publisher="Big Pub",
+        publisher_slug="big-pub",
+        release_date="2022-01-01",
+        positive_pct=80,
+        review_count=500,
+    )
+    _seed_game(
+        game_repo,
+        18001,
+        publisher="Big Pub",
+        publisher_slug="big-pub",
+        release_date="2023-01-01",
+        positive_pct=80,
+        review_count=500,
+    )
+
+    result = analytics_repo.find_publisher_portfolio("big-pub")
+    assert result["publisher"] == "Big Pub"
+    assert result["publisher_slug"] == "big-pub"
+    assert result["summary"]["total_games"] == 2
+    assert result["summary"]["total_reviews"] == 1000
+    assert len(result["games"]) == 2
 
 
 # ---------------------------------------------------------------------------

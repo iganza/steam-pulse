@@ -148,6 +148,7 @@ def _game_row(**overrides: Any) -> dict:
         "developer": "Valve",
         "developer_slug": "valve",
         "publisher": "Valve",
+        "publisher_slug": "valve",
         "developers": "[]",
         "publishers": "[]",
         "website": None,

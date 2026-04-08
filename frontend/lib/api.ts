@@ -3,7 +3,7 @@ import type {
   Granularity, ReleaseVolumePeriod, SentimentDistPeriod, GenreSharePeriod, VelocityDistPeriod,
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
-  PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio,
+  PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   MetricDefinition, TrendQueryResult,
 } from "./types";
 
@@ -73,6 +73,9 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
   game?: {
     short_desc?: string;
     developer?: string;
+    developer_slug?: string;
+    publisher?: string;
+    publisher_slug?: string;
     release_date?: string;
     price_usd?: number | null;
     is_free?: boolean;
@@ -143,6 +146,7 @@ export async function getGames(
   genre?: string;
   tag?: string;
   developer?: string;
+  publisher?: string;
   year_from?: number;
   year_to?: number;
   min_reviews?: number;
@@ -161,6 +165,7 @@ export async function getGames(
   if (params?.genre) qs.set("genre", params.genre);
   if (params?.tag) qs.set("tag", params.tag);
   if (params?.developer) qs.set("developer", params.developer);
+  if (params?.publisher) qs.set("publisher", params.publisher);
   if (params?.year_from) qs.set("year_from", String(params.year_from));
   if (params?.year_to) qs.set("year_to", String(params.year_to));
   if (params?.min_reviews) qs.set("min_reviews", String(params.min_reviews));
@@ -260,6 +265,10 @@ export async function getTagTrend(slug: string): Promise<TagTrend> {
 
 export async function getDeveloperAnalytics(slug: string): Promise<DeveloperPortfolio> {
   return apiFetch<DeveloperPortfolio>(`/api/developers/${slug}/analytics`);
+}
+
+export async function getPublisherAnalytics(slug: string): Promise<PublisherPortfolio> {
+  return apiFetch<PublisherPortfolio>(`/api/publishers/${slug}/analytics`);
 }
 
 // ---------------------------------------------------------------------------

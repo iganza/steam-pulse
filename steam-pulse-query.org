@@ -1,0 +1,267 @@
+:PROPERTIES:
+ :header-args:sql: :engine postgresql :dbhost localhost :dbport 5433 :dbuser postgres :database production_steampulse
+ :END:
+
+#+begin_src elisp
+  (setenv "PGPASSWORD"
+   (let ((secret (shell-command-to-string
+     "aws secretsmanager get-secret-value \
+      --secret-id steampulse/production/db-credentials \
+      --region us-west-2 \
+      --query SecretString --output text")))
+     (cdr (assoc 'password (json-read-from-string secret)))))
+#+end_src
+
+* Review Audit
+
+#+begin_src sql
+  SELECT
+   g.name,
+   g.appid,
+   g.review_count_english                             AS steam_count,
+   LEAST(g.review_count_english, 10000)               AS target,
+   COALESCE(rc.stored_count, 0)                       AS stored,
+   LEAST(g.review_count_english, 10000)
+     - COALESCE(rc.stored_count, 0)                   AS gap,
+   ROUND(100.0 * COALESCE(rc.stored_count, 0)
+     / NULLIF(LEAST(g.review_count_english, 10000), 0), 1) AS pct_complete,
+   ac.reviews_completed_at
+ FROM games g
+ JOIN app_catalog ac ON ac.appid = g.appid
+ LEFT JOIN mv_review_counts rc ON rc.appid = g.appid
+ WHERE ac.meta_status = 'done'
+   AND g.coming_soon = false
+   AND g.review_count_english >= 50
+   AND g.release_date IS NOT NULL
+   AND COALESCE(rc.stored_count, 0) < LEAST(g.review_count_english, 10000) * 0.9
+ ORDER BY gap DESC
+ LIMIT 100;
+#+end_src
+
+#+RESULTS:
+| name                                                            |   appid | steam_count | target | stored |   gap | pct_complete | reviews_completed_at |
+|-----------------------------------------------------------------+---------+-------------+--------+--------+-------+--------------+----------------------|
+| NARUTO TO BORUTO: SHINOBI STRIKER                               |  633230 |       22977 |  10000 |      0 | 10000 |          0.0 |                      |
+| Aperture Desk Job                                               | 1902490 |       14731 |  10000 |      0 | 10000 |          0.0 |                      |
+| Strange Horticulture                                            | 1574580 |       10162 |  10000 |      0 | 10000 |          0.0 |                      |
+| The Elder Scrolls IV: Oblivion® Game of the Year Edition (2009) |   22330 |       38620 |  10000 |     25 |  9975 |          0.3 |                      |
+| DREDGE                                                          | 1562430 |       35064 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Vampire Survivors                                               | 1794680 |      133530 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Dorfromantik                                                    | 1455840 |       16567 |  10000 |   1000 |  9000 |         10.0 |                      |
+| SIGNALIS                                                        | 1262350 |       22230 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Potion Craft: Alchemist Simulator                               | 1210320 |       18484 |  10000 |   1000 |  9000 |         10.0 |                      |
+| MONSTER HUNTER RISE                                             | 1446780 |       48886 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Barotrauma                                                      |  602960 |       39832 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Foxhole                                                         |  505460 |       30727 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Hatsune Miku: Project DIVA Mega Mix+                            | 1761390 |       11391 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Temtem                                                          |  745920 |       22259 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Tom Clancy’s The Division® 2                                    | 2221490 |       16616 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Eternal Return                                                  | 1049590 |       12758 |  10000 |   1000 |  9000 |         10.0 |                      |
+| PowerWash Simulator                                             | 1290000 |       43132 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Stacklands                                                      | 1948280 |       11906 |  10000 |   1000 |  9000 |         10.0 |                      |
+| Bomb Rush Cyberfunk                                             | 1353230 |       12020 |  10000 |   1001 |  8999 |         10.0 |                      |
+| Demonologist                                                    | 1929610 |       13109 |  10000 |   1003 |  8997 |         10.0 |                      |
+| Six Days in Fallujah                                            | 1548850 |       11192 |  10000 |   1003 |  8997 |         10.0 |                      |
+| HoloCure - Save the Fans!                                       | 2420510 |       25916 |  10000 |   1004 |  8996 |         10.0 |                      |
+| Golf It!                                                        |  571740 |       14946 |  10000 |   1006 |  8994 |         10.1 |                      |
+| MY HERO ULTRA RUMBLE                                            | 1607250 |       11578 |  10000 |   1006 |  8994 |         10.1 |                      |
+| Farlight 84                                                     | 1928420 |       19587 |  10000 |   1006 |  8994 |         10.1 |                      |
+| A Game About Digging A Hole™                                    | 3244220 |       11445 |  10000 |   1007 |  8993 |         10.1 |                      |
+| Grounded                                                        |  962130 |       49360 |  10000 |   1007 |  8993 |         10.1 |                      |
+| Warhammer 40,000: Boltgun                                       | 2005010 |       12273 |  10000 |   1009 |  8991 |         10.1 |                      |
+| One-armed robber                                                | 2551020 |       19878 |  10000 |   1012 |  8988 |         10.1 |                      |
+| Undisputed                                                      | 1451190 |       15451 |  10000 |   1012 |  8988 |         10.1 |                      |
+| SMITE 2                                                         | 2437170 |       13213 |  10000 |   1014 |  8986 |         10.1 |                      |
+| House Flipper 2                                                 | 1190970 |       10041 |  10000 |   1015 |  8985 |         10.2 |                      |
+| Dead Island 2                                                   |  934700 |       10802 |  10000 |   1015 |  8985 |         10.2 |                      |
+| Enlisted                                                        | 2051620 |       17520 |  10000 |   1019 |  8981 |         10.2 |                      |
+| WEBFISHING                                                      | 3146520 |       61103 |  10000 |   1019 |  8981 |         10.2 |                      |
+| The Last of Us™ Part II Remastered                              | 2531310 |       17285 |  10000 |   1024 |  8976 |         10.2 |                      |
+| inZOI                                                           | 2456740 |       13249 |  10000 |   1026 |  8974 |         10.3 |                      |
+| My Summer Car                                                   |  516750 |       38387 |  10000 |   1027 |  8973 |         10.3 |                      |
+| Hogwarts Legacy                                                 |  990080 |      176990 |  10000 |   1029 |  8971 |         10.3 |                      |
+| SILENT HILL 2                                                   | 2124490 |       32082 |  10000 |   1031 |  8969 |         10.3 |                      |
+| S.T.A.L.K.E.R. 2: Heart of Chornobyl                            | 1643320 |       53593 |  10000 |   1035 |  8965 |         10.4 |                      |
+| Enshrouded                                                      | 1203620 |       50591 |  10000 |   1041 |  8959 |         10.4 |                      |
+| Starfield                                                       | 1716740 |      115623 |  10000 |   1042 |  8958 |         10.4 |                      |
+| Kingdom Come: Deliverance II                                    | 1771300 |       77185 |  10000 |   1052 |  8948 |         10.5 |                      |
+| Palworld                                                        | 1623730 |      169922 |  10000 |   1053 |  8947 |         10.5 |                      |
+| Marvel's Spider-Man 2                                           | 2651280 |       17383 |  10000 |   1054 |  8946 |         10.5 |                      |
+| Farming Simulator 25                                            | 2300320 |       17314 |  10000 |   1059 |  8941 |         10.6 |                      |
+| Call of Duty®                                                   | 1938090 |      374516 |  10000 |   1088 |  8912 |         10.9 |                      |
+| Papa's Freezeria Deluxe                                         | 2291760 |        9815 |   9815 |   1003 |  8812 |         10.2 |                      |
+| Schedule I                                                      | 3164500 |      200279 |  10000 |   1215 |  8785 |         12.2 |                      |
+| Call of Duty®: Modern Warfare® III                              | 3595270 |        9253 |   9253 |   1015 |  8238 |         11.0 |                      |
+| ASTRONEER                                                       |  361420 |       62072 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Dome Keeper                                                     | 1637320 |       11565 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Party Animals                                                   | 1260320 |       21472 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Kingdoms and Castles                                            |  569480 |       19910 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Medieval Dynasty                                                | 1129580 |       21491 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Yu-Gi-Oh! Master Duel                                           | 1449850 |       47367 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Trackmania                                                      | 2225070 |       13203 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Arma 3                                                          |  107410 |      136963 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Trepang2                                                        | 1164940 |       13178 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Marvel’s Spider-Man Remastered                                  | 1817070 |       68817 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Mortal Kombat 1                                                 | 1971870 |       22452 |  10000 |   2000 |  8000 |         20.0 |                      |
+| World War 3                                                     |  674020 |       23205 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Gorilla Tag                                                     | 1533390 |       73071 |  10000 |   2000 |  8000 |         20.0 |                      |
+| ARK: Survival Ascended                                          | 2399830 |       56861 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Company of Heroes 3                                             | 1677280 |       19170 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Europa Universalis IV                                           |  236850 |       68419 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Fallout 3                                                       |   22300 |       11469 |  10000 |   2000 |  8000 |         20.0 |                      |
+| Gotham Knights                                                  | 1496790 |       16602 |  10000 |   2001 |  7999 |         20.0 |                      |
+| Alien Swarm                                                     |     630 |       10240 |  10000 |   2001 |  7999 |         20.0 |                      |
+| Resident Evil 5                                                 |   21690 |       22699 |  10000 |   2002 |  7998 |         20.0 |                      |
+| The Murder of Sonic the Hedgehog                                | 2324650 |       19366 |  10000 |   2002 |  7998 |         20.0 |                      |
+| STALCRAFT: X                                                    | 1818450 |       15326 |  10000 |   2003 |  7997 |         20.0 |                      |
+| Contraband Police                                               |  756800 |       10418 |  10000 |   2003 |  7997 |         20.0 |                      |
+| PAYDAY 3                                                        | 1272080 |       40268 |  10000 |   2003 |  7997 |         20.0 |                      |
+| The Stanley Parable                                             |  221910 |       32017 |  10000 |   2004 |  7996 |         20.0 |                      |
+| A Little to the Left                                            | 1629520 |       10437 |  10000 |   2004 |  7996 |         20.0 |                      |
+| Tower Unite                                                     |  394690 |       14519 |  10000 |   2004 |  7996 |         20.0 |                      |
+| Darkest Dungeon® II                                             | 1940340 |       12418 |  10000 |   2006 |  7994 |         20.1 |                      |
+| BONELAB                                                         | 1592190 |       15241 |  10000 |   2006 |  7994 |         20.1 |                      |
+| Age of Wonders 4                                                | 1669000 |       13220 |  10000 |   2007 |  7993 |         20.1 |                      |
+| RoboCop: Rogue City                                             | 1681430 |       18324 |  10000 |   2007 |  7993 |         20.1 |                      |
+| UBOAT                                                           |  494840 |       11638 |  10000 |   2007 |  7993 |         20.1 |                      |
+| The Witcher 2: Assassins of Kings Enhanced Edition              |   20920 |       28732 |  10000 |   2007 |  7993 |         20.1 |                      |
+| Aliens: Dark Descent                                            | 1150440 |       10736 |  10000 |   2007 |  7993 |         20.1 |                      |
+| Predecessor                                                     |  961200 |       11756 |  10000 |   2008 |  7992 |         20.1 |                      |
+| The Lord of the Rings Online™                                   |  212500 |       14125 |  10000 |   2008 |  7992 |         20.1 |                      |
+| Zero Hour                                                       | 1359090 |       19213 |  10000 |   2009 |  7991 |         20.1 |                      |
+| Mon Bazou                                                       | 1520370 |       10839 |  10000 |   2009 |  7991 |         20.1 |                      |
+| Mecha BREAK                                                     | 2452280 |       11160 |  10000 |   2009 |  7991 |         20.1 |                      |
+| The Witcher: Enhanced Edition Director's Cut                    |   20900 |       28090 |  10000 |   2011 |  7989 |         20.1 |                      |
+| Thronefall                                                      | 2239150 |       10761 |  10000 |   2011 |  7989 |         20.1 |                      |
+| Combat Master: Season 5                                         | 2281730 |       23892 |  10000 |   2011 |  7989 |         20.1 |                      |
+| Peglin                                                          | 1296610 |       10603 |  10000 |   2013 |  7987 |         20.1 |                      |
+| Left 4 Dead                                                     |     500 |       23965 |  10000 |   2015 |  7985 |         20.2 |                      |
+| Sonic Adventure DX                                              |   71250 |       12160 |  10000 |   2016 |  7984 |         20.2 |                      |
+| Supermarket Simulator                                           | 2670630 |       34421 |  10000 |   2016 |  7984 |         20.2 |                      |
+| Stray                                                           | 1332010 |       86471 |  10000 |   2017 |  7983 |         20.2 |                      |
+| The Coffin of Andy and Leyley                                   | 2378900 |       19613 |  10000 |   2017 |  7983 |         20.2 |                      |
+| Victoria 3                                                      |  529340 |       27146 |  10000 |   2019 |  7981 |         20.2 |                      |
+
+* Review crawling summary
+
+#+begin_src sql
+  SELECT
+   COUNT(*)                                                          AS total_eligible_games,
+   COUNT(*) FILTER (WHERE ac.reviews_completed_at IS NOT NULL)      AS completed_games,
+   COUNT(*) FILTER (WHERE ac.reviews_completed_at IS NULL)          AS never_crawled_games,
+   SUM(LEAST(g.review_count_english, 10000))                        AS expected_reviews_total,
+   SUM(LEAST(g.review_count_english, 10000))
+     FILTER (WHERE ac.reviews_completed_at IS NOT NULL)             AS expected_from_completed,
+   (SELECT COUNT(*) FROM reviews)                                   AS actual_reviews_in_db,
+   ROUND(
+     100.0 * COUNT(*) FILTER (WHERE ac.reviews_completed_at IS NOT NULL) / COUNT(*), 1
+   )                                                                AS pct_games_done
+ FROM app_catalog ac
+ JOIN games g ON g.appid = ac.appid
+ WHERE ac.meta_status = 'done'
+   AND g.coming_soon = false
+   AND g.review_count_english >= 50
+   AND g.release_date IS NOT NULL;
+ #+end_src
+
+ #+RESULTS:
+
+ total_eligible_games | completed_games | never_crawled_games | expected_reviews_total | expected_from_completed | actual_reviews_in_db | pct_games_done
+----------------------+-----------------+---------------------+------------------------+-------------------------+----------------------+----------------
+                27671 |           25179 |                2492 |               29190743 |                13093824 |             19993532 |           91.0
+(1 row)
+
+
+
+ | total_eligible_games | completed_games | never_crawled_games | expected_reviews_total | expected_from_completed | actual_reviews_in_db | pct_games_done |
+ |----------------------+-----------------+---------------------+------------------------+-------------------------+----------------------+----------------|
+ |                27671 |           24725 |                2946 |               29190743 |                12244364 |             18704587 |           89.4 |
+
+ | total_eligible_games | completed_games | never_crawled_games | expected_reviews_total | expected_from_completed | actual_reviews_in_db | pct_games_done |
+ |----------------------+-----------------+---------------------+------------------------+-------------------------+----------------------+----------------|
+ |                27671 |           23473 |                4198 |               29190743 |                11780853 |             17842713 |           84.8 |
+ 
+ | total_eligible_games | completed_games | never_crawled_games | expected_reviews_total | expected_from_completed | actual_reviews_in_db | pct_games_done |
+ |----------------------+-----------------+---------------------+------------------------+-------------------------+----------------------+----------------|
+ |                27671 |           23400 |                4271 |               29190743 |                11763075 |             17802625 |           84.6 |
+
+
+ 
+* Check New Added Timestamps
+
+#+begin_src sql
+  SELECT g.appid, g.last_analyzed,
+         ac.meta_crawled_at, ac.review_crawled_at,
+         ac.reviews_completed_at, ac.tags_crawled_at
+  FROM games g
+  LEFT JOIN app_catalog ac ON ac.appid = g.appid
+  WHERE g.appid = 252490;
+#+end_src
+
+#+RESULTS:
+|  appid | last_analyzed | meta_crawled_at               | review_crawled_at | reviews_completed_at | tags_crawled_at               |
+|--------+---------------+-------------------------------+-------------------+----------------------+-------------------------------|
+| 252490 |               | 2026-03-19 06:16:50.165544+00 |                   |                      | 2026-04-03 23:32:00.858469+00 |
+
+* Game Name
+#+begin_src sql
+  SELECT name, review_count_english from games where appid = 200260
+#+end_src
+
+#+RESULTS:
+| name                                           | review_count_english |
+|------------------------------------------------+----------------------|
+| Batman: Arkham City - Game of the Year Edition |                35328 |
+
+#+begin_src sql
+  SELECT count(*) from reviews where appid = 200260
+#+end_src
+
+#+RESULTS:
+| count |
+|-------|
+|  5027 |
+
+#+begin_src sql
+    SELECT g.name, review_count_english, review_crawled_at
+    from games as g, app_catalog as c
+    where g.appid = 677620
+  and g.appid = c.appid
+#+end_src
+
+#+RESULTS:
+| name      | review_count_english | review_crawled_at |
+|-----------+----------------------+-------------------|
+| Splitgate |                87714 |                   |
+
+#+begin_src sql
+  SELECT count(*) from reviews where appid = 677620
+#+end_src
+
+#+RESULTS:
+| count |
+|-------|
+|  3000 |
+
+#+begin_src sql
+    SELECT g.name, review_count_english, review_crawled_at
+    from games as g, app_catalog as c
+    where g.appid = 2562350
+  and g.appid = c.appid
+#+end_src
+
+#+RESULTS:
+| name          | review_count_english | review_crawled_at             |
+|---------------+----------------------+-------------------------------|
+| Escape Escape |                   51 | 2026-04-07 22:06:07.942805+00 |
+
+#+begin_src sql
+  SELECT count(*) from reviews where appid = 2562350
+#+end_src
+
+#+RESULTS:
+| count |
+|-------|
+|    51 |
+
+

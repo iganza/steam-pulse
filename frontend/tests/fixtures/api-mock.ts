@@ -212,8 +212,11 @@ export async function mockAllApiRoutes(page: Page) {
           short_desc: MOCK_GAME_ANALYZED.short_desc,
           developer: MOCK_GAME_ANALYZED.developer,
           release_date: MOCK_GAME_ANALYZED.release_date,
-          price_usd: null,
-          is_free: true,
+          // Paid non-free to keep the populated revenue-estimate state
+          // below realistic — the backend estimator never produces numeric
+          // values for free-to-play games.
+          price_usd: 19.99,
+          is_free: false,
           is_early_access: false,
           genres: MOCK_GAME_ANALYZED.genres,
           tags: MOCK_GAME_ANALYZED.tags,
@@ -228,11 +231,13 @@ export async function mockAllApiRoutes(page: Page) {
           reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
           tags_crawled_at: MOCK_GAME_ANALYZED.tags_crawled_at,
           last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
-          // Boxleiter v1 revenue estimate (populated state for the default fixture)
+          // Boxleiter v1 revenue estimate (populated state for the default
+          // fixture). `revenue_estimate_reason` is intentionally omitted
+          // here — the report endpoint omits it when NULL, so the mock
+          // mirrors that contract.
           estimated_owners: 360000,
           estimated_revenue_usd: 7200000,
           revenue_estimate_method: 'boxleiter_v1',
-          revenue_estimate_reason: null,
         },
       },
     })

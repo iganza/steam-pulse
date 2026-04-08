@@ -152,15 +152,49 @@ class DataStack(cdk.Stack):
             removal_policy=cdk.RemovalPolicy.RETAIN,
         )
 
-        # Allow CloudFront OAC to read objects. Scoped to this account so
-        # only distributions we own can access the bucket.  The policy lives
-        # here (not DeliveryStack) because CDK can only manage policies on
-        # the real bucket construct, not an imported reference.
-        self.assets_bucket.add_to_resource_policy(
+        cdk.Tags.of(self.assets_bucket).add("steampulse:service", "database")
+        cdk.Tags.of(self.assets_bucket).add("steampulse:tier", "critical")
+
+        ssm.StringParameter(
+            self,
+            "AssetsBucketNameParam",
+            parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
+            string_value=self.assets_bucket.bucket_name,
+        )
+
+        # ── S3 Frontend Bucket ────────────────────────────────────────────────
+        # Dedicated bucket for frontend static assets (_next/static/*, /static/*)
+        # and OpenNext ISR cache. Separated from assets_bucket so that
+        # BucketDeployment (prune=True) cannot delete live pipeline data.
+        # Deterministic name — DeliveryStack / FrontendStack / ComputeStack all
+        # look it up via from_bucket_name (no cross-stack construct refs).
+        self.frontend_bucket = s3.Bucket(
+            self,
+            "FrontendBucket",
+            bucket_name=f"steampulse-frontend-{env}",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+            lifecycle_rules=[
+                # OpenNext ISR cache uses a per-build key prefix
+                # (cache/{BUILD_ID}/...). Expire objects after 7 days so old
+                # build namespaces age out automatically — no manual purge.
+                s3.LifecycleRule(
+                    id="ExpireOldIsrCache",
+                    prefix="cache/",
+                    expiration=cdk.Duration.days(7),
+                ),
+            ],
+        )
+
+        # CloudFront OAC read access. Policy lives here (not DeliveryStack)
+        # because CDK can only manage policies on the real bucket construct.
+        self.frontend_bucket.add_to_resource_policy(
             iam.PolicyStatement(
                 sid="AllowCloudFrontOac",
                 actions=["s3:GetObject"],
-                resources=[self.assets_bucket.arn_for_objects("*")],
+                resources=[self.frontend_bucket.arn_for_objects("*")],
                 principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
                 conditions={
                     "StringEquals": {
@@ -170,14 +204,14 @@ class DataStack(cdk.Stack):
             )
         )
 
-        cdk.Tags.of(self.assets_bucket).add("steampulse:service", "database")
-        cdk.Tags.of(self.assets_bucket).add("steampulse:tier", "critical")
+        cdk.Tags.of(self.frontend_bucket).add("steampulse:service", "frontend")
+        cdk.Tags.of(self.frontend_bucket).add("steampulse:tier", "critical")
 
         ssm.StringParameter(
             self,
-            "AssetsBucketNameParam",
-            parameter_name=f"/steampulse/{env}/data/assets-bucket-name",
-            string_value=self.assets_bucket.bucket_name,
+            "FrontendBucketNameParam",
+            parameter_name=f"/steampulse/{env}/data/frontend-bucket-name",
+            string_value=self.frontend_bucket.bucket_name,
         )
         ssm.StringParameter(
             self,

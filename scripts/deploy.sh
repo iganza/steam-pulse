@@ -65,6 +65,12 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Build ID — passed to CDK as context, used by compute_stack to namespace the
+# OpenNext ISR cache prefix (cache/${BUILD_ID}/...). Each deploy writes to a
+# fresh prefix so the new Lambda never reads pre-deploy HTML. Old prefixes age
+# out via the 7-day S3 lifecycle rule on steampulse-frontend-${ENV}.
+BUILD_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || date +%s)"
+
 if [[ "$ENV" == "production" ]]; then
     CURRENT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     if [[ "$CURRENT_BRANCH" != "main" ]]; then
@@ -106,6 +112,7 @@ echo ""
 echo "▶ Step 2/4 — CDK deploy: ${STAGE_PATTERN} + ${STANDALONE_PATTERN}"
 cd "$REPO_ROOT"
 poetry run cdk deploy "$STAGE_PATTERN" "$STANDALONE_PATTERN" \
+    --context "build-id=${BUILD_ID}" \
     --require-approval never \
     --concurrency 5 \
     --verbose \

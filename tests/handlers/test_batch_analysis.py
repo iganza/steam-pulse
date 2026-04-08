@@ -8,11 +8,10 @@ import importlib
 import json
 from datetime import UTC, datetime
 from typing import Any
-
-import pytest
 from unittest.mock import MagicMock, patch
 
 import boto3
+import pytest
 from library_layer.analyzer import CHUNK_SYSTEM_PROMPT, _build_chunk_user_message
 from library_layer.models.analyzer_models import (
     AudienceProfile,
@@ -600,7 +599,7 @@ def test_process_results_applies_precomputed_scores(lambda_context: Any) -> None
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -644,7 +643,7 @@ def test_process_results_uses_llm_values_when_no_scores(lambda_context: Any) -> 
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -688,7 +687,7 @@ def test_process_results_skips_unrecognised_record_ids(lambda_context: Any) -> N
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -735,7 +734,7 @@ def test_process_results_handles_failed_records(lambda_context: Any) -> None:
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -771,7 +770,7 @@ def test_process_results_publishes_report_ready_per_game(lambda_context: Any) ->
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -810,7 +809,7 @@ def test_process_results_publishes_batch_complete_summary(lambda_context: Any) -
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(
@@ -852,7 +851,7 @@ def test_process_results_returns_processed_and_failed_counts(lambda_context: Any
 
     mock_repo = MagicMock()
     mock_game_repo_pr = MagicMock()
-    mock_game_repo_pr.find_by_appid.return_value = None  # skip revenue estimate
+    mock_game_repo_pr.find_for_revenue_estimate.return_value = None  # skip revenue estimate
     mock_tag_repo_pr = MagicMock()
     with (
         patch(

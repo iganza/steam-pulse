@@ -116,7 +116,8 @@ class AnalyticsRepository(BaseRepository):
         """Price distribution + sentiment correlation within a genre (from matview)."""
         dist_rows = self._fetchall(
             """
-            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price
+            SELECT genre_name, price_range, game_count, avg_steam_pct, median_price,
+                   revenue_q1, revenue_median, revenue_q3, revenue_sample_size
             FROM mv_price_positioning
             WHERE genre_slug = %s
             ORDER BY median_price
@@ -136,6 +137,16 @@ class AnalyticsRepository(BaseRepository):
                 if r["avg_steam_pct"] is not None
                 else None,
                 "median_price": float(r["median_price"]) if r["median_price"] is not None else 0.0,
+                # Boxleiter v1 gross revenue quartiles (pre-Steam-cut, +/-50%).
+                # Precomputed in mv_price_positioning (see migration 0029).
+                "revenue_quartiles": {
+                    "q1": float(r["revenue_q1"]) if r["revenue_q1"] is not None else None,
+                    "median": float(r["revenue_median"])
+                    if r["revenue_median"] is not None
+                    else None,
+                    "q3": float(r["revenue_q3"]) if r["revenue_q3"] is not None else None,
+                    "sample_size": int(r["revenue_sample_size"] or 0),
+                },
             }
             for r in dist_rows
         ]
@@ -146,50 +157,6 @@ class AnalyticsRepository(BaseRepository):
         sweet_spot = (
             max(eligible, key=lambda x: x["avg_steam_pct"])["price_range"] if eligible else None
         )
-
-        # Revenue quartiles per price bucket — live query against `games`.
-        # Not materialized; matview rebuild is a follow-up. Uses the same
-        # bucket definition as mv_price_positioning so keys line up.
-        rev_rows = self._fetchall(
-            """
-            SELECT
-                CASE
-                    WHEN g.is_free THEN 'Free'
-                    WHEN g.price_usd < 5 THEN 'Under $5'
-                    WHEN g.price_usd < 10 THEN '$5-10'
-                    WHEN g.price_usd < 15 THEN '$10-15'
-                    WHEN g.price_usd < 20 THEN '$15-20'
-                    WHEN g.price_usd < 30 THEN '$20-30'
-                    WHEN g.price_usd < 50 THEN '$30-50'
-                    ELSE '$50+'
-                END AS price_range,
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY g.estimated_revenue_usd) AS q1,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY g.estimated_revenue_usd) AS median,
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY g.estimated_revenue_usd) AS q3,
-                COUNT(g.estimated_revenue_usd) AS sample_size
-            FROM games g
-            JOIN game_genres gg ON gg.appid = g.appid
-            JOIN genres gn ON gg.genre_id = gn.id
-            WHERE gn.slug = %s
-              AND g.estimated_revenue_usd IS NOT NULL
-            GROUP BY 1
-            """,
-            (genre_slug,),
-        )
-        revenue_by_bucket = {
-            r["price_range"]: {
-                "q1": float(r["q1"]) if r["q1"] is not None else None,
-                "median": float(r["median"]) if r["median"] is not None else None,
-                "q3": float(r["q3"]) if r["q3"] is not None else None,
-                "sample_size": int(r["sample_size"]),
-            }
-            for r in rev_rows
-        }
-        for bucket in distribution:
-            bucket["revenue_quartiles"] = revenue_by_bucket.get(
-                bucket["price_range"],
-                {"q1": None, "median": None, "q3": None, "sample_size": 0},
-            )
 
         # Summary stats from pre-computed matview (one row per genre).
         summary_row = self._fetchone(

@@ -391,11 +391,16 @@ async def get_game_report(appid: int) -> dict:
         }
         # Boxleiter v1 revenue estimate — omit keys when unset.
         # Backend returns unconditionally; Pro-gating is frontend-only.
+        # method is only surfaced alongside actual estimate values so clients
+        # can treat "method present" as "estimate available".
+        has_revenue_estimate = False
         if game.estimated_owners is not None:
             game_meta["estimated_owners"] = game.estimated_owners
+            has_revenue_estimate = True
         if game.estimated_revenue_usd is not None:
             game_meta["estimated_revenue_usd"] = float(game.estimated_revenue_usd)
-        if game.revenue_estimate_method is not None:
+            has_revenue_estimate = True
+        if has_revenue_estimate and game.revenue_estimate_method is not None:
             game_meta["revenue_estimate_method"] = game.revenue_estimate_method
 
     report = _get_report(appid)

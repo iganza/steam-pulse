@@ -125,6 +125,24 @@ class GameRepository(BaseRepository):
             return None
         return Game.model_validate(dict(row))
 
+    def find_for_revenue_estimate(self, appid: int) -> Game | None:
+        """Lightweight SELECT of only the columns `compute_estimate` needs.
+
+        Avoids the full `g.* + LEFT JOIN app_catalog` cost of `find_by_appid`
+        in hot loops like `process_results` where we touch every analyzed game.
+        """
+        row = self._fetchone(
+            """
+            SELECT appid, name, slug, type, price_usd, is_free, review_count, release_date
+            FROM games
+            WHERE appid = %s
+            """,
+            (appid,),
+        )
+        if row is None:
+            return None
+        return Game.model_validate(dict(row))
+
     def find_eligible_for_reviews(self, min_reviews: int = 500) -> list[Game]:
         rows = self._fetchall(
             "SELECT * FROM games WHERE review_count >= %s ORDER BY review_count DESC",
@@ -585,9 +603,17 @@ class GameRepository(BaseRepository):
         appid: int,
         owners: int | None,
         revenue_usd: Decimal | None,
-        method: str,
+        method: str | None,
     ) -> None:
-        """Store the latest Boxleiter revenue estimate for a game."""
+        """Store the latest Boxleiter revenue estimate for a game.
+
+        When both `owners` and `revenue_usd` are None (e.g. free-to-play,
+        excluded type, insufficient reviews), `method` is coerced to NULL so
+        clients can reliably treat a NULL method as "no estimate available".
+        `revenue_estimate_computed_at` is always stamped — it tracks that we
+        attempted a computation, regardless of outcome.
+        """
+        persisted_method = method if (owners is not None or revenue_usd is not None) else None
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -598,7 +624,7 @@ class GameRepository(BaseRepository):
                     revenue_estimate_computed_at = NOW()
                 WHERE appid = %s
                 """,
-                (owners, revenue_usd, method, appid),
+                (owners, revenue_usd, persisted_method, appid),
             )
         self.conn.commit()
 

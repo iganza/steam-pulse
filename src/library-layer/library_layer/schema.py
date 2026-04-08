@@ -312,7 +312,14 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         COUNT(*) AS game_count,
         ROUND(AVG(g.positive_pct), 1) AS avg_steam_pct,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY COALESCE(g.price_usd, 0))::numeric, 2)
-            AS median_price
+            AS median_price,
+        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY g.estimated_revenue_usd)
+            FILTER (WHERE g.estimated_revenue_usd IS NOT NULL) AS revenue_q1,
+        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY g.estimated_revenue_usd)
+            FILTER (WHERE g.estimated_revenue_usd IS NOT NULL) AS revenue_median,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY g.estimated_revenue_usd)
+            FILTER (WHERE g.estimated_revenue_usd IS NOT NULL) AS revenue_q3,
+        COUNT(g.estimated_revenue_usd) AS revenue_sample_size
     FROM games g
     JOIN game_genres gg ON gg.appid = g.appid
     JOIN genres gn ON gg.genre_id = gn.id

@@ -126,7 +126,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
                 # Boxleiter v1 revenue estimate — gross, pre-Steam-cut, ±50%.
                 # Backend persists unconditionally; Pro-gating is frontend-only.
-                game = game_repo.find_by_appid(appid)
+                # Uses lightweight fetch helpers to keep the per-record cost of
+                # this hot loop low (no app_catalog join, no projected columns
+                # we don't need for estimation).
+                game = game_repo.find_for_revenue_estimate(appid)
                 if game is not None:
                     genres = tag_repo.find_genres_for_game(appid)
                     tags = tag_repo.find_tags_for_game(appid)

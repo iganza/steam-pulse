@@ -241,6 +241,67 @@ def test_price_positioning_sweet_spot(
     assert result["summary"]["sweet_spot"] == "$10-15"
 
 
+def test_price_positioning_revenue_quartiles(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """revenue_quartiles is populated per bucket from stored estimates."""
+    from decimal import Decimal
+
+    genre_id = _seed_genre(db_conn, "Strategy", "strategy")
+    # Seed 4 games in the $5-10 bucket with distinct revenue estimates so
+    # PERCENTILE_CONT has a well-defined Q1/median/Q3 to return.
+    revenues = [
+        Decimal("1000.00"),
+        Decimal("2000.00"),
+        Decimal("3000.00"),
+        Decimal("4000.00"),
+    ]
+    for i, rev in enumerate(revenues):
+        appid = 4000 + i
+        _seed_game(game_repo, appid, price_usd=7.99, review_count=60, positive_pct=70)
+        _link_genre(db_conn, appid, genre_id)
+        game_repo.update_revenue_estimate(
+            appid=appid,
+            owners=int(rev),
+            revenue_usd=rev,
+            method="boxleiter_v1",
+        )
+    refresh_matviews()
+
+    result = analytics_repo.find_price_positioning("strategy")
+    bucket = next(d for d in result["distribution"] if d["price_range"] == "$5-10")
+    quartiles = bucket["revenue_quartiles"]
+    assert quartiles["sample_size"] == 4
+    assert quartiles["q1"] == 1750.0
+    assert quartiles["median"] == 2500.0
+    assert quartiles["q3"] == 3250.0
+
+
+def test_price_positioning_revenue_quartiles_null_when_missing(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Buckets with zero estimated games report null quartiles + sample_size 0."""
+    genre_id = _seed_genre(db_conn, "Casual", "casual")
+    for i in range(12):
+        _seed_game(game_repo, 5000 + i, price_usd=7.99, review_count=20, positive_pct=70)
+        _link_genre(db_conn, 5000 + i, genre_id)
+    refresh_matviews()
+
+    result = analytics_repo.find_price_positioning("casual")
+    bucket = next(d for d in result["distribution"] if d["price_range"] == "$5-10")
+    q = bucket["revenue_quartiles"]
+    assert q["sample_size"] == 0
+    assert q["q1"] is None
+    assert q["median"] is None
+    assert q["q3"] is None
+
+
 def test_price_positioning_free_games(
     db_conn: Any,
     analytics_repo: AnalyticsRepository,
@@ -600,9 +661,7 @@ def test_query_metrics_catalog_single_metric(
     _seed_game(game_repo, 18002, release_date="2024-02-10", positive_pct=90)
     refresh_matviews()
 
-    rows = analytics_repo.query_metrics(
-        metric_ids=["releases"], granularity="month", limit=12
-    )
+    rows = analytics_repo.query_metrics(metric_ids=["releases"], granularity="month", limit=12)
     # Two periods (2024-01 with 2 games, 2024-02 with 1).
     periods = {r["period"].strftime("%Y-%m"): r["releases"] for r in rows}
     assert periods["2024-01"] == 2
@@ -667,6 +726,4 @@ def test_query_metrics_unknown_metric_raises(
     analytics_repo: AnalyticsRepository,
 ) -> None:
     with pytest.raises(ValueError, match="unknown metric"):
-        analytics_repo.query_metrics(
-            metric_ids=["not_a_metric"], granularity="month"
-        )
+        analytics_repo.query_metrics(metric_ids=["not_a_metric"], granularity="month")

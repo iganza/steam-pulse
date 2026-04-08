@@ -255,6 +255,10 @@ export default async function GameReportPage({ params }: Props) {
                   reviewsCompletedAt={gameData.reviewsCompletedAt}
                   tagsCrawledAt={gameData.tagsCrawledAt}
                   lastAnalyzed={gameData.lastAnalyzed}
+                  estimatedOwners={gameData.estimatedOwners}
+                  estimatedRevenueUsd={gameData.estimatedRevenueUsd}
+                  revenueEstimateMethod={gameData.revenueEstimateMethod}
+                  revenueEstimateReason={gameData.revenueEstimateReason}
                 />
               ),
             }}

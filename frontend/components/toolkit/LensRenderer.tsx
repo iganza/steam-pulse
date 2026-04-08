@@ -3,9 +3,6 @@
 import type { LensId, ToolkitFilters } from "@/lib/toolkit-state";
 import { SentimentDrillLens } from "./lenses/SentimentDrillLens";
 import { CompareLens } from "./lenses/CompareLens";
-import { ExplorerLens } from "./lenses/ExplorerLens";
-import { BenchmarkLens } from "./lenses/BenchmarkLens";
-import { MarketMapLens } from "./lenses/MarketMapLens";
 import { TrendsLens } from "./lenses/TrendsLens";
 import { BuilderLens } from "./lenses/BuilderLens";
 
@@ -31,12 +28,6 @@ export function LensRenderer({
       return <SentimentDrillLens {...props} />;
     case "compare":
       return <CompareLens {...props} />;
-    case "explorer":
-      return <ExplorerLens {...props} />;
-    case "benchmark":
-      return <BenchmarkLens {...props} />;
-    case "market-map":
-      return <MarketMapLens {...props} />;
     case "trends":
       return <TrendsLens {...props} />;
     case "builder":

@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      { source: "/analytics", destination: "/explore", permanent: true },
+      { source: "/toolkit", destination: "/explore", permanent: true },
+    ];
+  },
   async rewrites() {
     if (process.env.NODE_ENV !== "production") {
       return [

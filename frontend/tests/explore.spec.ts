@@ -2,14 +2,14 @@ import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes, mockAnalyticsRoutes } from './fixtures/api-mock'
 import { MOCK_ENGAGEMENT_UNAVAILABLE } from './fixtures/mock-data'
 
-test.describe('Analytics page', () => {
+test.describe('Explore page', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllApiRoutes(page)
-    await page.goto('/analytics')
+    await page.goto('/explore')
   })
 
   test('renders page heading', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /analytics/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /explore/i })).toBeVisible()
   })
 
   test('renders Release Volume chart', async ({ page }) => {
@@ -75,21 +75,21 @@ test.describe('Analytics page', () => {
     await expect(page.getByRole('button', { name: /month/i })).toBeDisabled()
   })
 
-  test('analytics link is in the navbar', async ({ page, isMobile }) => {
+  test('explore link is in the navbar', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop nav only')
     const nav = page.getByRole('navigation', { name: /main navigation/i })
-    await expect(nav.getByRole('link', { name: /analytics/i })).toBeVisible()
+    await expect(nav.getByRole('link', { name: /explore/i })).toBeVisible()
   })
 
-  test('analytics link appears in mobile menu', async ({ page }) => {
+  test('explore link appears in mobile menu', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const hamburger = page.locator('nav button').last()
     await hamburger.click()
-    await expect(page.getByRole('link', { name: /analytics/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /explore/i })).toBeVisible()
   })
 })
 
-test.describe('Analytics page — engagement empty state', () => {
+test.describe('Explore page — engagement empty state', () => {
   test('shows empty state when engagement data is unavailable', async ({ page }) => {
     await mockAnalyticsRoutes(page)
     // Override just the engagement route to return data_available: false
@@ -103,7 +103,21 @@ test.describe('Analytics page — engagement empty state', () => {
     await page.route('**/api/tags/**', route =>
       route.fulfill({ json: [] })
     )
-    await page.goto('/analytics')
+    await page.goto('/explore')
     await expect(page.getByText(/engagement data is being computed/i)).toBeVisible()
+  })
+})
+
+test.describe('Route redirects', () => {
+  test('/analytics redirects to /explore', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/analytics')
+    await expect(page).toHaveURL(/\/explore$/)
+  })
+
+  test('/toolkit redirects to /explore', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/toolkit')
+    await expect(page).toHaveURL(/\/explore$/)
   })
 })

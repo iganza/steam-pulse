@@ -25,7 +25,7 @@ export default function ComparePage() {
         >
           <ToolkitShell
             defaultLens="compare"
-            visibleLenses={["compare", "sentiment", "benchmark"]}
+            visibleLenses={["compare"]}
           />
         </Suspense>
       </div>

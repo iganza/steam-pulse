@@ -4,7 +4,6 @@ import { getGames, getGenres, getPricePositioning, getReleaseTiming, getPlatform
 import { GameCard } from "@/components/game/GameCard";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
-import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { PricePositioning } from "@/components/analytics/PricePositioning";
 import { ReleaseTiming } from "@/components/analytics/ReleaseTiming";
 import { PlatformGaps } from "@/components/analytics/PlatformGaps";
@@ -102,21 +101,12 @@ export default async function GenrePage({ params }: Props) {
           </section>
         )}
 
-        {/* Toolkit shell — catalog with filters */}
+        {/* Games in this genre */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
-          <ToolkitShell
-            lockedFilters={{ genre: slug }}
-            defaultLens="explorer"
-            visibleLenses={["explorer", "market-map", "trends"]}
-            lensContent={{
-              explorer: (
-                <SearchClient
-                  initialParams={{}}
-                  initialFilters={{ genre: slug }}
-                  hideGenreFilter
-                />
-              ),
-            }}
+          <SearchClient
+            initialParams={{}}
+            initialFilters={{ genre: slug }}
+            hideGenreFilter
           />
         </Suspense>
       </div>

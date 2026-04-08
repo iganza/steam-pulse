@@ -196,12 +196,12 @@ export function TrendsLens({ filters, isPro }: LensProps) {
           )}
           {ignored.length > 0 && (
             <span className="ml-2 text-foreground/40">
-              ({ignored.join(", ")} not yet supported in Trends — try Explorer)
+              ({ignored.join(", ")} not yet supported in Trends)
             </span>
           )}
           {appidsScoped && (
             <span className="ml-2 text-foreground/40">
-              Trends are catalog-wide — game selection ignored. Use Sentiment Drill for a single-game timeline.
+              Trends are catalog-wide — game selection ignored. Open a game page for a single-game timeline.
             </span>
           )}
         </p>

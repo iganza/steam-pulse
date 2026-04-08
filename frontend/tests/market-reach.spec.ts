@@ -39,7 +39,27 @@ test.describe('Market Reach card', () => {
     await expect(page.getByTestId('market-reach-cta')).toHaveCount(0)
   })
 
+  // TODO(pro-gating): the populated-Pro rendering path is currently
+  // unreachable via E2E — `usePro()` returns false everywhere until the
+  // auth/subscription wiring in scripts/prompts/pro-gating.md lands. When
+  // that ships, enable this test: it should assert the card renders
+  // ranges without blur and with no "Unlock with Pro" CTA.
+  test.skip('renders populated state for Pro users without blur or CTA', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/games/440/team-fortress-2')
+
+    const card = page.getByTestId('market-reach')
+    await expect(card).toBeVisible()
+    await expect(card.getByText(/estimated owners/i)).toBeVisible()
+    await expect(card.getByText(/estimated gross revenue/i)).toBeVisible()
+    await expect(page.getByTestId('market-reach-cta')).toHaveCount(0)
+    await expect(card.locator('[aria-hidden="true"].blur-sm')).toHaveCount(0)
+  })
+
   test('renders free-to-play empty state when reason is free_to_play', async ({ page }) => {
+    // Register wildcard/fallback routes FIRST so the specific 220/report
+    // handler below wins via Playwright's LIFO route matching.
+    await mockAllApiRoutes(page)
     await page.route('**/api/games/220/report', route =>
       route.fulfill({
         json: {
@@ -60,8 +80,6 @@ test.describe('Market Reach card', () => {
         },
       })
     )
-    // Fallback routes for other calls the page makes.
-    await mockAllApiRoutes(page)
 
     await page.goto('/games/220/dota-2')
 

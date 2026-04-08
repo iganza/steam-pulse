@@ -96,12 +96,16 @@ function Stat({
   low,
   high,
   formatter,
+  isPro,
 }: {
   label: string;
   low: number;
   high: number;
   formatter: (n: number) => string;
+  isPro: boolean;
 }) {
+  // Labels and confidence pills remain fully readable on the free tier —
+  // only the numeric range is blurred + hidden from screen readers.
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -110,9 +114,17 @@ function Stat({
         </span>
         <ConfidencePill />
       </div>
-      <p className="font-mono text-lg font-medium">
+      <p
+        className={
+          isPro
+            ? "font-mono text-lg font-medium"
+            : "font-mono text-lg font-medium blur-sm pointer-events-none select-none"
+        }
+        aria-hidden={!isPro}
+      >
         {formatter(low)} <span className="text-muted-foreground">–</span> {formatter(high)}
       </p>
+      {!isPro && <span className="sr-only">{label} available with Pro.</span>}
     </div>
   );
 }
@@ -131,7 +143,7 @@ export function MarketReach({
     <section className="animate-fade-up" data-testid="market-reach">
       <SectionLabel>Market Reach</SectionLabel>
       <div
-        className="p-4 rounded-xl relative"
+        className="p-4 rounded-xl"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
         {!hasEstimate ? (
@@ -143,25 +155,20 @@ export function MarketReach({
           </p>
         ) : (
           <>
-            <div
-              className={
-                isPro
-                  ? "grid gap-5 md:grid-cols-2"
-                  : "grid gap-5 md:grid-cols-2 blur-sm pointer-events-none select-none"
-              }
-              aria-hidden={!isPro}
-            >
+            <div className="grid gap-5 md:grid-cols-2">
               <Stat
                 label="Estimated owners"
                 low={roundToSigFigs(estimatedOwners! * (1 - CONFIDENCE))}
                 high={roundToSigFigs(estimatedOwners! * (1 + CONFIDENCE))}
                 formatter={formatOwners}
+                isPro={isPro}
               />
               <Stat
                 label="Estimated gross revenue"
                 low={roundToSigFigs(estimatedRevenueUsd! * (1 - CONFIDENCE))}
                 high={roundToSigFigs(estimatedRevenueUsd! * (1 + CONFIDENCE))}
                 formatter={formatRevenue}
+                isPro={isPro}
               />
             </div>
             <div className="mt-4 flex items-center gap-3 flex-wrap">
@@ -172,16 +179,13 @@ export function MarketReach({
               </p>
             </div>
             {!isPro && (
-              <div
-                className="absolute inset-0 flex flex-col items-center justify-center gap-2"
-                aria-label="Market reach estimate — unlock with Pro"
-              >
-                <p className="text-sm font-mono text-foreground font-medium">
-                  Market Reach
-                </p>
+              // Inline CTA (not an absolute overlay) so labels, confidence
+              // pills, method pill, and explainer all remain readable.
+              <div className="mt-4 flex items-center gap-3">
                 <Link
                   href="/pro"
                   data-testid="market-reach-cta"
+                  aria-label="Market reach estimate — unlock with Pro"
                   className="text-sm font-mono px-4 py-1.5 rounded-full transition-colors"
                   style={{
                     background: "rgba(45,185,212,0.15)",

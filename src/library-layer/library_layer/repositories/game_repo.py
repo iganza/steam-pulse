@@ -611,13 +611,17 @@ class GameRepository(BaseRepository):
         When both `owners` and `revenue_usd` are None (e.g. free-to-play,
         excluded type, insufficient reviews), `method` is coerced to NULL so
         clients can reliably treat a NULL method as "no estimate available".
-        `reason` is persisted as-is — it's the orthogonal explanation for
-        *why* no numeric estimate is available, and intentionally populated
-        precisely when the numeric fields are NULL.
+        Symmetrically, `reason` is coerced to NULL whenever a numeric
+        estimate IS present — the reason code is only meaningful when the
+        numeric fields are NULL, and enforcing that at the repo layer
+        prevents stale reason codes from leaking onto rows that later
+        acquire a real estimate.
         `revenue_estimate_computed_at` is always stamped — it tracks that we
         attempted a computation, regardless of outcome.
         """
-        persisted_method = method if (owners is not None or revenue_usd is not None) else None
+        has_estimate = owners is not None or revenue_usd is not None
+        persisted_method = method if has_estimate else None
+        persisted_reason = None if has_estimate else reason
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -629,7 +633,7 @@ class GameRepository(BaseRepository):
                     revenue_estimate_computed_at = NOW()
                 WHERE appid = %s
                 """,
-                (owners, revenue_usd, persisted_method, reason, appid),
+                (owners, revenue_usd, persisted_method, persisted_reason, appid),
             )
         self.conn.commit()
 
@@ -640,28 +644,31 @@ class GameRepository(BaseRepository):
         """Apply many revenue estimate updates in one transaction.
 
         Each row is `(appid, owners, revenue_usd, method, reason)`. The repo
-        still enforces the "NULL method when no estimate" contract: if both
-        `owners` and `revenue_usd` are None the persisted method is coerced
-        to NULL. `reason` is written through as-is — it's the machine-readable
-        explanation (e.g. "free_to_play", "insufficient_reviews") and is
-        meaningful precisely when the numeric fields are NULL. One commit per
-        call keeps Lambda hot-loop / backfill runtime predictable (no per-row
-        transaction overhead).
+        enforces two symmetric contracts:
+          - `method` is coerced to NULL when neither numeric field is set,
+            so clients can treat a NULL method as "no estimate available".
+          - `reason` is coerced to NULL when a numeric estimate IS present,
+            so stale reason codes cannot leak onto rows that subsequently
+            acquire a real estimate.
+        One commit per call keeps Lambda hot-loop / backfill runtime
+        predictable (no per-row transaction overhead).
         """
         if not rows:
             return
         from psycopg2.extras import execute_values
 
-        payload = [
-            (
-                owners,
-                revenue_usd,
-                method if (owners is not None or revenue_usd is not None) else None,
-                reason,
-                appid,
+        payload = []
+        for appid, owners, revenue_usd, method, reason in rows:
+            has_estimate = owners is not None or revenue_usd is not None
+            payload.append(
+                (
+                    owners,
+                    revenue_usd,
+                    method if has_estimate else None,
+                    None if has_estimate else reason,
+                    appid,
+                )
             )
-            for appid, owners, revenue_usd, method, reason in rows
-        ]
         with self.conn.cursor() as cur:
             execute_values(
                 cur,

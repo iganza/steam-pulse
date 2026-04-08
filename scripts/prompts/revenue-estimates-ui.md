@@ -46,7 +46,16 @@ revenue_estimate_method?: string;     // "boxleiter_v1" or null
 
 All three are absent when the backend has no estimate. The frontend must treat **any missing field** as "no estimate available" and render the empty state.
 
-Note: the backend does NOT currently return a `reason` field (`insufficient_reviews`, `free_to_play`, `excluded_type`, etc.) even though the estimator computes it. For the empty state to display a precise reason, **extend `revenue_estimate_reason` through the API**: add it to the `Game` model (optional field, defaults None), persist it in a new nullable column `revenue_estimate_reason TEXT` via migration `0031_add_revenue_estimate_reason.sql`, write it from `process_results.py` alongside the existing estimate fields, and include it in the report handler response when non-null. Without this, the frontend has to infer the reason from `is_free` / `review_count` / `type`, which is brittle.
+Note: the backend now returns `revenue_estimate_reason` on the report
+`game` block when non-null (shipped alongside this prompt). The field
+is persisted in a nullable `games.revenue_estimate_reason TEXT` column
+added by migration `0030_add_revenue_estimate_reason.sql`, written from
+`process_results.py` and `analysis_service.py`, and surfaced by the
+report handler. Possible values come straight from the estimator:
+`insufficient_reviews`, `free_to_play`, `missing_price`, `excluded_type`
+(or NULL when a numeric estimate is present — the repo layer coerces
+`reason` to NULL whenever `estimated_owners` / `estimated_revenue_usd`
+are set, so stale codes cannot leak through).
 
 ## Implementation
 
@@ -92,7 +101,7 @@ Pass `isPro={false}` for now (hardcoded) with a `TODO(pro-gating)` comment. Free
 
 ### 4. Backend — reason passthrough (small addition)
 
-- **Migration** `0031_add_revenue_estimate_reason.sql`: `ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT;`
+- **Migration** `0030_add_revenue_estimate_reason.sql`: `ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT;`
 - **`schema.py`:** mirror the new column.
 - **`models/game.py`:** `revenue_estimate_reason: str | None = None`.
 - **`game_repo.py` `bulk_update_revenue_estimates` (and the matching single-row path):** take and persist `reason`.

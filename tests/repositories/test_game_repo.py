@@ -124,12 +124,14 @@ def test_update_velocity_cache(game_repo: GameRepository) -> None:
 
 def test_update_revenue_estimate_persists_values(game_repo: GameRepository) -> None:
     game_repo.upsert(_game_data())
+    # Pass a stale reason alongside real numbers — the repo must coerce it
+    # to NULL so inconsistent rows can't leak out of this layer.
     game_repo.update_revenue_estimate(
         appid=440,
         owners=30000,
         revenue_usd=Decimal("599700.00"),
         method="boxleiter_v1",
-        reason=None,
+        reason="insufficient_reviews",
     )
     with game_repo.conn.cursor() as cur:
         cur.execute(
@@ -205,7 +207,8 @@ def test_bulk_update_revenue_estimates_mixed_batch(game_repo: GameRepository) ->
 
     game_repo.bulk_update_revenue_estimates(
         [
-            (440, 30_000, Decimal("300000.00"), "boxleiter_v1", None),
+            # Stale reason alongside real numbers — must be coerced to NULL.
+            (440, 30_000, Decimal("300000.00"), "boxleiter_v1", "insufficient_reviews"),
             (441, None, None, "boxleiter_v1", "free_to_play"),
         ]
     )

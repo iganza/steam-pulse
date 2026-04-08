@@ -44,12 +44,12 @@ test.describe('User journeys', () => {
     await expect(page.getByRole('heading', { name: /trending/i })).toBeVisible()
   })
 
-  test('/new-releases page loads with tabs', async ({ page }) => {
+  test('/new-releases page loads with three lens tabs', async ({ page }) => {
     await mockAllApiRoutes(page)
     await page.goto('/new-releases')
-    // Tabs are <button> elements (not role="tab")
-    await expect(page.getByRole('button', { name: /new on steam/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /just analyzed/i })).toBeVisible()
+    await expect(page.getByTestId('lens-released')).toBeVisible()
+    await expect(page.getByTestId('lens-upcoming')).toBeVisible()
+    await expect(page.getByTestId('lens-added')).toBeVisible()
   })
 
   test('/pro page loads', async ({ page }) => {

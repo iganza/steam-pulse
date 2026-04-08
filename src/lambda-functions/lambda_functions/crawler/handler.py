@@ -8,7 +8,6 @@ Event types handled:
 DB ingest from spoke results is handled by ingest_handler.py (primary region).
 """
 
-import json
 import os
 
 from aws_lambda_powertools import Logger, Metrics, Tracer
@@ -48,6 +47,7 @@ import boto3  # type: ignore[import-untyped]
 import httpx
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
+from library_layer.repositories.new_releases_repo import NewReleasesRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.catalog_service import CatalogService
@@ -95,6 +95,7 @@ _crawl_service = CrawlService(
     game_events_topic_arn=_game_events_topic_arn,
     content_events_topic_arn=_content_events_topic_arn,
 )
+_new_releases_repo = NewReleasesRepository(_conn)
 _catalog_service = CatalogService(
     catalog_repo=CatalogRepository(_conn),
     http_client=httpx.Client(timeout=30.0),
@@ -163,6 +164,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if event.get("source") == "aws.events":
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
+        # Refresh the new-releases matview so the /new-releases feed picks up
+        # newly discovered/crawled games on the same hourly cadence.
+        try:
+            _new_releases_repo.refresh()
+            logger.info("mv_new_releases refreshed")
+        except Exception:
+            logger.exception("mv_new_releases refresh failed")
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
         metrics.add_metric(
             name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0)
@@ -197,6 +205,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
+                try:
+                    _new_releases_repo.refresh()
+                except Exception:
+                    logger.exception("mv_new_releases refresh failed")
                 logger.info("catalog_refresh complete", extra={**result})
                 metrics.add_metric(
                     name="CatalogAppsDiscovered",

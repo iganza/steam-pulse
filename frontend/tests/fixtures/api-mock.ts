@@ -95,6 +95,104 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: MOCK_TAGS })
   )
 
+  // New releases — three lenses
+  const NEW_RELEASES_ITEMS = [
+    {
+      appid: 440,
+      name: 'Team Fortress 2',
+      slug: 'team-fortress-2',
+      type: 'game',
+      developer: 'Valve',
+      developer_slug: 'valve',
+      publisher: 'Valve',
+      publisher_slug: 'valve',
+      header_image: 'https://example.com/tf2.jpg',
+      release_date: '2026-04-01',
+      coming_soon: false,
+      price_usd: 0,
+      is_free: true,
+      review_count: 5000,
+      review_count_english: 4500,
+      positive_pct: 92,
+      review_score_desc: 'Very Positive',
+      discovered_at: '2026-04-01T00:00:00Z',
+      meta_crawled_at: '2026-04-01T01:00:00Z',
+      metadata_pending: false,
+      days_since_release: 7,
+      has_analysis: true,
+      top_tags: ['FPS', 'Multiplayer', 'Free to Play'],
+      top_tag_slugs: ['fps', 'multiplayer', 'free-to-play'],
+      genres: ['Action'],
+      genre_slugs: ['action'],
+    },
+    {
+      appid: 9999,
+      name: 'Pending Game',
+      slug: null,
+      type: null,
+      developer: null,
+      developer_slug: null,
+      publisher: null,
+      publisher_slug: null,
+      header_image: null,
+      release_date: null,
+      coming_soon: false,
+      price_usd: null,
+      is_free: false,
+      review_count: null,
+      review_count_english: null,
+      positive_pct: null,
+      review_score_desc: null,
+      discovered_at: '2026-04-08T10:00:00Z',
+      meta_crawled_at: null,
+      metadata_pending: true,
+      days_since_release: null,
+      has_analysis: false,
+      top_tags: [],
+      top_tag_slugs: [],
+      genres: [],
+      genre_slugs: [],
+    },
+  ]
+  await page.route('**/api/new-releases/released**', route =>
+    route.fulfill({
+      json: {
+        items: [NEW_RELEASES_ITEMS[0]],
+        total: 1,
+        window: 'week',
+        page: 1,
+        page_size: 24,
+        filters: { genre: null, tag: null },
+        counts: { today: 0, week: 1, month: 3, all: 12 },
+      },
+    }),
+  )
+  await page.route('**/api/new-releases/upcoming**', route =>
+    route.fulfill({
+      json: {
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 24,
+        filters: { genre: null, tag: null },
+        buckets: { this_week: 0, this_month: 0, this_quarter: 0, tba: 0 },
+      },
+    }),
+  )
+  await page.route('**/api/new-releases/added**', route =>
+    route.fulfill({
+      json: {
+        items: NEW_RELEASES_ITEMS,
+        total: 2,
+        window: 'week',
+        page: 1,
+        page_size: 24,
+        filters: { genre: null, tag: null },
+        counts: { today: 1, week: 2, month: 5, all: 8 },
+      },
+    }),
+  )
+
   // Preview (fallback)
   await page.route('**/api/preview', route =>
     route.fulfill({

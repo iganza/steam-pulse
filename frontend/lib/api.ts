@@ -285,4 +285,118 @@ export async function getAnalyticsTrendCategories(params: {
   return apiFetch(`/api/analytics/trends/categories${trendParams(params)}`);
 }
 
+// ---------------------------------------------------------------------------
+// New Releases — three-lens feed (Released / Coming Soon / Just Added)
+// ---------------------------------------------------------------------------
+
+export type NewReleasesWindow = "today" | "week" | "month" | "all";
+
+export interface NewReleaseEntry {
+  appid: number;
+  name: string;
+  slug: string | null;
+  type: string | null;
+  developer: string | null;
+  developer_slug: string | null;
+  publisher: string | null;
+  publisher_slug: string | null;
+  header_image: string | null;
+  release_date: string | null;
+  coming_soon: boolean;
+  price_usd: number | null;
+  is_free: boolean;
+  review_count: number | null;
+  review_count_english: number | null;
+  positive_pct: number | null;
+  review_score_desc: string | null;
+  discovered_at: string;
+  meta_crawled_at: string | null;
+  metadata_pending: boolean;
+  days_since_release: number | null;
+  has_analysis: boolean;
+  top_tags: string[];
+  top_tag_slugs: string[];
+  genres: string[];
+  genre_slugs: string[];
+}
+
+export interface NewReleasesFilters {
+  genre: string | null;
+  tag: string | null;
+}
+
+export interface NewReleasesWindowResponse {
+  items: NewReleaseEntry[];
+  total: number;
+  window: NewReleasesWindow;
+  page: number;
+  page_size: number;
+  filters: NewReleasesFilters;
+  counts: { today: number; week: number; month: number; all: number };
+}
+
+export interface NewReleasesUpcomingResponse {
+  items: NewReleaseEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  filters: NewReleasesFilters;
+  buckets: { this_week: number; this_month: number; this_quarter: number; tba: number };
+}
+
+interface FetchOpts {
+  page?: number;
+  pageSize?: number;
+  genre?: string | null;
+  tag?: string | null;
+}
+
+function buildQs(params: Record<string, string | number | null | undefined>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== "") qs.set(k, String(v));
+  }
+  return qs.toString();
+}
+
+export async function getNewReleasesReleased(
+  window: NewReleasesWindow = "week",
+  opts: FetchOpts = {},
+): Promise<NewReleasesWindowResponse> {
+  const qs = buildQs({
+    window,
+    page: opts.page ?? 1,
+    page_size: opts.pageSize ?? 24,
+    genre: opts.genre,
+    tag: opts.tag,
+  });
+  return apiFetch(`/api/new-releases/released?${qs}`, { next: { revalidate: 300 } });
+}
+
+export async function getNewReleasesUpcoming(
+  opts: FetchOpts = {},
+): Promise<NewReleasesUpcomingResponse> {
+  const qs = buildQs({
+    page: opts.page ?? 1,
+    page_size: opts.pageSize ?? 24,
+    genre: opts.genre,
+    tag: opts.tag,
+  });
+  return apiFetch(`/api/new-releases/upcoming?${qs}`, { next: { revalidate: 300 } });
+}
+
+export async function getNewReleasesAdded(
+  window: NewReleasesWindow = "week",
+  opts: FetchOpts = {},
+): Promise<NewReleasesWindowResponse> {
+  const qs = buildQs({
+    window,
+    page: opts.page ?? 1,
+    page_size: opts.pageSize ?? 24,
+    genre: opts.genre,
+    tag: opts.tag,
+  });
+  return apiFetch(`/api/new-releases/added?${qs}`, { next: { revalidate: 300 } });
+}
+
 export { ApiError };

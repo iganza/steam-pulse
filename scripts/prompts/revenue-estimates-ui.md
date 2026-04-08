@@ -84,30 +84,64 @@ Responsibilities:
 - **Empty state:** grey card, same footprint, no blur. Copy depends on `reason`:
   - `insufficient_reviews` → "Not enough reviews yet to estimate ({reviewCount}/50)."
   - `free_to_play` → "Free-to-play — revenue estimates don't apply."
+  - `missing_price` → "No estimate: missing store price."
   - `excluded_type` → "No estimate: DLC, demos, and tools aren't eligible."
   - `null` reason but null numbers → generic "No estimate available."
-- **Pro gating:** when `isPro === false`, blur the two number ranges with a CSS blur filter (keep labels, method pill, and explainer visible) and overlay a compact "Unlock with Pro" CTA button. Do not call the `usePro()` hook yet if it doesn't exist — accept `isPro` as a prop and let the parent page pass `false` until `pro-gating.md` lands. The empty state is NOT gated — showing "not enough reviews" to free users is fine and actually reinforces trust.
-- **Accessibility:** the blurred numbers must be `aria-hidden` and the CTA must be the focusable element. Screen readers should hear "Market reach estimate — unlock with Pro" not the blurred digits.
+- **Pro gating:** when `isPro === false`, blur **only the numeric range** (`<p>`) inside each stat with `blur-sm` + `aria-hidden`. Labels, `±50%` confidence pills, method pill, and the one-sentence explainer all remain fully readable. The "Unlock with Pro" CTA renders **inline below the stats grid** (not as an absolute overlay) so nothing obscures the labels. `isPro` is read from the `usePro()` context — which currently returns `false` everywhere until `pro-gating.md` lands. Empty states are NOT gated — showing "not enough reviews" to free users reinforces trust.
+- **Accessibility:** each blurred range is `aria-hidden` and paired with an `sr-only` "<label> available with Pro." sibling. The CTA itself carries `aria-label="Market reach estimate — unlock with Pro"` so screen readers hear the intent, not the blurred digits.
 
 Styling: match the visual weight of existing card components in `frontend/components/game/` — look at `CompetitiveBenchmark.tsx`, `PromiseGap.tsx`, and `HiddenGemBadge.tsx` for card chrome, spacing, and typography so Market Reach feels like it belongs on the page, not bolted on.
 
 ### 3. Wire into the game page — `frontend/app/games/[appid]/[slug]/GameReportClient.tsx`
 
-Place the `<MarketReach />` card in the report layout. Exact position: **immediately after the sentiment / headline block and before the qualitative sections** (design strengths, friction, etc.). Rationale: it's a quantitative signal, it belongs with the other numeric signals (sentiment, hidden gem score), and putting it above the wall of narrative text means it's visible without scrolling on desktop.
+**Important constraint uncovered during implementation:** the revenue estimate is derived from `review_count` × price × genre/tags — **none of which require an LLM pass**. The card must therefore render on both the analyzed and unanalyzed code paths. `GameReportClient` originally had an `if (!report) return` early return that would have hidden Market Reach for any crawled-but-not-yet-analyzed game; that early return was collapsed into a single unified render path as part of this prompt. See "Unifying the render paths" below.
 
-If the page uses a grid, Market Reach occupies one cell the same size as `HiddenGemBadge` / sentiment — do not make it full-width.
+Place the `<MarketReach />` card **immediately after the Quick Stats section and before the narrative sections** (Design Strengths / Gameplay Friction / etc.). Rationale: it's a quantitative signal that belongs with the other numeric tiles, and on unanalyzed pages it becomes the last quantitative block before the "Analysis in progress" notice.
 
-Pass `isPro={false}` for now (hardcoded) with a `TODO(pro-gating)` comment. Free-tier behavior is the shipping default until auth lands.
+`isPro` is read from the existing `usePro()` context — no new prop plumbing. Until `pro-gating.md` wires a real subscription source, the context returns `false` everywhere, which is the correct free-tier default.
+
+#### Unifying the render paths
+
+The two-branch layout (`if (!report)` early return vs. full-report JSX) was duplicating ~200 lines of chrome and, more importantly, was hiding Market Reach from unanalyzed games. The right fix is a single render path with conditional sections, which also unblocks surfacing Steam sentiment to unanalyzed pages. Extract the duplicated chrome into three focused presentational components under `frontend/components/game/`:
+
+- **`GameHero.tsx`** — hero image, title, genre chips, badge row. Accepts `hiddenGemScore: number | null` and only renders `<HiddenGemBadge />` when non-null, so unanalyzed games get the hero without the score badge. The Steam sentiment chip keys off `reviewScoreDesc` (Steam-owned, not LLM) and works on both paths.
+- **`SteamFactsCard.tsx`** — `ScoreBar` + crawl freshness + the `scoreContextSentence()` copy. Used twice inside `GameReportClient`: inline within the Verdict section on analyzed pages, and standalone (under its own `Steam Facts` section label) on unanalyzed pages. Surfacing Steam sentiment context to unanalyzed pages is a **new user-visible gain** that falls out of this refactor.
+- **`QuickStats.tsx`** — the stats grid. Takes both `reviewCount` (Steam total) and `totalReviewsAnalyzed` (LLM-ingested English count) and prefers the latter with an `en` suffix when present. Auto-switches between 5-column (no Analyzed tile) and 6-column (with Analyzed tile) based on whether `lastAnalyzed` is set. No visual regression on analyzed pages.
+
+Extract `relativeTime()` and `slugify()` into a new `frontend/lib/format.ts` — both helpers are now used from 3+ files, so this is legitimate deduplication, not speculative abstraction. `scoreContextSentence()` and `momentumLabel()` stay local to the one component that uses them.
+
+Then collapse `GameReportClient` to a single return composed of these components:
+
+1. `<GameHero />` (always) — hidden-gem badge conditional on `report?.hidden_gem_score`.
+2. `<Breadcrumbs />` (always).
+3. **Verdict section** (`report && …`) — LLM one-liner, `Compare with…` CTA, inline `<SteamFactsCard />`, and the `SteamPulse Analysis` marker.
+4. **Standalone Steam Facts** (`!report && …`) — unanalyzed pages get `<SteamFactsCard />` under its own `Steam Facts` section label.
+5. `<QuickStats />` (always).
+6. `<MarketReach />` (always) — the whole point of the refactor.
+7. `About` section (`!report && shortDesc && …`) — unanalyzed only. Analyzed pages carry this weight through the LLM narrative.
+8. Report-gated narrative sections: Design Strengths, Gameplay Friction, Audience Profile, Sentiment Trend, Genre Context, Promise Gap, Player Wishlist, Churn Triggers, Developer Priorities, Competitive Context. Each guarded with `{report?.field && …}`.
+9. `Sentiment History` + `Playtime Sentiment` (always) — both are Steam-sourced, render on both paths.
+10. `Competitive Benchmark` (`report && benchmarks && …`) — depends on the report existing (benchmarks are only fetched when `report` is non-null).
+11. `Tags` (always).
+12. `<GameAnalyticsSection />` (`report && …`) — intentionally gated for now; could be relaxed later since most of its sub-queries are Steam-sourced, but out of scope for this prompt.
+13. "Analysis in progress" notice (`!report && …`).
+14. Footer (always) — `Analysis based on N reviews` line is `report &&`-gated; the `View on Steam Store →` link always renders.
+
+All existing `data-testid`s — `game-compare-deeplink`, `steam-facts-crawled`, `reviews-tile-crawled`, `quick-stats-meta-updated`, `score-context`, plus the Market Reach IDs — must flow through the new components unchanged so the existing Playwright specs keep passing without modification.
+
+**Rules of thumb that kept this refactor debt-free:**
+- Single-file rewrite, no `v2` alongside the old. Old code is gone, not deprecated.
+- Each extracted component has exactly one responsibility and is used in at least one concrete site (no speculative abstraction).
+- Helpers are extracted only after hitting ≥3 call sites.
+- The unified path replaces the branched path completely — no feature flag, no compatibility shim.
 
 ### 4. Backend — reason passthrough (small addition)
 
-- **Migration** `0030_add_revenue_estimate_reason.sql`: `ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT;`
-- **`schema.py`:** mirror the new column.
+- **Migration** `0030_add_revenue_estimate_reason.sql`: `ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT;` + matching entry in `schema.py`'s legacy-ALTER stub list so the test suite's `create_all()` path stays idempotent.
 - **`models/game.py`:** `revenue_estimate_reason: str | None = None`.
-- **`game_repo.py` `bulk_update_revenue_estimates` (and the matching single-row path):** take and persist `reason`.
-- **`process_results.py` + `backfill_revenue_estimates.py`:** pass `estimate.reason` through into the bulk update payload.
-- **`api/handler.py` report endpoint:** include `revenue_estimate_reason` in the response when non-null (mirror the existing `has_revenue_estimate` block around line 396).
-- **`scripts/backfill_revenue_estimates.py`:** extend the tuple shape — this is an additive change, so old tuples without the reason slot must keep working via a default or an explicit migration of the backfill script's payload shape in the same commit.
+- **`game_repo.py` `update_revenue_estimate` and `bulk_update_revenue_estimates`:** both take a `reason` value and both **enforce a symmetric data contract at the repo layer** — `method` is coerced to NULL when neither numeric field is set (existing contract), and `reason` is coerced to NULL when a numeric estimate IS present (new contract). The two coercions together guarantee a row can never carry both a real estimate *and* a stale reason code. Row tuple shape for the bulk path becomes `(appid, owners, revenue_usd, method, reason)` — a 5-tuple, not a 4-tuple.
+- **`analysis_service.py` + `process_results.py` + `backfill_revenue_estimates.py`:** all three callers updated in the same commit to pass `estimate.reason` through. The tuple shape change is load-bearing for `execute_values`, so no default slot / compatibility shim — every caller moves at once.
+- **`api/handler.py` report endpoint:** include `revenue_estimate_reason` in the response when non-null. Surface it **independently** of `has_revenue_estimate` — the reason is meaningful precisely when the numeric fields are NULL, so gating it on `has_revenue_estimate` would defeat its purpose.
 
 Do NOT surface the reason on `GET /api/games` list items — that endpoint already returns too much per row, and the empty-state copy is page-level only.
 
@@ -115,12 +149,16 @@ Do NOT surface the reason on `GET /api/games` list items — that endpoint alrea
 
 **Backend:**
 
-- `tests/repositories/test_game_repo.py` — extend the existing revenue-estimate tests to assert `reason` round-trips through `bulk_update_revenue_estimates`.
-- `tests/test_api.py` — extend the report handler test: when `reason` is set, it appears in the response; when null, it's absent.
+- `tests/repositories/test_game_repo.py` — extend the revenue-estimate tests so they pass a **stale reason alongside real numbers** and assert the repo coerces it to NULL. Add a second assertion where both numeric fields are NULL and the reason round-trips as (e.g.) `"insufficient_reviews"`. Mirror both cases in `test_bulk_update_revenue_estimates_mixed_batch`.
+- `tests/test_api.py` — extend the report handler tests: when a numeric estimate is present, the response includes `estimated_owners`/`revenue`/`method` and **omits** `revenue_estimate_reason`. When the numeric fields are NULL and reason is set, the response omits the numeric keys and **includes** `revenue_estimate_reason`.
+- `tests/handlers/test_batch_analysis.py` — the existing assertions unpack the row tuple shape from `bulk_update_revenue_estimates.call_args`; update both call sites to unpack 5 elements and assert `reason` is `None` when numeric values exist and `"free_to_play"` when the game is free.
 
 **Frontend (Playwright):**
 
-- `frontend/tests/` — add a game-page test that mocks the report API to return all three populated states (populated+pro, populated+free, empty+insufficient reviews) and asserts the card renders the correct copy and that the free-tier variant is blurred-and-gated. Mock data lives in `frontend/tests/fixtures/mock-data.ts` per CLAUDE.md — extend the report fixture there.
+- `frontend/tests/market-reach.spec.ts` — new spec covering the three states the card can render: populated + free-tier (ranges present in the DOM but blurred and `aria-hidden`; labels + confidence pills + explainer still readable; "Unlock with Pro" CTA visible), empty + insufficient reviews ("Not enough reviews yet to estimate (N/50)." with no blur and no CTA), and empty + free-to-play (routes a specific appid with `revenue_estimate_reason: "free_to_play"` — register `mockAllApiRoutes()` **first** then the specific `**/api/games/<id>/report` override, because Playwright's route matching is LIFO).
+- Add a `test.skip` placeholder for the populated + Pro variant with a `TODO(pro-gating)` — that path is unreachable via E2E until `usePro()` has a real data source.
+- `frontend/tests/fixtures/api-mock.ts` — the populated-state fixture for appid 440 must be a **paid game** (`price_usd: 19.99`, `is_free: false`). Combining a numeric revenue estimate with `is_free: true` is an impossible state post-estimator and misleading as a test fixture. Omit `revenue_estimate_reason` from the populated mock entirely — the report endpoint omits it when NULL and the mock should mirror that.
+- `frontend/tests/game-report.spec.ts` — the "no unlock CTAs" guardrail must be scoped: assert that any unlock-text matches are **confined to the Market Reach subtree**, not globally absent. The card is the one deliberately Pro-gated surface on this page.
 
 Per CLAUDE.md: any frontend change that alters user-visible behaviour must include test updates in the same PR.
 
@@ -140,8 +178,9 @@ Out of scope for this prompt, but note as a follow-up: we want a client-side eve
 
 ## Acceptance
 
-- Visiting `/games/{appid}/{slug}` for a game with an estimate shows the Market Reach card with owner and revenue **ranges**, ±50% confidence pills, method pill, and the one-sentence explainer.
-- Visiting the same page as a free user (hardcoded for now) shows the card with blurred numbers and a visible "Unlock with Pro" CTA. Labels and explainer remain readable.
+- Visiting `/games/{appid}/{slug}` for an **analyzed paid game with ≥50 reviews** shows the Market Reach card with owner and revenue **ranges**, ±50% confidence pills, method pill, and the one-sentence explainer.
+- Visiting `/games/{appid}/{slug}` for a **crawled-but-not-yet-analyzed** game also shows the Market Reach card (populated if paid + ≥50 reviews; empty state otherwise). The card is independent of the LLM pass.
+- Visiting the same page as a free user shows the card with blurred numeric ranges, visible labels and confidence pills, and an inline "Unlock with Pro" CTA below the stats grid. Labels, pills, method pill, and explainer remain fully readable.
 - Visiting a free-to-play game, a DLC, or a game with <50 reviews shows the card in its empty state with reason-specific copy. No blur, no CTA.
 - Playwright test covers all three states.
 - No change to the existing backend estimate math. No change to matviews. No change to list-page payload shape.

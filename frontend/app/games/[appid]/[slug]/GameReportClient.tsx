@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { usePro } from "@/lib/pro";
-import Image from "next/image";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -15,19 +14,10 @@ import {
   Target,
   Swords,
   Users,
-  Star,
-  Calendar,
-  DollarSign,
-  BarChart3,
   Clock,
-  Zap,
 } from "lucide-react";
 import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
 import { getReviewStats, getBenchmarks } from "@/lib/api";
-import { ScoreBar } from "@/components/game/ScoreBar";
-import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
-import { HiddenGemBadge } from "@/components/game/HiddenGemBadge";
-import { DeckCompatibilityBadge } from "@/components/game/DeckCompatibilityBadge";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import {
@@ -42,7 +32,11 @@ import {
 import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
 import { MarketReach } from "@/components/game/MarketReach";
 import { PromiseGap } from "@/components/game/PromiseGap";
+import { GameHero } from "@/components/game/GameHero";
+import { SteamFactsCard } from "@/components/game/SteamFactsCard";
+import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
+import { slugify, relativeTime } from "@/lib/format";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -61,7 +55,7 @@ interface GameReportClientProps {
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
   isEarlyAccess?: boolean;
   // Steam-sourced sentiment + per-source freshness (data-source-clarity refactor).
-  // The "Steam Facts" zone reads these directly from Steam — never from the LLM.
+  // The Steam Facts zone reads these directly from Steam — never from the LLM.
   positivePct?: number | null;
   reviewScoreDesc?: string | null;
   metaCrawledAt?: string | null;
@@ -85,41 +79,6 @@ function TrendIcon({ trend }: { trend: string }) {
   return <Minus className="w-4 h-4 text-muted-foreground" />;
 }
 
-function slugify(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-function scoreContextSentence(score: number): string {
-  if (score >= 95) return "Overwhelmingly Positive — fewer than 5% of Steam games with 1,000+ reviews achieve this.";
-  if (score >= 80) return "Very Positive — this puts the game in the top 30% of all reviewed games on Steam.";
-  if (score >= 70) return "Mostly Positive — above the median for reviewed Steam games.";
-  if (score >= 50) return "Mixed — roughly half of players recommend it.";
-  return "Mostly Negative — significant player dissatisfaction.";
-}
-
-/** Render an ISO timestamp as a short relative-time string ("2h ago", "3d ago"). */
-function relativeTime(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
-  if (diffSec < 86400 * 30) return `${Math.round(diffSec / 86400)}d ago`;
-  if (diffSec < 86400 * 365) return `${Math.round(diffSec / (86400 * 30))}mo ago`;
-  return `${Math.round(diffSec / (86400 * 365))}y ago`;
-}
-
-function momentumLabel(reviewsLast30: number, reviewsPerDay: number): { label: string; color: string } {
-  const expected = reviewsPerDay * 30;
-  if (expected <= 0) return { label: "—", color: "var(--muted-foreground)" };
-  const ratio = reviewsLast30 / expected;
-  if (ratio >= 1.2) return { label: "Gaining momentum", color: "#22c55e" };
-  if (ratio >= 0.8) return { label: "Steady", color: "var(--muted-foreground)" };
-  return { label: "Slowing", color: "#f59e0b" };
-}
-
 export function GameReportClient({
   report,
   appid,
@@ -141,7 +100,6 @@ export function GameReportClient({
   metaCrawledAt,
   reviewCrawledAt,
   reviewsCompletedAt,
-  tagsCrawledAt,
   lastAnalyzed,
   estimatedOwners,
   estimatedRevenueUsd,
@@ -183,478 +141,109 @@ export function GameReportClient({
     { label: name },
   ];
 
-  // Unanalyzed game state
-  if (!report) {
-    return (
-      <div className="min-h-screen bg-background">
-        {/* Hero */}
-        <div className="relative h-[50vh] min-h-[360px] overflow-hidden">
-          {headerImage ? (
-            <Image
-              src={headerImage}
-              alt={name}
-              fill
-              className="object-cover object-top"
-              priority
-            />
-          ) : (
-            <div className="absolute inset-0 bg-gradient-to-br from-secondary to-background" />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
-
-          <div className="absolute bottom-0 left-0 right-0 px-6 pb-8 max-w-4xl">
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              {genres?.map((g) => (
-                <Link
-                  key={g}
-                  href={`/genre/${slugify(g)}`}
-                  className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded"
-                  style={{
-                    background: "rgba(45,185,212,0.1)",
-                    border: "1px solid rgba(45,185,212,0.2)",
-                    color: "var(--teal)",
-                  }}
-                >
-                  {g}
-                </Link>
-              ))}
-            </div>
-            <h1
-              className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-3"
-              style={{ letterSpacing: "-0.03em" }}
-            >
-              {name}
-            </h1>
-            <div className="flex flex-wrap items-center gap-3">
-              {isEarlyAccess && <EarlyAccessBadge />}
-              <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
-            </div>
-          </div>
-        </div>
-
-        <div className="max-w-4xl mx-auto px-6 py-12 space-y-16">
-          <Breadcrumbs items={breadcrumbItems} />
-
-          {/* Quick Stats */}
-          <section>
-            <SectionLabel>Quick Stats</SectionLabel>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <BarChart3 className="w-4 h-4" />
-                  <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
-                </div>
-                <p className="font-mono text-base font-medium truncate">
-                  {reviewCount?.toLocaleString() ?? "—"}
-                  {reviewCount != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
-                </p>
-                {(() => {
-                  const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
-                  return ts ? (
-                    <p data-testid="reviews-tile-crawled" className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
-                  ) : null;
-                })()}
-              </div>
-              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Calendar className="w-4 h-4" />
-                  <span className="text-sm uppercase tracking-widest font-mono">Released</span>
-                </div>
-                {releaseDate ? (
-                  <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-base font-medium hover:underline" style={{ color: "var(--teal)" }}>
-                    {new Date(releaseDate).getFullYear()}
-                  </Link>
-                ) : <p className="font-mono text-base font-medium">—</p>}
-              </div>
-              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <DollarSign className="w-4 h-4" />
-                  <span className="text-sm uppercase tracking-widest font-mono">Price</span>
-                </div>
-                <p className="font-mono text-base font-medium truncate">{price}</p>
-              </div>
-              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Star className="w-4 h-4" />
-                  <span className="text-sm uppercase tracking-widest font-mono">Developer</span>
-                </div>
-                {developer ? (
-                  <Link href={`/developer/${slugify(developer)}`} className="font-mono text-base font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
-                    {developer}
-                  </Link>
-                ) : <p className="font-mono text-base font-medium">—</p>}
-              </div>
-              {/* Review Velocity card */}
-              <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Zap className="w-4 h-4" />
-                  <span className="text-sm uppercase tracking-widest font-mono">Velocity</span>
-                </div>
-                {statsLoading ? (
-                  <div className="h-4 bg-secondary rounded animate-pulse w-20" />
-                ) : reviewStats ? (
-                  <>
-                    <p className="font-mono text-base font-medium">
-                      {reviewStats.review_velocity.reviews_per_day}/day
-                    </p>
-                    {(() => {
-                      const m = momentumLabel(
-                        reviewStats.review_velocity.reviews_last_30_days,
-                        reviewStats.review_velocity.reviews_per_day
-                      );
-                      return (
-                        <p className="text-sm font-mono mt-1" style={{ color: m.color }}>
-                          {m.label}
-                        </p>
-                      );
-                    })()}
-                  </>
-                ) : (
-                  <p className="font-mono text-base font-medium">—</p>
-                )}
-              </div>
-            </div>
-            {(() => {
-              const metaTs = relativeTime(metaCrawledAt);
-              return metaTs ? (
-                <p data-testid="quick-stats-meta-updated" className="mt-3 text-xs font-mono text-muted-foreground">
-                  Page metadata updated {metaTs} · Source: Steam
-                </p>
-              ) : null;
-            })()}
-          </section>
-
-          {/* Description */}
-          {shortDesc && (
-            <section>
-              <SectionLabel>About</SectionLabel>
-              <p className="text-base text-foreground/80 leading-relaxed">{shortDesc}</p>
-            </section>
-          )}
-
-          {/* Tags */}
-          {tags && tags.length > 0 && (
-            <section>
-              <SectionLabel>Tags</SectionLabel>
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <Link
-                    key={tag}
-                    href={`/tag/${slugify(tag)}`}
-                    className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
-                    style={{
-                      background: "rgba(45,185,212,0.08)",
-                      border: "1px solid rgba(45,185,212,0.2)",
-                      color: "var(--teal)",
-                    }}
-                  >
-                    {tag}
-                  </Link>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Sentiment Timeline */}
-          <section>
-            <SectionLabel>Sentiment History</SectionLabel>
-            {statsLoading ? (
-              <SentimentTimelineSkeleton />
-            ) : reviewStats && reviewStats.timeline.length >= 2 ? (
-              <SentimentTimeline timeline={reviewStats.timeline} />
-            ) : null}
-          </section>
-
-          {/* Playtime Chart */}
-          <section>
-            <SectionLabel>Playtime Sentiment</SectionLabel>
-            {statsLoading ? (
-              <PlaytimeChartSkeleton />
-            ) : reviewStats ? (
-              <PlaytimeChart
-                buckets={reviewStats.playtime_buckets}
-                insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
-                isPro={isPro}
-              />
-            ) : null}
-          </section>
-
-          {/* Analysis status */}
-          <section className="text-center py-8">
-            <div
-              className="inline-flex items-center gap-3 px-6 py-4 rounded-xl"
-              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-            >
-              <Clock className="w-5 h-5 text-muted-foreground" />
-              <p className="text-base text-muted-foreground">
-                Analysis in progress — check back once this game reaches sufficient reviews.
-              </p>
-            </div>
-          </section>
-
-          {/* Steam link */}
-          <section className="pt-8 border-t border-border">
-            <a
-              href={`https://store.steampowered.com/app/${appid}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-mono text-muted-foreground hover:text-foreground transition-colors"
-            >
-              View on Steam Store &rarr;
-            </a>
-          </section>
-        </div>
-      </div>
-    );
-  }
-
-  // Analyzed game state - full report
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero */}
-      <div className="relative h-[50vh] min-h-[360px] overflow-hidden">
-        {headerImage ? (
-          <Image
-            src={headerImage}
-            alt={name}
-            fill
-            className="object-cover object-top"
-            priority
-          />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-secondary to-background" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
+      <GameHero
+        name={name}
+        headerImage={headerImage}
+        genres={genres}
+        isEarlyAccess={isEarlyAccess}
+        deckCompatibility={deckCompatibility}
+        deckTestResults={deckTestResults}
+        hiddenGemScore={report?.hidden_gem_score ?? null}
+        positivePct={positivePct ?? null}
+        reviewScoreDesc={reviewScoreDesc ?? null}
+      />
 
-        {/* Title block */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-8 max-w-4xl">
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            {genres?.map((g) => (
-              <Link
-                key={g}
-                href={`/genre/${slugify(g)}`}
-                className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded"
-                style={{
-                  background: "rgba(45,185,212,0.1)",
-                  border: "1px solid rgba(45,185,212,0.2)",
-                  color: "var(--teal)",
-                }}
-              >
-                {g}
-              </Link>
-            ))}
-          </div>
-          <h1
-            className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-3"
-            style={{ letterSpacing: "-0.03em" }}
-          >
-            {name}
-          </h1>
-          <div className="flex flex-wrap items-center gap-3">
-            {isEarlyAccess && <EarlyAccessBadge />}
-            <HiddenGemBadge score={Math.round((report.hidden_gem_score ?? 0) * 100)} />
-            <DeckCompatibilityBadge compatibility={deckCompatibility} testResults={deckTestResults} />
-            {/* Steam-sourced sentiment chip — only Steam's review_score_desc is shown here.
-                If we don't have Steam's label yet, render nothing rather than fabricate. */}
-            {reviewScoreDesc && (
-              <span
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono uppercase tracking-widest"
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                }}
-                title={
-                  positivePct != null
-                    ? `${positivePct}% positive on Steam`
-                    : "Source: Steam"
-                }
-              >
-                <span aria-hidden>👍</span>
-                <span>Steam · {reviewScoreDesc}</span>
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Main content */}
       <div className="max-w-4xl mx-auto px-6 py-12 space-y-16">
         <Breadcrumbs items={breadcrumbItems} />
 
-        {/* Section 1 - The Verdict */}
-        <section className="animate-fade-up stagger-1">
-          <SectionLabel>The Verdict</SectionLabel>
-          <blockquote
-            className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-4 italic"
-            style={{ letterSpacing: "-0.01em" }}
-          >
-            &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
-          </blockquote>
-          <div className="mb-8">
-            <Link
-              href={`/compare?appids=${appid}`}
-              data-testid="game-compare-deeplink"
-              className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border"
-              style={{
-                borderColor: "var(--teal)",
-                color: "var(--teal)",
-              }}
+        {/* The Verdict (analyzed only) — LLM one-liner + Compare CTA +
+            SteamPulse Analysis marker. Steam Facts lives inside this
+            section on analyzed pages so it visually anchors the Verdict;
+            unanalyzed pages still get Steam Facts below. */}
+        {report && (
+          <section className="animate-fade-up stagger-1">
+            <SectionLabel>The Verdict</SectionLabel>
+            <blockquote
+              className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-4 italic"
+              style={{ letterSpacing: "-0.01em" }}
             >
-              <Swords className="w-3.5 h-3.5" />
-              Compare with…
-            </Link>
-          </div>
-          {/* Steam Facts zone — sentiment magnitude is owned by Steam, not the LLM */}
-          <div
-            className="rounded-xl p-4 mb-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-          >
-            <div className="flex items-center justify-between mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
+            </blockquote>
+            <div className="mb-8">
+              <Link
+                href={`/compare?appids=${appid}`}
+                data-testid="game-compare-deeplink"
+                className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border"
+                style={{ borderColor: "var(--teal)", color: "var(--teal)" }}
+              >
+                <Swords className="w-3.5 h-3.5" />
+                Compare with…
+              </Link>
+            </div>
+            <div className="mb-4">
+              <SteamFactsCard
+                positivePct={positivePct ?? null}
+                reviewScoreDesc={reviewScoreDesc ?? null}
+                reviewCrawledAt={reviewCrawledAt}
+                reviewsCompletedAt={reviewsCompletedAt}
+                metaCrawledAt={metaCrawledAt}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs font-mono uppercase tracking-widest text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden>👍</span>
-                Steam Facts
+                <span aria-hidden>✨</span>
+                SteamPulse Analysis
               </span>
-              {(() => {
-                const ts =
-                  relativeTime(reviewCrawledAt) ??
-                  relativeTime(reviewsCompletedAt) ??
-                  relativeTime(metaCrawledAt);
-                return ts ? <span data-testid="steam-facts-crawled">Crawled {ts}</span> : null;
-              })()}
+              <span className="flex items-center gap-3">
+                {report.total_reviews_analyzed != null && (
+                  <span>{report.total_reviews_analyzed.toLocaleString()} reviews</span>
+                )}
+                {(() => {
+                  const ts = relativeTime(lastAnalyzed);
+                  return ts ? <span>Analyzed {ts}</span> : null;
+                })()}
+              </span>
             </div>
-            {positivePct != null ? (
-              <ScoreBar score={positivePct} label={reviewScoreDesc ?? undefined} />
-            ) : (
-              <p className="text-sm text-muted-foreground font-mono">
-                Steam sentiment unavailable for this game.
-              </p>
-            )}
-            {positivePct != null && (
-              <p className="mt-2 text-sm text-muted-foreground font-mono" data-testid="score-context">
-                {scoreContextSentence(positivePct)}
-              </p>
-            )}
-          </div>
+          </section>
+        )}
 
-          {/* SteamPulse Analysis zone marker — the rest of the report is the AI narrative */}
-          <div className="flex items-center justify-between text-xs font-mono uppercase tracking-widest text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden>✨</span>
-              SteamPulse Analysis
-            </span>
-            <span className="flex items-center gap-3">
-              {report.total_reviews_analyzed != null && (
-                <span>{report.total_reviews_analyzed.toLocaleString()} reviews</span>
-              )}
-              {(() => {
-                const ts = relativeTime(lastAnalyzed);
-                return ts ? <span>Analyzed {ts}</span> : null;
-              })()}
-            </span>
-          </div>
-        </section>
+        {/* Standalone Steam Facts — unanalyzed pages don't have a Verdict
+            block, but Steam sentiment is Steam-owned and independent of
+            any LLM pass, so we surface it here. */}
+        {!report && (
+          <section className="animate-fade-up stagger-1">
+            <SectionLabel>Steam Facts</SectionLabel>
+            <SteamFactsCard
+              positivePct={positivePct ?? null}
+              reviewScoreDesc={reviewScoreDesc ?? null}
+              reviewCrawledAt={reviewCrawledAt}
+              reviewsCompletedAt={reviewsCompletedAt}
+              metaCrawledAt={metaCrawledAt}
+            />
+          </section>
+        )}
 
-        {/* Section 2 - Quick Stats */}
-        <section className="animate-fade-up stagger-2">
-          <SectionLabel>Quick Stats</SectionLabel>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <BarChart3 className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Reviews</span>
-              </div>
-              <p className="font-mono text-base font-medium truncate">
-                {report.total_reviews_analyzed?.toLocaleString() ?? "—"}
-                {report.total_reviews_analyzed != null && <span className="font-mono" style={{ opacity: 0.4, fontSize: "0.7em", marginLeft: "0.3em" }}>en</span>}
-              </p>
-              {(() => {
-                const ts = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
-                return ts ? (
-                  <p data-testid="reviews-tile-crawled" className="text-xs font-mono text-muted-foreground mt-1">Crawled {ts}</p>
-                ) : null;
-              })()}
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Calendar className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Released</span>
-              </div>
-              {releaseDate ? (
-                <Link href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`} className="font-mono text-base font-medium hover:underline" style={{ color: "var(--teal)" }}>
-                  {new Date(releaseDate).getFullYear()}
-                </Link>
-              ) : <p className="font-mono text-base font-medium">—</p>}
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <DollarSign className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Price</span>
-              </div>
-              <p className="font-mono text-base font-medium truncate">{price}</p>
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Star className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Developer</span>
-              </div>
-              {developer ? (
-                <Link href={`/developer/${slugify(developer)}`} className="font-mono text-base font-medium hover:underline truncate block" style={{ color: "var(--teal)" }}>
-                  {developer}
-                </Link>
-              ) : <p className="font-mono text-base font-medium">—</p>}
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Clock className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Analyzed</span>
-              </div>
-              <p className="font-mono text-base font-medium truncate">{report.last_analyzed ? new Date(report.last_analyzed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
-            </div>
-            {/* Review Velocity card */}
-            <div className="p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                <Zap className="w-4 h-4" />
-                <span className="text-sm uppercase tracking-widest font-mono">Velocity</span>
-              </div>
-              {statsLoading ? (
-                <div className="h-4 bg-secondary rounded animate-pulse w-20" />
-              ) : reviewStats ? (
-                <>
-                  <p className="font-mono text-base font-medium">
-                    {reviewStats.review_velocity.reviews_per_day}/day
-                  </p>
-                  {(() => {
-                    const m = momentumLabel(
-                      reviewStats.review_velocity.reviews_last_30_days,
-                      reviewStats.review_velocity.reviews_per_day
-                    );
-                    return (
-                      <p className="text-sm font-mono mt-1" style={{ color: m.color }}>
-                        {m.label}
-                      </p>
-                    );
-                  })()}
-                </>
-              ) : (
-                <p className="font-mono text-base font-medium">—</p>
-              )}
-            </div>
-          </div>
-          {(() => {
-            const metaTs = relativeTime(metaCrawledAt);
-            return metaTs ? (
-              <p data-testid="quick-stats-meta-updated" className="mt-3 text-xs font-mono text-muted-foreground">
-                Page metadata updated {metaTs} · Source: Steam
-              </p>
-            ) : null;
-          })()}
-        </section>
+        <QuickStats
+          reviewCount={reviewCount ?? null}
+          totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
+          releaseDate={releaseDate}
+          price={price}
+          developer={developer}
+          lastAnalyzed={report?.last_analyzed ?? lastAnalyzed ?? null}
+          reviewStats={reviewStats}
+          statsLoading={statsLoading}
+          reviewCrawledAt={reviewCrawledAt}
+          reviewsCompletedAt={reviewsCompletedAt}
+          metaCrawledAt={metaCrawledAt}
+        />
 
-        {/* Market Reach — Boxleiter v1 revenue estimate (Pro-gated).
-            TODO(pro-gating): isPro comes from usePro() context; free tier is
-            the current default until the auth + subscription wiring lands. */}
+        {/* Market Reach — Boxleiter v1 revenue estimate. Independent of the
+            LLM pass (review count + price + genre/tags is enough), so it
+            renders on unanalyzed pages too. Pro-gated.
+            TODO(pro-gating): `isPro` comes from usePro() context; free tier
+            is the current default until auth + subscription wiring lands. */}
         <MarketReach
           estimatedOwners={estimatedOwners ?? null}
           estimatedRevenueUsd={estimatedRevenueUsd ?? null}
@@ -664,63 +253,112 @@ export function GameReportClient({
           isPro={isPro}
         />
 
-        {/* Section 3 - Design Strengths */}
-        <section className="animate-fade-up stagger-3">
-          <SectionLabel>Design Strengths</SectionLabel>
-          <ul className="space-y-3">
-            {(report.design_strengths ?? []).map((item, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--positive)" }} />
-                <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {/* About — only shown on unanalyzed pages. On analyzed pages the
+            LLM one-liner + narrative sections carry this weight. */}
+        {!report && shortDesc && (
+          <section>
+            <SectionLabel>About</SectionLabel>
+            <p className="text-base text-foreground/80 leading-relaxed">{shortDesc}</p>
+          </section>
+        )}
 
-        {/* Section 4 - Gameplay Friction */}
-        <section className="animate-fade-up stagger-4">
-          <SectionLabel>Gameplay Friction</SectionLabel>
-          <ul className="space-y-3">
-            {(report.gameplay_friction ?? []).map((item, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--negative)" }} />
-                <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {/* --- Report-only narrative sections --- */}
 
-        {/* Section 5 - Audience Profile */}
-        {report.audience_profile && (
+        {report && (
+          <section className="animate-fade-up stagger-3">
+            <SectionLabel>Design Strengths</SectionLabel>
+            <ul className="space-y-3">
+              {(report.design_strengths ?? []).map((item, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <CheckCircle2
+                    className="w-4 h-4 mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--positive)" }}
+                  />
+                  <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {report && (
+          <section className="animate-fade-up stagger-4">
+            <SectionLabel>Gameplay Friction</SectionLabel>
+            <ul className="space-y-3">
+              {(report.gameplay_friction ?? []).map((item, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <AlertCircle
+                    className="w-4 h-4 mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--negative)" }}
+                  />
+                  <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {report?.audience_profile && (
           <section className="animate-fade-up stagger-5">
             <SectionLabel>Audience Profile</SectionLabel>
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="p-5 rounded-xl space-y-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div
+                className="p-5 rounded-xl space-y-4"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              >
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">Ideal Player</p>
-                  <p className="text-base text-foreground/80">{report.audience_profile.ideal_player}</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">
+                    Ideal Player
+                  </p>
+                  <p className="text-base text-foreground/80">
+                    {report.audience_profile.ideal_player}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">Casual Friendliness</p>
-                  <p className="text-base text-foreground/80">{report.audience_profile.casual_friendliness}</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">
+                    Casual Friendliness
+                  </p>
+                  <p className="text-base text-foreground/80">
+                    {report.audience_profile.casual_friendliness}
+                  </p>
                 </div>
               </div>
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Player Archetypes</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                    Player Archetypes
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     {report.audience_profile.archetypes?.map((a) => (
-                      <span key={a} className="text-sm px-3 py-1.5 rounded-full font-mono" style={{ background: "rgba(45,185,212,0.08)", border: "1px solid rgba(45,185,212,0.2)", color: "var(--teal)" }}>
+                      <span
+                        key={a}
+                        className="text-sm px-3 py-1.5 rounded-full font-mono"
+                        style={{
+                          background: "rgba(45,185,212,0.08)",
+                          border: "1px solid rgba(45,185,212,0.2)",
+                          color: "var(--teal)",
+                        }}
+                      >
                         {a}
                       </span>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Not For</p>
+                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                    Not For
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     {report.audience_profile.not_for?.map((n) => (
-                      <span key={n} className="text-sm px-3 py-1.5 rounded-full font-mono" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", color: "rgba(239,68,68,0.8)" }}>
+                      <span
+                        key={n}
+                        className="text-sm px-3 py-1.5 rounded-full font-mono"
+                        style={{
+                          background: "rgba(239,68,68,0.08)",
+                          border: "1px solid rgba(239,68,68,0.15)",
+                          color: "rgba(239,68,68,0.8)",
+                        }}
+                      >
                         {n}
                       </span>
                     ))}
@@ -731,44 +369,50 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Section 6 - Sentiment Trend */}
-        {report.sentiment_trend && (
+        {report?.sentiment_trend && (
           <section className="animate-fade-up stagger-6">
             <SectionLabel>Sentiment Trend</SectionLabel>
-            <div className="p-5 rounded-xl flex items-start gap-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div
+              className="p-5 rounded-xl flex items-start gap-4"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
               <TrendIcon trend={report.sentiment_trend} />
               <div>
                 <p className="text-base font-mono font-medium mb-1">{report.sentiment_trend}</p>
-                <p className="text-base text-muted-foreground leading-relaxed">{report.sentiment_trend_note}</p>
+                <p className="text-base text-muted-foreground leading-relaxed">
+                  {report.sentiment_trend_note}
+                </p>
               </div>
             </div>
           </section>
         )}
 
-        {/* Section 7 - Genre Context */}
-        {report.genre_context && (
+        {report?.genre_context && (
           <section>
             <SectionLabel>Genre Context</SectionLabel>
-            <p className="text-base text-foreground/80 leading-relaxed">{report.genre_context}</p>
+            <p className="text-base text-foreground/80 leading-relaxed">
+              {report.genre_context}
+            </p>
           </section>
         )}
 
-        {/* Promise Gap */}
-        {report.store_page_alignment && (
+        {report?.store_page_alignment && (
           <section>
             <SectionLabel>Promise Gap</SectionLabel>
             <PromiseGap alignment={report.store_page_alignment} isPro={isPro} />
           </section>
         )}
 
-        {/* Section 8 - Player Wishlist */}
-        {report.player_wishlist && report.player_wishlist.length > 0 && (
+        {report?.player_wishlist && report.player_wishlist.length > 0 && (
           <section>
             <SectionLabel>Player Wishlist</SectionLabel>
             <ul className="space-y-3">
               {report.player_wishlist.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
-                  <Lightbulb className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--gem)" }} />
+                  <Lightbulb
+                    className="w-4 h-4 mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--gem)" }}
+                  />
                   <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
                 </li>
               ))}
@@ -776,14 +420,16 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Section 9 - Churn Triggers */}
-        {report.churn_triggers && report.churn_triggers.length > 0 && (
+        {report?.churn_triggers && report.churn_triggers.length > 0 && (
           <section>
             <SectionLabel>Churn Triggers</SectionLabel>
             <ul className="space-y-3">
               {report.churn_triggers.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
-                  <DoorOpen className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--negative)" }} />
+                  <DoorOpen
+                    className="w-4 h-4 mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--negative)" }}
+                  />
                   <span className="text-base text-foreground/80 leading-relaxed">{item}</span>
                 </li>
               ))}
@@ -791,23 +437,37 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Section 10 - Developer Priorities */}
-        {report.dev_priorities && report.dev_priorities.length > 0 && (
+        {report?.dev_priorities && report.dev_priorities.length > 0 && (
           <section>
             <SectionLabel>Developer Priorities</SectionLabel>
             <div className="space-y-4">
               {report.dev_priorities.map((p, i) => (
-                <div key={i} className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div
+                  key={i}
+                  className="p-4 rounded-lg"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
                   <div className="flex items-start gap-3 mb-2">
-                    <span className="font-mono text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0" style={{ background: "rgba(45,185,212,0.1)", color: "var(--teal)" }}>
+                    <span
+                      className="font-mono text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0"
+                      style={{ background: "rgba(45,185,212,0.1)", color: "var(--teal)" }}
+                    >
                       #{i + 1}
                     </span>
                     <p className="text-base font-medium text-foreground flex items-center gap-2">
-                      <Target className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--teal)" }} />
+                      <Target
+                        className="w-3.5 h-3.5 flex-shrink-0"
+                        style={{ color: "var(--teal)" }}
+                      />
                       {p.action}
                     </p>
                   </div>
-                  <p className="text-sm text-muted-foreground ml-8 mb-3 leading-relaxed">{p.why_it_matters}</p>
+                  <p className="text-sm text-muted-foreground ml-8 mb-3 leading-relaxed">
+                    {p.why_it_matters}
+                  </p>
                   <div className="flex gap-4 ml-8">
                     <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
                       Freq: <span className="text-foreground/60">{p.frequency}</span>
@@ -819,11 +479,15 @@ export function GameReportClient({
                 </div>
               ))}
             </div>
-            {/* Contextual Pro CTA */}
             {primaryGenre && (
               <p className="mt-6 text-sm text-muted-foreground">
-                Researching the {primaryGenre} market? See what players want that no game currently delivers.{" "}
-                <Link href="/pro" className="font-mono hover:text-foreground transition-colors" style={{ color: "var(--teal)" }}>
+                Researching the {primaryGenre} market? See what players want that no game
+                currently delivers.{" "}
+                <Link
+                  href="/pro"
+                  className="font-mono hover:text-foreground transition-colors"
+                  style={{ color: "var(--teal)" }}
+                >
                   Genre Intelligence (Pro) &rarr;
                 </Link>
               </p>
@@ -831,18 +495,32 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Section 11 - Competitive Context */}
-        {report.competitive_context && report.competitive_context.length > 0 && (
+        {report?.competitive_context && report.competitive_context.length > 0 && (
           <section>
             <SectionLabel>Competitive Context</SectionLabel>
             <div className="space-y-3">
               {report.competitive_context.map((c, i) => (
-                <div key={i} className="p-4 rounded-xl flex items-start gap-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div
+                  key={i}
+                  className="p-4 rounded-xl flex items-start gap-4"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
                   <Swords className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base font-mono font-medium text-foreground">{c.game}</span>
-                      <span className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--muted-foreground)" }}>
+                      <span className="text-base font-mono font-medium text-foreground">
+                        {c.game}
+                      </span>
+                      <span
+                        className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded-full"
+                        style={{
+                          background: "rgba(255,255,255,0.05)",
+                          color: "var(--muted-foreground)",
+                        }}
+                      >
                         {c.comparison_sentiment}
                       </span>
                     </div>
@@ -854,7 +532,8 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Sentiment Timeline */}
+        {/* --- Steam-sourced charts — rendered on both paths --- */}
+
         <section>
           <SectionLabel>Sentiment History</SectionLabel>
           {statsLoading ? (
@@ -864,7 +543,6 @@ export function GameReportClient({
           ) : null}
         </section>
 
-        {/* Playtime Chart + insight */}
         <section>
           <SectionLabel>Playtime Sentiment</SectionLabel>
           {statsLoading ? (
@@ -878,8 +556,7 @@ export function GameReportClient({
           ) : null}
         </section>
 
-        {/* Competitive Benchmark (Pro — blurred for free users) */}
-        {benchmarks && (
+        {report && benchmarks && (
           <section>
             <SectionLabel>Competitive Benchmark</SectionLabel>
             <CompetitiveBenchmark
@@ -891,7 +568,6 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Section 12 - Tags */}
         {tags && tags.length > 0 && (
           <section>
             <SectionLabel>Tags</SectionLabel>
@@ -914,28 +590,45 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* Deep Dive Analytics */}
-        <GameAnalyticsSection appid={appid} gameName={name} />
+        {report && <GameAnalyticsSection appid={appid} gameName={name} />}
 
-        {/* Footer */}
+        {!report && (
+          <section className="text-center py-8">
+            <div
+              className="inline-flex items-center gap-3 px-6 py-4 rounded-xl"
+              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <Clock className="w-5 h-5 text-muted-foreground" />
+              <p className="text-base text-muted-foreground">
+                Analysis in progress — check back once this game reaches sufficient reviews.
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Footer: analyzed games get the "Analysis based on N reviews" line;
+            both show the Steam store link. */}
         <section className="pt-8 border-t border-border">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
-            <Users className="w-3.5 h-3.5" />
-            <span>
-              Analysis based on {report.total_reviews_analyzed?.toLocaleString() ?? "\u2014"} reviews
-            </span>
-            {report.last_analyzed && (
-              <span className="ml-auto">
-                Updated{" "}
-                {new Date(report.last_analyzed).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
+          {report && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
+              <Users className="w-3.5 h-3.5" />
+              <span>
+                Analysis based on{" "}
+                {report.total_reviews_analyzed?.toLocaleString() ?? "\u2014"} reviews
               </span>
-            )}
-          </div>
-          <div className="mt-4">
+              {report.last_analyzed && (
+                <span className="ml-auto">
+                  Updated{" "}
+                  {new Date(report.last_analyzed).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+              )}
+            </div>
+          )}
+          <div className={report ? "mt-4" : ""}>
             <a
               href={`https://store.steampowered.com/app/${appid}`}
               target="_blank"

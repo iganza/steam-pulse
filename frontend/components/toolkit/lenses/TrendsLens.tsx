@@ -201,7 +201,7 @@ export function TrendsLens({ filters, isPro }: LensProps) {
           )}
           {appidsScoped && (
             <span className="ml-2 text-foreground/40">
-              Trends are catalog-wide — game selection ignored. Use Sentiment Drill for a single-game timeline.
+              Trends are catalog-wide — game selection ignored. Open a game page for a single-game timeline.
             </span>
           )}
         </p>

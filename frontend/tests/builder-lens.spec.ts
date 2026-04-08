@@ -9,7 +9,7 @@ test.describe('Builder lens', () => {
   })
 
   test('smart default — pre-selects a metric and renders a chart', async ({ page }) => {
-    await page.goto('/analytics?lens=builder')
+    await page.goto('/explore?lens=builder')
     await expect(page.getByTestId('builder-lens')).toBeVisible()
     // Default metric ("releases") should be auto-selected, causing the chart
     // to render (not the empty state).
@@ -25,7 +25,7 @@ test.describe('Builder lens', () => {
       await route.fallback()
     })
 
-    await page.goto('/analytics?lens=builder')
+    await page.goto('/explore?lens=builder')
     await expect(page.getByTestId('builder-lens')).toBeVisible()
 
     // Free tier = 1 metric cap — clicking the current selection deselects it,
@@ -47,7 +47,7 @@ test.describe('Builder lens', () => {
       await route.fallback()
     })
 
-    await page.goto('/analytics?lens=builder')
+    await page.goto('/explore?lens=builder')
     await expect(page.getByTestId('builder-lens')).toBeVisible()
     // Wait for the initial smart-default fetch to complete.
     await expect.poll(() => fetchCount).toBeGreaterThanOrEqual(1)
@@ -62,7 +62,7 @@ test.describe('Builder lens', () => {
 
   test('free tier: metric picker capped at 1', async ({ page }) => {
     test.skip(IS_PRO, 'Only runs when Pro flag is off')
-    await page.goto('/analytics?lens=builder')
+    await page.goto('/explore?lens=builder')
     await expect(page.getByTestId('builder-lens')).toBeVisible()
     // Smart default already took the single slot.
     await expect(page.getByTestId('builder-metric-chip-releases')).toHaveAttribute(
@@ -81,7 +81,7 @@ test.describe('Builder lens', () => {
       if (g) seen.push(g)
       await route.fallback()
     })
-    await page.goto('/analytics?lens=builder&genre=action')
+    await page.goto('/explore?lens=builder&genre=action')
     await expect(page.getByTestId('builder-lens')).toBeVisible()
     await expect.poll(() => seen).toContain('action')
   })

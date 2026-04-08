@@ -7,36 +7,36 @@ test.describe('Trends lens — segment caption', () => {
   })
 
   test('default caption shows "entire catalog"', async ({ page }) => {
-    await page.goto('/analytics')
+    await page.goto('/explore')
     const caption = page.getByTestId('trends-segment-caption')
     await expect(caption).toBeVisible()
     await expect(caption).toContainText(/entire catalog/i)
   })
 
   test('caption reflects genre filter from URL', async ({ page }) => {
-    await page.goto('/analytics?genre=action')
+    await page.goto('/explore?genre=action')
     const caption = page.getByTestId('trends-segment-caption')
     await expect(caption).toContainText(/genre=action/i)
   })
 
   test('caption reflects tag filter from URL', async ({ page }) => {
-    await page.goto('/analytics?tag=roguelike')
+    await page.goto('/explore?tag=roguelike')
     const caption = page.getByTestId('trends-segment-caption')
     await expect(caption).toContainText(/tag=roguelike/i)
   })
 
   test('ignored-filter notice appears for unsupported filters', async ({ page }) => {
-    await page.goto('/analytics?price_tier=under_10')
+    await page.goto('/explore?price_tier=under_10')
     const caption = page.getByTestId('trends-segment-caption')
     await expect(caption).toContainText(/not yet supported in Trends/i)
     await expect(caption).toContainText(/price tier/i)
   })
 
   test('appids advisory appears when games are scoped', async ({ page }) => {
-    await page.goto('/analytics?appids=440,570')
+    await page.goto('/explore?appids=440,570')
     const caption = page.getByTestId('trends-segment-caption')
     await expect(caption).toContainText(/catalog-wide/i)
-    await expect(caption).toContainText(/Sentiment Drill/i)
+    await expect(caption).toContainText(/single-game timeline/i)
   })
 })
 
@@ -52,7 +52,7 @@ test.describe('Trends lens — filter propagation', () => {
       await route.fallback()
     })
 
-    await page.goto('/analytics?genre=action')
+    await page.goto('/explore?genre=action')
     // Wait for the lens to fire its requests
     await page.getByText('Release Volume').waitFor()
     await expect.poll(() => seenGenres).toContain('action')
@@ -69,7 +69,7 @@ test.describe('Trends lens — filter propagation', () => {
       await route.fallback()
     })
 
-    await page.goto('/analytics?tag=roguelike')
+    await page.goto('/explore?tag=roguelike')
     await page.getByText('Release Volume').waitFor()
     await expect.poll(() => seenTags).toContain('roguelike')
   })

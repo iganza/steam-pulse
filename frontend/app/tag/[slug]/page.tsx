@@ -4,7 +4,6 @@ import { getTagsGrouped, getTagTrend } from "@/lib/api";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SearchClient } from "@/app/search/SearchClient";
-import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 import { TagTrendChart } from "@/components/analytics/TagTrendChart";
 import type { TagGroup } from "@/lib/types";
 
@@ -128,21 +127,12 @@ export default async function TagPage({ params }: Props) {
           </section>
         )}
 
-        {/* Toolkit shell — catalog with filters */}
+        {/* Games with this tag */}
         <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
-          <ToolkitShell
-            lockedFilters={{ tag: slug }}
-            defaultLens="explorer"
-            visibleLenses={["explorer", "market-map", "trends"]}
-            lensContent={{
-              explorer: (
-                <SearchClient
-                  initialParams={{}}
-                  initialFilters={{ tag: slug }}
-                  hideTagFilter
-                />
-              ),
-            }}
+          <SearchClient
+            initialParams={{}}
+            initialFilters={{ tag: slug }}
+            hideTagFilter
           />
         </Suspense>
       </div>

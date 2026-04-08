@@ -11,7 +11,7 @@ export interface LensDefinition {
 export const LENS_REGISTRY: LensDefinition[] = [
   {
     id: "sentiment",
-    label: "Sentiment Drill",
+    label: "Sentiment",
     icon: "BarChart3",
     pro: false,
     description: "Deep sentiment analysis for a single game",
@@ -24,27 +24,6 @@ export const LENS_REGISTRY: LensDefinition[] = [
     // The lens itself gates pro metrics internally via MetricsGrid's blur overlay.
     pro: false,
     description: "Side-by-side comparison of multiple games",
-  },
-  {
-    id: "explorer",
-    label: "Explorer",
-    icon: "Table",
-    pro: true,
-    description: "Sortable table with every computed metric as a column",
-  },
-  {
-    id: "benchmark",
-    label: "Benchmark",
-    icon: "Target",
-    pro: true,
-    description: "Percentile rankings within genre or tag",
-  },
-  {
-    id: "market-map",
-    label: "Market Map",
-    icon: "PieChart",
-    pro: true,
-    description: "Aggregate distributions across the filtered catalog",
   },
   {
     id: "trends",

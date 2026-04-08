@@ -10,9 +10,6 @@ import {
 export const LENS_IDS = [
   "sentiment",
   "compare",
-  "explorer",
-  "benchmark",
-  "market-map",
   "trends",
   "builder",
 ] as const;

@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getGameReport } from "@/lib/api";
 import { ApiError } from "@/lib/api";
-import { Suspense } from "react";
 import { GameReportClient } from "./GameReportClient";
-import { ToolkitShell } from "@/components/toolkit/ToolkitShell";
 
 interface Props {
   params: Promise<{ appid: string; slug: string }>;
@@ -200,82 +198,37 @@ export default async function GameReportPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <main>
-        <Suspense
-          fallback={
-            <GameReportClient
-              report={report}
-              appid={numericAppid}
-              gameName={gameData.gameName}
-              headerImage={headerImage}
-              releaseDate={gameData.releaseDate}
-              developer={gameData.developer}
-              developerSlug={gameData.developerSlug}
-              publisher={gameData.publisher}
-              publisherSlug={gameData.publisherSlug}
-              priceUsd={gameData.priceUsd}
-              isFree={gameData.isFree ?? false}
-              genres={gameData.genres ?? []}
-              tags={gameData.tags ?? []}
-              shortDesc={gameData.shortDesc}
-              reviewCount={gameData.reviewCount}
-              deckCompatibility={gameData.deckCompatibility}
-              deckTestResults={gameData.deckTestResults}
-              isEarlyAccess={gameData.isEarlyAccess}
-              positivePct={gameData.positivePct}
-              reviewScoreDesc={gameData.reviewScoreDesc}
-              metaCrawledAt={gameData.metaCrawledAt}
-              reviewCrawledAt={gameData.reviewCrawledAt}
-              reviewsCompletedAt={gameData.reviewsCompletedAt}
-              tagsCrawledAt={gameData.tagsCrawledAt}
-              lastAnalyzed={gameData.lastAnalyzed}
-              estimatedOwners={gameData.estimatedOwners}
-              estimatedRevenueUsd={gameData.estimatedRevenueUsd}
-              revenueEstimateMethod={gameData.revenueEstimateMethod}
-              revenueEstimateReason={gameData.revenueEstimateReason}
-            />
-          }
-        >
-          <ToolkitShell
-            lockedFilters={{ appids: [numericAppid] }}
-            defaultLens="sentiment"
-            visibleLenses={["sentiment", "compare", "benchmark"]}
-            lensContent={{
-              sentiment: (
-                <GameReportClient
-                  report={report}
-                  appid={numericAppid}
-                  gameName={gameData.gameName}
-                  headerImage={headerImage}
-                  releaseDate={gameData.releaseDate}
-                  developer={gameData.developer}
-                  developerSlug={gameData.developerSlug}
-                  publisher={gameData.publisher}
-                  publisherSlug={gameData.publisherSlug}
-                  priceUsd={gameData.priceUsd}
-                  isFree={gameData.isFree ?? false}
-                  genres={gameData.genres ?? []}
-                  tags={gameData.tags ?? []}
-                  shortDesc={gameData.shortDesc}
-                  reviewCount={gameData.reviewCount}
-                  deckCompatibility={gameData.deckCompatibility}
-                  deckTestResults={gameData.deckTestResults}
-                  isEarlyAccess={gameData.isEarlyAccess}
-                  positivePct={gameData.positivePct}
-                  reviewScoreDesc={gameData.reviewScoreDesc}
-                  metaCrawledAt={gameData.metaCrawledAt}
-                  reviewCrawledAt={gameData.reviewCrawledAt}
-                  reviewsCompletedAt={gameData.reviewsCompletedAt}
-                  tagsCrawledAt={gameData.tagsCrawledAt}
-                  lastAnalyzed={gameData.lastAnalyzed}
-                  estimatedOwners={gameData.estimatedOwners}
-                  estimatedRevenueUsd={gameData.estimatedRevenueUsd}
-                  revenueEstimateMethod={gameData.revenueEstimateMethod}
-                  revenueEstimateReason={gameData.revenueEstimateReason}
-                />
-              ),
-            }}
-          />
-        </Suspense>
+        <GameReportClient
+          report={report}
+          appid={numericAppid}
+          gameName={gameData.gameName}
+          headerImage={headerImage}
+          releaseDate={gameData.releaseDate}
+          developer={gameData.developer}
+          developerSlug={gameData.developerSlug}
+          publisher={gameData.publisher}
+          publisherSlug={gameData.publisherSlug}
+          priceUsd={gameData.priceUsd}
+          isFree={gameData.isFree ?? false}
+          genres={gameData.genres ?? []}
+          tags={gameData.tags ?? []}
+          shortDesc={gameData.shortDesc}
+          reviewCount={gameData.reviewCount}
+          deckCompatibility={gameData.deckCompatibility}
+          deckTestResults={gameData.deckTestResults}
+          isEarlyAccess={gameData.isEarlyAccess}
+          positivePct={gameData.positivePct}
+          reviewScoreDesc={gameData.reviewScoreDesc}
+          metaCrawledAt={gameData.metaCrawledAt}
+          reviewCrawledAt={gameData.reviewCrawledAt}
+          reviewsCompletedAt={gameData.reviewsCompletedAt}
+          tagsCrawledAt={gameData.tagsCrawledAt}
+          lastAnalyzed={gameData.lastAnalyzed}
+          estimatedOwners={gameData.estimatedOwners}
+          estimatedRevenueUsd={gameData.estimatedRevenueUsd}
+          revenueEstimateMethod={gameData.revenueEstimateMethod}
+          revenueEstimateReason={gameData.revenueEstimateReason}
+        />
       </main>
     </>
   );

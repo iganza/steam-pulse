@@ -127,7 +127,7 @@ Priority-tiered staleness query:
 | Tier | Criteria | Re-crawl after |
 |------|----------|----------------|
 | 1 | `coming_soon = TRUE` or has genre 70 (Early Access) | 7 days |
-| 2 | `review_count >= 1000` (popular games) | 14 days |
+| 2 | `review_count >= 1000` (popular games) | 7 days |
 | 3 | Everything else with `meta_status = 'done'` | 30 days |
 
 ```sql
@@ -140,9 +140,9 @@ WHERE ac.meta_status = 'done'
     ((g.coming_soon = TRUE OR gg.genre_id IS NOT NULL)
       AND ac.meta_crawled_at < NOW() - INTERVAL '7 days')
     OR
-    -- Tier 2: popular games, stale > 14 days
+    -- Tier 2: popular games, stale > 7 days
     (ac.review_count >= 1000
-      AND ac.meta_crawled_at < NOW() - INTERVAL '14 days')
+      AND ac.meta_crawled_at < NOW() - INTERVAL '7 days')
     OR
     -- Tier 3: everything else, stale > 30 days
     (ac.meta_crawled_at < NOW() - INTERVAL '30 days')
@@ -257,6 +257,40 @@ Partial index — only `done` rows. Makes the staleness query efficient on 160k+
 
 ---
 
+### Part 4: Enable Hourly Catalog Refresh
+
+**Problem:** New Steam releases should appear in `app_catalog` within ~1h so their metadata
++ tags can be fetched promptly. The `CatalogRefreshRule` already exists in
+`infra/stacks/compute_stack.py` but is `enabled=False` on a 7-day schedule.
+
+**Good news:** the whole pipeline already works — `CatalogService.refresh()` fetches Steam
+`GetAppList`, bulk-upserts with `meta_status='pending'` default, and calls
+`enqueue_pending()` which dispatches to the app-crawl queue. New games then flow through
+the same ingest path as Part 1/2 re-crawls, so the delete-and-replace fix from Part 1
+automatically applies. `crawler/handler.py` already routes `event.source == "aws.events"`
+to `catalog_service.refresh()`.
+
+**Change:** flip the rule to hourly and enabled:
+
+```python
+catalog_rule = events.Rule(
+    self, "CatalogRefreshRule",
+    schedule=events.Schedule.rate(cdk.Duration.hours(1)),
+    enabled=True,
+)
+catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
+```
+
+**First-run caveat:** if there's a large backlog of `pending` rows, the first tick
+enqueues them all. Check `SELECT count(*) FROM app_catalog WHERE meta_status='pending'`
+before deploying; SQS + spoke pipeline will throttle naturally if it's large.
+
+**Ordering:** `CatalogRefreshRule` (hourly) and `StaleMetaRefreshRule` (daily) are
+independent — both publish into the same `app-crawl-queue`, which the spoke drains
+FIFO. No coordination needed.
+
+---
+
 ## Files to Create / Modify
 
 | File | Action |
@@ -266,9 +300,9 @@ Partial index — only `done` rows. Makes the staleness query efficient on 160k+
 | `src/library-layer/library_layer/services/catalog_service.py` | Add `enqueue_stale()` |
 | `src/lambda-functions/lambda_functions/crawler/events.py` | Add `StaleRefreshRequest` model |
 | `src/lambda-functions/lambda_functions/crawler/handler.py` | Add `stale_refresh` dispatch |
-| `infra/stacks/compute_stack.py` | Add daily EventBridge rule |
+| `infra/stacks/compute_stack.py` | Add daily `StaleMetaRefreshRule` + enable existing `CatalogRefreshRule` at hourly rate |
 | `scripts/sp.py` | Add `queue stale` command |
-| `src/lambda-functions/migrations/0014_add_stale_meta_index.sql` | Create partial index |
+| `src/lambda-functions/migrations/0033_add_stale_meta_index.sql` | Create partial index |
 | `src/library-layer/library_layer/schema.py` | Add ALTER TABLE stub + index for test suite |
 
 ## Testing
@@ -288,6 +322,8 @@ Partial index — only `done` rows. Makes the staleness query efficient on 160k+
   - `poetry run ruff check . && poetry run ruff format .` clean
   - Deploy, invoke `{"action": "stale_refresh", "limit": 10}` → verify 10 games re-crawled
   - After re-crawl, verify genre associations reflect current Steam data
+  - After re-crawl, verify both `meta_crawled_at` and `tags_crawled_at` advanced
+  - Verify `CatalogRefreshRun` CloudWatch metric increments hourly
 
 ## Constraints
 
@@ -302,8 +338,10 @@ Partial index — only `done` rows. Makes the staleness query efficient on 160k+
 - **First run catch-up:** On first stale refresh, most of the 160k+ games will qualify.
   At 2,000/day it takes ~80 days to cycle through. For an initial catch-up, run
   `sp.py queue stale --limit 10000` manually a few times.
-- **Tag freshness:** Tags (from Steam store page) could also go stale. Consider adding
-  `tags_crawled_at` to the staleness query in a follow-up. For now, metadata (genres,
-  categories, price, release date) is the priority.
+- **Tag freshness:** `metadata` and `tags` are separate spoke tasks, so a metadata
+  re-crawl alone does NOT touch `tags_crawled_at`. `enqueue_stale()` enqueues BOTH a
+  `metadata` and a `tags` message per appid, so `meta_crawled_at` and `tags_crawled_at`
+  advance together on re-crawl — the staleness query only needs `meta_crawled_at`.
+  `mark_tags_crawled()` continues to record the independent tag timestamp as today.
 - **Review re-crawl:** Already handled by the review crawl pipeline with cursor-based
   continuation. Not in scope here.

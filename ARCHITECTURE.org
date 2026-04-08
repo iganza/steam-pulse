@@ -142,7 +142,7 @@ Invariant: Every appid Steam returns that is not yet in app_catalog
 
 #+BEGIN_SRC
   EventBridge           CrawlerFn              Steam API         RDS
-  (weekly rule)         handler.py             IStoreService     app_catalog
+  (hourly rule)         handler.py             IStoreService     app_catalog
       │                     │                      │                 │
       │  source=aws.events  │                      │                 │
       │────────────────────>│                      │                 │

@@ -2,7 +2,7 @@ GAME DISCOVERY FLOW
  ══════════════════════════════════════════════════════════════════════
  
    EventBridge          CrawlerFn              Steam API          RDS
-   (scheduled)          (primary)              IStoreService    app_catalog
+   (hourly)             (primary)              IStoreService    app_catalog
        │                    │                      │                │
        │  source=aws.events │                      │                │
        │───────────────────>│                      │                │

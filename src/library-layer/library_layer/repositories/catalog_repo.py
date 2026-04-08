@@ -50,6 +50,44 @@ class CatalogRepository(BaseRepository):
         rows = self._fetchall(sql, params)
         return [CatalogEntry.model_validate(dict(r)) for r in rows]
 
+    def find_stale_meta(self, limit: int = 2000) -> list[CatalogEntry]:
+        """Return catalog entries whose metadata is stale and should be re-crawled.
+
+        Priority tiers (ordered most to least urgent):
+          1. Early Access / coming-soon games → stale after 7 days
+          2. Popular games (review_count >= 1000) → stale after 7 days
+          3. Everything else with meta_status='done' → stale after 30 days
+
+        NULLS FIRST ensures legacy rows (no meta_crawled_at) get refreshed first.
+        """
+        rows = self._fetchall(
+            """
+            SELECT ac.* FROM app_catalog ac
+            LEFT JOIN games g ON g.appid = ac.appid
+            LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
+            WHERE ac.meta_status = 'done'
+              AND (
+                ((g.coming_soon = TRUE OR gg.genre_id IS NOT NULL)
+                  AND (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '7 days'))
+                OR
+                (ac.review_count >= 1000
+                  AND (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '7 days'))
+                OR
+                (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '30 days')
+              )
+            ORDER BY
+              CASE
+                WHEN g.coming_soon = TRUE OR gg.genre_id IS NOT NULL THEN 0
+                WHEN ac.review_count >= 1000 THEN 1
+                ELSE 2
+              END,
+              ac.meta_crawled_at ASC NULLS FIRST
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [CatalogEntry.model_validate(dict(r)) for r in rows]
+
     def set_meta_status(
         self,
         appid: int,

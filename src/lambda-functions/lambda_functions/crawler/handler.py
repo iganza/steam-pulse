@@ -28,6 +28,7 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
+    StaleRefreshRequest,
     DirectRequest,
     parse_spoke_request,
     spoke_index_for_appid,
@@ -206,6 +207,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
                     value=result.get("enqueued", 0),
                 )
                 return result
+            case StaleRefreshRequest():
+                count = _catalog_service.enqueue_stale(limit=req.limit)
+                logger.info("stale_refresh complete", extra={"appids": count})
+                metrics.add_metric(name="StaleMetaEnqueued", unit=MetricUnit.Count, value=count)
+                return {"stale_enqueued": count}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

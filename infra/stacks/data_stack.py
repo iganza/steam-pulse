@@ -176,6 +176,16 @@ class DataStack(cdk.Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
+            lifecycle_rules=[
+                # OpenNext ISR cache uses a per-build key prefix
+                # (cache/{BUILD_ID}/...). Expire objects after 7 days so old
+                # build namespaces age out automatically — no manual purge.
+                s3.LifecycleRule(
+                    id="ExpireOldIsrCache",
+                    prefix="cache/",
+                    expiration=cdk.Duration.days(7),
+                ),
+            ],
         )
 
         # CloudFront OAC read access. Policy lives here (not DeliveryStack)

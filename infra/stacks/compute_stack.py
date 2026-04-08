@@ -298,7 +298,14 @@ class ComputeStack(cdk.Stack):
                 # cache read/write will fail with NoSuchBucket.
                 "CACHE_BUCKET_NAME": f"steampulse-frontend-{env}",
                 "CACHE_BUCKET_REGION": self.region,
-                "CACHE_BUCKET_KEY_PREFIX": "cache/",
+                # Per-build key prefix — each deploy writes to a fresh
+                # cache/{BUILD_ID}/ namespace, so the new Lambda can never
+                # read pre-deploy HTML. Old prefixes age out via the 7-day
+                # S3 lifecycle rule on frontend_bucket (data_stack.py).
+                # BUILD_ID comes from the CDK context var `build-id`
+                # (set by scripts/deploy.sh from `git rev-parse --short HEAD`),
+                # with a `local` fallback for dev synth.
+                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
             },
         )

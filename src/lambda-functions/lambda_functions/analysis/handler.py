@@ -14,7 +14,7 @@ from aws_lambda_powertools import Logger, Metrics, Tracer
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from library_layer.analyzer import analyze_game
+from library_layer.analyzer import AnalyzerSettings, analyze_game
 from library_layer.config import SteamPulseConfig
 from library_layer.events import AnalysisRequest, ReportReadyEvent
 from library_layer.llm.converse import ConverseBackend
@@ -24,6 +24,7 @@ from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.utils.chunking import dataset_reference_time
 from library_layer.utils.db import get_conn
 from library_layer.utils.events import EventPublishError, publish_event
 
@@ -32,8 +33,6 @@ from .events import AnalyzeRequest
 logger = Logger(service="analysis")
 tracer = Tracer(service="analysis")
 metrics = Metrics(namespace="SteamPulse", service="analysis")
-
-MAX_REVIEWS = 2000
 
 
 # ── Module-level repo + backend wiring. DB connection is lazy; ConverseBackend
@@ -46,7 +45,14 @@ _merge_repo: MergedSummaryRepository = MergedSummaryRepository(get_conn)
 
 _sns_client = boto3.client("sns")
 _analysis_config = SteamPulseConfig()
-_backend = ConverseBackend(_analysis_config)
+# ALL analyzer tuning knobs flow from config → handler → analyze_game.
+# No function signature anywhere in the pipeline carries a default for
+# any of these.
+_analyzer_settings = AnalyzerSettings.from_config(_analysis_config)
+_backend = ConverseBackend(
+    _analysis_config,
+    max_workers=_analysis_config.ANALYSIS_CONVERSE_MAX_WORKERS,
+)
 metrics.set_default_dimensions(environment=_analysis_config.ENVIRONMENT)
 _content_events_topic_arn = get_parameter(_analysis_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
@@ -62,7 +68,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if not game:
         raise ValueError(f"appid={req.appid} not found in games table")
 
-    db_reviews = _review_repo.find_by_appid(req.appid, limit=MAX_REVIEWS)
+    max_reviews = _analysis_config.ANALYSIS_MAX_REVIEWS
+    logger.info("loading_reviews", extra={"appid": req.appid, "max_reviews": max_reviews})
+    db_reviews = _review_repo.find_by_appid(req.appid, limit=max_reviews)
     if not db_reviews:
         raise ValueError(f"No reviews found for appid={req.appid}")
 
@@ -96,6 +104,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
     ea_data = _review_repo.find_early_access_impact(req.appid)
     temporal = build_temporal_context(game, velocity_data, ea_data)
 
+    # Derive the chunking recency anchor from the dataset itself so
+    # chunk hashes and cache lookups stay reproducible across wall-clock
+    # time. Falls back explicitly only when no review has posted_at; that
+    # case raises ValueError in dataset_reference_time — we fail loudly.
+    reference_time = dataset_reference_time(reviews_for_llm)
+
     analysis_req = AnalysisRequest(
         appid=req.appid,
         mode="realtime",
@@ -109,7 +123,10 @@ def handler(event: dict, context: LambdaContext) -> dict:
         report_repo=_report_repo,
         reviews=reviews_for_llm,
         game_name=name,
+        settings=_analyzer_settings,
+        reference_time=reference_time,
         temporal=temporal,
+        metadata=None,
         steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
         steam_review_count=game.review_count or None,
         steam_review_score_desc=game.review_score_desc,

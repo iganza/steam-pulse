@@ -15,6 +15,7 @@ throughout; the only parallelism is a thread pool inside ConverseBackend.run().
 
 import json
 import time
+from datetime import datetime
 
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
@@ -31,9 +32,6 @@ from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.utils.chunking import (
-    CHUNK_SIZE as STRATIFIED_CHUNK_SIZE,
-)
-from library_layer.utils.chunking import (
     compute_chunk_hash,
     stratified_chunk_reviews,
 )
@@ -43,9 +41,40 @@ from library_layer.utils.scores import (
 from library_layer.utils.scores import (
     compute_sentiment_trend as _compute_sentiment_trend,
 )
+from pydantic import BaseModel, Field
 
 logger = Logger()
 _config = SteamPulseConfig()
+
+
+class AnalyzerSettings(BaseModel):
+    """All tuning knobs for the three-phase pipeline, bundled.
+
+    Constructed at the handler (from `SteamPulseConfig`) and passed into
+    `analyze_game`. Every phase helper receives the relevant fields as
+    explicit keyword arguments — NO function in the pipeline carries
+    default values for any of these. Misconfiguration fails loudly at the
+    handler boundary rather than silently using a stale constant buried
+    inside a helper.
+    """
+
+    chunk_size: int = Field(gt=0)
+    max_chunks_per_merge_call: int = Field(gt=0)
+    chunk_max_tokens: int = Field(gt=0)
+    merge_max_tokens: int = Field(gt=0)
+    synthesis_max_tokens: int = Field(gt=0)
+    shuffle_seed: int
+
+    @classmethod
+    def from_config(cls, config: SteamPulseConfig) -> "AnalyzerSettings":
+        return cls(
+            chunk_size=config.ANALYSIS_CHUNK_SIZE,
+            max_chunks_per_merge_call=config.ANALYSIS_max_chunks_per_merge_call,
+            chunk_max_tokens=config.ANALYSIS_CHUNK_MAX_TOKENS,
+            merge_max_tokens=config.ANALYSIS_MERGE_MAX_TOKENS,
+            synthesis_max_tokens=config.ANALYSIS_SYNTHESIS_MAX_TOKENS,
+            shuffle_seed=config.ANALYSIS_CHUNK_SHUFFLE_SEED,
+        )
 
 
 SYNTHESIS_SYSTEM_PROMPT = """\
@@ -424,13 +453,12 @@ def _build_merge_user_message(
     summaries: list[RichChunkSummary],
     game_name: str,
 ) -> str:
-    """Build the single-call merge prompt over all chunk summaries.
+    """Build the merge prompt for a single LLM call over a group of summaries.
 
-    With MAX_REVIEWS=2000 and CHUNK_SIZE=50, a single merge call sees at
-    most ~40 RichChunkSummary objects (~60K tokens), well within Sonnet's
-    200K context window. We deliberately avoid hierarchical merge to keep
-    `source_chunk_ids` tracking simple and to eliminate the risk of running
-    synthesis against a partial root.
+    Callers guarantee `len(summaries) <= settings.max_chunks_per_merge_call`.
+    Larger chunk counts are handled by `run_merge_phase` via hierarchical
+    recursion — see `SteamPulseConfig.ANALYSIS_max_chunks_per_merge_call`
+    for the configured bound.
     """
     payload = [s.model_dump(mode="json") for s in summaries]
     total_reviews = sum(
@@ -449,8 +477,8 @@ MergedSummary. Total reviews covered: {total_reviews}.
 <output_format>
 Return a single MergedSummary JSON with the deduplicated topics, merged
 total_stats, the best quotes, and the consolidated competitor_refs.
-`merge_level` and `chunks_merged` are populated server-side — you may
-leave them at their defaults.
+`merge_level`, `chunks_merged`, and `source_chunk_ids` are populated
+server-side — you may leave them at their defaults.
 </output_format>\
 """
 
@@ -503,15 +531,27 @@ def build_chunk_requests(
     game_name: str,
     reviews: list[dict],
     cached_hashes: set[str],
+    chunk_size: int,
+    reference_time: datetime,
+    shuffle_seed: int,
+    chunk_max_tokens: int,
 ) -> tuple[list[list[dict]], list[LLMRequest], list[tuple[int, str, int]]]:
     """Compute chunks and build LLMRequests for those not in `cached_hashes`.
+
+    Every knob — chunk size, shuffle seed, recency anchor, per-call token
+    budget — is passed explicitly. NO defaults.
 
     Returns:
         chunks: the full stratified chunk list (length = total_chunks)
         pending: LLMRequests for chunks whose hash is not cached
         pending_meta: parallel list of (chunk_index, chunk_hash, chunk_size)
     """
-    chunks = stratified_chunk_reviews(reviews, STRATIFIED_CHUNK_SIZE)
+    chunks = stratified_chunk_reviews(
+        reviews,
+        chunk_size=chunk_size,
+        reference_time=reference_time,
+        seed=shuffle_seed,
+    )
     total = len(chunks)
     pending: list[LLMRequest] = []
     pending_meta: list[tuple[int, str, int]] = []
@@ -525,7 +565,7 @@ def build_chunk_requests(
                 task="chunking",
                 system=CHUNK_SYSTEM_PROMPT_V2,
                 user=_build_chunk_user_message_v2(chunk, game_name, i, total),
-                max_tokens=1024,
+                max_tokens=chunk_max_tokens,
                 response_model=RichChunkSummary,
             )
         )
@@ -538,14 +578,15 @@ def build_merge_request(
     appid: int,
     game_name: str,
     summaries: list[RichChunkSummary],
+    merge_max_tokens: int,
 ) -> LLMRequest:
-    """Build the single merge LLMRequest for a game's chunk summaries."""
+    """Build the single merge LLMRequest for a group of chunk summaries."""
     return LLMRequest(
         record_id=f"{appid}-merge",
         task="merging",
         system=MERGE_SYSTEM_PROMPT,
         user=_build_merge_user_message(summaries, game_name),
-        max_tokens=4096,
+        max_tokens=merge_max_tokens,
         response_model=MergedSummary,
     )
 
@@ -563,6 +604,7 @@ def build_synthesis_request(
     steam_review_score_desc: str | None,
     temporal: GameTemporalContext | None,
     metadata: GameMetadataContext | None,
+    synthesis_max_tokens: int,
 ) -> LLMRequest:
     return LLMRequest(
         record_id=f"{appid}-synthesis",
@@ -580,7 +622,7 @@ def build_synthesis_request(
             temporal,
             metadata,
         ),
-        max_tokens=5000,
+        max_tokens=synthesis_max_tokens,
         response_model=GameReport,
     )
 
@@ -610,9 +652,14 @@ def run_chunk_phase(
     reviews: list[dict],
     backend: LLMBackend,
     chunk_repo: ChunkSummaryRepository,
+    chunk_size: int,
+    reference_time: datetime,
+    shuffle_seed: int,
+    chunk_max_tokens: int,
 ) -> tuple[list[RichChunkSummary], list[int]]:
     """Phase 1: chunk + LLM summarise, with idempotent persistence.
 
+    All tuning knobs are required explicit parameters — no defaults.
     Returns (summaries_in_chunk_order, chunk_row_ids_in_order).
     """
     # Pre-load cache hits so we only send the DB-missing chunks to the backend.
@@ -624,6 +671,10 @@ def run_chunk_phase(
         game_name=game_name,
         reviews=reviews,
         cached_hashes=set(existing.keys()),
+        chunk_size=chunk_size,
+        reference_time=reference_time,
+        shuffle_seed=shuffle_seed,
+        chunk_max_tokens=chunk_max_tokens,
     )
     logger.info(
         "chunk_phase_start",
@@ -679,6 +730,23 @@ def run_chunk_phase(
     return ordered_summaries, ordered_ids
 
 
+def _merged_as_chunk_like(merged: MergedSummary) -> RichChunkSummary:
+    """Wrap a MergedSummary so it can be merged again at the next level.
+
+    The merge prompt reads `topics + competitor_refs + notable_quotes +
+    batch_stats` from its inputs. A MergedSummary stores the same data but
+    calls the stats field `total_stats`, so we rebind it to `batch_stats`
+    here. Source-id bookkeeping stays in a parallel list maintained by
+    `run_merge_phase` — it is never carried inside this wrapper.
+    """
+    return RichChunkSummary(
+        topics=list(merged.topics),
+        competitor_refs=list(merged.competitor_refs),
+        notable_quotes=list(merged.notable_quotes)[:3],
+        batch_stats=merged.total_stats.model_copy(),
+    )
+
+
 def run_merge_phase(
     *,
     appid: int,
@@ -687,32 +755,81 @@ def run_merge_phase(
     chunk_ids: list[int],
     backend: LLMBackend,
     merge_repo: MergedSummaryRepository,
+    max_chunks_per_merge_call: int,
+    merge_max_tokens: int,
 ) -> tuple[MergedSummary, int | None]:
-    """Phase 2: single-call merge with cache-check on the full input set.
+    """Phase 2: hierarchical merge with correct source_chunk_ids tracking.
 
-    Returns `(merged_summary, merged_row_id)`. For the single-chunk
-    promotion case the row id is `None` (no LLM call, nothing persisted).
-    For the full-set cache-hit path the existing row id is returned.
+    Makes ZERO assumptions about the total review count. Any number of
+    input chunk summaries works: the phase groups them into batches of
+    `max_chunks_per_merge_call`, merges each group with one LLM call, then
+    repeats the process on the resulting MergedSummaries until a single
+    root MergedSummary remains. At every level we thread the union of
+    **leaf chunk row ids** (from the `chunk_summaries` table) so the final
+    root — and every intermediate row — can be cache-keyed by exactly the
+    set of primary chunks it was derived from.
 
-    Single-level merge is correct for SteamPulse because MAX_REVIEWS=2000
-    divided by CHUNK_SIZE=50 yields at most ~40 chunk summaries per game
-    (~60K tokens), well within Sonnet's 200K context window. This removes
-    the need for a hierarchical loop and — critically — the attendant
-    source-id bookkeeping problems it caused in both the realtime and
-    batch paths.
+    `max_chunks_per_merge_call` is a per-call LLM context-budget limit,
+    NOT a review-count limit. It is required from the caller (no default).
+    `merge_max_tokens` is the Bedrock `max_tokens` budget per merge call.
+
+    Returns `(root_merged_summary, root_merged_row_id)`. Every analysis
+    run persists at least one merged_summaries row — even the single-chunk
+    promotion case gets a `merge_level=0`, `model_id="python-promotion"`
+    row so downstream consumers (batch synthesis Lambda, cache lookups,
+    operational visibility) never see a stale row from a previous run.
     """
     if not chunk_summaries:
         raise ValueError("run_merge_phase called with zero chunks")
+    if len(chunk_summaries) != len(chunk_ids):
+        raise ValueError(
+            f"chunk_summaries ({len(chunk_summaries)}) and chunk_ids "
+            f"({len(chunk_ids)}) must have the same length"
+        )
+    if max_chunks_per_merge_call <= 0:
+        raise ValueError(
+            f"max_chunks_per_merge_call must be positive, got {max_chunks_per_merge_call}"
+        )
 
+    # Single-chunk short-circuit: no LLM call, but we persist a promotion
+    # row so every analysis run leaves a merged_summaries row for this
+    # appid. Without this the batch synthesis Lambda would either fail or
+    # read a stale row from a previous run.
     if len(chunk_summaries) == 1:
+        cached_promotion = merge_repo.find_latest_by_source_ids(
+            appid, [chunk_ids[0]], MERGE_PROMPT_VERSION
+        )
+        if cached_promotion is not None:
+            cached_id = int(cached_promotion["id"])
+            logger.info(
+                "merge_phase_single_chunk_cache_hit",
+                extra={"appid": appid, "merge_id": cached_id},
+            )
+            return (
+                MergedSummary.model_validate(cached_promotion["summary_json"]),
+                cached_id,
+            )
         merged = _promote_single_chunk(chunk_summaries[0], source_chunk_id=chunk_ids[0])
+        row_id = merge_repo.insert(
+            appid,
+            0,  # merge_level=0 distinguishes promotion from LLM-produced merges
+            merged,
+            [chunk_ids[0]],
+            1,
+            model_id="python-promotion",
+            prompt_version=MERGE_PROMPT_VERSION,
+        )
         logger.info(
             "merge_phase_single_chunk_promoted",
-            extra={"appid": appid, "source_chunk_id": chunk_ids[0]},
+            extra={
+                "appid": appid,
+                "source_chunk_id": chunk_ids[0],
+                "merge_id": row_id,
+            },
         )
-        return merged, None
+        return merged, row_id
 
-    # Try whole-set cache hit before doing any LLM work.
+    # Whole-set cache hit — every leaf chunk id matches a stored merge.
     cached = merge_repo.find_latest_by_source_ids(appid, chunk_ids, MERGE_PROMPT_VERSION)
     if cached is not None:
         logger.info(
@@ -721,31 +838,107 @@ def run_merge_phase(
         )
         return MergedSummary.model_validate(cached["summary_json"]), int(cached["id"])
 
-    request = build_merge_request(appid=appid, game_name=game_name, summaries=chunk_summaries)
-    [response] = backend.run([request])
-    if not isinstance(response, MergedSummary):
-        raise TypeError(f"backend returned {type(response).__name__} for a merging request")
-
-    # Server-computed bookkeeping — never trust the LLM for these.
-    response.merge_level = 1
-    response.chunks_merged = len(chunk_summaries)
-    response.source_chunk_ids = sorted(chunk_ids)
-
     model_id = _config.model_for("merging")
-    merged_id = merge_repo.insert(
-        appid,
-        1,
-        response,
-        chunk_ids,
-        len(chunk_summaries),
-        model_id=model_id,
-        prompt_version=MERGE_PROMPT_VERSION,
-    )
+
+    # current_inputs: summaries feeding the current level, in RichChunkSummary
+    # shape so `_build_merge_user_message` can serialize them uniformly.
+    # current_source_sets: parallel list — each entry is the set of LEAF
+    # chunk row ids that the corresponding input transitively derives from.
+    current_inputs: list[RichChunkSummary] = list(chunk_summaries)
+    current_source_sets: list[list[int]] = [[cid] for cid in chunk_ids]
+
+    level = 0
+    last_row_id: int | None = None
+    while len(current_inputs) > 1:
+        level += 1
+        next_inputs: list[RichChunkSummary] = []
+        next_source_sets: list[list[int]] = []
+
+        # Split into groups of <=max_chunks_per_merge_call.
+        for group_start in range(0, len(current_inputs), max_chunks_per_merge_call):
+            group_end = group_start + max_chunks_per_merge_call
+            group = current_inputs[group_start:group_end]
+            group_source_sets = current_source_sets[group_start:group_end]
+            group_leaf_ids = sorted({lid for ids in group_source_sets for lid in ids})
+
+            # Per-group cache check: have we already merged exactly these
+            # leaf chunks at the current prompt version? If so, reuse.
+            cached_group = merge_repo.find_latest_by_source_ids(
+                appid, group_leaf_ids, MERGE_PROMPT_VERSION
+            )
+            if cached_group is not None:
+                merged_group = MergedSummary.model_validate(cached_group["summary_json"])
+                row_id = int(cached_group["id"])
+                logger.info(
+                    "merge_phase_group_cache_hit",
+                    extra={"appid": appid, "level": level, "merge_id": row_id},
+                )
+            else:
+                request = build_merge_request(
+                    appid=appid,
+                    game_name=game_name,
+                    summaries=group,
+                    merge_max_tokens=merge_max_tokens,
+                )
+                [response] = backend.run([request])
+                if not isinstance(response, MergedSummary):
+                    raise TypeError(
+                        f"backend returned {type(response).__name__} for a merging request"
+                    )
+                # Server-computed bookkeeping — never trust the LLM.
+                response.merge_level = level
+                response.chunks_merged = len(group_leaf_ids)
+                response.source_chunk_ids = group_leaf_ids
+                row_id = merge_repo.insert(
+                    appid,
+                    level,
+                    response,
+                    group_leaf_ids,
+                    len(group_leaf_ids),
+                    model_id=model_id,
+                    prompt_version=MERGE_PROMPT_VERSION,
+                )
+                merged_group = response
+
+            next_inputs.append(_merged_as_chunk_like(merged_group))
+            next_source_sets.append(group_leaf_ids)
+            last_row_id = row_id
+
+        logger.info(
+            "merge_phase_level_complete",
+            extra={
+                "appid": appid,
+                "level": level,
+                "groups": len(next_inputs),
+            },
+        )
+        current_inputs = next_inputs
+        current_source_sets = next_source_sets
+
+    # The final single input is the wrapped root. Re-read it from the DB
+    # as a MergedSummary so the caller gets the canonical shape.
+    assert last_row_id is not None  # at least one level must have run
+    root_row = merge_repo.find_latest_by_appid(appid)
+    if root_row is None or int(root_row["id"]) != last_row_id:
+        # Defensive fallback: fetch by id would be cleaner but the existing
+        # repo exposes find_latest_by_appid, which orders by (level DESC,
+        # created_at DESC) — so the most-recent root is the latest row.
+        # If it doesn't match we're in an inconsistent state.
+        raise RuntimeError(
+            f"merge phase root row lookup failed: expected id={last_row_id}, "
+            f"got {root_row['id'] if root_row else None}"
+        )
+    root_merged = MergedSummary.model_validate(root_row["summary_json"])
     logger.info(
         "merge_phase_complete",
-        extra={"appid": appid, "merge_id": merged_id, "chunks_merged": len(chunk_summaries)},
+        extra={
+            "appid": appid,
+            "merge_id": last_row_id,
+            "levels": level,
+            "leaf_chunks": len(chunk_ids),
+        },
     )
-    return response, merged_id
+    return root_merged, last_row_id
 
 
 def run_synthesis_phase(
@@ -761,8 +954,12 @@ def run_synthesis_phase(
     temporal: GameTemporalContext | None,
     metadata: GameMetadataContext | None,
     backend: LLMBackend,
+    synthesis_max_tokens: int,
 ) -> GameReport:
-    """Phase 3: synthesise MergedSummary → GameReport with Python overrides."""
+    """Phase 3: synthesise MergedSummary → GameReport with Python overrides.
+
+    `synthesis_max_tokens` is a required explicit parameter — no default.
+    """
     hidden_gem_score = _compute_hidden_gem_score(steam_positive_pct, steam_review_count)
     trend = _compute_sentiment_trend(reviews)
 
@@ -778,6 +975,7 @@ def run_synthesis_phase(
         steam_review_score_desc=steam_review_score_desc,
         temporal=temporal,
         metadata=metadata,
+        synthesis_max_tokens=synthesis_max_tokens,
     )
     [response] = backend.run([request])
     if not isinstance(response, GameReport):
@@ -802,18 +1000,27 @@ def analyze_game(
     report_repo: ReportRepository,
     reviews: list[dict],
     game_name: str,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
-    steam_positive_pct: int | float | None = None,
-    steam_review_count: int | None = None,
-    steam_review_score_desc: str | None = None,
+    settings: AnalyzerSettings,
+    reference_time: datetime,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+    steam_positive_pct: int | float | None,
+    steam_review_count: int | None,
+    steam_review_score_desc: str | None,
 ) -> GameReport:
     """The single entry point for the three-phase pipeline.
 
-    Identical call shape for realtime and batch modes — the ONLY thing that
-    differs is the `backend` instance. Callers (the realtime handler and
-    the batch Prepare Lambdas) are responsible for loading the Game row,
-    review list, temporal/metadata contexts, and the backend.
+    Identical call shape for realtime and batch modes — the ONLY thing
+    that differs is the `backend` instance. Every argument is REQUIRED:
+    callers (the realtime handler and the batch Prepare Lambdas) build
+    the full context from `SteamPulseConfig` and pass it in explicitly.
+    There are no defaults anywhere in this pipeline.
+
+    `settings` bundles all tuning knobs (chunk size, token budgets,
+    hierarchy bound, shuffle seed). `reference_time` is the recency
+    anchor for stratified chunking — typically `max(posted_at)` across
+    the review set, computed by the caller via
+    `library_layer.utils.chunking.dataset_reference_time`.
     """
     if not reviews:
         raise ValueError(f"no reviews to analyze for appid={request.appid}")
@@ -827,6 +1034,10 @@ def analyze_game(
         reviews=reviews,
         backend=backend,
         chunk_repo=chunk_repo,
+        chunk_size=settings.chunk_size,
+        reference_time=reference_time,
+        shuffle_seed=settings.shuffle_seed,
+        chunk_max_tokens=settings.chunk_max_tokens,
     )
     merged, merged_summary_id = run_merge_phase(
         appid=request.appid,
@@ -835,6 +1046,8 @@ def analyze_game(
         chunk_ids=chunk_ids,
         backend=backend,
         merge_repo=merge_repo,
+        max_chunks_per_merge_call=settings.max_chunks_per_merge_call,
+        merge_max_tokens=settings.merge_max_tokens,
     )
     report = run_synthesis_phase(
         appid=request.appid,
@@ -848,6 +1061,7 @@ def analyze_game(
         temporal=temporal,
         metadata=metadata,
         backend=backend,
+        synthesis_max_tokens=settings.synthesis_max_tokens,
     )
 
     # Persist the final report with pipeline bookkeeping. These columns

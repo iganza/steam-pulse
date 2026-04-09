@@ -96,6 +96,37 @@ class SteamPulseConfig(BaseSettings):
     REVIEW_LIMIT: int = 10_000  # Default cap for automated (SQS-driven) crawls.
     # Operators can override per-invocation via direct invoke.
 
+    # ── Three-phase analyzer tuning knobs ───────────────────────────────────
+    # These are the SINGLE place default values live for the realtime and
+    # batch analysis pipelines. Every downstream function requires these to
+    # be passed explicitly — no function signature carries its own default.
+    # Override any of them in .env.{environment} via `ANALYSIS_<NAME>=...`.
+    #
+    # ANALYSIS_MAX_REVIEWS: how many reviews per game feed Phase 1. Larger
+    #   values cost more tokens and merge-phase levels; smaller values may
+    #   miss long-tail signal.
+    ANALYSIS_MAX_REVIEWS: int = 2000
+    # ANALYSIS_CHUNK_SIZE: reviews per Phase 1 chunk. Bounded by the
+    #   chunking model's input+output budget at CHUNK_MAX_TOKENS below.
+    ANALYSIS_CHUNK_SIZE: int = 50
+    # ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL: per-call LLM context-budget limit
+    #   for the merge phase. Larger chunk counts are handled by hierarchical
+    #   recursion; this is NOT a review-count limit.
+    ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL: int = 40
+    # ANALYSIS_*_MAX_TOKENS: Bedrock max_tokens budget per phase call. Must
+    #   be large enough for the response model's full JSON under the worst
+    #   reasonable topic count.
+    ANALYSIS_CHUNK_MAX_TOKENS: int = 1024
+    ANALYSIS_MERGE_MAX_TOKENS: int = 4096
+    ANALYSIS_SYNTHESIS_MAX_TOKENS: int = 5000
+    # ANALYSIS_CONVERSE_MAX_WORKERS: chunk-phase thread pool fan-out for
+    #   ConverseBackend. boto3 + instructor clients are thread-safe per
+    #   Anthropic SDK docs.
+    ANALYSIS_CONVERSE_MAX_WORKERS: int = 8
+    # ANALYSIS_CHUNK_SHUFFLE_SEED: deterministic in-chunk shuffle seed so
+    #   tests/replays are stable.
+    ANALYSIS_CHUNK_SHUFFLE_SEED: int = 42
+
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.
 

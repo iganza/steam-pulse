@@ -35,19 +35,24 @@ import os
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
+    CHUNK_PROMPT_VERSION,
+    AnalyzerSettings,
     build_chunk_requests,
-    build_merge_request,
     build_synthesis_request,
+    run_merge_phase,
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.batch import BatchBackend
-from library_layer.models.analyzer_models import RichChunkSummary
+from library_layer.llm.converse import ConverseBackend
+from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.utils.chunking import dataset_reference_time
 from library_layer.utils.db import get_conn
+from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
 
 logger = Logger(service="batch-prepare-phase")
 tracer = Tracer(service="batch-prepare-phase")
@@ -61,7 +66,9 @@ _review_repo = ReviewRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
 
-MAX_REVIEWS = 2000
+# All analyzer tuning knobs (including max-reviews-per-analysis) come from
+# SteamPulseConfig. No hardcoded module constants here.
+_analyzer_settings = AnalyzerSettings.from_config(_config)
 
 
 def _backend_for(execution_id: str) -> BatchBackend:
@@ -97,7 +104,9 @@ def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
 
-    db_reviews = _review_repo.find_by_appid(appid, limit=MAX_REVIEWS)
+    max_reviews = _config.ANALYSIS_MAX_REVIEWS
+    logger.info("loading_reviews", extra={"appid": appid, "max_reviews": max_reviews})
+    db_reviews = _review_repo.find_by_appid(appid, limit=max_reviews)
     reviews = [
         {
             "steam_review_id": r.steam_review_id,
@@ -116,8 +125,6 @@ def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict
     if not reviews:
         raise ValueError(f"No non-empty reviews for appid={appid}")
 
-    from library_layer.analyzer import CHUNK_PROMPT_VERSION
-
     cached_rows = _chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
     cached_hashes = {row["chunk_hash"] for row in cached_rows}
     _chunks, pending, _pending_meta = build_chunk_requests(
@@ -125,6 +132,10 @@ def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict
         game_name=game.name,
         reviews=reviews,
         cached_hashes=cached_hashes,
+        chunk_size=_analyzer_settings.chunk_size,
+        reference_time=dataset_reference_time(reviews),
+        shuffle_seed=_analyzer_settings.shuffle_seed,
+        chunk_max_tokens=_analyzer_settings.chunk_max_tokens,
     )
 
     if not pending:
@@ -149,18 +160,29 @@ def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict
 
 
 def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict:
-    """Build the single-call merge request for a game.
+    """Run the merge phase INLINE via ConverseBackend and short-circuit the
+    Step Functions wait loop.
 
-    Single-level merge: ALL chunk summaries go into ONE merge call. With
-    MAX_REVIEWS=2000 and CHUNK_SIZE=50 that caps at ~40 chunks per game,
-    well inside Sonnet's 200K context window. This avoids hierarchical
-    merge entirely and keeps `source_chunk_ids` trivial — they ARE the
-    chunk row ids, and we persist them as an S3 sidecar alongside the
-    merge JSONL so `collect_phase` can write them into merged_summaries
-    for find_latest_by_source_ids cache-keyed replays.
+    Merge is bounded by `MAX_CHUNKS_PER_MERGE_CALL * number_of_levels`
+    LLM calls, each of which runs in seconds via sync Converse. Even for
+    very large games (hundreds of chunks, 2 merge levels) this completes
+    well within a Lambda timeout. Running merge inline — instead of
+    spinning up a Bedrock Batch Inference job — means:
+
+      * We share ONE `run_merge_phase` implementation with the realtime
+        path, so hierarchical merge behavior and source_chunk_ids
+        tracking cannot drift between paths.
+      * The Step Functions state machine does not need a per-level loop;
+        batch merge is always a single "skip=true" transition from the
+        state machine's perspective.
+      * We avoid the overhead of writing merge inputs to S3, submitting a
+        batch job, and polling for completion — Bedrock Batch Inference
+        is designed to amortize fixed per-job cost across many records,
+        and merge has at most a handful.
+
+    Bedrock Batch Inference is still used for the CHUNK phase (which has
+    tens of records per game) and the SYNTHESIS phase.
     """
-    from library_layer.analyzer import CHUNK_PROMPT_VERSION
-
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -172,64 +194,32 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
         )
 
     summaries = [RichChunkSummary.model_validate(r["summary_json"]) for r in rows]
-    source_chunk_ids = sorted(int(r["id"]) for r in rows)
+    chunk_ids = [int(r["id"]) for r in rows]
 
-    # Single-chunk promotion short-circuits the LLM call AND persists the
-    # merged_summaries row directly here — the state machine won't call
-    # collect_phase for a skipped merge, so we must write the row now or
-    # synthesis will find no merged summary to read.
-    if len(summaries) == 1:
-        from library_layer.analyzer import MERGE_PROMPT_VERSION, _promote_single_chunk
-
-        promoted = _promote_single_chunk(summaries[0], source_chunk_id=source_chunk_ids[0])
-        _merge_repo.insert(
-            appid,
-            promoted.merge_level,
-            promoted,
-            source_chunk_ids,
-            promoted.chunks_merged,
-            model_id="python-promotion",
-            prompt_version=MERGE_PROMPT_VERSION,
-        )
-        logger.info("merge_prepare_promote_single", extra={"chunks": 1})
-        return {
-            "appid": appid,
-            "phase": "merge",
-            "execution_id": execution_id,
-            "job_id": None,
-            "skip": True,
-        }
-
-    request = build_merge_request(appid=appid, game_name=game.name, summaries=summaries)
-    s3_uri = backend.prepare([request], phase=f"merge-{appid}")
-    _write_source_ids_sidecar(backend, appid, source_chunk_ids)
-    job_id = backend.submit(s3_uri, task="merging", phase=f"merge-{appid}")
+    run_merge_phase(
+        appid=appid,
+        game_name=game.name,
+        chunk_summaries=summaries,
+        chunk_ids=chunk_ids,
+        backend=ConverseBackend(
+            _config,
+            max_workers=_config.ANALYSIS_CONVERSE_MAX_WORKERS,
+        ),
+        merge_repo=_merge_repo,
+        max_chunks_per_merge_call=_analyzer_settings.max_chunks_per_merge_call,
+        merge_max_tokens=_analyzer_settings.merge_max_tokens,
+    )
+    logger.info(
+        "merge_prepare_inline_complete",
+        extra={"chunks": len(summaries)},
+    )
     return {
         "appid": appid,
         "phase": "merge",
         "execution_id": execution_id,
-        "job_id": job_id,
-        "skip": False,
+        "job_id": None,
+        "skip": True,
     }
-
-
-def _write_source_ids_sidecar(
-    backend: BatchBackend, appid: int, source_chunk_ids: list[int]
-) -> None:
-    """Persist source_chunk_ids next to the merge JSONL so collect_phase
-    can read them back verbatim and store them in merged_summaries.
-
-    Keyed by execution_id + appid so concurrent merge jobs never collide.
-    """
-    import json as _json
-
-    key = f"jobs/{backend._execution_id}/merge-{appid}/source_chunk_ids.json"
-    backend._s3.put_object(
-        Bucket=backend._bucket,
-        Key=key,
-        Body=_json.dumps({"source_chunk_ids": sorted(source_chunk_ids)}).encode("utf-8"),
-        ContentType="application/json",
-    )
 
 
 def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> dict:
@@ -240,14 +230,12 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
     merged_row = _merge_repo.find_latest_by_appid(appid)
     if merged_row is None:
         raise ValueError(f"No merged_summary for appid={appid} — run merge phase first")
-    from library_layer.models.analyzer_models import MergedSummary
-
     merged = MergedSummary.model_validate(merged_row["summary_json"])
 
     # Load the review list needed for compute_sentiment_trend. We only need
     # posted_at + voted_up for trend; the LLM does NOT see raw reviews in
     # the synthesis phase.
-    db_reviews = _review_repo.find_by_appid(appid, limit=MAX_REVIEWS)
+    db_reviews = _review_repo.find_by_appid(appid, limit=_config.ANALYSIS_MAX_REVIEWS)
     reviews = [
         {
             "voted_up": r.voted_up,
@@ -259,8 +247,6 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
     velocity = _review_repo.find_review_velocity(appid)
     ea = _review_repo.find_early_access_impact(appid)
     temporal = build_temporal_context(game, velocity, ea)
-
-    from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
 
     hidden_gem_score = compute_hidden_gem_score(
         float(game.positive_pct) if game.positive_pct is not None else None,
@@ -280,6 +266,7 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
         steam_review_score_desc=game.review_score_desc,
         temporal=temporal,
         metadata=None,
+        synthesis_max_tokens=_analyzer_settings.synthesis_max_tokens,
     )
     s3_uri = backend.prepare([request], phase=f"synth-{appid}")
     job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")

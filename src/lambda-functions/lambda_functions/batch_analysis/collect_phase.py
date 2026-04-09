@@ -31,16 +31,23 @@ from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
-    MERGE_PROMPT_VERSION,
+    PIPELINE_VERSION,
+    AnalyzerSettings,
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
 from library_layer.llm.batch import BatchBackend
-from library_layer.models.analyzer_models import GameReport, MergedSummary, RichChunkSummary
+from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.utils.chunking import (
+    compute_chunk_hash,
+    dataset_reference_time,
+    stratified_chunk_reviews,
+)
 from library_layer.utils.db import get_conn
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
@@ -57,7 +64,11 @@ _game_repo = GameRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
+_review_repo = ReviewRepository(get_conn)
 _sns = boto3.client("sns")
+
+# All tuning knobs from config — no hardcoded limits anywhere in this file.
+_analyzer_settings = AnalyzerSettings.from_config(_config)
 
 
 def _backend_for(execution_id: str) -> BatchBackend:
@@ -81,49 +92,24 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     if phase == "chunk":
         return _collect_chunk(appid, backend, job_id)
-    if phase == "merge":
-        return _collect_merge(appid, backend, job_id)
     if phase == "synthesis":
         return _collect_synthesis(appid, backend, job_id)
-
+    # `merge` is handled entirely inline by `prepare_phase._prepare_merge`
+    # via ConverseBackend — it always returns skip=true and the state
+    # machine never routes a merge event here.
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
 def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
-    # We can't know upfront which record_ids are pending — rebuild the
-    # response_model map by listing all possible chunk record_ids for this
-    # appid. The model is the same for every chunk so a single-entry map
-    # with a wildcard lookup works: we read record_ids from the output
-    # JSONL directly.
-    # Simpler approach: pass a permissive response_models that tries
-    # RichChunkSummary for every record_id seen. We do this with a dict
-    # that has a __missing__-style default, simulated by pre-populating
-    # from the actual JSONL scan inside BatchBackend.collect.
-    #
-    # For now, we do a two-pass: peek at output to get record_ids, then
-    # build the map. Cleaner: extend BatchBackend.collect to accept a
-    # single default response_model. For the initial wiring we load chunk
-    # indices 0..N by scanning output.
-    # Pragmatic shortcut: the backend returns all records it can parse, so
-    # we use a single-shot mapping that matches on prefix.
-    #
-    # Workable implementation: construct a defaultdict-like via dict
-    # comprehension after a cheap list of record_ids. We do this via the
-    # backend's list_objects path indirectly by calling collect with an
-    # empty map first... that won't work. Simplest: use a custom dict
-    # subclass.
     results = backend.collect(job_id, default_response_model=RichChunkSummary)
 
     model_id = _config.model_for("chunking")
     persisted = 0
-    # We need chunk_hash + chunk_index + review_count for each result. The
-    # record_id encodes chunk_index ("{appid}-chunk-{i}"); rebuilding hash
-    # requires the original review set, which we have on hand from the DB.
-    from library_layer.repositories.review_repo import ReviewRepository
-    from library_layer.utils.chunking import compute_chunk_hash, stratified_chunk_reviews
-
-    review_repo = ReviewRepository(get_conn)
-    db_reviews = review_repo.find_by_appid(appid, limit=2000)
+    # Rebuild chunks by re-running the same deterministic chunking with
+    # the same config knobs that prepare_phase used. `record_id` encodes
+    # chunk_index so we can map each LLM response back to its chunk.
+    max_reviews = _config.ANALYSIS_MAX_REVIEWS
+    db_reviews = _review_repo.find_by_appid(appid, limit=max_reviews)
     reviews = [
         {
             "steam_review_id": r.steam_review_id,
@@ -139,7 +125,12 @@ def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
         for r in db_reviews
         if r.body
     ]
-    chunks = stratified_chunk_reviews(reviews)
+    chunks = stratified_chunk_reviews(
+        reviews,
+        chunk_size=_analyzer_settings.chunk_size,
+        reference_time=dataset_reference_time(reviews),
+        seed=_analyzer_settings.shuffle_seed,
+    )
 
     for record_id, summary in results:
         if not isinstance(summary, RichChunkSummary):
@@ -167,65 +158,12 @@ def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
 
 
-def _collect_merge(appid: int, backend: BatchBackend, job_id: str) -> dict:
-    """Collect the single-call merge output and persist it.
-
-    Reads the `source_chunk_ids` sidecar written by prepare_phase and
-    writes it verbatim into merged_summaries so `find_latest_by_source_ids`
-    cache-lookups work on replays. `chunks_merged` is computed from the
-    server-side source id list, never trusted from the LLM output.
-    """
-    results = backend.collect(job_id, default_response_model=MergedSummary)
-    if not results:
-        raise RuntimeError(f"No merge output for appid={appid}")
-    if len(results) != 1:
-        logger.warning(
-            "merge_unexpected_record_count",
-            extra={"appid": appid, "count": len(results)},
-        )
-
-    source_chunk_ids = _read_source_ids_sidecar(backend, appid)
-
-    _record_id, merged = results[0]
-    if not isinstance(merged, MergedSummary):
-        raise TypeError(f"Expected MergedSummary, got {type(merged).__name__}")
-
-    # Server-computed bookkeeping — never trust the LLM for these.
-    merged.merge_level = 1
-    merged.chunks_merged = len(source_chunk_ids)
-    merged.source_chunk_ids = source_chunk_ids
-
-    _merge_repo.insert(
-        appid,
-        1,
-        merged,
-        source_chunk_ids,
-        len(source_chunk_ids),
-        model_id=_config.model_for("merging"),
-        prompt_version=MERGE_PROMPT_VERSION,
-    )
-    return {"appid": appid, "phase": "merge", "collected": 1, "done": False}
-
-
-def _read_source_ids_sidecar(backend: BatchBackend, appid: int) -> list[int]:
-    """Read the sidecar written by prepare_phase._write_source_ids_sidecar."""
-    import json as _json
-
-    key = f"jobs/{backend._execution_id}/merge-{appid}/source_chunk_ids.json"
-    body = backend._s3.get_object(Bucket=backend._bucket, Key=key)["Body"].read()
-    data = _json.loads(body.decode("utf-8"))
-    return sorted(int(x) for x in data["source_chunk_ids"])
-
-
 def _collect_synthesis(appid: int, backend: BatchBackend, job_id: str) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
 
-    from library_layer.repositories.review_repo import ReviewRepository
-
-    review_repo = ReviewRepository(get_conn)
-    db_reviews = review_repo.find_by_appid(appid, limit=2000)
+    db_reviews = _review_repo.find_by_appid(appid, limit=_config.ANALYSIS_MAX_REVIEWS)
     trend_reviews = [
         {
             "voted_up": r.voted_up,
@@ -254,8 +192,6 @@ def _collect_synthesis(appid: int, backend: BatchBackend, job_id: str) -> dict:
     report.appid = appid
 
     # Populate pipeline bookkeeping columns from the persisted artifacts.
-    from library_layer.analyzer import PIPELINE_VERSION
-
     merged_row = _merge_repo.find_latest_by_appid(appid)
     payload = report.model_dump()
     payload["pipeline_version"] = PIPELINE_VERSION

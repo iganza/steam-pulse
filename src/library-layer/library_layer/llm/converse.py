@@ -17,14 +17,15 @@ from pydantic import BaseModel
 
 logger = Logger()
 
-# Conservative default — Bedrock per-account concurrency is the real cap,
-# and chunk phase already spans many reviews per call. Overridable via
-# env var if we ever want to tune.
-_DEFAULT_MAX_WORKERS = 8
-
 
 class ConverseBackend:
-    """Instructor + AnthropicBedrock wrapped behind the LLMBackend protocol."""
+    """Instructor + AnthropicBedrock wrapped behind the LLMBackend protocol.
+
+    `max_workers` is a REQUIRED constructor argument — no default. Callers
+    must pass `SteamPulseConfig.ANALYSIS_CONVERSE_MAX_WORKERS` (or an
+    override) so the fan-out bound is visible at the call site, not
+    buried as a module-level constant.
+    """
 
     mode: Literal["realtime", "batch"] = "realtime"
 
@@ -32,8 +33,10 @@ class ConverseBackend:
         self,
         config: SteamPulseConfig,
         *,
-        max_workers: int = _DEFAULT_MAX_WORKERS,
+        max_workers: int,
     ) -> None:
+        if max_workers <= 0:
+            raise ValueError(f"max_workers must be positive, got {max_workers}")
         self._config = config
         self._max_workers = max_workers
         self._client = instructor.from_anthropic(anthropic.AnthropicBedrock())

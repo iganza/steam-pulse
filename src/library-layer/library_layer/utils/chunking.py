@@ -1,31 +1,28 @@
 """Stratified chunking + deterministic chunk hashing for the three-phase analyzer.
 
-Reviews are split into chunks of `CHUNK_SIZE` with two constraints:
+Reviews are split into chunks with two constraints:
 
 1. Sentiment ratio — each chunk mirrors the game's overall positive/negative
    ratio so no chunk is 100% one-sided (which would bias extraction).
 2. Helpful-vote priority — reviews with higher `votes_helpful` are placed
-   first within each pool. Reviews posted within 90 days of the NEWEST
-   review in the dataset get a 1.5x multiplier applied to their sort key
-   only (not the stored vote count) so recent signal is weighted slightly
-   higher.
+   first within each pool. Reviews posted within 90 days of the caller's
+   `reference_time` get a 1.5x multiplier on the sort key only.
 
-The "now" reference for the 90-day recency window is derived from the
-dataset itself (max posted_at), NOT from `datetime.now()`. This keeps the
-chunk ordering — and therefore `chunk_hash` values and Phase-1 cache hits —
-reproducible over time for an unchanged review set.
+**No function in this module carries default parameter values.** Every
+caller must pass `chunk_size`, `reference_time`, and `seed` explicitly so
+behavior cannot drift silently as we change defaults elsewhere. The
+canonical defaults live in `SteamPulseConfig` and are propagated from
+handlers down through `analyze_game`.
 
 The hash is deterministic over the set of `steam_review_id` values. Every
-review MUST carry a steam_review_id; missing ids raise ValueError rather
-than silently collapsing to a shared placeholder and causing cache collisions.
+review MUST carry a `steam_review_id`; missing ids raise `ValueError`
+rather than silently collapsing to a shared placeholder and colliding.
 """
 
 import hashlib
 import math
 import random
-from datetime import UTC, datetime, timedelta
-
-CHUNK_SIZE = 50
+from datetime import datetime, timedelta
 
 
 def _posted_at(review: dict) -> datetime | None:
@@ -33,66 +30,60 @@ def _posted_at(review: dict) -> datetime | None:
     if raw is None:
         return None
     if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
+        return raw
     try:
         return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
         return None
 
 
-def _dataset_reference_time(reviews: list[dict]) -> datetime:
-    """Derive the 'now' reference from the newest review in the dataset.
-
-    This keeps chunk ordering reproducible: rerunning the same review set
-    yields the same chunks and the same `chunk_hash` values, regardless of
-    wall-clock time. Falls back to epoch only if no review carries a
-    posted_at (in which case the 1.5x recency multiplier is moot anyway).
+def _sort_key(review: dict, reference_time: datetime) -> float:
+    """Higher = sorted earlier. Reviews within 90d of `reference_time`
+    get a 1.5x multiplier.
     """
-    latest: datetime | None = None
-    for r in reviews:
-        posted = _posted_at(r)
-        if posted is None:
-            continue
-        if latest is None or posted > latest:
-            latest = posted
-    return latest if latest is not None else datetime(1970, 1, 1, tzinfo=UTC)
-
-
-def _sort_key(review: dict, now: datetime) -> float:
-    """Higher = sorted earlier. Recent reviews get a 1.5x multiplier."""
     helpful = float(review.get("votes_helpful") or 0)
     posted = _posted_at(review)
-    if posted is not None and now - posted <= timedelta(days=90):
+    if posted is not None and reference_time - posted <= timedelta(days=90):
         helpful *= 1.5
     return helpful
 
 
 def stratified_chunk_reviews(
     reviews: list[dict],
-    chunk_size: int = CHUNK_SIZE,
     *,
-    seed: int = 42,
+    chunk_size: int,
+    reference_time: datetime,
+    seed: int,
 ) -> list[list[dict]]:
     """Split reviews into sentiment-stratified chunks.
 
     Partition invariant: every input review appears in exactly one output
     chunk. The input list is not mutated. Empty input returns [].
-    `seed` controls the in-chunk shuffle so ordering is deterministic for
-    tests but not positional across runs.
+
+    Args:
+        reviews: the full review set for a game.
+        chunk_size: target chunk size (e.g. from
+            `SteamPulseConfig.ANALYSIS_CHUNK_SIZE`).
+        reference_time: the "now" anchor for the 90-day recency multiplier.
+            Callers typically derive this from the dataset (max posted_at)
+            so chunk membership — and therefore `chunk_hash` values — stays
+            reproducible across runs, even as wall-clock time passes.
+        seed: deterministic in-chunk shuffle seed (e.g. from
+            `SteamPulseConfig.ANALYSIS_CHUNK_SHUFFLE_SEED`).
     """
     if not reviews:
         return []
-
-    now = _dataset_reference_time(reviews)
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
 
     positive = sorted(
         (r for r in reviews if r.get("voted_up")),
-        key=lambda r: _sort_key(r, now),
+        key=lambda r: _sort_key(r, reference_time),
         reverse=True,
     )
     negative = sorted(
         (r for r in reviews if not r.get("voted_up")),
-        key=lambda r: _sort_key(r, now),
+        key=lambda r: _sort_key(r, reference_time),
         reverse=True,
     )
 
@@ -122,6 +113,29 @@ def stratified_chunk_reviews(
         rng.shuffle(chunk)
 
     return [c for c in chunks if c]
+
+
+def dataset_reference_time(reviews: list[dict]) -> datetime:
+    """Derive the recency-window 'now' anchor from the newest review.
+
+    Raises `ValueError` if no review carries a parseable `posted_at` —
+    callers must not receive a silent epoch fallback. If you truly want a
+    specific anchor (e.g. an analysis-time wall clock), construct it at
+    the call site and pass it into `stratified_chunk_reviews` directly.
+    """
+    latest: datetime | None = None
+    for r in reviews:
+        posted = _posted_at(r)
+        if posted is None:
+            continue
+        if latest is None or posted > latest:
+            latest = posted
+    if latest is None:
+        raise ValueError(
+            "dataset_reference_time: no review carries a parseable `posted_at`; "
+            "caller must provide an explicit reference_time"
+        )
+    return latest
 
 
 def compute_chunk_hash(reviews: list[dict]) -> str:

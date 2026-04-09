@@ -1,11 +1,22 @@
-"""Tests for stratified_chunk_reviews + compute_chunk_hash."""
+"""Tests for stratified_chunk_reviews + compute_chunk_hash.
+
+Every test passes `chunk_size`, `reference_time`, and `seed` explicitly —
+the chunking module no longer carries defaults for any of them.
+"""
+
+from datetime import UTC, datetime
 
 import pytest
 from library_layer.utils.chunking import (
-    CHUNK_SIZE,
     compute_chunk_hash,
+    dataset_reference_time,
     stratified_chunk_reviews,
 )
+
+# Fixed test anchors — passed explicitly to every chunking call.
+_REF_TIME = datetime(2025, 1, 1, tzinfo=UTC)
+_SEED = 42
+_CHUNK_SIZE = 50
 
 
 def _review(
@@ -26,12 +37,17 @@ def _review(
 
 
 def test_empty_reviews_returns_empty_list() -> None:
-    assert stratified_chunk_reviews([]) == []
+    assert (
+        stratified_chunk_reviews([], chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED)
+        == []
+    )
 
 
 def test_single_chunk_when_under_chunk_size() -> None:
     reviews = [_review(f"r{i}", voted_up=i % 2 == 0) for i in range(10)]
-    chunks = stratified_chunk_reviews(reviews, chunk_size=50)
+    chunks = stratified_chunk_reviews(
+        reviews, chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED
+    )
     assert len(chunks) == 1
     assert len(chunks[0]) == 10
 
@@ -40,7 +56,9 @@ def test_sentiment_ratio_is_preserved_across_chunks() -> None:
     # 80% positive, 20% negative
     pos = [_review(f"p{i}", voted_up=True) for i in range(80)]
     neg = [_review(f"n{i}", voted_up=False) for i in range(20)]
-    chunks = stratified_chunk_reviews(pos + neg, chunk_size=50)
+    chunks = stratified_chunk_reviews(
+        pos + neg, chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED
+    )
     assert len(chunks) == 2
     # First chunk should be ~80% positive (40/50), within +/- 1
     first_pos = sum(1 for r in chunks[0] if r["voted_up"])
@@ -70,10 +88,6 @@ def test_chunk_hash_is_16_chars() -> None:
     assert len(h) == 16
 
 
-def test_chunk_size_constant_is_50() -> None:
-    assert CHUNK_SIZE == 50
-
-
 def test_compute_chunk_hash_raises_on_missing_steam_review_id() -> None:
     # Every review must carry a steam_review_id — missing ids would cause
     # hash collisions and therefore wrong cache hits.
@@ -81,10 +95,22 @@ def test_compute_chunk_hash_raises_on_missing_steam_review_id() -> None:
         compute_chunk_hash([{"voted_up": True}])
 
 
+def test_stratified_chunking_rejects_invalid_chunk_size() -> None:
+    with pytest.raises(ValueError, match="chunk_size"):
+        stratified_chunk_reviews(
+            [_review("a", voted_up=True)],
+            chunk_size=0,
+            reference_time=_REF_TIME,
+            seed=_SEED,
+        )
+
+
 def test_stratified_chunking_is_a_partition() -> None:
     # Partition invariant: every input review appears in exactly one chunk.
     reviews = [_review(f"r{i}", voted_up=i % 3 != 0) for i in range(127)]
-    chunks = stratified_chunk_reviews(reviews, chunk_size=50)
+    chunks = stratified_chunk_reviews(
+        reviews, chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED
+    )
     seen_ids: list[str] = []
     for c in chunks:
         seen_ids.extend(r["steam_review_id"] for r in c)
@@ -92,10 +118,7 @@ def test_stratified_chunking_is_a_partition() -> None:
     assert len(seen_ids) == len(set(seen_ids))  # no duplicates
 
 
-def test_chunk_hash_is_reproducible_across_invocations() -> None:
-    # Because the 90-day recency window uses max(posted_at) from the dataset,
-    # running the same review set twice yields identical chunk hashes even
-    # if wall-clock time passes between runs.
+def test_chunk_hash_is_reproducible_with_fixed_reference_time() -> None:
     reviews = [
         _review(
             f"r{i}",
@@ -105,6 +128,31 @@ def test_chunk_hash_is_reproducible_across_invocations() -> None:
         )
         for i in range(80)
     ]
-    c1 = stratified_chunk_reviews(reviews, chunk_size=50)
-    c2 = stratified_chunk_reviews(reviews, chunk_size=50)
+    c1 = stratified_chunk_reviews(
+        reviews, chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED
+    )
+    c2 = stratified_chunk_reviews(
+        reviews, chunk_size=_CHUNK_SIZE, reference_time=_REF_TIME, seed=_SEED
+    )
     assert [compute_chunk_hash(c) for c in c1] == [compute_chunk_hash(c) for c in c2]
+
+
+def test_dataset_reference_time_returns_max_posted_at() -> None:
+    reviews = [
+        _review("old", voted_up=True, posted_at="2020-01-01T00:00:00+00:00"),
+        _review("new", voted_up=False, posted_at="2025-06-15T12:00:00+00:00"),
+        _review("mid", voted_up=True, posted_at="2023-03-10T00:00:00+00:00"),
+    ]
+    assert dataset_reference_time(reviews) == datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
+
+
+def test_dataset_reference_time_raises_when_no_posted_at() -> None:
+    # No silent epoch fallback — caller must handle this explicitly.
+    with pytest.raises(ValueError, match="posted_at"):
+        dataset_reference_time([_review("a", voted_up=True), _review("b", voted_up=False)])
+
+
+def test_stratified_chunk_reviews_requires_all_knobs() -> None:
+    # No default values on any parameter — every call must be explicit.
+    with pytest.raises(TypeError):
+        stratified_chunk_reviews([_review("a", voted_up=True)])  # type: ignore[call-arg]

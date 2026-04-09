@@ -45,11 +45,13 @@ from library_layer.config import SteamPulseConfig
 from library_layer.llm.batch import BatchBackend
 from library_layer.llm.converse import ConverseBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
+from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.chunking import dataset_reference_time
 from library_layer.utils.db import get_conn
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
@@ -65,6 +67,7 @@ _game_repo = GameRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
+_tag_repo = TagRepository(get_conn)
 
 # All analyzer tuning knobs (including max-reviews-per-analysis) come from
 # SteamPulseConfig. No hardcoded module constants here.
@@ -242,6 +245,13 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
     # re-analysis and could mis-attribute the bookkeeping).
     merged_summary_id = int(merged_row["id"])
 
+    # Same race fix for chunk_count: capture "how many chunks fed this
+    # synthesis" at prepare time and thread it through SFN state so the
+    # collect phase can write it verbatim, instead of re-counting rows
+    # that may have shifted between prepare and collect (concurrent
+    # re-analysis, CHUNK_PROMPT_VERSION bump, etc.).
+    chunk_count = len(_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION))
+
     # Load the review list needed for compute_sentiment_trend. We only need
     # posted_at + voted_up for trend; the LLM does NOT see raw reviews in
     # the synthesis phase.
@@ -257,6 +267,13 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
     velocity = _review_repo.find_review_velocity(appid)
     ea = _review_repo.find_early_access_impact(appid)
     temporal = build_temporal_context(game, velocity, ea)
+
+    # Store-page/metadata context — see analysis/handler.py for the
+    # rationale. Without this both the metadata context block and the
+    # store_page_alignment section of the synthesis prompt are dead code.
+    tags = _tag_repo.find_tags_for_game(appid)
+    genres = _tag_repo.find_genres_for_game(appid)
+    metadata = build_metadata_context(game, tags, genres)
 
     hidden_gem_score = compute_hidden_gem_score(
         float(game.positive_pct) if game.positive_pct is not None else None,
@@ -275,7 +292,7 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
         steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
         steam_review_score_desc=game.review_score_desc,
         temporal=temporal,
-        metadata=None,
+        metadata=metadata,
         synthesis_max_tokens=_analyzer_settings.synthesis_max_tokens,
     )
     s3_uri = backend.prepare([request], phase=f"synth-{appid}")
@@ -290,4 +307,7 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
         # report's merged_summary_id points at the row we actually used,
         # not whatever find_latest_by_appid happens to return later.
         "merged_summary_id": merged_summary_id,
+        # Same rationale — chunk_count reflects the persisted chunk set at
+        # prepare time, not a racy re-count in collect.
+        "chunk_count": chunk_count,
     }

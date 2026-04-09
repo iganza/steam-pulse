@@ -234,10 +234,11 @@ class BatchAnalysisStack(cdk.Stack):
                 result_path=f"$.{phase}.status_result",
             )
             done_choice = sfn.Choice(self, f"{phase.capitalize()}Complete?")
-            # Synthesis's prepare payload returns `merged_summary_id` — we
-            # thread it through to collect so the final report.upsert
-            # points at the exact merged row we synthesised against
-            # (instead of racing on find_latest_by_appid).
+            # Synthesis's prepare payload returns `merged_summary_id` and
+            # `chunk_count` — both are threaded through to collect so the
+            # final report.upsert records the exact merged row we
+            # synthesised against and the exact chunk count that fed it,
+            # instead of racing on find_latest_by_appid / find_by_appid.
             collect_payload: dict[str, object] = {
                 "appid": sfn.JsonPath.number_at("$.appid"),
                 "phase": phase,
@@ -247,6 +248,9 @@ class BatchAnalysisStack(cdk.Stack):
             if phase == "synthesis":
                 collect_payload["merged_summary_id"] = sfn.JsonPath.number_at(
                     "$.synthesis.merged_summary_id"
+                )
+                collect_payload["chunk_count"] = sfn.JsonPath.number_at(
+                    "$.synthesis.chunk_count"
                 )
             collect = tasks.LambdaInvoke(
                 self,

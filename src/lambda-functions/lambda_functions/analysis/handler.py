@@ -18,12 +18,14 @@ from library_layer.analyzer import AnalyzerSettings, analyze_game
 from library_layer.config import SteamPulseConfig
 from library_layer.events import AnalysisRequest, ReportReadyEvent
 from library_layer.llm.converse import ConverseBackend
+from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
+from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.chunking import dataset_reference_time
 from library_layer.utils.db import get_conn
 from library_layer.utils.events import EventPublishError, publish_event
@@ -42,6 +44,7 @@ _review_repo: ReviewRepository = ReviewRepository(get_conn)
 _report_repo: ReportRepository = ReportRepository(get_conn)
 _chunk_repo: ChunkSummaryRepository = ChunkSummaryRepository(get_conn)
 _merge_repo: MergedSummaryRepository = MergedSummaryRepository(get_conn)
+_tag_repo: TagRepository = TagRepository(get_conn)
 
 _sns_client = boto3.client("sns")
 _analysis_config = SteamPulseConfig()
@@ -104,6 +107,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
     ea_data = _review_repo.find_early_access_impact(req.appid)
     temporal = build_temporal_context(game, velocity_data, ea_data)
 
+    # Build store-page/metadata context so the synthesis prompt can
+    # render its Price/Platforms/Genres/Tags/Metacritic block AND the
+    # store_page_alignment section (both are gated on metadata being
+    # non-None). Without this wiring those prompt branches are dead
+    # code and every report's store_page_alignment stays null.
+    tags = _tag_repo.find_tags_for_game(req.appid)
+    genres = _tag_repo.find_genres_for_game(req.appid)
+    metadata = build_metadata_context(game, tags, genres)
+
     # Derive the chunking recency anchor from the dataset itself so
     # chunk hashes and cache lookups stay reproducible across wall-clock
     # time. Falls back explicitly only when no review has posted_at; that
@@ -126,7 +138,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
         settings=_analyzer_settings,
         reference_time=reference_time,
         temporal=temporal,
-        metadata=None,
+        metadata=metadata,
         steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
         steam_review_count=game.review_count or None,
         steam_review_score_desc=game.review_score_desc,

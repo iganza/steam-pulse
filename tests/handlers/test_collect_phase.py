@@ -250,6 +250,9 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
 
     cp._report_repo = MagicMock()
     cp._chunk_repo = MagicMock()
+    # chunk_count now flows through the SFN payload — collect must NOT
+    # re-query find_by_appid in the synthesis path. We spy on the repo
+    # and assert it was never called below.
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
     cp._sns = MagicMock()
 
@@ -271,8 +274,9 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
             "phase": "synthesis",
             "execution_id": "exec-4",
             "job_id": "arn:aws:bedrock:...:job/abc",
-            # SFN threads this from prepare_synthesis's output.
+            # SFN threads both of these from prepare_synthesis's output.
             "merged_summary_id": 99,
+            "chunk_count": 7,
         },
         context=None,
     )
@@ -283,9 +287,11 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     cp._report_repo.upsert.assert_called_once()
     payload = cp._report_repo.upsert.call_args.args[0]
     assert payload["pipeline_version"]  # non-empty
-    # merged_summary_id is the value from the SFN payload.
+    # Both pipeline-bookkeeping fields are the values from the SFN
+    # payload — collect did NOT recompute them from the live DB.
     assert payload["merged_summary_id"] == 99
-    assert payload["chunk_count"] == 3
+    assert payload["chunk_count"] == 7
+    cp._chunk_repo.find_by_appid.assert_not_called()
     # Python overrides were applied to the returned report before upsert.
     assert payload["appid"] == 440
     assert "hidden_gem_score" in payload
@@ -326,6 +332,7 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
                 "execution_id": "exec-5",
                 "job_id": "arn:aws:bedrock:...:job/abc",
                 "merged_summary_id": 42,
+                "chunk_count": 1,
             },
             context=None,
         )

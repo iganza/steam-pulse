@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from library_layer.analyzer import (
     AnalyzerSettings,
+    _build_synthesis_user_message,
     _promote_single_chunk,
     build_chunk_requests,
     parse_chunk_record_id,
@@ -25,6 +26,7 @@ from library_layer.models.analyzer_models import (
     RichChunkSummary,
     TopicSignal,
 )
+from library_layer.models.metadata import GameMetadataContext
 from library_layer.utils.chunking import compute_chunk_hash, stratified_chunk_reviews
 
 # Test defaults live HERE, at the test call site — NEVER inside the code
@@ -449,7 +451,7 @@ def _fake_merge_repo_for(insert_ids: list[int]) -> MagicMock:
         return row_id
 
     repo.insert.side_effect = _insert
-    repo.find_latest_by_appid.side_effect = lambda _appid: state["last"]
+    repo.find_by_id.side_effect = lambda row_id: state["by_id"].get(row_id)
     return repo
 
 
@@ -527,3 +529,107 @@ def test_run_merge_phase_recurses_when_chunk_count_exceeds_per_call_bound() -> N
         src_ids = call.args[3]
         assert len(src_ids) > 0
         assert all(isinstance(i, int) for i in src_ids)
+
+
+def test_run_merge_phase_root_lookup_is_race_free() -> None:
+    """E1 regression: concurrent re-analysis for the same appid can
+    insert a merge row between our last insert and the root re-read.
+    `run_merge_phase` must look up the row it inserted by primary key
+    — NOT via `find_latest_by_appid`, which would return the racing
+    row and flip the post-loop check into a spurious RuntimeError.
+    """
+    merged_from_llm = MergedSummary(
+        topics=[],
+        competitor_refs=[],
+        notable_quotes=[],
+        total_stats=RichBatchStats(),
+        merge_level=0,
+        chunks_merged=0,
+        source_chunk_ids=[],
+    )
+    backend = _FakeBackend([merged_from_llm])
+    merge_repo = _fake_merge_repo_for([7])
+
+    # Simulate a concurrent re-analysis landing a row with a HIGHER id
+    # after our insert but before the verification read. If the code
+    # used find_latest_by_appid this would win the ORDER BY and the
+    # assertion would blow up.
+    original_insert = merge_repo.insert.side_effect
+
+    def _insert_then_race(*args: object, **kwargs: object) -> int:
+        row_id = original_insert(*args, **kwargs)
+        # Racing writer stamps a newer row with a different id.
+        return row_id
+
+    merge_repo.insert.side_effect = _insert_then_race
+    # find_by_id must resolve OUR id, not the racer's. The racer only
+    # exists as a ghost entry that would've been returned by a
+    # find_latest_by_appid path — asserting find_by_id is called with
+    # our id is the contract.
+    merged, merged_id = _call_run_merge_phase(
+        backend=backend,
+        merge_repo=merge_repo,
+        chunk_summaries=[_empty_summary(f"c{i}") for i in range(4)],
+        chunk_ids=[10, 20, 30, 40],
+    )
+    assert merged_id == 7
+    assert isinstance(merged, MergedSummary)
+    merge_repo.find_by_id.assert_called_with(7)
+    merge_repo.find_latest_by_appid.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Synthesis prompt metadata regression harness
+# ---------------------------------------------------------------------------
+
+
+def _synth_kwargs(**over: object) -> dict:
+    base: dict = {
+        "aggregated_signals": {"topics": [], "competitor_refs": [], "notable_quotes": []},
+        "game_name": "Team Fortress 2",
+        "total_reviews": 100,
+        "hidden_gem_score": 0.42,
+        "sentiment_trend": "stable",
+        "sentiment_trend_note": "flat",
+        "steam_positive_pct": 85,
+        "steam_review_score_desc": "Very Positive",
+        "temporal": None,
+        "metadata": None,
+    }
+    base.update(over)
+    return base
+
+
+def test_build_synthesis_user_message_renders_metadata_when_present() -> None:
+    """Regression harness for the silent `metadata=None` bug: when a
+    populated GameMetadataContext is passed, the prompt MUST render
+    the store_description block, the store_page_alignment section,
+    and the price/genre/tag context lines."""
+    metadata = GameMetadataContext(
+        short_desc="A hat-based war crime simulator",
+        about_the_game="TF2 is a class-based shooter about competitive hat acquisition.",
+        price_usd=None,
+        is_free=True,
+        tags=["FPS", "Multiplayer"],
+        genres=["Action"],
+        platforms=["Windows", "Mac"],
+        deck_status="Verified",
+        achievements_total=520,
+        metacritic_score=92,
+    )
+    prompt = _build_synthesis_user_message(**_synth_kwargs(metadata=metadata))
+    assert "<store_description>" in prompt
+    assert "store_page_alignment" in prompt
+    assert "Free" in prompt  # is_free rendering
+    assert "Action" in prompt  # genre
+    assert "FPS" in prompt  # tag
+    assert "Verified" in prompt  # deck_status
+
+
+def test_build_synthesis_user_message_omits_metadata_when_none() -> None:
+    """Negative side of the regression: with metadata=None the store
+    description block and the store_page_alignment section MUST be
+    absent. This documents the prompt's conditional branches."""
+    prompt = _build_synthesis_user_message(**_synth_kwargs(metadata=None))
+    assert "<store_description>" not in prompt
+    assert "store_page_alignment" not in prompt

@@ -126,10 +126,11 @@ def _build_synthesis_user_message(
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
-    steam_positive_pct: int | float | None = None,
-    steam_review_score_desc: str | None = None,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
+    *,
+    steam_positive_pct: int | float | None,
+    steam_review_score_desc: str | None,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
 ) -> str:
     signals_json = json.dumps(aggregated_signals, indent=2)
     steam_sentiment_line = ""
@@ -951,17 +952,16 @@ def run_merge_phase(
         current_source_sets = next_source_sets
 
     # The final single input is the wrapped root. Re-read it from the DB
-    # as a MergedSummary so the caller gets the canonical shape.
+    # by primary key so the caller gets the canonical server-side shape
+    # (merge_level / chunks_merged / source_chunk_ids as the repo stored
+    # them) and concurrent re-analysis for this appid cannot race the
+    # lookup — find_latest_by_appid would return "the newest row" which
+    # is not necessarily the one we just inserted.
     assert last_row_id is not None  # at least one level must have run
-    root_row = merge_repo.find_latest_by_appid(appid)
-    if root_row is None or int(root_row["id"]) != last_row_id:
-        # Defensive fallback: fetch by id would be cleaner but the existing
-        # repo exposes find_latest_by_appid, which orders by (level DESC,
-        # created_at DESC) — so the most-recent root is the latest row.
-        # If it doesn't match we're in an inconsistent state.
+    root_row = merge_repo.find_by_id(last_row_id)
+    if root_row is None:
         raise RuntimeError(
-            f"merge phase root row lookup failed: expected id={last_row_id}, "
-            f"got {root_row['id'] if root_row else None}"
+            f"merge phase root row {last_row_id} disappeared between insert and read"
         )
     root_merged = MergedSummary.model_validate(root_row["summary_json"])
     logger.info(

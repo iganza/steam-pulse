@@ -8,6 +8,87 @@
 > `sentiment_trend*` fields (a window comparison, not a magnitude). See
 > `scripts/prompts/data-source-clarity.md` for the full rationale.
 
+---
+
+## Errata — bookkeeping races found during PR review
+
+Two concurrency gaps were identified after the initial implementation landed.
+Both are corrections to the spec's own "no races on bookkeeping" promise — fix
+them in the same branch before merging.
+
+### E1. `run_merge_phase` root verification races with concurrent re-analysis
+
+**Symptom.** At the end of `run_merge_phase` (`library_layer/analyzer.py`,
+post-loop verification block) the code re-reads the root via
+`merge_repo.find_latest_by_appid(appid)` and asserts the returned row id
+equals `last_row_id`. `find_latest_by_appid` orders by
+`(merge_level DESC, created_at DESC)` — it returns "the latest row for this
+appid", not "the row we just inserted". Any concurrent invocation for the
+same appid (admin reanalyze racing bulk seed, SFN retry overlapping a
+realtime call) that inserts a merge row between our last insert and this
+read flips the assertion into a spurious `RuntimeError` on an otherwise
+clean run.
+
+**Fix.**
+1. Add `MergedSummaryRepository.find_by_id(merge_id: int) -> dict | None` —
+   a plain `SELECT ... WHERE id = %s`. This is the race-free lookup.
+2. In `run_merge_phase`, replace the `find_latest_by_appid` + id-equality
+   check with `merge_repo.find_by_id(last_row_id)`. If it's `None`, that's
+   a real consistency bug and should raise; otherwise return the hydrated
+   `MergedSummary` from that exact row.
+3. Do **not** trust `last_row_id` without re-reading — we still want the
+   canonical server-side shape (with `merge_level`, `chunks_merged`,
+   `source_chunk_ids` as the repo stored them) rather than the in-memory
+   `response` object we mutated before insert.
+
+**Test.** Add a case to `tests/services/test_analyzer_three_phase.py` that
+inserts a higher-`merge_level` row for the SAME appid between the last
+per-group insert and the verification read (monkeypatch or a spy on the
+repo) and asserts `run_merge_phase` still returns the correct root.
+
+### E2. Batch `collect_phase` recomputes `chunk_count` from live DB
+
+**Symptom.** `lambda_functions/batch_analysis/collect_phase.py::_collect_synthesis`
+sets `payload["chunk_count"] = len(_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION))`.
+The spec already threads `merged_summary_id` through SFN state (captured
+at prepare-synthesis time) specifically to avoid "the set of persisted
+artifacts changed between prepare and collect" races. `chunk_count` has
+the identical failure mode: a concurrent re-analyze (or a CHUNK_PROMPT_VERSION
+bump landing between prepare and collect) can inflate or shrink the count
+so the stored value no longer reflects what the synthesis actually saw.
+
+**Fix.** Thread `chunk_count` through SFN state the same way
+`merged_summary_id` is threaded today.
+
+1. In `prepare_phase._prepare_synthesis`: compute `chunk_count` from the
+   `_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)` result that
+   already drives merge-lookup, and return it in the output payload
+   alongside `merged_summary_id`.
+2. In `collect_phase.handler`: pull `event.get("chunk_count")` the same
+   way `merged_summary_id` is pulled.
+3. In `collect_phase._collect_synthesis`: accept `chunk_count: int | None`
+   as a required parameter (no default), assign it into `payload["chunk_count"]`,
+   and **remove the `find_by_appid(...)` re-query entirely**.
+4. Update `infra/stacks/batch_analysis_stack.py` so the Step Functions
+   state machine passes `chunk_count` through the synthesis prepare →
+   collect transition. If `merged_summary_id` is already passed via
+   `ResultSelector` / `Parameters`, extend the same path.
+
+**Test.** Update `tests/handlers/test_collect_phase.py` so the synthesis
+collect test asserts the stored `chunk_count` came from the event payload,
+not from a live repo call. The existing merged_summary_id test is the
+template.
+
+### Non-goal
+
+The third PR-review finding (`metadata=None` at both call sites — lost
+`store_page_alignment` + metadata context block) is a **missing feature**,
+not a race. It is tracked in its own spec at
+`scripts/prompts/metadata-context-wiring.md` and must land in this same
+branch before merge.
+
+---
+
 ## Background
 
 The current two-pass analysis pipeline has five structural limitations:

@@ -16,6 +16,23 @@ from library_layer.repositories.base import BaseRepository
 
 
 class MergedSummaryRepository(BaseRepository):
+    def find_by_id(self, merge_id: int) -> dict | None:
+        """Race-free lookup by primary key.
+
+        `run_merge_phase` uses this to re-read the exact row it just
+        inserted — `find_latest_by_appid` orders by merge_level/created_at
+        and races with concurrent re-analysis for the same appid.
+        """
+        return self._fetchone(
+            """
+            SELECT id, appid, merge_level, summary_json, source_chunk_ids,
+                   chunks_merged, model_id, prompt_version, created_at
+            FROM merged_summaries
+            WHERE id = %s
+            """,
+            (merge_id,),
+        )
+
     def find_latest_by_appid(self, appid: int) -> dict | None:
         return self._fetchone(
             """

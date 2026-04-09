@@ -70,8 +70,23 @@ def _db_review(rid: str, *, voted_up: bool = True) -> Any:
 def _install_fake_game(pp: Any) -> None:
     game = MagicMock()
     game.name = "Test Game"
+    # Fields read by build_metadata_context — keep them minimal but real.
+    game.short_desc = "test short desc"
+    game.about_the_game = "full about the game text"
+    game.price_usd = None
+    game.is_free = True
+    game.platforms = {"windows": True}
+    game.deck_status = "Unknown"
+    game.achievements_total = 0
+    game.metacritic_score = None
     pp._game_repo = MagicMock()
     pp._game_repo.find_by_appid.return_value = game
+
+
+def _install_fake_tag_repo(pp: Any) -> None:
+    pp._tag_repo = MagicMock()
+    pp._tag_repo.find_tags_for_game.return_value = [{"name": "FPS"}]
+    pp._tag_repo.find_genres_for_game.return_value = [{"name": "Action"}]
 
 
 def _install_fake_reviews(pp: Any, count: int) -> None:
@@ -256,7 +271,12 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
         "id": 7,
         "summary_json": merged.model_dump(mode="json"),
     }
+    # chunk_count is captured at prepare time and threaded through SFN
+    # so collect_phase doesn't re-count rows that may have shifted.
+    pp._chunk_repo = MagicMock()
+    pp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
     _install_fake_reviews(pp, count=10)
+    _install_fake_tag_repo(pp)
     pp._review_repo.find_review_velocity = MagicMock(return_value={"summary": {}})
     pp._review_repo.find_early_access_impact = MagicMock(return_value={})
     # Game needs release_date / coming_soon for build_temporal_context.
@@ -270,15 +290,27 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     )
     assert result["skip"] is False
     assert result["job_id"] == "arn:aws:bedrock:...:job/abc"
-    # The merged_summary_id we synthesised against is threaded through
-    # the payload so collect_phase doesn't race on find_latest_by_appid.
+    # Both merged_summary_id and chunk_count are threaded through the
+    # payload so collect_phase doesn't race on find_latest_by_appid or
+    # on a live chunk_repo re-count.
     assert result["merged_summary_id"] == 7
+    assert result["chunk_count"] == 3
     backend.prepare.assert_called_once()
     backend.submit.assert_called_once()
     # Exactly one synthesis request submitted.
     submitted_requests = backend.prepare.call_args.args[0]
     assert len(submitted_requests) == 1
     assert submitted_requests[0].task == "summarizer"
+    # Metadata context flowed into the rendered prompt — the
+    # store_description block + store_page_alignment section only
+    # render when GameMetadataContext is non-None with about_the_game.
+    rendered_user = submitted_requests[0].user
+    assert "<store_description>" in rendered_user
+    assert "store_page_alignment" in rendered_user
+    assert "Action" in rendered_user  # genre from _install_fake_tag_repo
+    assert "FPS" in rendered_user  # tag from _install_fake_tag_repo
+    pp._tag_repo.find_tags_for_game.assert_called_with(440)
+    pp._tag_repo.find_genres_for_game.assert_called_with(440)
 
 
 # ---------------------------------------------------------------------------

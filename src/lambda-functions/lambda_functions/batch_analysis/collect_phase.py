@@ -86,12 +86,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if phase == "chunk":
         return _collect_chunk(appid, backend, job_id)
     if phase == "synthesis":
-        # `merged_summary_id` is threaded through SFN state from the
-        # prepare-synthesis payload so we don't race on find_latest_by_appid.
+        # `merged_summary_id` and `chunk_count` are both threaded through
+        # SFN state from the prepare-synthesis payload so the collect
+        # phase never races on `find_latest_by_appid` / `find_by_appid`.
         merged_summary_id = event.get("merged_summary_id")
         if merged_summary_id is not None:
             merged_summary_id = int(merged_summary_id)
-        return _collect_synthesis(appid, backend, job_id, merged_summary_id)
+        chunk_count = event.get("chunk_count")
+        if chunk_count is not None:
+            chunk_count = int(chunk_count)
+        return _collect_synthesis(appid, backend, job_id, merged_summary_id, chunk_count)
     # `merge` is handled entirely inline by `prepare_phase._prepare_merge`
     # via ConverseBackend — it always returns skip=true and the state
     # machine never routes a merge event here.
@@ -145,14 +149,15 @@ def _collect_synthesis(
     backend: BatchBackend,
     job_id: str,
     merged_summary_id: int | None,
+    chunk_count: int | None,
 ) -> dict:
     """Collect synthesis output and upsert the final report.
 
-    `merged_summary_id` is threaded from the prepare-synthesis payload
-    via Step Functions state, NOT re-queried from the DB. Re-querying
-    `find_latest_by_appid` races with concurrent re-analysis and could
-    attribute the report to a different merge row than the one we
-    actually synthesised against.
+    Both `merged_summary_id` and `chunk_count` are threaded from the
+    prepare-synthesis payload via Step Functions state, NOT re-queried
+    from the DB. Re-querying races with concurrent re-analysis and
+    could attribute the report to a different merge row, or record a
+    chunk count that does not match what the synthesis actually saw.
     """
     game = _game_repo.find_by_appid(appid)
     if game is None:
@@ -186,17 +191,14 @@ def _collect_synthesis(
     report.sentiment_trend_sample_size = trend["sample_size"]
     report.appid = appid
 
-    # Populate pipeline bookkeeping columns from the persisted artifacts.
-    # merged_summary_id comes from the SFN state (captured at prepare time)
-    # so concurrent re-analysis cannot mis-attribute the row we actually
-    # synthesised against. chunk_count IS looked up from the DB because
-    # it's purely informational — not a foreign-key pointer — and
-    # "how many chunks fed this report" should reflect the current
-    # persisted chunk set for this game.
+    # Populate pipeline bookkeeping columns from the SFN-threaded state.
+    # Both merged_summary_id AND chunk_count were captured at prepare
+    # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
+    # between prepare and collect cannot mis-attribute either field.
     payload = report.model_dump()
     payload["pipeline_version"] = PIPELINE_VERSION
     payload["merged_summary_id"] = merged_summary_id
-    payload["chunk_count"] = len(_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION))
+    payload["chunk_count"] = chunk_count
     _report_repo.upsert(payload)
 
     try:

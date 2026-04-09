@@ -16,3 +16,19 @@ export function relativeTime(iso: string | null | undefined): string | null {
 export function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
+
+/**
+ * Parse a YYYY-MM-DD date string as a LOCAL date (not UTC).
+ *
+ * `new Date("2026-04-08")` parses as UTC midnight, then any subsequent
+ * `toLocaleDateString()` in a west-of-UTC timezone formats it as the previous
+ * day. Use this helper for any `release_date` / `DATE`-typed field coming from
+ * Postgres so the user sees the same calendar day the developer entered on Steam.
+ *
+ * Duplicated copies exist in `components/analytics/DeveloperPortfolio.tsx` and
+ * `PublisherPortfolio.tsx`; prefer importing from here for new code.
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}

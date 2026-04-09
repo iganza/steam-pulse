@@ -198,6 +198,114 @@ SQS common code can be in library_layer/sqs_util
 SNS common code in library_layer/sns_util
 and so on...
 
+### Read path: UI is fed by materialized views + pre-computed data (mandatory)
+
+**Every page, feed, listing, dashboard tile, headline count, and filter dropdown on the
+site is served from a materialized view (or equivalent pre-computed artifact) — never
+from a live scan/join/aggregate against base tables at request time.**
+
+This is a hard rule. The project already runs on this pattern (`mv_genre_counts`,
+`mv_tag_counts`, `mv_genre_games`, `mv_tag_games`, `mv_price_positioning`, `mv_release_timing`,
+`mv_platform_distribution`, `mv_tag_trend`, `mv_price_summary`, `mv_review_counts`,
+`mv_trend_catalog`, `mv_trend_by_genre`, `mv_trend_by_tag`, `mv_new_releases`, plus
+denormalized columns on `games` like `positive_pct`, `review_velocity_lifetime`,
+`estimated_owners`, `estimated_revenue_usd`). New read paths extend it — they don't
+invent new ones.
+
+#### Why
+
+- **Latency**: CDN → Next.js ISR → matview is a three-layer cache. A `COUNT(*) ... GROUP BY`
+  across `games`/`reviews`/`game_tags` at request time is unacceptable at our traffic shape.
+- **Consistency**: the matview is the single source of truth for a given view/page, so
+  every tile on a dashboard agrees. Computing the same aggregate two different ways in two
+  different places drifts.
+- **Query simplicity**: repositories become thin `SELECT ... FROM mv_foo WHERE ...` that
+  any reader can verify at a glance.
+- **Correctness**: the hard join/aggregate logic lives in one place (the matview DDL),
+  reviewed once, instead of scattered across ad-hoc repo methods.
+
+#### The pattern
+
+When adding a new read path (a page, a tile, a filter facet, a count, a list), ask in order:
+
+1. **Can an existing matview serve it?** Read `MATVIEW_NAMES` in
+   `library_layer/repositories/matview_repo.py` first. If yes, add a `SELECT` method to
+   `MatviewRepository` (or a dedicated repo that reads the same matview) — done.
+2. **Can an existing matview be *extended*?** Prefer adding a column (e.g. a new array,
+   a new denormalized field) to an existing matview over creating a new one. Drop + recreate
+   the matview in a new migration — see the drop-before-create pattern in
+   `migrations/0034_new_releases_matview.sql` and `schema.py::create_matviews()`. Update
+   `schema.py` to mirror.
+3. **Does it need a new matview?** Create one only if the existing ones can't cover it.
+   Follow the full recipe below.
+4. **Can a denormalized column on `games` (or another base entity) serve it instead?**
+   For simple per-row values that the write path can maintain (e.g. `positive_pct`,
+   `review_velocity_lifetime`, revenue estimate fields), a denormalized column is simpler
+   than a matview and has zero refresh lag. Use this for write-time-computable scalars,
+   not for aggregates/joins/filters.
+
+If none of those work (rare), explain why in the PR description — expect pushback.
+
+#### Full recipe for a new matview
+
+1. **Migration** (`migrations/00NN_<name>_matview.sql`):
+   - `DROP MATERIALIZED VIEW IF EXISTS mv_foo;` before the `CREATE` (self-heals stale
+     shapes on persistent dev/staging DBs).
+   - `CREATE MATERIALIZED VIEW mv_foo AS SELECT ...` bounded to the smallest window that
+     serves the feature (e.g. `mv_new_releases` is bounded to 365d released / 90d
+     discovered). Never unbounded scans of `games` if you can avoid it.
+   - **`CREATE UNIQUE INDEX mv_foo_pk_idx ON mv_foo(...)` is mandatory** — required for
+     `REFRESH MATERIALIZED VIEW CONCURRENTLY`. No unique index = blocking refresh = outage.
+   - Partial b-tree indexes matching the primary WHERE/ORDER BY of the repo methods.
+   - **GIN indexes on any `text[]` filter columns** when the repository filters use
+     array operators Postgres can index with GIN — typically `@>` or `&&`, e.g.
+     `col @> ARRAY[slug]::text[]`. Do **not** assume `slug = ANY(col)` is index-backed;
+     it isn't — Postgres only uses GIN for the `@>` / `&&` operator classes. See
+     `mv_new_releases_genre_slugs_gin` for an example.
+2. **Mirror in `schema.py`**: append the DDL to `MATERIALIZED_VIEWS` and add the matview
+   name to the drop-before-rebuild list in `create_matviews()` so test DBs pick up future
+   shape changes automatically.
+3. **Register for refresh**: add the matview name to `MATVIEW_NAMES` in
+   `library_layer/repositories/matview_repo.py`. **Do not write a new refresh path.** The
+   existing `lambda_functions/admin/matview_refresh_handler.py` Lambda picks it up
+   automatically — it's triggered by SQS (report-ready, catalog-refresh-complete) and by
+   EventBridge (every 6h) with a 5-minute debounce, and logs to `matview_refresh_log`.
+4. **Repository**: a thin class extending `BaseRepository`, constructed with `get_conn`,
+   whose methods are pure `SELECT ... FROM mv_foo WHERE ...`. Return Pydantic models, never
+   dicts. No business logic, no window math, no filter-clause composition beyond tiny
+   `_filter_clause()` helpers for dynamic `WHERE`s.
+5. **Service** owns all derived logic: window→datetime translation, page clamping, bucketing,
+   headline-count fan-out, filter passthrough. Calls the repository only.
+6. **API handler** is thin: parse query params → call service → `JSONResponse` with
+   `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` (or tighter if the
+   data changes faster).
+
+#### Terminology (use these exact words)
+
+- **Materialized view (matview)** — a Postgres `MATERIALIZED VIEW`, refreshed out-of-band.
+  The workhorse for aggregates, joins, and filter facets.
+- **Denormalized column** — a scalar column on a base entity (e.g. `games.positive_pct`)
+  populated by the write path. Use for per-row values, not aggregates.
+- **Bounded window** — matviews should be scoped to the smallest time range / row set that
+  serves the feature (e.g. "last 365d" for a new-releases feed). Unbounded matviews over
+  `games` or `reviews` are a smell.
+- **Refresh cadence** — how stale the data can be. The existing pipeline gives you
+  ~5min-after-write via SQS triggers plus a 6h EventBridge fallback, debounced at 5min.
+  Don't build a second refresh path.
+- **Pre-computed** — umbrella term covering both matviews and denormalized columns. When
+  you write "pre-computed" in a PR, mean one of those two concretely.
+
+#### Anti-patterns (do not do)
+
+- Running `COUNT(*)`/`GROUP BY`/multi-table `JOIN` against `games`/`reviews`/`game_tags`
+  inside a FastAPI request handler path.
+- Adding a new matview with no unique index — breaks `REFRESH CONCURRENTLY`.
+- Writing a new refresh Lambda or cron instead of extending `MATVIEW_NAMES`.
+- Computing a headline count or facet count with a second API roundtrip — return it in the
+  same response envelope the list endpoint already serves.
+- Caching *in application memory* as a substitute for a matview. The matview IS the cache.
+- Iterating over a matview in Python to filter/group — push the predicate into SQL.
+
 ### SNS Events and SQS Messages — typed Pydantic models (events.py)
 
 All inter-service messages — both SNS events and SQS queue messages — are defined as typed

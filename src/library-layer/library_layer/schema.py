@@ -586,6 +586,63 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     FROM base b CROSS JOIN grains gr
     GROUP BY 1, 2, 3""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(granularity, tag_slug, period)",
+    # 0034_new_releases_matview — three-lens feed for /new-releases
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new_releases AS
+    SELECT
+        ac.appid,
+        COALESCE(g.name, ac.name)            AS name,
+        g.slug,
+        g.type,
+        g.developer,
+        g.developer_slug,
+        g.publisher,
+        g.publisher_slug,
+        g.header_image,
+        g.release_date,
+        COALESCE(g.coming_soon, FALSE)       AS coming_soon,
+        g.price_usd,
+        COALESCE(g.is_free, FALSE)           AS is_free,
+        g.review_count,
+        g.review_count_english,
+        g.positive_pct,
+        g.review_score_desc,
+        ac.discovered_at,
+        g.crawled_at                         AS meta_crawled_at,
+        (g.appid IS NULL)                    AS metadata_pending,
+        CASE
+            WHEN g.release_date IS NOT NULL AND COALESCE(g.coming_soon, FALSE) = FALSE
+            THEN (CURRENT_DATE - g.release_date)
+        END                                   AS days_since_release,
+        EXISTS (SELECT 1 FROM reports r WHERE r.appid = ac.appid) AS has_analysis,
+        COALESCE((SELECT array_agg(tag_name ORDER BY votes DESC) FROM (
+            SELECT t.name AS tag_name, gt.votes
+            FROM game_tags gt JOIN tags t ON t.id = gt.tag_id
+            WHERE gt.appid = ac.appid ORDER BY gt.votes DESC LIMIT 3
+        ) tt), ARRAY[]::text[]) AS top_tags,
+        COALESCE((SELECT array_agg(t.slug)
+            FROM game_tags gt JOIN tags t ON t.id = gt.tag_id
+            WHERE gt.appid = ac.appid), ARRAY[]::text[]) AS top_tag_slugs,
+        COALESCE((SELECT array_agg(gn.name)
+            FROM game_genres gg JOIN genres gn ON gn.id = gg.genre_id
+            WHERE gg.appid = ac.appid), ARRAY[]::text[]) AS genres,
+        COALESCE((SELECT array_agg(gn.slug)
+            FROM game_genres gg JOIN genres gn ON gn.id = gg.genre_id
+            WHERE gg.appid = ac.appid), ARRAY[]::text[]) AS genre_slugs
+    FROM app_catalog ac
+    LEFT JOIN games g ON g.appid = ac.appid
+    WHERE (g.type IS NULL OR g.type = 'game')
+      AND (
+        (g.release_date IS NOT NULL AND COALESCE(g.coming_soon, FALSE) = FALSE
+            AND g.release_date >= CURRENT_DATE - INTERVAL '365 days')
+        OR (COALESCE(g.coming_soon, FALSE) = TRUE)
+        OR (ac.discovered_at >= NOW() - INTERVAL '90 days')
+      )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS mv_new_releases_appid_idx ON mv_new_releases(appid)",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_released_idx ON mv_new_releases(release_date DESC) WHERE coming_soon = FALSE AND release_date IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_upcoming_idx ON mv_new_releases(release_date ASC NULLS LAST) WHERE coming_soon = TRUE",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(discovered_at DESC)",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_genre_slugs_gin ON mv_new_releases USING GIN(genre_slugs)",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_top_tag_slugs_gin ON mv_new_releases USING GIN(top_tag_slugs)",
 )
 
 
@@ -638,6 +695,9 @@ def create_matviews(conn: object) -> None:
             "mv_release_timing",
             "mv_platform_distribution",
             "mv_tag_trend",
+            # Dropped so a persistent test DB picks up schema changes to
+            # mv_new_releases (added genre_slugs / top_tag_slugs arrays).
+            "mv_new_releases",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

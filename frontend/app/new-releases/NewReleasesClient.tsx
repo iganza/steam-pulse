@@ -13,7 +13,7 @@ import {
   type NewReleasesWindow,
 } from "@/lib/api";
 import type { Genre, Tag } from "@/lib/types";
-import { slugify } from "@/lib/format";
+import { relativeTime as sharedRelativeTime, slugify } from "@/lib/format";
 
 type Lens = "released" | "upcoming" | "added";
 
@@ -60,14 +60,12 @@ const INITIAL: FeedState = {
   loading: true,
 };
 
+// Thin wrapper around the shared `relativeTime` helper from @/lib/format so
+// callers can treat the result as non-null (our entries always have a
+// `discovered_at` TIMESTAMPTZ, so the shared helper's `null` branch is
+// unreachable here).
 function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  const seconds = Math.max(0, (Date.now() - then) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return sharedRelativeTime(iso) ?? "";
 }
 
 function FeedCard({ entry, lens }: { entry: NewReleaseEntry; lens: Lens }) {

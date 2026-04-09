@@ -208,7 +208,10 @@ the test suite (`create_all`) builds the same shape against `steampulse_test`.
 
 ### Refresh wiring
 
-**Do not write a new refresh path.** Just register the matview in the existing pipeline:
+**Do not write a new refresh path.** Just register the matview in the existing pipeline
+by appending its name to the **module-level** `MATVIEW_NAMES` tuple in
+`library_layer/repositories/matview_repo.py` (it's a module constant, NOT a class
+attribute on `MatviewRepository` — don't reference it as `MatviewRepository.MATVIEW_NAMES`):
 
 ```python
 # src/library-layer/library_layer/repositories/matview_repo.py

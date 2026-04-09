@@ -1,7 +1,8 @@
 """NewReleasesRepository — pure SQL I/O backed by mv_new_releases.
 
 All queries hit the materialized view, never the base tables. The matview is
-registered in MatviewRepository.MATVIEW_NAMES and refreshed by the existing
+registered in the module-level ``MATVIEW_NAMES`` constant in
+``library_layer.repositories.matview_repo`` and refreshed by the existing
 matview_refresh_handler Lambda — no separate refresh wiring.
 """
 

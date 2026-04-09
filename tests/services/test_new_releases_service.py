@@ -113,7 +113,13 @@ def test_get_released_passes_genre_and_tag_filters() -> None:
     assert kwargs["tag"] == "roguelike"
 
 
-def test_get_added_translates_window_to_datetime() -> None:
+def test_get_added_translates_window_to_datetime(frozen_time: None) -> None:
+    """`get_added("today")` must pass `FIXED_NOW - 24h` to the repo.
+
+    Uses `frozen_time` and asserts an exact value — previously this test
+    compared against the wall clock with a 23-25h tolerance, which could
+    still flake under slow CI or debugger pauses.
+    """
     repo = MagicMock()
     repo.find_recently_added.return_value = []
     repo.count_added_since.return_value = 0
@@ -123,10 +129,7 @@ def test_get_added_translates_window_to_datetime() -> None:
 
     args, _ = repo.find_recently_added.call_args
     since = args[0]
-    assert since is not None
-    assert since.tzinfo is not None
-    delta = datetime.now(tz=UTC) - since
-    assert timedelta(hours=23) < delta < timedelta(hours=25)
+    assert since == FIXED_NOW - timedelta(hours=24)
 
 
 def test_get_added_passes_filters() -> None:

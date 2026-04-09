@@ -10,6 +10,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 import pytest
+from psycopg2 import sql as psql
 
 # Expose library_layer and lambda_functions packages to tests
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "library-layer"))
@@ -20,6 +21,7 @@ from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.matview_repo import MATVIEW_NAMES
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -126,9 +128,6 @@ def refresh_matviews(db_conn: Any) -> Any:
     Analytics tests that seed data and then query matview-backed methods
     must call this after seeding: ``refresh_matviews()``
     """
-    from library_layer.repositories.matview_repo import MATVIEW_NAMES
-    from psycopg2 import sql as psql
-
     def _refresh() -> None:
         prev = db_conn.autocommit
         db_conn.autocommit = True

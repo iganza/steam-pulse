@@ -163,6 +163,11 @@ def _collect_synthesis(
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
 
+    # Filter to non-empty bodies so sentiment_trend / sample_size are
+    # computed from the SAME review set the chunk + synthesis prepare
+    # phases used. Otherwise the Python overrides would disagree with
+    # `total_reviews_analyzed` and the pipeline would not be reproducible
+    # across phases.
     db_reviews = _review_repo.find_by_appid(appid, limit=_config.ANALYSIS_MAX_REVIEWS)
     trend_reviews = [
         {
@@ -170,6 +175,7 @@ def _collect_synthesis(
             "posted_at": r.posted_at.isoformat() if r.posted_at else None,
         }
         for r in db_reviews
+        if r.body
     ]
 
     results = backend.collect(job_id, default_response_model=GameReport)

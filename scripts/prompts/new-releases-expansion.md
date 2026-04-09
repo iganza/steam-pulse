@@ -299,7 +299,10 @@ roundtrip. Each lens runs 5 count queries (1 total + 4 window counts); they hit 
 - `GET /api/new-releases/added?window=today|week|month|quarter&page&page_size&genre&tag`
 
 All three set `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` so
-CloudFront absorbs traffic. Invalid windows return `400 {"error": "invalid_window"}`.
+CloudFront absorbs traffic. Invalid `window` values return **FastAPI's native 422
+validation error** (the handler signature types `window` as the `Window` Literal, so
+FastAPI validates against the allowed set automatically — no manual `_VALID_WINDOWS`
+check, no `type: ignore`).
 `page_size` is validated via FastAPI `Query(ge=1, le=100)`.
 
 ---

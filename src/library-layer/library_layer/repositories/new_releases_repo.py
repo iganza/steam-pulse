@@ -141,6 +141,10 @@ class NewReleasesRepository(BaseRepository):
         upcoming row, not just the current page. CURRENT_DATE is evaluated
         once per query, so buckets are internally consistent.
         """
+        # Bucket definitions are strictly non-overlapping and each capped at
+        # its own ceiling. "this_quarter" is bounded at +90 days so a game
+        # releasing in 2028 doesn't inflate the count — anything beyond 90d
+        # doesn't land in any bucket (but is still counted in `total`).
         filt, fparams = _filter_clause(genre, tag)
         sql = f"""
             SELECT
@@ -156,6 +160,7 @@ class NewReleasesRepository(BaseRepository):
                 COUNT(*) FILTER (
                     WHERE release_date IS NOT NULL
                       AND release_date > CURRENT_DATE + INTERVAL '30 days'
+                      AND release_date <= CURRENT_DATE + INTERVAL '90 days'
                 ) AS this_quarter,
                 COUNT(*) FILTER (WHERE release_date IS NULL) AS tba
             FROM mv_new_releases

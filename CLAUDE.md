@@ -257,8 +257,11 @@ If none of those work (rare), explain why in the PR description — expect pushb
    - **`CREATE UNIQUE INDEX mv_foo_pk_idx ON mv_foo(...)` is mandatory** — required for
      `REFRESH MATERIALIZED VIEW CONCURRENTLY`. No unique index = blocking refresh = outage.
    - Partial b-tree indexes matching the primary WHERE/ORDER BY of the repo methods.
-   - **GIN indexes on any `text[]` filter columns** so `slug = ANY(col)` is index-backed —
-     see `mv_new_releases_genre_slugs_gin`.
+   - **GIN indexes on any `text[]` filter columns** when the repository filters use
+     array operators Postgres can index with GIN — typically `@>` or `&&`, e.g.
+     `col @> ARRAY[slug]::text[]`. Do **not** assume `slug = ANY(col)` is index-backed;
+     it isn't — Postgres only uses GIN for the `@>` / `&&` operator classes. See
+     `mv_new_releases_genre_slugs_gin` for an example.
 2. **Mirror in `schema.py`**: append the DDL to `MATERIALIZED_VIEWS` and add the matview
    name to the drop-before-rebuild list in `create_matviews()` so test DBs pick up future
    shape changes automatically.

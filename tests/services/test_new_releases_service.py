@@ -166,6 +166,30 @@ def test_get_upcoming_buckets_from_repo_aggregate() -> None:
     }
 
 
+def test_get_upcoming_delegates_bucket_upper_bound_to_repo() -> None:
+    """Documents the contract: service passes through whatever the repo returns.
+
+    The SQL inside `upcoming_bucket_counts()` bounds `this_quarter` to
+    `<= CURRENT_DATE + 90 days` so a game releasing in 2028 can't inflate
+    the "later this quarter" number — this test just ensures the service
+    layer doesn't post-process/override the repo's values.
+    """
+    repo = MagicMock()
+    repo.find_upcoming.return_value = []
+    repo.count_upcoming.return_value = 1000  # many upcoming rows overall
+    repo.upcoming_bucket_counts.return_value = {
+        "this_week": 2, "this_month": 10, "this_quarter": 25, "tba": 40,
+    }
+    svc = NewReleasesService(repo)
+
+    result = svc.get_upcoming(page=1, page_size=24)
+
+    # Sum of buckets (77) != total (1000) by design — anything beyond +90d
+    # is in `total` but not in any bucket. Service must not reconcile these.
+    assert sum(result["buckets"].values()) < result["total"]
+    assert result["buckets"]["this_quarter"] == 25
+
+
 def test_get_upcoming_buckets_respect_filters() -> None:
     """Bucket aggregate must receive the same genre/tag filters as the list."""
     repo = MagicMock()

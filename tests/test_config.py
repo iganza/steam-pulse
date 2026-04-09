@@ -67,6 +67,7 @@ def test_model_for_same_model_both_tasks(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_config_raises_when_llm_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """SteamPulseConfig raises ValidationError if LLM_MODEL map is absent entirely."""
     monkeypatch.delenv("LLM_MODEL__CHUNKING", raising=False)
+    monkeypatch.delenv("LLM_MODEL__MERGING", raising=False)
     monkeypatch.delenv("LLM_MODEL__SUMMARIZER", raising=False)
     with pytest.raises(ValidationError):
         SteamPulseConfig(

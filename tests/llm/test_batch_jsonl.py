@@ -7,10 +7,14 @@ analyzer.py, and `BatchBackend._to_jsonl_record` just wraps them.
 """
 
 import json
+import re
 
 from library_layer.llm.backend import LLMRequest
-from library_layer.llm.batch import BatchBackend
+from library_layer.llm.batch import BatchBackend, _safe_job_name
 from library_layer.models.analyzer_models import RichChunkSummary
+
+# Bedrock jobName constraint: ^[a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}$
+_JOB_NAME_RE = re.compile(r"^[a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}$")
 
 
 def _fake_backend() -> BatchBackend:
@@ -40,6 +44,31 @@ def test_jsonl_record_shape() -> None:
     ]
     # Prompt caching is NOT supported by Bedrock Batch — must not appear.
     assert "cache_control" not in line
+
+
+def test_safe_job_name_fits_bedrock_constraints() -> None:
+    # Long + special-char execution_id still yields a legal jobName.
+    name = _safe_job_name(
+        "arn:aws:states:us-west-2:123456789012:execution:steampulse-batch:run",
+        "chunk-440",
+    )
+    assert len(name) <= 63
+    assert _JOB_NAME_RE.match(name), f"illegal jobName: {name}"
+
+
+def test_safe_job_name_is_deterministic() -> None:
+    # Same inputs → same output (also acts as a clientRequestToken).
+    a = _safe_job_name("exec-1", "chunk-440")
+    b = _safe_job_name("exec-1", "chunk-440")
+    assert a == b
+
+
+def test_safe_job_name_distinguishes_different_inputs() -> None:
+    # Two executions that sanitize to similar prefixes still diverge via
+    # the hash suffix.
+    a = _safe_job_name("exec/1", "chunk")
+    b = _safe_job_name("exec.1", "chunk")
+    assert a != b
 
 
 def test_jsonl_record_is_byte_stable() -> None:

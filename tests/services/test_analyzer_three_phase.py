@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 from library_layer.analyzer import (
     _promote_single_chunk,
     build_chunk_requests,
-    plan_merge_groups,
     run_chunk_phase,
     run_merge_phase,
 )
@@ -99,18 +98,13 @@ def test_build_chunk_requests_skips_cached() -> None:
     assert pending[0].task == "chunking"
 
 
-def test_plan_merge_groups_respects_group_size() -> None:
-    summaries = [_empty_summary(f"t{i}") for i in range(13)]
-    groups = plan_merge_groups(summaries, group_size=6)
-    assert [len(g) for g in groups] == [6, 6, 1]
-
-
-def test_promote_single_chunk_zero_level() -> None:
+def test_promote_single_chunk_carries_source_id() -> None:
     s = _empty_summary("x")
-    promoted = _promote_single_chunk(s)
+    promoted = _promote_single_chunk(s, source_chunk_id=77)
     assert isinstance(promoted, MergedSummary)
     assert promoted.merge_level == 0
     assert promoted.chunks_merged == 1
+    assert promoted.source_chunk_ids == [77]
     assert len(promoted.topics) == 1
 
 
@@ -190,7 +184,7 @@ def test_run_merge_phase_short_circuits_single_chunk() -> None:
     merge_repo = MagicMock()
     merge_repo.find_latest_by_source_ids.return_value = None
 
-    merged = run_merge_phase(
+    merged, merged_id = run_merge_phase(
         appid=440,
         game_name="TF2",
         chunk_summaries=[_empty_summary("solo")],
@@ -200,6 +194,8 @@ def test_run_merge_phase_short_circuits_single_chunk() -> None:
     )
     assert isinstance(merged, MergedSummary)
     assert merged.merge_level == 0
+    assert merged.source_chunk_ids == [99]
+    assert merged_id is None  # promotion doesn't persist
     assert backend.received == []
     assert merge_repo.insert.call_count == 0
 
@@ -218,7 +214,7 @@ def test_run_merge_phase_uses_cached_merge_row() -> None:
         "summary_json": cached_merged.model_dump(mode="json"),
     }
 
-    merged = run_merge_phase(
+    merged, merged_id = run_merge_phase(
         appid=440,
         game_name="TF2",
         chunk_summaries=[_empty_summary(f"c{i}") for i in range(3)],
@@ -228,5 +224,42 @@ def test_run_merge_phase_uses_cached_merge_row() -> None:
     )
     assert isinstance(merged, MergedSummary)
     assert merged.chunks_merged == 3
+    assert merged_id == 42
     assert backend.received == []
     assert merge_repo.insert.call_count == 0
+
+
+def test_run_merge_phase_single_call_with_full_source_ids() -> None:
+    """Fresh merge: one LLM call, source_chunk_ids stored from the chunk_ids
+    passed in (never trusted from the LLM response)."""
+    merged_from_llm = MergedSummary(
+        topics=[], competitor_refs=[], notable_quotes=[],
+        total_stats=RichBatchStats(),
+        merge_level=0,   # LLM may guess wrong — server overrides
+        chunks_merged=999,  # LLM may guess wrong — server overrides
+        source_chunk_ids=[],  # LLM may omit — server fills
+    )
+    backend = _FakeBackend([merged_from_llm])
+    merge_repo = MagicMock()
+    merge_repo.find_latest_by_source_ids.return_value = None
+    merge_repo.insert.return_value = 7
+
+    chunk_ids = [10, 20, 30, 40]
+    merged, merged_id = run_merge_phase(
+        appid=440,
+        game_name="TF2",
+        chunk_summaries=[_empty_summary(f"c{i}") for i in range(4)],
+        chunk_ids=chunk_ids,
+        backend=backend,
+        merge_repo=merge_repo,
+    )
+    assert merged_id == 7
+    assert merged.merge_level == 1
+    assert merged.chunks_merged == 4   # server-computed from len(chunk_ids)
+    assert merged.source_chunk_ids == sorted(chunk_ids)
+    # Exactly ONE LLM call — no hierarchy.
+    assert len(backend.received) == 1
+    assert backend.received[0].task == "merging"
+    # Persisted row carries the real source ids.
+    call_args = merge_repo.insert.call_args
+    assert call_args.args[3] == chunk_ids

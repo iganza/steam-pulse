@@ -68,6 +68,7 @@ _TEST_ENV_DEFAULTS = {
     "RESEND_API_KEY_SECRET_NAME": "steampulse/test/resend-api-key",
     "EMAIL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/email-queue-url",
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
+    "LLM_MODEL__MERGING": "anthropic.claude-sonnet-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
     "BATCH_BUCKET_NAME": "test-batch-bucket",
     "BEDROCK_BATCH_ROLE_ARN": "arn:aws:iam::123456789012:role/test-bedrock-role",

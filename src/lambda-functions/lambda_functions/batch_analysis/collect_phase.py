@@ -82,8 +82,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if phase == "chunk":
         return _collect_chunk(appid, backend, job_id)
     if phase == "merge":
-        level = int(event.get("level", 1))
-        return _collect_merge(appid, backend, job_id, level)
+        return _collect_merge(appid, backend, job_id)
     if phase == "synthesis":
         return _collect_synthesis(appid, backend, job_id)
 
@@ -168,26 +167,54 @@ def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
 
 
-def _collect_merge(
-    appid: int, backend: BatchBackend, job_id: str, level: int
-) -> dict:
-    results = backend.collect(job_id, default_response_model=MergedSummary)
+def _collect_merge(appid: int, backend: BatchBackend, job_id: str) -> dict:
+    """Collect the single-call merge output and persist it.
 
-    model_id = _config.model_for("merging")
-    for _record_id, merged in results:
-        if not isinstance(merged, MergedSummary):
-            continue
-        merged.merge_level = level
-        _merge_repo.insert(
-            appid,
-            level,
-            merged,
-            source_chunk_ids=[],  # higher-level caching is coarser (see plan)
-            chunks_merged=merged.chunks_merged,
-            model_id=model_id,
-            prompt_version=MERGE_PROMPT_VERSION,
+    Reads the `source_chunk_ids` sidecar written by prepare_phase and
+    writes it verbatim into merged_summaries so `find_latest_by_source_ids`
+    cache-lookups work on replays. `chunks_merged` is computed from the
+    server-side source id list, never trusted from the LLM output.
+    """
+    results = backend.collect(job_id, default_response_model=MergedSummary)
+    if not results:
+        raise RuntimeError(f"No merge output for appid={appid}")
+    if len(results) != 1:
+        logger.warning(
+            "merge_unexpected_record_count",
+            extra={"appid": appid, "count": len(results)},
         )
-    return {"appid": appid, "phase": "merge", "collected": len(results), "done": False}
+
+    source_chunk_ids = _read_source_ids_sidecar(backend, appid)
+
+    _record_id, merged = results[0]
+    if not isinstance(merged, MergedSummary):
+        raise TypeError(f"Expected MergedSummary, got {type(merged).__name__}")
+
+    # Server-computed bookkeeping — never trust the LLM for these.
+    merged.merge_level = 1
+    merged.chunks_merged = len(source_chunk_ids)
+    merged.source_chunk_ids = source_chunk_ids
+
+    _merge_repo.insert(
+        appid,
+        1,
+        merged,
+        source_chunk_ids,
+        len(source_chunk_ids),
+        model_id=_config.model_for("merging"),
+        prompt_version=MERGE_PROMPT_VERSION,
+    )
+    return {"appid": appid, "phase": "merge", "collected": 1, "done": False}
+
+
+def _read_source_ids_sidecar(backend: BatchBackend, appid: int) -> list[int]:
+    """Read the sidecar written by prepare_phase._write_source_ids_sidecar."""
+    import json as _json
+
+    key = f"jobs/{backend._execution_id}/merge-{appid}/source_chunk_ids.json"
+    body = backend._s3.get_object(Bucket=backend._bucket, Key=key)["Body"].read()
+    data = _json.loads(body.decode("utf-8"))
+    return sorted(int(x) for x in data["source_chunk_ids"])
 
 
 def _collect_synthesis(appid: int, backend: BatchBackend, job_id: str) -> dict:
@@ -226,7 +253,15 @@ def _collect_synthesis(appid: int, backend: BatchBackend, job_id: str) -> dict:
     report.sentiment_trend_sample_size = trend["sample_size"]
     report.appid = appid
 
-    _report_repo.upsert(report.model_dump())
+    # Populate pipeline bookkeeping columns from the persisted artifacts.
+    from library_layer.analyzer import PIPELINE_VERSION
+
+    merged_row = _merge_repo.find_latest_by_appid(appid)
+    payload = report.model_dump()
+    payload["pipeline_version"] = PIPELINE_VERSION
+    payload["merged_summary_id"] = int(merged_row["id"]) if merged_row else None
+    payload["chunk_count"] = len(_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION))
+    _report_repo.upsert(payload)
 
     try:
         publish_event(

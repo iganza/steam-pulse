@@ -18,6 +18,12 @@ class ReportRepository(BaseRepository):
         overwritten wholesale on conflict (no merge). Partial dicts will
         discard previously stored keys from report_json.
 
+        Three optional pipeline-bookkeeping keys are pulled off the dict
+        and written to their own columns (added in migration 0036):
+            pipeline_version: str   — bump to invalidate cached reports
+            chunk_count:      int   — how many Phase 1 chunks fed the merge
+            merged_summary_id: int  — FK-like pointer into merged_summaries
+
         Also syncs denormalized hidden_gem_score and last_analyzed onto the
         games table so catalog queries avoid the JSONB LEFT JOIN. The games
         sync only updates keys present in the dict as a defensive measure.
@@ -28,17 +34,40 @@ class ReportRepository(BaseRepository):
         """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)
+        pipeline_version = report.get("pipeline_version")
+        chunk_count = report.get("chunk_count")
+        merged_summary_id = report.get("merged_summary_id")
+        # Strip the pipeline bookkeeping out of the JSONB blob — those keys
+        # live in dedicated columns now, keeping the JSON a pure GameReport.
+        report_json = {
+            k: v
+            for k, v in report.items()
+            if k not in {"pipeline_version", "chunk_count", "merged_summary_id"}
+        }
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO reports (appid, report_json, reviews_analyzed, last_analyzed)
-                VALUES (%s, %s, %s, NOW())
+                INSERT INTO reports (
+                    appid, report_json, reviews_analyzed, last_analyzed,
+                    pipeline_version, chunk_count, merged_summary_id
+                )
+                VALUES (%s, %s, %s, NOW(), %s, %s, %s)
                 ON CONFLICT (appid) DO UPDATE SET
-                    report_json      = EXCLUDED.report_json,
-                    reviews_analyzed = EXCLUDED.reviews_analyzed,
-                    last_analyzed    = NOW()
+                    report_json       = EXCLUDED.report_json,
+                    reviews_analyzed  = EXCLUDED.reviews_analyzed,
+                    last_analyzed     = NOW(),
+                    pipeline_version  = EXCLUDED.pipeline_version,
+                    chunk_count       = EXCLUDED.chunk_count,
+                    merged_summary_id = EXCLUDED.merged_summary_id
                 """,
-                (appid, json.dumps(report), reviews_analyzed),
+                (
+                    appid,
+                    json.dumps(report_json),
+                    reviews_analyzed,
+                    pipeline_version,
+                    chunk_count,
+                    merged_summary_id,
+                ),
             )
             # Sync denormalized fields to games table — only update columns present
             # in the report dict to avoid nulling omitted fields on partial payloads.

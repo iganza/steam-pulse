@@ -89,6 +89,7 @@ Every claim must trace to a signal from the chunk extraction pass.
 Return ONLY valid JSON. No prose, no preamble.\
 """
 
+
 def _build_synthesis_user_message(
     aggregated_signals: dict,
     game_name: str,
@@ -293,9 +294,7 @@ narrative only. Include pre-computed values exactly as given:
 CHUNK_PROMPT_VERSION = "chunk-v2.0"
 MERGE_PROMPT_VERSION = "merge-v1.0"
 SYNTHESIS_PROMPT_VERSION = "synthesis-v3.0"
-PIPELINE_VERSION = (
-    f"3.0/{CHUNK_PROMPT_VERSION}/{MERGE_PROMPT_VERSION}/{SYNTHESIS_PROMPT_VERSION}"
-)
+PIPELINE_VERSION = f"3.0/{CHUNK_PROMPT_VERSION}/{MERGE_PROMPT_VERSION}/{SYNTHESIS_PROMPT_VERSION}"
 
 
 CHUNK_SYSTEM_PROMPT_V2 = """\
@@ -424,16 +423,23 @@ Return a RichChunkSummary JSON with:
 def _build_merge_user_message(
     summaries: list[RichChunkSummary],
     game_name: str,
-    level: int,
 ) -> str:
+    """Build the single-call merge prompt over all chunk summaries.
+
+    With MAX_REVIEWS=2000 and CHUNK_SIZE=50, a single merge call sees at
+    most ~40 RichChunkSummary objects (~60K tokens), well within Sonnet's
+    200K context window. We deliberately avoid hierarchical merge to keep
+    `source_chunk_ids` tracking simple and to eliminate the risk of running
+    synthesis against a partial root.
+    """
     payload = [s.model_dump(mode="json") for s in summaries]
     total_reviews = sum(
         s.batch_stats.positive_count + s.batch_stats.negative_count for s in summaries
     )
     return f"""\
 <task>
-Merge {len(summaries)} summaries for "{game_name}" into a single MergedSummary
-(merge level {level}, total reviews covered: {total_reviews}).
+Merge {len(summaries)} chunk summaries for "{game_name}" into a single
+MergedSummary. Total reviews covered: {total_reviews}.
 </task>
 
 <input_summaries>
@@ -443,8 +449,8 @@ Merge {len(summaries)} summaries for "{game_name}" into a single MergedSummary
 <output_format>
 Return a single MergedSummary JSON with the deduplicated topics, merged
 total_stats, the best quotes, and the consolidated competitor_refs.
-Set `merge_level` to {level} and `chunks_merged` to the total number of
-original chunks represented across the inputs.
+`merge_level` and `chunks_merged` are populated server-side — you may
+leave them at their defaults.
 </output_format>\
 """
 
@@ -527,29 +533,21 @@ def build_chunk_requests(
     return chunks, pending, pending_meta
 
 
-def build_merge_requests(
+def build_merge_request(
     *,
     appid: int,
     game_name: str,
-    groups: list[tuple[int, list[RichChunkSummary]]],
-    level: int,
-) -> list[LLMRequest]:
-    """Build LLMRequests for a merge level given pre-grouped input summaries.
-
-    `groups` is a list of (group_index, summaries) so caller controls the
-    grouping strategy (see `plan_merge_groups`).
-    """
-    return [
-        LLMRequest(
-            record_id=f"{appid}-merge-L{level}-{gi}",
-            task="merging",
-            system=MERGE_SYSTEM_PROMPT,
-            user=_build_merge_user_message(summaries, game_name, level),
-            max_tokens=2048,
-            response_model=MergedSummary,
-        )
-        for gi, summaries in groups
-    ]
+    summaries: list[RichChunkSummary],
+) -> LLMRequest:
+    """Build the single merge LLMRequest for a game's chunk summaries."""
+    return LLMRequest(
+        record_id=f"{appid}-merge",
+        task="merging",
+        system=MERGE_SYSTEM_PROMPT,
+        user=_build_merge_user_message(summaries, game_name),
+        max_tokens=4096,
+        response_model=MergedSummary,
+    )
 
 
 def build_synthesis_request(
@@ -592,7 +590,7 @@ def build_synthesis_request(
 # ---------------------------------------------------------------------------
 
 
-def _promote_single_chunk(chunk: RichChunkSummary) -> MergedSummary:
+def _promote_single_chunk(chunk: RichChunkSummary, *, source_chunk_id: int) -> MergedSummary:
     """Skip the merge LLM call when there's only one chunk."""
     return MergedSummary(
         topics=list(chunk.topics),
@@ -601,24 +599,8 @@ def _promote_single_chunk(chunk: RichChunkSummary) -> MergedSummary:
         total_stats=chunk.batch_stats.model_copy(),
         merge_level=0,
         chunks_merged=1,
-        source_chunk_ids=[],
+        source_chunk_ids=[source_chunk_id],
     )
-
-
-def plan_merge_groups(
-    summaries: list[RichChunkSummary],
-    *,
-    group_size: int = 6,
-) -> list[list[RichChunkSummary]]:
-    """Split summaries into merge groups of up to `group_size`.
-
-    Hierarchy selection is implicit in the caller's loop — repeat until the
-    number of remaining summaries is 1. Max depth is 3 (enforced in
-    run_merge_phase).
-    """
-    if not summaries:
-        return []
-    return [summaries[i : i + group_size] for i in range(0, len(summaries), group_size)]
 
 
 def run_chunk_phase(
@@ -635,8 +617,7 @@ def run_chunk_phase(
     """
     # Pre-load cache hits so we only send the DB-missing chunks to the backend.
     existing = {
-        row["chunk_hash"]: row
-        for row in chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
+        row["chunk_hash"]: row for row in chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
     }
     chunks, pending, pending_meta = build_chunk_requests(
         appid=appid,
@@ -669,9 +650,7 @@ def run_chunk_phase(
     fresh_iter = iter(zip(pending_meta, fresh, strict=True))
     for (chunk_index, chunk_hash, chunk_size), summary in fresh_iter:
         if not isinstance(summary, RichChunkSummary):
-            raise TypeError(
-                f"backend returned {type(summary).__name__} for a chunking request"
-            )
+            raise TypeError(f"backend returned {type(summary).__name__} for a chunking request")
         row_id = chunk_repo.insert(
             appid,
             chunk_index,
@@ -708,18 +687,30 @@ def run_merge_phase(
     chunk_ids: list[int],
     backend: LLMBackend,
     merge_repo: MergedSummaryRepository,
-) -> MergedSummary:
-    """Phase 2: hierarchical merge with cache-check per level. Max depth 3."""
+) -> tuple[MergedSummary, int | None]:
+    """Phase 2: single-call merge with cache-check on the full input set.
+
+    Returns `(merged_summary, merged_row_id)`. For the single-chunk
+    promotion case the row id is `None` (no LLM call, nothing persisted).
+    For the full-set cache-hit path the existing row id is returned.
+
+    Single-level merge is correct for SteamPulse because MAX_REVIEWS=2000
+    divided by CHUNK_SIZE=50 yields at most ~40 chunk summaries per game
+    (~60K tokens), well within Sonnet's 200K context window. This removes
+    the need for a hierarchical loop and — critically — the attendant
+    source-id bookkeeping problems it caused in both the realtime and
+    batch paths.
+    """
     if not chunk_summaries:
         raise ValueError("run_merge_phase called with zero chunks")
 
     if len(chunk_summaries) == 1:
-        merged = _promote_single_chunk(chunk_summaries[0])
+        merged = _promote_single_chunk(chunk_summaries[0], source_chunk_id=chunk_ids[0])
         logger.info(
             "merge_phase_single_chunk_promoted",
             extra={"appid": appid, "source_chunk_id": chunk_ids[0]},
         )
-        return merged
+        return merged, None
 
     # Try whole-set cache hit before doing any LLM work.
     cached = merge_repo.find_latest_by_source_ids(appid, chunk_ids, MERGE_PROMPT_VERSION)
@@ -728,124 +719,33 @@ def run_merge_phase(
             "merge_phase_cache_hit",
             extra={"appid": appid, "merge_id": cached["id"]},
         )
-        return MergedSummary.model_validate(cached["summary_json"])
+        return MergedSummary.model_validate(cached["summary_json"]), int(cached["id"])
 
-    current_summaries = chunk_summaries
-    current_source_ids = chunk_ids
+    request = build_merge_request(appid=appid, game_name=game_name, summaries=chunk_summaries)
+    [response] = backend.run([request])
+    if not isinstance(response, MergedSummary):
+        raise TypeError(f"backend returned {type(response).__name__} for a merging request")
+
+    # Server-computed bookkeeping — never trust the LLM for these.
+    response.merge_level = 1
+    response.chunks_merged = len(chunk_summaries)
+    response.source_chunk_ids = sorted(chunk_ids)
+
     model_id = _config.model_for("merging")
-
-    for level in range(1, 4):  # levels 1..3
-        groups = plan_merge_groups(current_summaries)
-        indexed_groups = list(enumerate(groups))
-        if len(groups) == 1 and level > 1:
-            # Final reduction — single merge call producing the root.
-            pass
-
-        # Build requests for this level.
-        requests = build_merge_requests(
-            appid=appid,
-            game_name=game_name,
-            groups=indexed_groups,
-            level=level,
-        )
-        responses = backend.run(requests)
-        if len(responses) != len(requests):
-            raise RuntimeError(
-                f"merge backend.run returned {len(responses)} for {len(requests)} requests"
-            )
-
-        next_summaries: list[MergedSummary] = []
-        for (group_index, summaries_in_group), response in zip(
-            indexed_groups, responses, strict=True
-        ):
-            if not isinstance(response, MergedSummary):
-                raise TypeError(
-                    f"backend returned {type(response).__name__} for a merging request"
-                )
-            # Populate server-computed bookkeeping so downstream consumers
-            # never rely on the LLM filling these.
-            response.merge_level = level
-            response.chunks_merged = sum(
-                getattr(s, "chunks_merged", 1) if isinstance(s, MergedSummary) else 1
-                for s in summaries_in_group
-            )
-            # Persist this level's artifact so a re-run can reuse it.
-            source_ids_for_group = _source_ids_for_group(
-                summaries_in_group, level, current_source_ids, group_index
-            )
-            response.source_chunk_ids = sorted(source_ids_for_group)
-            merge_repo.insert(
-                appid,
-                level,
-                response,
-                source_ids_for_group,
-                response.chunks_merged,
-                model_id=model_id,
-                prompt_version=MERGE_PROMPT_VERSION,
-            )
-            next_summaries.append(response)
-
-        if len(next_summaries) == 1:
-            logger.info(
-                "merge_phase_complete",
-                extra={"appid": appid, "levels": level},
-            )
-            return next_summaries[0]
-
-        # Fan back in for another level. The "summaries" at the next level
-        # are MergedSummaries, which structurally share the fields
-        # RichChunkSummary uses in _build_merge_user_message (topics,
-        # competitor_refs, notable_quotes, batch_stats via total_stats).
-        current_summaries = [
-            _merged_as_chunk_like(m) for m in next_summaries  # type: ignore[misc]
-        ]
-        # Source ids for the next level are the level's own row ids — but
-        # we don't carry them back because the cache-check at level N uses
-        # a find-by-source-ids lookup keyed on chunk ids, not merge ids.
-        # Accept that higher levels always run fresh if the full-set cache
-        # check above missed.
-        current_source_ids = []
-
-    raise RuntimeError("merge phase exceeded max depth of 3")
-
-
-def _source_ids_for_group(
-    summaries_in_group: list,
-    level: int,
-    chunk_ids: list[int],
-    group_index: int,
-) -> list[int]:
-    """Map a group-at-level-N back to the underlying chunk row ids.
-
-    At level 1 the group corresponds to a contiguous slice of `chunk_ids`
-    (same ordering as `plan_merge_groups`). At levels > 1 we can't
-    reconstruct chunk ids from summaries alone, so we store an empty list
-    and accept that higher-level caching is coarser.
-    """
-    if level != 1 or not chunk_ids:
-        return []
-    # plan_merge_groups split the current list into contiguous slices of
-    # `group_size`. Recompute the slice bounds so we can return the matching
-    # chunk ids.
-    group_size = 6
-    start = group_index * group_size
-    end = start + len(summaries_in_group)
-    return chunk_ids[start:end]
-
-
-def _merged_as_chunk_like(merged: MergedSummary) -> RichChunkSummary:
-    """Wrap a MergedSummary so it can be merged again at a higher level.
-
-    We hand the same prompt a `RichChunkSummary`-shaped object because the
-    merge prompt is agnostic about whether inputs are primary chunks or
-    prior merges — it just needs topics + stats + quotes.
-    """
-    return RichChunkSummary(
-        topics=list(merged.topics),
-        competitor_refs=list(merged.competitor_refs),
-        notable_quotes=list(merged.notable_quotes)[:3],
-        batch_stats=merged.total_stats.model_copy(),
+    merged_id = merge_repo.insert(
+        appid,
+        1,
+        response,
+        chunk_ids,
+        len(chunk_summaries),
+        model_id=model_id,
+        prompt_version=MERGE_PROMPT_VERSION,
     )
+    logger.info(
+        "merge_phase_complete",
+        extra={"appid": appid, "merge_id": merged_id, "chunks_merged": len(chunk_summaries)},
+    )
+    return response, merged_id
 
 
 def run_synthesis_phase(
@@ -881,9 +781,7 @@ def run_synthesis_phase(
     )
     [response] = backend.run([request])
     if not isinstance(response, GameReport):
-        raise TypeError(
-            f"backend returned {type(response).__name__} for a synthesis request"
-        )
+        raise TypeError(f"backend returned {type(response).__name__} for a synthesis request")
 
     # Defensive overrides — Steam owns sentiment magnitude, Python owns derived scores.
     response.hidden_gem_score = hidden_gem_score
@@ -930,7 +828,7 @@ def analyze_game(
         backend=backend,
         chunk_repo=chunk_repo,
     )
-    merged = run_merge_phase(
+    merged, merged_summary_id = run_merge_phase(
         appid=request.appid,
         game_name=game_name,
         chunk_summaries=chunk_summaries,
@@ -952,8 +850,15 @@ def analyze_game(
         backend=backend,
     )
 
-    # Persist the final report with pipeline bookkeeping.
-    report_repo.upsert(report.model_dump())
+    # Persist the final report with pipeline bookkeeping. These columns
+    # (added in migration 0036) let the handler/UI short-circuit a cold
+    # re-analysis and give operators visibility into which prompt/phase
+    # produced each report.
+    report_payload = report.model_dump()
+    report_payload["pipeline_version"] = PIPELINE_VERSION
+    report_payload["chunk_count"] = len(chunk_summaries)
+    report_payload["merged_summary_id"] = merged_summary_id
+    report_repo.upsert(report_payload)
 
     elapsed_ms = round((time.monotonic() - t_start) * 1000)
     logger.info(

@@ -13,9 +13,7 @@ from library_layer.repositories.base import BaseRepository
 
 
 class ChunkSummaryRepository(BaseRepository):
-    def find_by_hash(
-        self, appid: int, chunk_hash: str, prompt_version: str
-    ) -> dict | None:
+    def find_by_hash(self, appid: int, chunk_hash: str, prompt_version: str) -> dict | None:
         return self._fetchone(
             """
             SELECT id, appid, chunk_index, chunk_hash, review_count,

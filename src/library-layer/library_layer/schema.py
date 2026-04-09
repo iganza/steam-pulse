@@ -309,6 +309,10 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS revenue_estimate_reason TEXT",
     # 0031_add_publisher_slug
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS publisher_slug TEXT",
+    # 0036_merged_summaries — three-phase pipeline bookkeeping on reports.
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT DEFAULT '2.0'",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS chunk_count INTEGER",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS merged_summary_id BIGINT",
 )
 
 # Indexes — kept for test suite use only.

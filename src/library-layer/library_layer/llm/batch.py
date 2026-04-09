@@ -16,7 +16,9 @@ invocations and owns the Wait/Choice polling loop. The ONLY place the
 JSONL wire format lives is this file.
 """
 
+import hashlib
 import json
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -30,6 +32,30 @@ logger = Logger()
 
 
 BatchStatus = Literal["running", "completed", "failed"]
+
+# Bedrock's jobName allows [a-zA-Z0-9] plus single '-' separators, total
+# length <=63 chars. Our execution_ids can be anything (Step Functions
+# execution names include ':' and other special chars), so we sanitize
+# and hash-truncate to guarantee a legal, deterministic name.
+_JOB_NAME_MAX = 63
+_JOB_NAME_INVALID = re.compile(r"[^a-zA-Z0-9]+")
+
+
+def _safe_job_name(execution_id: str, phase: str) -> str:
+    """Deterministic, Bedrock-legal jobName from execution_id + phase.
+
+    Always includes an 8-char hash suffix of the raw inputs so that two
+    executions whose sanitized prefixes happen to collide still map to
+    distinct job names. Deterministic inputs always produce the same
+    output — this also serves as a `clientRequestToken` for idempotency.
+    """
+    raw = f"sp-{execution_id}-{phase}"
+    sanitized = _JOB_NAME_INVALID.sub("-", raw).strip("-") or "sp"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    # Reserve room for "-{digest}" (9 chars) plus leave a little headroom.
+    prefix_budget = _JOB_NAME_MAX - len(digest) - 1
+    prefix = sanitized[:prefix_budget].rstrip("-") or "sp"
+    return f"{prefix}-{digest}"
 
 
 class BatchBackend:
@@ -99,11 +125,21 @@ class BatchBackend:
     # Phase 2: submit the Bedrock job
     # ------------------------------------------------------------------
     def submit(self, input_s3_uri: str, task: LLMTask, *, phase: str) -> str:
-        """Create a Bedrock model invocation job. Returns the jobArn."""
+        """Create a Bedrock model invocation job. Returns the jobArn.
+
+        `jobName` is deterministically derived from `execution_id` + `phase`
+        and hash-truncated to fit Bedrock's 63-character /
+        `[a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}` constraint. The same
+        deterministic value is passed as `clientRequestToken` so retries
+        from Step Functions are idempotent — Bedrock will return the
+        existing job instead of creating a duplicate.
+        """
         output_s3_uri = f"s3://{self._bucket}/jobs/{self._execution_id}/{phase}/output/"
         model_id = self._config.model_for(task)
+        job_name = _safe_job_name(self._execution_id, phase)
         resp = self._bedrock.create_model_invocation_job(
-            jobName=f"sp-{self._execution_id}-{phase}",
+            jobName=job_name,
+            clientRequestToken=job_name,
             roleArn=self._role_arn,
             modelId=model_id,
             inputDataConfig={
@@ -119,7 +155,10 @@ class BatchBackend:
             },
         )
         job_id = resp["jobArn"]
-        logger.info("batch_submit", extra={"phase": phase, "job_id": job_id, "model": model_id})
+        logger.info(
+            "batch_submit",
+            extra={"phase": phase, "job_id": job_id, "model": model_id, "job_name": job_name},
+        )
         return job_id
 
     # ------------------------------------------------------------------
@@ -177,9 +216,7 @@ class BatchBackend:
                 model_output = record.get("modelOutput", {})
                 content = model_output.get("content") or []
                 if not content:
-                    logger.warning(
-                        "batch_record_no_content", extra={"record_id": record_id}
-                    )
+                    logger.warning("batch_record_no_content", extra={"record_id": record_id})
                     continue
                 text = content[0].get("text", "")
                 response_cls = response_models.get(record_id) or default_response_model

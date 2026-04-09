@@ -24,6 +24,12 @@ class ReportRepository(BaseRepository):
             chunk_count:      int   — how many Phase 1 chunks fed the merge
             merged_summary_id: int  — FK-like pointer into merged_summaries
 
+        On UPDATE, any of these three keys that are **absent** from the
+        caller's dict are preserved via `COALESCE(EXCLUDED.x, reports.x)`
+        rather than clobbered to NULL. This lets a partial re-upsert
+        (e.g. an admin fixing one field) leave pipeline bookkeeping
+        intact. On INSERT the absent keys become NULL as usual.
+
         Also syncs denormalized hidden_gem_score and last_analyzed onto the
         games table so catalog queries avoid the JSONB LEFT JOIN. The games
         sync only updates keys present in the dict as a defensive measure.
@@ -56,9 +62,11 @@ class ReportRepository(BaseRepository):
                     report_json       = EXCLUDED.report_json,
                     reviews_analyzed  = EXCLUDED.reviews_analyzed,
                     last_analyzed     = NOW(),
-                    pipeline_version  = EXCLUDED.pipeline_version,
-                    chunk_count       = EXCLUDED.chunk_count,
-                    merged_summary_id = EXCLUDED.merged_summary_id
+                    -- Absent pipeline keys preserve the stored value
+                    -- instead of clobbering it to NULL.
+                    pipeline_version  = COALESCE(EXCLUDED.pipeline_version, reports.pipeline_version),
+                    chunk_count       = COALESCE(EXCLUDED.chunk_count, reports.chunk_count),
+                    merged_summary_id = COALESCE(EXCLUDED.merged_summary_id, reports.merged_summary_id)
                 """,
                 (
                     appid,

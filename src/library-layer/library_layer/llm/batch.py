@@ -165,14 +165,22 @@ class BatchBackend:
     # Phase 3: poll status (Step Functions calls this, not us)
     # ------------------------------------------------------------------
     def status(self, job_id: str) -> BatchStatus:
+        """Map Bedrock's raw status enum to our three-state SFN-facing enum.
+
+        Kept in sync with `lambda_functions/batch_analysis/check_batch_status.py`
+        — any new Bedrock state must be added to BOTH places.
+        """
         resp = self._bedrock.get_model_invocation_job(jobIdentifier=job_id)
         raw = resp.get("status", "")
-        if raw in ("Submitted", "InProgress", "Stopping"):
+        if raw in ("Validating", "Scheduled", "Submitted", "InProgress", "Stopping"):
             return "running"
-        if raw == "Completed":
+        if raw in ("Completed", "PartiallyCompleted"):
             return "completed"
-        # Failed, Stopped, anything unexpected → treat as failed and log.
-        logger.warning("batch_job_terminal", extra={"job_id": job_id, "raw_status": raw})
+        if raw in ("Failed", "Stopped", "Expired"):
+            logger.warning("batch_job_terminal", extra={"job_id": job_id, "raw_status": raw})
+            return "failed"
+        # Unknown future enum value — log loudly and fail closed.
+        logger.warning("batch_job_unknown_status", extra={"job_id": job_id, "raw_status": raw})
         return "failed"
 
     # ------------------------------------------------------------------
@@ -200,34 +208,37 @@ class BatchBackend:
         bucket = parsed.netloc
         prefix = parsed.path.lstrip("/")
 
-        # List objects under the output prefix — Bedrock writes one .out file per input.
-        listed = self._s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        # List objects under the output prefix — Bedrock writes one .out file
+        # per input. Use a paginator: a single list_objects_v2 call caps at
+        # 1000 keys and would silently drop records for large batch jobs.
+        paginator = self._s3.get_paginator("list_objects_v2")
         results: list[tuple[str, BaseModel]] = []
-        for obj in listed.get("Contents", []):
-            key = obj["Key"]
-            if not key.endswith(".jsonl.out"):
-                continue
-            body = self._s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-            for line in body.splitlines():
-                if not line.strip():
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not key.endswith(".jsonl.out"):
                     continue
-                record = json.loads(line)
-                record_id = record.get("recordId")
-                model_output = record.get("modelOutput", {})
-                content = model_output.get("content") or []
-                if not content:
-                    logger.warning("batch_record_no_content", extra={"record_id": record_id})
-                    continue
-                text = content[0].get("text", "")
-                response_cls = response_models.get(record_id) or default_response_model
-                if response_cls is None:
-                    logger.warning(
-                        "batch_record_unknown",
-                        extra={"record_id": record_id, "job_id": job_id},
-                    )
-                    continue
-                parsed_obj = response_cls.model_validate_json(text)
-                results.append((record_id, parsed_obj))
+                body = self._s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
+                for line in body.splitlines():
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    record_id = record.get("recordId")
+                    model_output = record.get("modelOutput", {})
+                    content = model_output.get("content") or []
+                    if not content:
+                        logger.warning("batch_record_no_content", extra={"record_id": record_id})
+                        continue
+                    text = content[0].get("text", "")
+                    response_cls = response_models.get(record_id) or default_response_model
+                    if response_cls is None:
+                        logger.warning(
+                            "batch_record_unknown",
+                            extra={"record_id": record_id, "job_id": job_id},
+                        )
+                        continue
+                    parsed_obj = response_cls.model_validate_json(text)
+                    results.append((record_id, parsed_obj))
         logger.info(
             "batch_collect",
             extra={"job_id": job_id, "records": len(results)},

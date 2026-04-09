@@ -70,6 +70,14 @@ _merge_repo = MergedSummaryRepository(get_conn)
 # SteamPulseConfig. No hardcoded module constants here.
 _analyzer_settings = AnalyzerSettings.from_config(_config)
 
+# Module-level ConverseBackend singleton — used by _prepare_merge which
+# runs the merge phase inline. Building instructor/AnthropicBedrock on
+# every invocation would defeat Lambda warm-start reuse.
+_converse_backend = ConverseBackend(
+    _config,
+    max_workers=_config.ANALYSIS_CONVERSE_MAX_WORKERS,
+)
+
 
 def _backend_for(execution_id: str) -> BatchBackend:
     return BatchBackend(
@@ -201,10 +209,7 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
         game_name=game.name,
         chunk_summaries=summaries,
         chunk_ids=chunk_ids,
-        backend=ConverseBackend(
-            _config,
-            max_workers=_config.ANALYSIS_CONVERSE_MAX_WORKERS,
-        ),
+        backend=_converse_backend,
         merge_repo=_merge_repo,
         max_chunks_per_merge_call=_analyzer_settings.max_chunks_per_merge_call,
         merge_max_tokens=_analyzer_settings.merge_max_tokens,

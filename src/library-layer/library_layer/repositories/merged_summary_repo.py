@@ -40,7 +40,9 @@ class MergedSummaryRepository(BaseRepository):
                    chunks_merged, model_id, prompt_version, created_at
             FROM merged_summaries
             WHERE appid = %s
-            ORDER BY merge_level DESC, created_at DESC
+            -- `id DESC` is a deterministic tie-breaker for rapid
+            -- successive inserts that share a created_at timestamp.
+            ORDER BY merge_level DESC, created_at DESC, id DESC
             LIMIT 1
             """,
             (appid,),
@@ -67,7 +69,9 @@ class MergedSummaryRepository(BaseRepository):
             WHERE appid = %s
               AND prompt_version = %s
               AND source_chunk_ids = %s::bigint[]
-            ORDER BY created_at DESC
+            -- `id DESC` is a deterministic tie-breaker when two rows
+            -- share a created_at timestamp (rapid successive inserts).
+            ORDER BY created_at DESC, id DESC
             LIMIT 1
             """,
             (appid, prompt_version, sorted_ids),

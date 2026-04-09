@@ -281,7 +281,10 @@ def _prepare_synthesis(
 
     # Load the review list needed for compute_sentiment_trend. We only need
     # posted_at + voted_up for trend; the LLM does NOT see raw reviews in
-    # the synthesis phase.
+    # the synthesis phase. Filter to reviews with non-empty bodies to
+    # match the chunk-phase filter — otherwise `total_reviews_analyzed`
+    # in the final report would claim more reviews than actually fed
+    # the merged summary.
     db_reviews = _review_repo.find_by_appid(appid, limit=_config.ANALYSIS_MAX_REVIEWS)
     reviews = [
         {
@@ -289,6 +292,7 @@ def _prepare_synthesis(
             "posted_at": r.posted_at.isoformat() if r.posted_at else None,
         }
         for r in db_reviews
+        if r.body
     ]
 
     velocity = _review_repo.find_review_velocity(appid)
@@ -312,7 +316,7 @@ def _prepare_synthesis(
         appid=appid,
         game_name=game.name,
         merged=merged,
-        total_reviews=len(db_reviews),
+        total_reviews=len(reviews),
         hidden_gem_score=hidden_gem_score,
         sentiment_trend=trend["trend"],
         sentiment_trend_note=trend["note"],

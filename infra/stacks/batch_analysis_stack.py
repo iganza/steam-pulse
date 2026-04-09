@@ -320,8 +320,10 @@ class BatchAnalysisStack(cdk.Stack):
 
         # ── Scheduled trigger is NOT wired here on purpose.
         #
-        # This state machine expects a per-game input
-        # (`{appid, phase, execution_id}`) and runs one execution per appid.
+        # This state machine runs one execution per appid. The only
+        # required external input is `{"appid": <int>}`; `phase` is
+        # selected by the workflow itself and `execution_id` is derived
+        # from the Step Functions execution context (`$$.Execution.Name`).
         # A scheduled trigger must therefore fan out over a list of appids
         # before it invokes the machine — a Map state driven by a parent
         # trigger, or a small dispatcher Lambda that queries eligible

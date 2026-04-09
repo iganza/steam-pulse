@@ -10,6 +10,7 @@ current prompt version.
 
 import json
 
+import psycopg2.extras
 from library_layer.models.analyzer_models import MergedSummary
 from library_layer.repositories.base import BaseRepository
 
@@ -69,7 +70,9 @@ class MergedSummaryRepository(BaseRepository):
         output_tokens: int | None = None,
         latency_ms: int | None = None,
     ) -> int:
-        with self.conn.cursor() as cur:
+        # Explicit RealDictCursor so `fetchone()["id"]` works whether the
+        # connection default is dict or tuple (tests use RealDictCursor).
+        with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 INSERT INTO merged_summaries (
@@ -93,7 +96,7 @@ class MergedSummaryRepository(BaseRepository):
                     latency_ms,
                 ),
             )
-            row_id = int(cur.fetchone()[0])
+            row_id = int(cur.fetchone()["id"])
         self.conn.commit()
         return row_id
 

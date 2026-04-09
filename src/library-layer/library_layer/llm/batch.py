@@ -26,7 +26,7 @@ import boto3
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.backend import LLMRequest, LLMTask
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 logger = Logger()
 
@@ -211,8 +211,15 @@ class BatchBackend:
         # List objects under the output prefix — Bedrock writes one .out file
         # per input. Use a paginator: a single list_objects_v2 call caps at
         # 1000 keys and would silently drop records for large batch jobs.
+        #
+        # Per-record error tolerance: Bedrock batch status can report
+        # `PartiallyCompleted` (which we map to "completed" so collect
+        # proceeds). A malformed JSON line or a record whose text is
+        # not valid against the pydantic response schema must NOT crash
+        # the whole Lambda — skip the bad record, log it, and keep going.
         paginator = self._s3.get_paginator("list_objects_v2")
         results: list[tuple[str, BaseModel]] = []
+        skipped = 0
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
@@ -222,13 +229,35 @@ class BatchBackend:
                 for line in body.splitlines():
                     if not line.strip():
                         continue
-                    record = json.loads(line)
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.warning(
+                            "batch_record_json_decode_error",
+                            extra={"job_id": job_id, "key": key, "error": str(exc)},
+                        )
+                        skipped += 1
+                        continue
+
                     record_id = record.get("recordId")
+                    if not record_id:
+                        logger.warning(
+                            "batch_record_missing_id",
+                            extra={"job_id": job_id, "key": key},
+                        )
+                        skipped += 1
+                        continue
+
                     model_output = record.get("modelOutput", {})
                     content = model_output.get("content") or []
                     if not content:
-                        logger.warning("batch_record_no_content", extra={"record_id": record_id})
+                        logger.warning(
+                            "batch_record_no_content",
+                            extra={"record_id": record_id, "job_id": job_id},
+                        )
+                        skipped += 1
                         continue
+
                     text = content[0].get("text", "")
                     response_cls = response_models.get(record_id) or default_response_model
                     if response_cls is None:
@@ -236,11 +265,30 @@ class BatchBackend:
                             "batch_record_unknown",
                             extra={"record_id": record_id, "job_id": job_id},
                         )
+                        skipped += 1
                         continue
-                    parsed_obj = response_cls.model_validate_json(text)
+
+                    try:
+                        parsed_obj = response_cls.model_validate_json(text)
+                    except ValidationError as exc:
+                        logger.warning(
+                            "batch_record_validation_error",
+                            extra={
+                                "record_id": record_id,
+                                "job_id": job_id,
+                                "error": str(exc),
+                            },
+                        )
+                        skipped += 1
+                        continue
+
                     results.append((record_id, parsed_obj))
         logger.info(
             "batch_collect",
-            extra={"job_id": job_id, "records": len(results)},
+            extra={
+                "job_id": job_id,
+                "records": len(results),
+                "skipped": skipped,
+            },
         )
         return results

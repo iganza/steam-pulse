@@ -17,8 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "lambda-functions"
 
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.catalog_repo import CatalogRepository
+from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
@@ -123,9 +125,8 @@ def refresh_matviews(db_conn: Any) -> Any:
     Analytics tests that seed data and then query matview-backed methods
     must call this after seeding: ``refresh_matviews()``
     """
-    from psycopg2 import sql as psql
-
     from library_layer.repositories.matview_repo import MATVIEW_NAMES
+    from psycopg2 import sql as psql
 
     def _refresh() -> None:
         prev = db_conn.autocommit
@@ -167,6 +168,16 @@ def catalog_repo(db_conn: Any) -> CatalogRepository:
 @pytest.fixture
 def report_repo(db_conn: Any) -> ReportRepository:
     return ReportRepository(lambda: db_conn)
+
+
+@pytest.fixture
+def chunk_summary_repo(db_conn: Any) -> ChunkSummaryRepository:
+    return ChunkSummaryRepository(lambda: db_conn)
+
+
+@pytest.fixture
+def merged_summary_repo(db_conn: Any) -> MergedSummaryRepository:
+    return MergedSummaryRepository(lambda: db_conn)
 
 
 @pytest.fixture

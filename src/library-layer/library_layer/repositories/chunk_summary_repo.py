@@ -8,6 +8,7 @@ for a fresh LLM call.
 
 import json
 
+import psycopg2.extras
 from library_layer.models.analyzer_models import RichChunkSummary
 from library_layer.repositories.base import BaseRepository
 
@@ -31,7 +32,7 @@ class ChunkSummaryRepository(BaseRepository):
                    summary_json, model_id, prompt_version, created_at
             FROM chunk_summaries
             WHERE appid = %s AND prompt_version = %s
-            ORDER BY chunk_index ASC
+            ORDER BY chunk_index ASC, id ASC
             """,
             (appid, prompt_version),
         )
@@ -56,7 +57,11 @@ class ChunkSummaryRepository(BaseRepository):
         existing row's id — callers can rely on the result being the
         canonical id for that chunk.
         """
-        with self.conn.cursor() as cur:
+        # Explicit RealDictCursor for the RETURNING clause so the row_id
+        # access works whether the connection default is dict or tuple
+        # (test conftest opens the conn with RealDictCursor; prod uses
+        # the plain tuple default).
+        with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 INSERT INTO chunk_summaries (
@@ -81,7 +86,7 @@ class ChunkSummaryRepository(BaseRepository):
                     latency_ms,
                 ),
             )
-            row_id = int(cur.fetchone()[0])
+            row_id = int(cur.fetchone()["id"])
         self.conn.commit()
         return row_id
 

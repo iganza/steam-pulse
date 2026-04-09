@@ -62,6 +62,11 @@ class DeliveryStack(cdk.Stack):
         )
 
         # ── Cache Policies ────────────────────────────────────────────────────
+        # Next.js uses RSC: 1 / Next-Router-* headers to request the RSC wire
+        # payload for client-side navigation instead of a full HTML page.
+        # Without these headers in the cache key, CloudFront caches the RSC
+        # payload and serves raw wire-format text to users who load the page
+        # directly (hard reload / direct link), causing blank or garbled pages.
         html_cache_policy = cloudfront.CachePolicy(
             self,
             "HtmlCachePolicy",
@@ -69,7 +74,11 @@ class DeliveryStack(cdk.Stack):
             max_ttl=cdk.Duration.seconds(86_400 * 2),
             min_ttl=cdk.Duration.seconds(0),
             enable_accept_encoding_gzip=True,
-            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+            header_behavior=cloudfront.CacheHeaderBehavior.allow_list(
+                "RSC",
+                "Next-Router-State-Tree",
+                "Next-Router-Prefetch",
+            ),
             cookie_behavior=cloudfront.CacheCookieBehavior.none(),
             query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
         )

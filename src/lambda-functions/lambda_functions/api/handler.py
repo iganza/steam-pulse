@@ -1,11 +1,9 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
 import os
-import uuid
 from typing import Annotated
 
 import boto3  # type: ignore[import-untyped]
-import httpx
 from aws_lambda_powertools import Logger, Tracer
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -14,7 +12,6 @@ from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
-from library_layer.repositories.job_repo import JobRepository
 from library_layer.repositories.matview_repo import MatviewRepository
 from library_layer.repositories.new_releases_repo import NewReleasesRepository
 from library_layer.repositories.report_repo import ReportRepository
@@ -24,7 +21,6 @@ from library_layer.repositories.waitlist_repo import WaitlistRepository
 from library_layer.services.analytics_service import AnalyticsService
 from library_layer.services.new_releases_service import NewReleasesService
 from library_layer.services.new_releases_service import Window as NewReleasesWindow
-from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.db import get_conn
 from pydantic import BaseModel, EmailStr
 
@@ -33,29 +29,18 @@ tracer = Tracer(service="api")
 
 app = FastAPI(title="SteamPulse", version="0.1.0")
 
-# Module-level singletons — initialized outside handlers for Lambda warm reuse.
-_http_client: httpx.Client = httpx.Client(timeout=30.0)
-_steam = DirectSteamSource(_http_client)
-
 # Config + SSM resolution at cold start.
 # On Lambda: SteamPulseConfig reads env vars set by CDK via to_lambda_env().
-# Locally: falls back to DATABASE_URL and inline analysis (no SSM).
+# Locally: falls back to DATABASE_URL (no SSM).
 _is_lambda = bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
 
 if _is_lambda:
-    # Running inside Lambda — no try/except.  Any config or SSM failure must
-    # crash the cold start immediately; silent fallback would hide misconfigured
-    # SSM parameters or missing IAM permissions and allow the API to run inline
-    # analysis instead of Step Functions.
     _api_config = SteamPulseConfig()
     from aws_lambda_powertools.utilities.parameters import get_parameter
 
-    _sfn_arn: str | None = get_parameter(_api_config.STEP_FUNCTIONS_PARAM_NAME)
     _email_queue_url: str | None = get_parameter(_api_config.EMAIL_QUEUE_PARAM_NAME)
 else:
-    # Local dev — no SSM, no full config.
     _api_config = None  # type: ignore[assignment]
-    _sfn_arn = os.getenv("STEP_FUNCTIONS_ARN")
     _email_queue_url = os.getenv("EMAIL_QUEUE_URL")
 
 _sqs_client = boto3.client("sqs")
@@ -71,7 +56,6 @@ _analytics_repo = AnalyticsRepository(get_conn)
 _game_repo = GameRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
-_job_repo = JobRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
 _waitlist_repo = WaitlistRepository(get_conn)
 _matview_repo = MatviewRepository(get_conn)
@@ -83,10 +67,6 @@ _analytics_service = AnalyticsService(_analytics_repo)
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-
-
-class PreviewRequest(BaseModel):
-    appid: int
 
 
 class WaitlistRequest(BaseModel):
@@ -108,71 +88,6 @@ def _get_report(appid: int) -> dict | None:
     return result.report_json if result else None
 
 
-def _upsert_report(appid: int, report: dict) -> None:
-    name = report.get("game_name", f"App {appid}")
-    _game_repo.ensure_stub(appid, name)
-    _report_repo.upsert({**report, "appid": appid})
-
-
-def _get_job(job_id: str) -> dict | None:
-    return _job_repo.find(job_id)
-
-
-def _set_job(job_id: str, status: str, appid: int) -> None:
-    _job_repo.upsert(job_id, status, appid)
-
-
-def _trigger_analysis(appid: int, game_name: str) -> str:
-    """Start analysis via Step Functions. Returns a job_id (executionArn)."""
-    if _sfn_arn:
-        try:
-            import json as _json
-
-            import boto3  # type: ignore[import-untyped]
-
-            sfn = boto3.client("stepfunctions")
-            execution = sfn.start_execution(
-                stateMachineArn=_sfn_arn,
-                name=f"analysis-{appid}-{uuid.uuid4().hex[:8]}",
-                input=_json.dumps({"appid": appid, "game_name": game_name}),
-            )
-            job_id: str = execution["executionArn"]
-        except ImportError as exc:
-            logger.error(
-                "boto3 not installed — cannot trigger Step Functions", extra={"appid": appid}
-            )
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "step_functions_unavailable", "code": "boto3_missing"},
-            ) from exc
-        _set_job(job_id, "running", appid)
-        return job_id
-
-    raise HTTPException(
-        status_code=503,
-        detail={"error": "step_functions_unavailable", "code": "sfn_arn_not_configured"},
-    )
-
-
-def _preview_fields(report: dict, game_meta: dict | None = None) -> dict:
-    """Preview shape for the public landing analysis card.
-
-    Sentiment magnitude (`positive_pct`, `review_score_desc`) is sourced from the
-    `Game` row, NOT the report — the report is narrative-only after the
-    data-source-clarity refactor.
-    """
-    fields = {
-        "game_name": report.get("game_name", ""),
-        "one_liner": report.get("one_liner", ""),
-        "audience_profile": report.get("audience_profile", {}),
-        "appid": report.get("appid"),
-    }
-    if game_meta is not None:
-        fields["positive_pct"] = game_meta.get("positive_pct")
-        fields["review_score_desc"] = game_meta.get("review_score_desc")
-    return fields
-
-
 def _backend_name() -> str:
     return "postgres" if os.getenv("DATABASE_URL") else "memory"
 
@@ -188,108 +103,6 @@ async def health() -> dict:
         "storage": _backend_name(),
         "version": VERSION,
     }
-
-
-def _preview_meta_for(appid: int) -> dict | None:
-    """Steam-sourced sentiment fields for the preview shape, read from the Game row."""
-    game = _game_repo.find_by_appid(appid)
-    if game is None:
-        return None
-    return {
-        "positive_pct": game.positive_pct,
-        "review_score_desc": game.review_score_desc,
-    }
-
-
-@app.post("/api/preview", response_model=None)
-async def preview(body: PreviewRequest) -> JSONResponse | dict:
-    appid = body.appid
-    logger.append_keys(appid=appid)
-
-    # Cache hit — return the stable preview shape
-    cached = _get_report(appid)
-    if cached:
-        return _preview_fields(cached, _preview_meta_for(appid))
-
-    # Fetch game details to get name
-    try:
-        details = _steam.get_app_details(appid)
-    except SteamAPIError as exc:
-        raise HTTPException(
-            status_code=503, detail={"error": str(exc), "code": "steam_api_error"}
-        ) from exc
-
-    if not details:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": f"App {appid} not found on Steam", "code": "not_found"},
-        )
-
-    game_name: str = details.get("name", f"App {appid}")
-
-    # Trigger analysis — Step Functions (async) or inline (local dev, sync)
-    job_id = _trigger_analysis(appid, game_name)
-
-    # If inline run completed, return the same preview shape — never the raw report.
-    # /api/preview is contract-stable: callers always get _preview_fields() on success.
-    report = _get_report(appid)
-    if report:
-        return _preview_fields(report, _preview_meta_for(appid))
-
-    # Step Functions path — return 202 for polling
-    return JSONResponse(
-        status_code=202,
-        content={"job_id": job_id, "appid": appid, "status": "running"},
-    )
-
-
-@app.get("/api/status/{job_id:path}")
-async def job_status(job_id: str) -> dict:
-    if _sfn_arn and not job_id.startswith("local-"):
-        try:
-            import boto3  # type: ignore[import-untyped]
-
-            sfn = boto3.client("stepfunctions")
-            sfn_resp = sfn.describe_execution(executionArn=job_id)
-            sfn_status: str = sfn_resp["status"]
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "boto3 not installed", "code": "boto3_missing"},
-            ) from exc
-        except Exception as exc:
-            logger.error("Step Functions describe_execution failed", extra={"error": str(exc)})
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "Could not fetch job status", "code": "sfn_error"},
-            ) from exc
-
-        match sfn_status:
-            case "RUNNING":
-                return {"status": "running"}
-            case "SUCCEEDED":
-                job = _get_job(job_id)
-                report = _get_report(job["appid"]) if job else None
-                return {"status": "complete", "report": report}
-            case _:
-                return {"status": "failed"}
-
-    # Local dev / inline path
-    job = _get_job(job_id)
-    if job is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "Job not found", "code": "not_found"},
-        )
-
-    match job["status"]:
-        case "complete":
-            report = _get_report(job["appid"])
-            return {"status": "complete", "report": report}
-        case "failed":
-            return {"status": "failed"}
-        case _:
-            return {"status": "running"}
 
 
 @app.get("/api/games")

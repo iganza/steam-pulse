@@ -19,28 +19,85 @@ class CompetitorRef(BaseModel):
     context: str
 
 
-class BatchStats(BaseModel):
+# ---------------------------------------------------------------------------
+# Three-phase pipeline models (chunk → merge → synthesize)
+# ---------------------------------------------------------------------------
+
+
+TopicCategory = Literal[
+    "design_praise",
+    "gameplay_friction",
+    "wishlist_items",
+    "dropout_moments",
+    "technical_issues",
+    "refund_signals",
+    "community_health",
+    "monetization_sentiment",
+    "content_depth",
+]
+
+
+class ReviewQuote(BaseModel):
+    """A verbatim quote linked back to its source review."""
+
+    text: str = Field(max_length=200)
+    steam_review_id: str | None = None
+    voted_up: bool
+    playtime_hours: int = 0
+    votes_helpful: int = 0
+
+
+class TopicSignal(BaseModel):
+    """A structured topic extracted from a chunk of reviews.
+
+    NOTE on `sentiment`: this is a per-TOPIC tag, not a game-wide sentiment
+    score. Game-wide sentiment magnitude is owned by Steam (`positive_pct` /
+    `review_score_desc` on the Game row) and is never derived from these tags.
+    The topic-level tag is only used to render Topic cards in the UI and to
+    weight signals during merge.
+    """
+
+    topic: str
+    category: TopicCategory
+    sentiment: Literal["positive", "negative", "mixed"]
+    mention_count: int = Field(ge=1)
+    confidence: Literal["low", "medium", "high"]
+    summary: str
+    quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    avg_playtime_hours: float = 0.0
+    avg_helpful_votes: float = 0.0
+
+
+class RichBatchStats(BaseModel):
     positive_count: int = 0
     negative_count: int = 0
     avg_playtime_hours: float = 0.0
     high_playtime_count: int = 0
     early_access_count: int = 0
     free_key_count: int = 0
+    date_range_start: str | None = None  # ISO date
+    date_range_end: str | None = None
 
 
-class ChunkSummary(BaseModel):
-    design_praise: list[str] = []
-    gameplay_friction: list[str] = []
-    wishlist_items: list[str] = []
-    dropout_moments: list[str] = []
-    competitor_refs: list[CompetitorRef] = []
-    notable_quotes: list[str] = []
-    technical_issues: list[str] = []
-    refund_signals: list[str] = []
-    community_health: list[str] = []
-    monetization_sentiment: list[str] = []
-    content_depth: list[str] = []
-    batch_stats: BatchStats = Field(default_factory=BatchStats)
+class RichChunkSummary(BaseModel):
+    """Phase 1 output — structured topic signals from a chunk of reviews."""
+
+    topics: list[TopicSignal] = Field(default_factory=list)
+    competitor_refs: list[CompetitorRef] = Field(default_factory=list)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    batch_stats: RichBatchStats = Field(default_factory=RichBatchStats)
+
+
+class MergedSummary(BaseModel):
+    """Phase 2 output — consolidated topic signals from merging chunk summaries."""
+
+    topics: list[TopicSignal] = Field(default_factory=list)
+    competitor_refs: list[CompetitorRef] = Field(default_factory=list)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=5)
+    total_stats: RichBatchStats = Field(default_factory=RichBatchStats)
+    merge_level: int = 0
+    chunks_merged: int = 1
+    source_chunk_ids: list[int] = Field(default_factory=list)
 
 
 class AudienceProfile(BaseModel):

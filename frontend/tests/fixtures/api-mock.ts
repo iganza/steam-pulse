@@ -289,18 +289,6 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: MOCK_TAG_GROUPS })
   )
 
-  // Preview (fallback)
-  await page.route('**/api/preview', route =>
-    route.fulfill({
-      json: {
-        game_name: MOCK_GAME_ANALYZED.name,
-        review_score_desc: 'Very Positive',
-        positive_pct: 87,
-        one_liner: MOCK_REPORT.one_liner,
-      },
-    })
-  )
-
   // Review stats and benchmarks — specific routes registered LAST (higher LIFO priority)
   await page.route('**/api/games/*/review-stats', route =>
     route.fulfill({ json: MOCK_REVIEW_STATS })

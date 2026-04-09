@@ -1,10 +1,15 @@
 """BatchAnalysisStack — Bedrock Batch Inference pipeline for bulk game analysis.
 
+Per-game Step Functions execution. A parent Map state fans out across an
+`appids` list; each child execution runs the three phases against ONE game
+through parametrised PreparePhase / CollectPhase Lambdas plus a shared
+CheckBatchStatus poller.
+
 Resources:
   - S3 bucket for batch I/O (7-day lifecycle, auto-deleted)
   - IAM role assumed by Bedrock to read/write S3
-  - 5 Lambda functions (PreparePass1, SubmitBatchJob, CheckBatchStatus, PreparePass2, ProcessResults)
-  - STANDARD Step Functions state machine with Wait/Choice polling loops
+  - 3 Lambdas: PreparePhase, CollectPhase, CheckBatchStatus
+  - STANDARD Step Functions state machine (wait/choice loops per phase)
   - EventBridge rule (disabled by default — for future scheduled re-analysis)
 """
 
@@ -171,184 +176,108 @@ class BatchAnalysisStack(cdk.Stack):
                 },
             )
 
-        # ── Lambda functions ──────────────────────────────────────────────────
-        prepare_pass1_fn = _make_batch_fn(
-            "PreparePass1Fn",
-            "lambda_functions/batch_analysis/prepare_pass1.py",
-            "prepare-pass1",
+        prepare_fn = _make_batch_fn(
+            "PreparePhaseFn",
+            "lambda_functions/batch_analysis/prepare_phase.py",
+            "prepare-phase",
         )
-        submit_job_fn = _make_batch_fn(
-            "SubmitBatchJobFn",
-            "lambda_functions/batch_analysis/submit_batch_job.py",
-            "submit-job",
+        collect_fn = _make_batch_fn(
+            "CollectPhaseFn",
+            "lambda_functions/batch_analysis/collect_phase.py",
+            "collect-phase",
         )
         check_status_fn = _make_batch_fn(
             "CheckBatchStatusFn",
             "lambda_functions/batch_analysis/check_batch_status.py",
             "check-status",
         )
-        prepare_pass2_fn = _make_batch_fn(
-            "PreparePass2Fn",
-            "lambda_functions/batch_analysis/prepare_pass2.py",
-            "prepare-pass2",
-        )
-        process_results_fn = _make_batch_fn(
-            "ProcessResultsFn",
-            "lambda_functions/batch_analysis/process_results.py",
-            "process-results",
-        )
 
-        # ── Step Functions: STANDARD workflow ─────────────────────────────────
-        # STANDARD (not EXPRESS) — batch jobs run for hours, Wait states > 5 min require STANDARD.
+        # ── Step Functions: STANDARD workflow — one execution per appid ──────
+        # The outer Map state (in the parent trigger, not here) iterates over
+        # `appids` and invokes this state machine once per game. Each execution
+        # runs the three phases against a single appid.
 
         fail_state = sfn.Fail(
             self,
-            "JobFailed",
+            "PhaseFailed",
             error="BedrockBatchJobFailed",
             cause="Bedrock batch inference job failed",
         )
 
-        # Pass 1 chain
-        prepare_pass1_task = tasks.LambdaInvoke(
-            self,
-            "PreparePass1",
-            lambda_function=prepare_pass1_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                    "appids": sfn.JsonPath.object_at("$.appids"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass1",
-        )
-        submit_pass1_task = tasks.LambdaInvoke(
-            self,
-            "SubmitPass1Job",
-            lambda_function=submit_job_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                    "pass": "pass1",
-                    "model_id": config.model_for("chunking"),
-                    "input_s3_uri": sfn.JsonPath.string_at("$.pass1.input_s3_uri"),
-                    "output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass1.job",
-        )
-        wait_pass1 = sfn.Wait(
-            self, "WaitPass1", time=sfn.WaitTime.duration(cdk.Duration.seconds(300))
-        )
-        check_pass1_task = tasks.LambdaInvoke(
-            self,
-            "CheckPass1Status",
-            lambda_function=check_status_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "job_id": sfn.JsonPath.string_at("$.pass1.job.job_id"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass1.job.status_result",
-        )
-        pass1_complete = sfn.Choice(self, "Pass1Complete?")
+        def _phase_chain(phase: str, next_step: sfn.IChainable) -> sfn.IChainable:
+            prepare = tasks.LambdaInvoke(
+                self,
+                f"Prepare{phase.capitalize()}",
+                lambda_function=prepare_fn,
+                payload=sfn.TaskInput.from_object(
+                    {
+                        "appid": sfn.JsonPath.number_at("$.appid"),
+                        "phase": phase,
+                        "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    }
+                ),
+                payload_response_only=True,
+                result_path=f"$.{phase}",
+            )
+            skip_check = sfn.Choice(self, f"{phase.capitalize()}Skipped?")
+            wait = sfn.Wait(
+                self,
+                f"Wait{phase.capitalize()}",
+                time=sfn.WaitTime.duration(cdk.Duration.seconds(300)),
+            )
+            check = tasks.LambdaInvoke(
+                self,
+                f"Check{phase.capitalize()}Status",
+                lambda_function=check_status_fn,
+                payload=sfn.TaskInput.from_object(
+                    {"job_id": sfn.JsonPath.string_at(f"$.{phase}.job_id")}
+                ),
+                payload_response_only=True,
+                result_path=f"$.{phase}.status_result",
+            )
+            done_choice = sfn.Choice(self, f"{phase.capitalize()}Complete?")
+            collect = tasks.LambdaInvoke(
+                self,
+                f"Collect{phase.capitalize()}",
+                lambda_function=collect_fn,
+                payload=sfn.TaskInput.from_object(
+                    {
+                        "appid": sfn.JsonPath.number_at("$.appid"),
+                        "phase": phase,
+                        "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                        "job_id": sfn.JsonPath.string_at(f"$.{phase}.job_id"),
+                    }
+                ),
+                payload_response_only=True,
+                result_path=f"$.{phase}.collected",
+            )
 
-        # Pass 2 chain
-        prepare_pass2_task = tasks.LambdaInvoke(
-            self,
-            "PreparePass2",
-            lambda_function=prepare_pass2_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                    "pass1_output_s3_uri": sfn.JsonPath.string_at("$.pass1.output_s3_uri"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass2",
-        )
-        submit_pass2_task = tasks.LambdaInvoke(
-            self,
-            "SubmitPass2Job",
-            lambda_function=submit_job_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                    "pass": "pass2",
-                    "model_id": config.model_for("summarizer"),
-                    "input_s3_uri": sfn.JsonPath.string_at("$.pass2.input_s3_uri"),
-                    "output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass2.job",
-        )
-        wait_pass2 = sfn.Wait(
-            self, "WaitPass2", time=sfn.WaitTime.duration(cdk.Duration.seconds(300))
-        )
-        check_pass2_task = tasks.LambdaInvoke(
-            self,
-            "CheckPass2Status",
-            lambda_function=check_status_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "job_id": sfn.JsonPath.string_at("$.pass2.job.job_id"),
-                }
-            ),
-            payload_response_only=True,
-            result_path="$.pass2.job.status_result",
-        )
-        pass2_complete = sfn.Choice(self, "Pass2Complete?")
+            # Wire: prepare → skip? → (wait → check → done? → collect → next)
+            prepare.next(skip_check)
+            skip_check.when(
+                sfn.Condition.boolean_equals(f"$.{phase}.skip", True), next_step
+            ).otherwise(wait)
+            wait.next(check).next(done_choice)
+            done_choice.when(
+                sfn.Condition.string_equals(f"$.{phase}.status_result.status", "Completed"),
+                collect,
+            ).when(
+                sfn.Condition.string_equals(f"$.{phase}.status_result.status", "Failed"),
+                fail_state,
+            ).otherwise(wait)
+            collect.next(next_step)
+            return prepare
 
-        process_results_task = tasks.LambdaInvoke(
-            self,
-            "ProcessResults",
-            lambda_function=process_results_fn,
-            payload=sfn.TaskInput.from_object(
-                {
-                    "pass2_output_s3_uri": sfn.JsonPath.string_at("$.pass2.output_s3_uri"),
-                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                }
-            ),
-            payload_response_only=True,
-        )
-
-        # Wire Pass 1 polling loop
-        pass1_complete.when(
-            sfn.Condition.string_equals("$.pass1.job.status_result.status", "Completed"),
-            prepare_pass2_task,
-        ).when(
-            sfn.Condition.string_equals("$.pass1.job.status_result.status", "Failed"),
-            fail_state,
-        ).otherwise(wait_pass1)
-
-        # Wire Pass 2 polling loop
-        pass2_complete.when(
-            sfn.Condition.string_equals("$.pass2.job.status_result.status", "Completed"),
-            process_results_task,
-        ).when(
-            sfn.Condition.string_equals("$.pass2.job.status_result.status", "Failed"),
-            fail_state,
-        ).otherwise(wait_pass2)
-
-        # Full chain
-        definition = (
-            prepare_pass1_task.next(submit_pass1_task)
-            .next(wait_pass1)
-            .next(check_pass1_task)
-            .next(pass1_complete)
-        )
-        prepare_pass2_task.next(submit_pass2_task).next(wait_pass2).next(check_pass2_task).next(
-            pass2_complete
-        )
+        done = sfn.Succeed(self, "AnalysisComplete")
+        synthesis_chain = _phase_chain("synthesis", done)
+        merge_chain = _phase_chain("merge", synthesis_chain)
+        chunk_chain = _phase_chain("chunk", merge_chain)
 
         state_machine = sfn.StateMachine(
             self,
             "BatchAnalysisMachine",
             state_machine_name=f"steampulse-batch-analysis-{env}",
-            definition_body=sfn.DefinitionBody.from_chainable(definition),
+            definition_body=sfn.DefinitionBody.from_chainable(chunk_chain),
             state_machine_type=sfn.StateMachineType.STANDARD,
             logs=sfn.LogOptions(
                 destination=logs.LogGroup(
@@ -370,7 +299,7 @@ class BatchAnalysisStack(cdk.Stack):
             string_value=state_machine.state_machine_arn,
         )
 
-        # ── EventBridge rule (disabled — enable when ready for scheduled re-analysis)
+        # ── EventBridge rule (disabled — enable when Bedrock Batch is unblocked)
         events.Rule(
             self,
             "WeeklyBatchRule",
@@ -379,7 +308,7 @@ class BatchAnalysisStack(cdk.Stack):
             targets=[
                 events_targets.SfnStateMachine(
                     state_machine,
-                    input=events.RuleTargetInput.from_object({"appids": "ALL_ELIGIBLE"}),
+                    input=events.RuleTargetInput.from_object({"appid": 0}),
                 )
             ],
         )

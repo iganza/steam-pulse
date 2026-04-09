@@ -89,8 +89,71 @@ artifacts, adds a merge phase, and uses structured topic signals instead of flat
 
 The `GameReport` output schema is **unchanged** — the frontend does not break.
 
-Both execution paths (real-time Converse API and Bedrock Batch Inference) use the same
-prompts and produce identical output.
+Both execution modes (real-time via Converse and batch via Bedrock Batch Inference) run the
+**same three phases against the same Postgres tables with the same prompts**. The only
+difference between modes is *how* an `LLMRequest` becomes a parsed pydantic response.
+
+### Unified framework design
+
+The entry point is a typed `AnalysisRequest` (new in `library_layer/events.py`):
+
+```python
+class AnalysisRequest(BaseSqsMessage):
+    message_type: SqsMessageType = "analysis_request"
+    appid: int
+    mode: Literal["realtime", "batch"] = "realtime"
+    reason: str | None = None       # "bulk_seed" | "stale_refresh" | "admin_reanalyze" | ...
+```
+
+Triggers (admin re-analyze, bulk seed, scheduled refresh) construct an `AnalysisRequest`
+and hand it to the dispatcher. No HTTP endpoint is involved — in particular **`/api/preview`
+is deleted** as part of this work (backend handler, rate limiter, frontend form, e2e specs).
+
+Two distinct seams sit under the shared analyzer — **no pretending batch is sync, no
+exceptions-as-control-flow**:
+
+```
+┌─────────────────── shared pure helpers (analyzer.py) ──────────────────┐
+│ stratified_chunk_reviews, compute_chunk_hash,                           │
+│ build_chunk_requests, plan_merge_hierarchy, build_synthesis_request,    │
+│ prompt constants, prompt versions, pydantic response models,            │
+│ ChunkSummaryRepository / MergedSummaryRepository persistence,           │
+│ compute_hidden_gem_score, compute_sentiment_trend, Python overrides.    │
+└─────────────────────────────────────────────────────────────────────────┘
+            │                                        │
+            ▼                                        ▼
+   ConverseBackend (sync)                  BatchBackend (explicit lifecycle)
+   def run(requests) -> list[BaseModel]    def prepare(requests) -> s3_uri
+                                            def submit(s3_uri, task) -> job_id
+                                            def status(job_id) -> "running"|"completed"|"failed"
+                                            def collect(job_id, models) -> list[BaseModel]
+```
+
+`ConverseBackend.run()` blocks and returns parsed pydantic objects; used by the realtime
+Lambda. `BatchBackend` does **not** implement `run()` — Step Functions Lambdas call
+`prepare/submit/status/collect` across multiple invocations, and "job still pending" is
+Step Functions state (Wait → Choice loop), never a Python exception.
+
+**All code is plain sync `def`.** No `async`/`await`. psycopg2, instructor, and boto3 are
+all sync; async adds no concurrency on Lambda and just clutters signatures. The only
+parallelism is a thread pool inside `ConverseBackend.run()` for chunk fan-out.
+
+```python
+# library_layer/llm/backend.py
+class LLMRequest(BaseModel):
+    record_id: str                    # "{appid}-chunk-{i}" | "{appid}-merge-L{n}" | "{appid}-synthesis"
+    task: Literal["chunking", "merging", "summarizer"]
+    system: str
+    user: str
+    max_tokens: int
+    response_model: type[BaseModel]   # RichChunkSummary | MergedSummary | GameReport
+
+class LLMBackend(Protocol):
+    mode: Literal["realtime", "batch"]
+```
+
+Models are chosen per request via `config.model_for(request.task)` — one place to swap
+Haiku/Sonnet/Opus per phase.
 
 ---
 
@@ -114,8 +177,8 @@ prompts and produce identical output.
 - `src/library-layer/library_layer/utils/chunking.py` — stratified chunking + chunk hash
 - `src/library-layer/library_layer/repositories/chunk_summary_repo.py` — CRUD for chunk_summaries
 - `src/library-layer/library_layer/repositories/merged_summary_repo.py` — CRUD for merged_summaries
-- `src/lambda-functions/migrations/0012_chunk_summaries.sql` — new table
-- `src/lambda-functions/migrations/0013_merged_summaries.sql` — new table + reports columns
+- `src/lambda-functions/migrations/0035_chunk_summaries.sql` — new table
+- `src/lambda-functions/migrations/0036_merged_summaries.sql` — new table + reports columns
 - `src/lambda-functions/lambda_functions/batch_analysis/prepare_merge.py` — batch merge Lambda
 - Tests: `tests/utils/test_chunking.py`, `tests/repositories/test_chunk_summary_repo.py`, `tests/repositories/test_merged_summary_repo.py`, `tests/services/test_analyzer_v3.py`
 
@@ -257,10 +320,10 @@ def compute_chunk_hash(reviews: list[dict]) -> str:
 
 ## Step 3: Database Migrations
 
-### `0012_chunk_summaries.sql`
+### `0035_chunk_summaries.sql`
 
 ```sql
--- depends: 0011_<previous_migration>
+-- depends: 0034_new_releases_matview
 
 CREATE TABLE IF NOT EXISTS chunk_summaries (
     id              BIGSERIAL PRIMARY KEY,
@@ -281,10 +344,10 @@ CREATE TABLE IF NOT EXISTS chunk_summaries (
 CREATE INDEX IF NOT EXISTS idx_chunk_summaries_appid ON chunk_summaries(appid);
 ```
 
-### `0013_merged_summaries.sql`
+### `0036_merged_summaries.sql`
 
 ```sql
--- depends: 0012_chunk_summaries
+-- depends: 0035_chunk_summaries
 
 CREATE TABLE IF NOT EXISTS merged_summaries (
     id              BIGSERIAL PRIMARY KEY,
@@ -533,107 +596,181 @@ SYNTHESIS_PROMPT_VERSION = "synthesis-v3.0"
 
 ## Step 8: Real-Time Execution Path
 
-The `analyze_reviews()` function in `analyzer.py` is joined by `analyze_reviews_v3()`:
+The single entry point is `analyze_game()` in `analyzer.py`. It takes an
+`AnalysisRequest`, an `LLMBackend`, and the repositories. Plain sync `def` — no async.
 
 ```python
-def analyze_reviews_v3(
-    reviews: list[dict],
-    game_name: str,
-    appid: int,
-    conn: psycopg2.extensions.connection,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
-    steam_positive_pct: int | float | None = None,
-    steam_review_count: int | None = None,
-    steam_review_score_desc: str | None = None,
-) -> dict:
-    """Three-phase LLM analysis pipeline.
+def analyze_game(
+    request: AnalysisRequest,
+    *, backend: LLMBackend,
+    chunk_repo: ChunkSummaryRepository,
+    merge_repo: MergedSummaryRepository,
+    report_repo: ReportRepository,
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+) -> GameReport:
+    """The one entry point. Identical for realtime and batch.
 
-    Steam's positive_pct/review_count/review_score_desc must be passed by the caller
-    (read from the Game row). They feed both `compute_hidden_gem_score` and the
-    synthesis prompt context. They are NEVER recomputed from `merged.total_stats`.
+    Sentiment magnitude is owned by Steam — `positive_pct` / `review_score_desc`
+    are read from the `Game` row and NEVER recomputed from merged.total_stats.
     """
-    client = _get_instructor_client()
+    # Short-circuit: if reports.pipeline_version matches and no new reviews,
+    # return the stored report without entering the pipeline.
+    existing = report_repo.find_by_appid(request.appid)
+    if existing and existing.pipeline_version == PIPELINE_VERSION \
+            and not review_repo.has_new_reviews_since(request.appid, existing.last_analyzed):
+        return existing
 
-    # Phase 1: Chunk & Summarize (with idempotency)
-    chunks = stratified_chunk_reviews(reviews)
-    chunk_repo = ChunkSummaryRepository(conn)
-    summaries = []
-    chunk_ids = []
-    for i, chunk in enumerate(chunks):
-        chunk_hash = compute_chunk_hash(chunk)
-        existing = chunk_repo.find_by_hash(appid, chunk_hash, CHUNK_PROMPT_VERSION)
-        if existing:
-            summaries.append(RichChunkSummary.model_validate(existing["summary_json"]))
-            chunk_ids.append(existing["id"])
-        else:
-            summary = _summarize_chunk_v2(client, chunk, i, len(chunks), game_name)
-            row_id = chunk_repo.insert(appid, i, chunk_hash, len(chunk), summary, ...)
-            summaries.append(summary)
-            chunk_ids.append(row_id)
+    game = game_repo.get(request.appid)
+    reviews = review_repo.find_by_appid(request.appid, limit=2000)
+    temporal, metadata = build_contexts(game, reviews)
 
-    # Phase 2: Merge
-    merged = _merge_chunk_summaries(client, summaries, chunk_ids, game_name, appid)
-    merged_repo = MergedSummaryRepository(conn)
-    merged_id = merged_repo.insert(appid, merged, ...)
-
-    # Python derived values — sentiment magnitude is owned by Steam, not derived here
-    hidden_gem_score = compute_hidden_gem_score(steam_positive_pct, steam_review_count)
-    trend = compute_sentiment_trend(reviews)  # dict with trend, note, reliable, sample_size
-
-    # Phase 3: Synthesize
-    report = _synthesize_v3(
-        client, merged, game_name, len(reviews),
-        hidden_gem_score=hidden_gem_score,
-        sentiment_trend=trend["trend"],
-        sentiment_trend_note=trend["note"],
-        steam_positive_pct=steam_positive_pct,
-        steam_review_score_desc=steam_review_score_desc,
-        temporal=temporal,
-        metadata=metadata,
+    chunk_summaries = run_chunk_phase(
+        appid=request.appid, game=game, reviews=reviews,
+        backend=backend, chunk_repo=chunk_repo,
     )
+    merged = run_merge_phase(
+        appid=request.appid, game=game, chunk_summaries=chunk_summaries,
+        backend=backend, merge_repo=merge_repo,
+    )
+    report = run_synthesis_phase(
+        game=game, reviews=reviews, merged=merged,
+        temporal=temporal, metadata=metadata, backend=backend,
+    )
+    report_repo.upsert(report, pipeline_version=PIPELINE_VERSION)
+    publish_report_ready(request.appid)
+    return report
 
-    # Override Python-computed values (defensive — LLM must not produce these)
-    report.hidden_gem_score = hidden_gem_score
+
+def run_chunk_phase(
+    *, appid, game, reviews, backend, chunk_repo,
+) -> list[RichChunkSummary]:
+    chunks = stratified_chunk_reviews(reviews, CHUNK_SIZE)
+    cached, pending, pending_meta = [], [], []
+
+    for i, chunk in enumerate(chunks):
+        h = compute_chunk_hash(chunk)
+        row = chunk_repo.find_by_hash(appid, h, CHUNK_PROMPT_VERSION)
+        if row:
+            cached.append((i, RichChunkSummary.model_validate(row.summary_json)))
+        else:
+            pending.append(LLMRequest(
+                record_id=f"{appid}-chunk-{i}",
+                task="chunking",
+                system=CHUNK_SYSTEM_PROMPT_V2,
+                user=build_chunk_user_message(chunk, game.name, i, len(chunks)),
+                max_tokens=1024,
+                response_model=RichChunkSummary,
+            ))
+            pending_meta.append((i, h, len(chunk)))
+
+    fresh = backend.run(pending) if pending else []
+    for (i, h, n), summary in zip(pending_meta, fresh, strict=True):
+        chunk_repo.insert(appid, i, h, n, summary,
+                          model_id=config.model_for("chunking"),
+                          prompt_version=CHUNK_PROMPT_VERSION)
+        cached.append((i, summary))
+
+    cached.sort(key=lambda t: t[0])
+    return [summary for _, summary in cached]
+
+
+def run_merge_phase(
+    *, appid, game, chunk_summaries, backend, merge_repo,
+) -> MergedSummary:
+    # Hierarchy: 1→promote, 2–5→single, 6–40→two-level, 41+→three-level (max 3).
+    # Each level checks merge_repo.find_latest_by_source_ids() for cache hits
+    # before calling backend.run(). Persists every level it produces.
+    ...
+
+
+def run_synthesis_phase(
+    *, game, reviews, merged, temporal, metadata, backend,
+) -> GameReport:
+    hidden_gem = compute_hidden_gem_score(game.positive_pct, game.review_count)
+    trend = compute_sentiment_trend(reviews)
+
+    [report] = backend.run([LLMRequest(
+        record_id=f"{game.appid}-synthesis",
+        task="summarizer",
+        system=SYNTHESIS_SYSTEM_PROMPT,
+        user=build_synthesis_user_message(
+            merged=merged, game=game, temporal=temporal, metadata=metadata,
+            steam_positive_pct=game.positive_pct,
+            steam_review_score_desc=game.review_score_desc,
+            hidden_gem_score=hidden_gem,
+            sentiment_trend=trend,
+        ),
+        max_tokens=5000,
+        response_model=GameReport,
+    )])
+
+    # Defensive overrides — Steam owns sentiment magnitude, Python owns derived scores
+    report.hidden_gem_score = hidden_gem
     report.sentiment_trend = trend["trend"]
     report.sentiment_trend_note = trend["note"]
     report.sentiment_trend_reliable = trend["reliable"]
     report.sentiment_trend_sample_size = trend["sample_size"]
-    if appid is not None:
-        report.appid = appid
-
-    return report.model_dump()
+    report.appid = game.appid
+    return report
 ```
 
-Note: `conn` parameter is new — needed for chunk storage/lookup. The analysis handler
-already has `_conn` at module level. The handler must also pass `steam_positive_pct`
-/ `steam_review_count` / `steam_review_score_desc` from the `Game` row it already
-loads (see the existing pattern in `analysis/handler.py` post-data-source-clarity).
+The realtime Lambda (`lambda_functions/analysis/handler.py`) instantiates
+`ConverseBackend` at module level (warm reuse), parses the incoming
+`AnalysisRequest` from SQS/Step Functions input, and calls
+`analyze_game(request, backend=_converse, ...)`. That's it — the Lambda is a
+thin dispatcher.
 
 ---
 
 ## Step 9: Batch Execution Path
 
-### Step Functions Changes
+Batch mode runs the **same** `run_chunk_phase` / `run_merge_phase` /
+`run_synthesis_phase` helpers as realtime — just driven across multiple Lambda
+invocations by Step Functions. Each Prepare/Collect Lambda is a thin wrapper
+that instantiates `BatchBackend` and calls the shared helpers. No
+exceptions-as-control-flow: job pending vs. complete is Step Functions state.
 
-Add merge states between Pass 1 output and Pass 3 input:
+### Step Functions (STANDARD) state machine
 
 ```
-[PreparePass1] → [SubmitPass1] → [WaitPass1] → [CheckPass1] →
-[PrepareMerge] → [SubmitMerge] → [WaitMerge] → [CheckMerge] →
-  Choice: needs_another_merge? → yes: [PrepareMerge] (loop)
-                                → no:  continue
-[PreparePass3] → [SubmitPass3] → [WaitPass3] → [CheckPass3] →
-[ProcessResults]
+StartAnalysis (receives AnalysisRequest with mode="batch")
+  ├─ PrepareChunkPhase   → shared run_chunk_phase helpers to build requests,
+  │                        filter DB cache hits (insert them immediately),
+  │                        BatchBackend.prepare(pending) → s3_uri
+  │                        BatchBackend.submit(s3_uri, "chunking") → job_id
+  │                        returns {job_id, appid}
+  ├─ WaitChunk + CheckChunkStatus → BatchBackend.status(job_id) loop
+  ├─ CollectChunkPhase   → BatchBackend.collect(job_id, [RichChunkSummary])
+  │                        chunk_repo.insert() for every returned summary
+  ├─ PrepareMergePhase   → loads chunk_summaries from DB, calls
+  │                        plan_merge_hierarchy(), builds MERGE LLMRequests
+  │                        for the current level, checks merge_repo cache,
+  │                        BatchBackend.prepare/submit → {job_id, merge_level}
+  ├─ WaitMerge/CheckMerge/CollectMergePhase — loop by merge_level
+  │   Choice: another level needed? → PrepareMergePhase (increment level)
+  │                                 → else continue
+  ├─ PrepareSynthesisPhase → loads merged_summaries.find_latest_by_appid(),
+  │                          Python scores, build_synthesis_user_message(),
+  │                          BatchBackend.prepare/submit → {job_id}
+  ├─ WaitSynth/CheckSynth
+  └─ CollectSynthAndPersist → BatchBackend.collect() → apply Python overrides →
+                              report_repo.upsert(pipeline_version=...)
+                              publish_report_ready(appid)
 ```
 
-### New Lambda: `prepare_merge.py`
+### Lambda wrappers
 
-- Input: `{execution_id, input_s3_uri (pass1 or prior merge output), merge_level}`
-- Groups chunk/merge summaries by appid
-- For each game, determines if hierarchical merge is needed
-- Writes merge JSONL with `MERGE_SYSTEM_PROMPT`
-- Returns: `{input_s3_uri, output_s3_uri, total_records, needs_another_merge: bool}`
+Every batch Lambda is a thin adapter. Key property: **all prompt strings,
+chunking, merge hierarchy, synthesis user builder, Python scores, and
+persistence are imported from `library_layer/analyzer.py`**. Batch Lambdas
+contain zero prompt text of their own — drift between realtime and batch is
+impossible.
+
+- `prepare_chunk.py`, `collect_chunk.py`
+- `prepare_merge.py`, `collect_merge.py`
+- `prepare_synthesis.py`, `collect_synthesis.py` (replaces old `process_results.py`)
+- `check_batch_status.py` — single shared status-poller for all three phases
 
 ### S3 Structure
 
@@ -653,30 +790,24 @@ jobs/{execution-id}/
 
 ---
 
-## Step 10: Replace Old Pipeline
+## Step 10: Replace Old Pipeline + Delete `/api/preview`
 
-No feature flag — there is no production environment to protect. Replace the old
-`analyze_reviews()` call directly.
+No feature flag — there is no production environment to protect.
 
-In `analysis/handler.py`, change the call to (mirrors the post-data-source-clarity
-v2 call signature — Steam values come from the `game` row already loaded above):
-
-```python
-result = analyze_reviews_v3(
-    reviews_for_llm, name,
-    appid=req.appid,
-    conn=_conn,
-    temporal=temporal,
-    metadata=metadata,
-    steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
-    steam_review_count=game.review_count or None,
-    steam_review_score_desc=game.review_score_desc,
-)
-```
-
-Once verified, remove the old `analyze_reviews()` function and the legacy `ChunkSummary`
-model (keep `BatchStats` if still referenced elsewhere). Rename `analyze_reviews_v3()`
-to `analyze_reviews()` for cleanliness.
+1. **Delete `/api/preview`** entirely:
+   - `POST /api/preview` handler and `_trigger_analysis` helper in
+     `lambda_functions/api/handler.py`
+   - Free-preview rate-limit logic (grep first — remove table/row code if
+     preview is the only caller)
+   - Frontend preview CTA/form/page and related e2e specs
+   - `AnalysisMachine` EXPRESS Step Function if it only served preview; if
+     it's retained for admin re-analyze, repoint it at the new
+     `analyze_game(request, ...)` path
+2. In `lambda_functions/analysis/handler.py`, parse the incoming
+   `AnalysisRequest` from the event, instantiate `ConverseBackend` at module
+   level, and call `analyze_game(request, backend=_converse, ...)`.
+3. Remove the old two-pass `analyze_reviews()` function and the legacy
+   `ChunkSummary` model (keep `BatchStats` only if referenced elsewhere).
 
 ---
 
@@ -713,19 +844,20 @@ calls instead of 44.
 |------|------|-------------|
 | 1 | New Pydantic models in `analyzer_models.py` | None |
 | 2 | `utils/chunking.py` (stratified chunking + hash) | None |
-| 3 | Migrations `0012` + `0013` | None |
+| 3 | Migrations `0035` + `0036` | None |
 | 4 | Update `schema.py` | Step 3 |
 | 5 | `ChunkSummaryRepository` | Steps 1, 3 |
 | 6 | `MergedSummaryRepository` | Steps 1, 3 |
 | 7 | Phase 1 v2 prompts + `_summarize_chunk_v2()` | Step 1 |
 | 8 | Phase 2 prompts + `_merge_chunk_summaries()` | Steps 1, 5 |
 | 9 | Phase 3 updated synthesis | Step 1 |
-| 10 | `analyze_reviews_v3()` orchestrator | Steps 7, 8, 9 |
-| 11 | Update `analysis/handler.py` to call v3 (passing Steam fields) | Step 10 |
-| 13 | Batch: `prepare_merge.py` | Steps 7, 8 |
-| 14 | Batch: rename `prepare_pass2.py` → `prepare_pass3.py` | Step 9 |
-| 15 | CDK: add merge Lambda + update SFN | Steps 13, 14 |
-| 16 | Remove old `analyze_reviews()` + legacy models | Steps 10, 11 |
+| 10 | `llm/{backend,converse,batch}.py` + `AnalysisRequest` in `events.py` | Step 1 |
+| 11 | `analyze_game()` + `run_{chunk,merge,synthesis}_phase()` orchestrator | Steps 7, 8, 9, 10 |
+| 12 | Update `analysis/handler.py` to parse `AnalysisRequest` + call `analyze_game` with `ConverseBackend` | Step 11 |
+| 13 | Delete `/api/preview` (backend + frontend + e2e specs) | Step 12 |
+| 14 | Batch Lambdas: `prepare_chunk/collect_chunk/prepare_merge/collect_merge/prepare_synthesis/collect_synthesis` — thin wrappers over shared helpers + `BatchBackend` | Steps 10, 11 |
+| 15 | CDK: add merge + collect Lambdas, update STANDARD SFN ASL | Step 14 |
+| 16 | Remove old two-pass `analyze_reviews()` + legacy `ChunkSummary` | Steps 11, 12 |
 | 17 | Tests | Steps 1–12 |
 | 18 | Update `ARCHITECTURE.org` | All |
 
@@ -775,3 +907,8 @@ calls instead of 44.
 - `steam_review_id` is included in review text sent to LLM for quote attribution
 - Batch path gains merge loop states in Step Functions ASL
 - S3 structure gains `merge/level{N}/` directories
+- **Single entry point is `analyze_game(request: AnalysisRequest, *, backend, repos)`** — not a mode-specific function per execution mode
+- **`LLMBackend.run()` is sync-only** and implemented only by `ConverseBackend`. `BatchBackend` exposes `prepare/submit/status/collect` — it does NOT implement `run()`. Do not add an async `run()` or a "pending" exception — job-pending state lives in Step Functions
+- **No `async`/`await` anywhere** in analyzer, backends, handlers, or repos. psycopg2, instructor, and boto3 Bedrock clients are all sync. `ConverseBackend.run()` may use a thread pool for chunk fan-out; that is the only parallelism
+- **`/api/preview` is deleted** — analysis is driven by `AnalysisRequest` (SQS/Step Functions), not by an HTTP endpoint. Do not reintroduce preview
+- Batch Lambdas import prompts/chunking/merge/synthesis/persistence from `library_layer/analyzer.py` — they contain zero prompt strings of their own

@@ -136,9 +136,49 @@ TABLES: tuple[str, ...] = (
         seo_description TEXT,
         featured_at TIMESTAMPTZ,
         last_analyzed TIMESTAMPTZ DEFAULT NOW(),
-        created_at TIMESTAMPTZ DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        -- three-phase pipeline (0036_merged_summaries)
+        pipeline_version TEXT DEFAULT '2.0',
+        chunk_count INTEGER,
+        merged_summary_id BIGINT
     )
     """,
+    # Three-phase LLM analysis pipeline artifacts (0035, 0036)
+    """
+    CREATE TABLE IF NOT EXISTS chunk_summaries (
+        id              BIGSERIAL PRIMARY KEY,
+        appid           INTEGER NOT NULL REFERENCES games(appid),
+        chunk_index     SMALLINT NOT NULL,
+        chunk_hash      TEXT NOT NULL,
+        review_count    SMALLINT NOT NULL,
+        summary_json    JSONB NOT NULL,
+        model_id        TEXT NOT NULL,
+        prompt_version  TEXT NOT NULL,
+        input_tokens    INTEGER,
+        output_tokens   INTEGER,
+        latency_ms      INTEGER,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (appid, chunk_hash, prompt_version)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_chunk_summaries_appid ON chunk_summaries(appid)",
+    """
+    CREATE TABLE IF NOT EXISTS merged_summaries (
+        id               BIGSERIAL PRIMARY KEY,
+        appid            INTEGER NOT NULL REFERENCES games(appid),
+        merge_level      SMALLINT NOT NULL DEFAULT 1,
+        summary_json     JSONB NOT NULL,
+        source_chunk_ids BIGINT[] NOT NULL,
+        chunks_merged    INTEGER NOT NULL,
+        model_id         TEXT NOT NULL,
+        prompt_version   TEXT NOT NULL,
+        input_tokens     INTEGER,
+        output_tokens    INTEGER,
+        latency_ms       INTEGER,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_merged_summaries_appid ON merged_summaries(appid)",
     """
     CREATE TABLE IF NOT EXISTS game_relations (
         appid_a INTEGER REFERENCES games(appid),

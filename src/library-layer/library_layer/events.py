@@ -133,7 +133,11 @@ class CatalogRefreshCompleteEvent(BaseEvent):
 SqsMessageType = Literal[
     # Email queue
     "waitlist_confirmation",
+    # Analysis pipeline (realtime or batch — three-phase analyzer entry point)
+    "analysis_request",
 ]
+
+AnalysisMode = Literal["realtime", "batch"]
 
 
 class BaseSqsMessage(BaseModel):
@@ -155,3 +159,23 @@ class BaseSqsMessage(BaseModel):
 class WaitlistConfirmationMessage(BaseSqsMessage):
     message_type: SqsMessageType = "waitlist_confirmation"
     email: str
+
+
+# --- Analysis pipeline messages ---
+
+
+class AnalysisRequest(BaseSqsMessage):
+    """Request to analyze a game through the three-phase LLM pipeline.
+
+    The dispatcher selects backend based on `mode`:
+    - "realtime": ConverseBackend, runs all three phases inline
+    - "batch": BatchBackend, Step Functions drives phases across multiple invocations
+
+    Both modes execute the same phases, share the same prompts, and write
+    to the same chunk_summaries / merged_summaries / reports tables.
+    """
+
+    message_type: SqsMessageType = "analysis_request"
+    appid: int
+    mode: AnalysisMode = "realtime"
+    reason: str | None = None  # "bulk_seed" | "stale_refresh" | "admin_reanalyze" | ...

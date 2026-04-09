@@ -1,21 +1,42 @@
-"""Two-pass LLM analysis pipeline.
+"""Three-phase LLM analysis pipeline (chunk → merge → synthesize).
 
-Pass 1 (LLM_MODEL__CHUNKING):   process 50-review chunks → extract signals.
-Pass 2 (LLM_MODEL__SUMMARIZER): synthesize all chunk signals → structured GameReport.
+Phase 1 (LLM_MODEL__CHUNKING):  stratified 50-review chunks → RichChunkSummary (TopicSignals)
+Phase 2 (LLM_MODEL__MERGING):   hierarchical merge → MergedSummary
+Phase 3 (LLM_MODEL__SUMMARIZER): MergedSummary + context → GameReport
 
-Models are configured via the LLM_MODEL task map in .env.staging / .env.production.
+Each phase is idempotent and persisted in Postgres:
+- chunk_summaries keyed on (appid, chunk_hash, prompt_version)
+- merged_summaries cache-checked via find_latest_by_source_ids
+
+Both real-time (ConverseBackend) and batch (BatchBackend) paths share these
+helpers — editing a prompt here propagates to both modes. Plain sync `def`
+throughout; the only parallelism is a thread pool inside ConverseBackend.run().
 """
 
 import json
 import time
 
-import anthropic
-import instructor
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.models.analyzer_models import ChunkSummary, GameReport
+from library_layer.events import AnalysisRequest
+from library_layer.llm.backend import LLMBackend, LLMRequest
+from library_layer.models.analyzer_models import (
+    GameReport,
+    MergedSummary,
+    RichChunkSummary,
+)
 from library_layer.models.metadata import GameMetadataContext
 from library_layer.models.temporal import GameTemporalContext
+from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
+from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
+from library_layer.repositories.report_repo import ReportRepository
+from library_layer.utils.chunking import (
+    CHUNK_SIZE as STRATIFIED_CHUNK_SIZE,
+)
+from library_layer.utils.chunking import (
+    compute_chunk_hash,
+    stratified_chunk_reviews,
+)
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
 )
@@ -26,31 +47,6 @@ from library_layer.utils.scores import (
 logger = Logger()
 _config = SteamPulseConfig()
 
-
-def _get_instructor_client() -> instructor.Instructor:
-    return instructor.from_anthropic(anthropic.AnthropicBedrock())
-
-
-CHUNK_SYSTEM_PROMPT = """\
-You extract structured signals from Steam game reviews for an analytics pipeline.
-A later model synthesizes your output — your ONLY job is accurate extraction.
-
-<rules>
-- Extract only what is explicitly stated or clearly implied in the reviews.
-- Do not invent, generalize, or embellish.
-- Quotes in notable_quotes must be word-for-word from reviews.
-- Counts in batch_stats must be exact for this batch.
-</rules>
-
-<signal_weighting>
-- Reviews with more helpful votes = broad community agreement, stronger signal.
-- Reviews with 50h+ playtime = informed player, weight friction/wishlist higher.
-- Free-key reviews may be biased — note but don't weight equally.
-- Early Access reviews reflect prior game state — tag signals as [EA].
-</signal_weighting>
-
-Return ONLY valid JSON. No prose, no preamble.\
-"""
 
 SYNTHESIS_SYSTEM_PROMPT = """\
 You are a senior product analyst writing game intelligence reports.
@@ -92,163 +88,6 @@ Every claim must trace to a signal from the chunk extraction pass.
 
 Return ONLY valid JSON. No prose, no preamble.\
 """
-
-CHUNK_SIZE = 50
-
-
-def _chunk_reviews(reviews: list[dict], chunk_size: int = CHUNK_SIZE) -> list[list[dict]]:
-    return [reviews[i : i + chunk_size] for i in range(0, len(reviews), chunk_size)]
-
-
-def _aggregate_chunk_summaries(chunk_summaries: list[ChunkSummary]) -> dict:
-    """Flatten all chunk signals into one dict per signal type for Pass 2 synthesis.
-
-    Used by both the real-time path (analyze_reviews) and the batch path (PreparePass2 Lambda).
-    """
-    chunks = chunk_summaries
-    total_reviews = sum(
-        cs.batch_stats.positive_count + cs.batch_stats.negative_count for cs in chunks
-    )
-    weighted_playtime = sum(
-        cs.batch_stats.avg_playtime_hours
-        * (cs.batch_stats.positive_count + cs.batch_stats.negative_count)
-        for cs in chunks
-    )
-    return {
-        "design_praise": [item for cs in chunks for item in cs.design_praise],
-        "gameplay_friction": [item for cs in chunks for item in cs.gameplay_friction],
-        "wishlist_items": [item for cs in chunks for item in cs.wishlist_items],
-        "dropout_moments": [item for cs in chunks for item in cs.dropout_moments],
-        "competitor_refs": [item.model_dump() for cs in chunks for item in cs.competitor_refs],
-        "notable_quotes": [item for cs in chunks for item in cs.notable_quotes],
-        "technical_issues": [item for cs in chunks for item in cs.technical_issues],
-        "refund_signals": [item for cs in chunks for item in cs.refund_signals],
-        "community_health": [item for cs in chunks for item in cs.community_health],
-        "monetization_sentiment": [item for cs in chunks for item in cs.monetization_sentiment],
-        "content_depth": [item for cs in chunks for item in cs.content_depth],
-        "total_stats": {
-            "positive_count": sum(cs.batch_stats.positive_count for cs in chunks),
-            "negative_count": sum(cs.batch_stats.negative_count for cs in chunks),
-            "avg_playtime_hours": round(weighted_playtime / max(total_reviews, 1), 1),
-            "high_playtime_count": sum(cs.batch_stats.high_playtime_count for cs in chunks),
-            "early_access_count": sum(cs.batch_stats.early_access_count for cs in chunks),
-            "free_key_count": sum(cs.batch_stats.free_key_count for cs in chunks),
-        },
-    }
-
-
-def _build_chunk_user_message(
-    chunk: list[dict],
-    chunk_index: int,
-    total_chunks: int,
-    game_name: str = "",
-) -> str:
-    reviews_text = "\n\n".join(
-        f"[{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
-        f"{r['playtime_hours']}h played, "
-        f"{r['votes_helpful']} helpful votes, "
-        f"{'Early Access' if r['written_during_early_access'] else 'Post-launch'}, "
-        f"{'Free Key' if r['received_for_free'] else 'Paid'}, "
-        f"{r['posted_at'][:10] if r.get('posted_at') else 'unknown date'}]: "
-        f"{r['review_text'][:800]}"
-        for r in chunk
-    )
-
-    dates = [r["posted_at"][:10] for r in chunk if r.get("posted_at")]
-    date_range = f"({min(dates)} to {max(dates)})" if dates else "(dates unknown)"
-    game_label = f' for "{game_name}"' if game_name else ""
-
-    return f"""\
-<task>
-Extract signals from {len(chunk)} Steam reviews{game_label}
-(batch {chunk_index + 1} of {total_chunks}, covering {date_range}).
-</task>
-
-<signal_definitions>
-  <signal name="design_praise">
-    Specific DESIGN elements praised: mechanics, art, audio, controls, progression.
-    EXCLUDE: community praise, price, nostalgia.
-    Include playtime/helpful-vote context for high-signal reviews.
-  </signal>
-  <signal name="gameplay_friction">
-    In-game UX/design friction: balance, pacing, missing UI, difficulty spikes.
-    EXCLUDE: pricing, developer neglect, community, platform issues, TECHNICAL BUGS.
-  </signal>
-  <signal name="wishlist_items">
-    NET-NEW features players want. EXCLUDE: fixes to broken things (→ gameplay_friction).
-  </signal>
-  <signal name="dropout_moments">
-    Moments/stages where players stopped or considered quitting.
-    Include timing: "after 2 hours", "in the tutorial", "at the third boss".
-  </signal>
-  <signal name="competitor_refs">
-    Named games mentioned. Format: {{"game": "name", "sentiment": "positive|negative|neutral", "context": "phrase"}}.
-    ONLY if a specific game title appears.
-  </signal>
-  <signal name="notable_quotes">
-    0-2 vivid, representative verbatim quotes. Under 40 words each.
-  </signal>
-  <signal name="technical_issues">
-    Crashes, FPS drops, bugs, save corruption, compatibility, loading times.
-    EXCLUDE: game design problems (→ gameplay_friction).
-  </signal>
-  <signal name="refund_signals">
-    Verbatim refund language only: "refunded", "got my money back", "waste of money".
-    Include the context sentence. Only if EXPLICIT refund language is present.
-  </signal>
-  <signal name="community_health">
-    Player community / multiplayer ecosystem signals: "dead servers", "toxic chat",
-    "great Discord", "cheaters everywhere". EXCLUDE: single-player design issues.
-  </signal>
-  <signal name="monetization_sentiment">
-    Feelings about DLC, microtransactions, battle passes, loot boxes, pay-to-win.
-    EXCLUDE: base game price.
-  </signal>
-  <signal name="content_depth">
-    Game length, replayability, content volume. Include reviewer's playtime for context.
-  </signal>
-</signal_definitions>
-
-<examples>
-  <example type="good">
-    Review: [POSITIVE, 450h, 1523 helpful, Post-launch, Paid, 2024-06-15]: The base building
-    is incredible, best crafting system I've played. Dead servers though, nobody online anymore.
-    → design_praise: ["Base building and crafting system (450h player, 1523 helpful votes)"]
-    → community_health: ["Dead servers — nobody online anymore (450h invested player)"]
-    Note: High playtime + helpful votes = strong signal. Two signals, two categories.
-  </example>
-  <example type="bad">
-    Same review →
-    → design_praise: ["Good building system"] ← WRONG: paraphrased, lost credibility data
-    → gameplay_friction: ["Nobody online"] ← WRONG: multiplayer population → community_health
-  </example>
-</examples>
-
-<reviews>
-{reviews_text}
-</reviews>
-
-<output_format>
-{{
-  "design_praise": ["string — include playtime/helpful context for high-signal reviews"],
-  "gameplay_friction": ["string"],
-  "wishlist_items": ["string"],
-  "dropout_moments": ["string — must include timing"],
-  "competitor_refs": [{{"game": "name", "sentiment": "positive|negative|neutral", "context": "phrase"}}],
-  "notable_quotes": ["verbatim, max 2"],
-  "technical_issues": ["string"],
-  "refund_signals": ["string — verbatim language + context"],
-  "community_health": ["string"],
-  "monetization_sentiment": ["string"],
-  "content_depth": ["string — include playtime"],
-  "batch_stats": {{
-    "positive_count": 0, "negative_count": 0, "avg_playtime_hours": 0.0,
-    "high_playtime_count": 0, "early_access_count": 0, "free_key_count": 0
-  }}
-}}
-</output_format>\
-"""
-
 
 def _build_synthesis_user_message(
     aggregated_signals: dict,
@@ -436,182 +275,695 @@ narrative only. Include pre-computed values exactly as given:
 """
 
 
-def _summarize_chunk(
-    client: instructor.Instructor,
+# ===========================================================================
+# Three-phase pipeline (chunk → merge → synthesize)
+#
+# New entry point: `analyze_game(request, *, backend, repos...)`.
+# Both real-time (ConverseBackend) and batch (BatchBackend, via thin Step
+# Functions Lambdas) call the SAME phase helpers here — prompts, chunking,
+# merge hierarchy, synthesis, Python overrides, persistence.
+# ===========================================================================
+
+
+# Prompt version constants — bump any of these to invalidate cached rows at
+# that phase. `chunk_summaries` unique key includes chunk prompt version;
+# merge cache lookup includes merge prompt version; synthesis prompt version
+# feeds `PIPELINE_VERSION` so a bump forces a synthesis re-run without
+# invalidating earlier phases.
+CHUNK_PROMPT_VERSION = "chunk-v2.0"
+MERGE_PROMPT_VERSION = "merge-v1.0"
+SYNTHESIS_PROMPT_VERSION = "synthesis-v3.0"
+PIPELINE_VERSION = (
+    f"3.0/{CHUNK_PROMPT_VERSION}/{MERGE_PROMPT_VERSION}/{SYNTHESIS_PROMPT_VERSION}"
+)
+
+
+CHUNK_SYSTEM_PROMPT_V2 = """\
+You extract structured topic signals from Steam game reviews for an analytics pipeline.
+A later model merges and synthesizes your output — your ONLY job is accurate extraction.
+
+<rules>
+- Extract TOPICS, not flat signal strings. Each topic is a named subject
+  (e.g. "base building", "matchmaking latency") with a category, sentiment,
+  mention count, confidence, and representative quotes.
+- Multiple reviews about the same subject = ONE topic with a higher mention_count.
+- Quotes must be word-for-word from reviews. Include the steam_review_id.
+- Counts in batch_stats must be exact for this batch.
+- Do not invent, generalize, or embellish.
+- confidence rule: "high" if mention_count >= 5 OR avg_helpful_votes >= 50,
+  "medium" if mention_count >= 2, "low" otherwise.
+</rules>
+
+<signal_weighting>
+- Reviews with more helpful votes = broad community agreement, stronger signal.
+- Reviews with 50h+ playtime = informed player, weight friction/wishlist higher.
+- Free-key reviews may be biased — note but don't weight equally.
+- Early Access reviews reflect prior game state — tag in summary text.
+</signal_weighting>
+
+<category_definitions>
+  design_praise: Specific DESIGN elements praised — mechanics, art, audio, controls,
+    progression. EXCLUDE: community praise, price, nostalgia.
+  gameplay_friction: In-game UX/design friction — balance, pacing, missing UI,
+    difficulty spikes. EXCLUDE: pricing, community, platform issues, TECHNICAL BUGS.
+  wishlist_items: NET-NEW features players want. EXCLUDE: fixes to broken things.
+  dropout_moments: Moments/stages where players stopped or considered quitting.
+    Must include timing in summary.
+  technical_issues: Crashes, FPS drops, bugs, save corruption, compatibility,
+    loading times. EXCLUDE: game design problems.
+  refund_signals: Explicit refund language only. Include context in summary.
+  community_health: Player community / multiplayer ecosystem signals.
+    EXCLUDE: single-player design.
+  monetization_sentiment: Feelings about DLC, microtransactions, battle passes.
+    EXCLUDE: base game price.
+  content_depth: Game length, replayability, content volume. Include playtime context.
+</category_definitions>
+
+Return ONLY valid JSON matching the RichChunkSummary schema. No prose, no preamble.\
+"""
+
+
+MERGE_SYSTEM_PROMPT = """\
+You consolidate structured topic signals from multiple review analysis chunks
+into a single unified summary.
+
+<rules>
+- MERGE topics about the same subject into ONE topic. Sum mention_counts.
+  Reconcile sentiment weighted by mention_count.
+- NEVER invent new topics, quotes, or information not in the input chunks.
+- Keep the BEST quotes: prioritize by votes_helpful DESC, then playtime DESC.
+  Max 3 quotes per topic, max 5 notable_quotes total.
+- When merging sentiment: if 80%+ of mentions share the same sentiment, use that.
+  If mixed, use "mixed".
+- Confidence: recompute from merged mention_count (high >= 5, medium >= 2, low < 2).
+- Merge total_stats by summing counts, weighted average for playtime,
+  min/max for dates.
+- competitor_refs: deduplicate by game name, keep the most informative context.
+</rules>
+
+<topic_dedup_rules>
+- "matchmaking is slow" + "matchmaking takes too long" = ONE topic "matchmaking latency"
+- "great art style" + "beautiful graphics" = ONE topic "visual design"
+- "needs more maps" + "wants new content" = TWO topics (different specificity)
+- When in doubt, keep separate. False merges lose information.
+</topic_dedup_rules>
+
+Return ONLY valid JSON matching the MergedSummary schema. No prose, no preamble.\
+"""
+
+
+def _build_chunk_user_message_v2(
     chunk: list[dict],
+    game_name: str,
     chunk_index: int,
     total_chunks: int,
-    game_name: str = "",
-) -> ChunkSummary:
-    """Pass 1: extract raw signals from a batch of reviews (LLM_MODEL__CHUNKING, prompt caching enabled)."""
-    logger.info(
-        "chunk_start",
-        extra={
-            "chunk": chunk_index + 1,
-            "total_chunks": total_chunks,
-            "reviews": len(chunk),
-            "model": _config.model_for("chunking"),
-        },
+) -> str:
+    reviews_text = "\n\n".join(
+        f"[id:{r.get('steam_review_id') or 'unknown'}, "
+        f"{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
+        f"{r.get('playtime_hours') or 0}h played, "
+        f"{r.get('votes_helpful') or 0} helpful, "
+        f"{'Early Access' if r.get('written_during_early_access') else 'Post-launch'}, "
+        f"{'Free Key' if r.get('received_for_free') else 'Paid'}, "
+        f"{r['posted_at'][:10] if r.get('posted_at') else 'unknown date'}]: "
+        f"{(r.get('review_text') or '')[:800]}"
+        for r in chunk
     )
-    t0 = time.monotonic()
-    summary, _ = client.messages.create_with_completion(
-        model=_config.model_for("chunking"),
-        max_tokens=1024,
-        response_model=ChunkSummary,
-        max_retries=2,
-        system=[
-            {
-                "type": "text",
-                "text": CHUNK_SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": _build_chunk_user_message(chunk, chunk_index, total_chunks, game_name),
-            }
-        ],
-    )
-    elapsed_ms = round((time.monotonic() - t0) * 1000)
-    logger.info("chunk_done", extra={"chunk": chunk_index + 1, "latency_ms": elapsed_ms})
-    return summary
+
+    dates = [r["posted_at"][:10] for r in chunk if r.get("posted_at")]
+    date_range = f"({min(dates)} to {max(dates)})" if dates else "(dates unknown)"
+
+    return f"""\
+<task>
+Extract structured topic signals from {len(chunk)} Steam reviews for "{game_name}"
+(batch {chunk_index + 1} of {total_chunks}, covering {date_range}).
+</task>
+
+<reviews>
+{reviews_text}
+</reviews>
+
+<output_format>
+Return a RichChunkSummary JSON with:
+  topics: array of TopicSignal objects, each with:
+    topic (string), category (one of the category_definitions),
+    sentiment ("positive"|"negative"|"mixed"), mention_count (integer >= 1),
+    confidence ("low"|"medium"|"high"), summary (1-2 sentences),
+    quotes (up to 3 ReviewQuotes with text, steam_review_id, voted_up,
+            playtime_hours, votes_helpful),
+    avg_playtime_hours, avg_helpful_votes
+  competitor_refs: array of {{game, sentiment, context}}
+  notable_quotes: up to 3 standalone verbatim quotes
+  batch_stats: {{positive_count, negative_count, avg_playtime_hours,
+                 high_playtime_count, early_access_count, free_key_count,
+                 date_range_start, date_range_end}}
+</output_format>\
+"""
 
 
-def _synthesize(
-    client: instructor.Instructor,
-    aggregated_signals: dict,
+def _build_merge_user_message(
+    summaries: list[RichChunkSummary],
+    game_name: str,
+    level: int,
+) -> str:
+    payload = [s.model_dump(mode="json") for s in summaries]
+    total_reviews = sum(
+        s.batch_stats.positive_count + s.batch_stats.negative_count for s in summaries
+    )
+    return f"""\
+<task>
+Merge {len(summaries)} summaries for "{game_name}" into a single MergedSummary
+(merge level {level}, total reviews covered: {total_reviews}).
+</task>
+
+<input_summaries>
+{json.dumps(payload, indent=2)}
+</input_summaries>
+
+<output_format>
+Return a single MergedSummary JSON with the deduplicated topics, merged
+total_stats, the best quotes, and the consolidated competitor_refs.
+Set `merge_level` to {level} and `chunks_merged` to the total number of
+original chunks represented across the inputs.
+</output_format>\
+"""
+
+
+def _build_synthesis_user_message_v3(
+    merged: MergedSummary,
     game_name: str,
     total_reviews: int,
     hidden_gem_score: float,
     sentiment_trend: str,
     sentiment_trend_note: str,
-    steam_positive_pct: int | float | None = None,
-    steam_review_score_desc: str | None = None,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
-) -> GameReport:
-    """Pass 2: synthesize aggregated chunk signals into a final structured report (LLM_MODEL__SUMMARIZER)."""
-    logger.info(
-        "synthesis_start",
-        extra={
-            "total_reviews": total_reviews,
-            "model": _config.model_for("summarizer"),
-            "steam_positive_pct": steam_positive_pct,
-        },
-    )
-    t0 = time.monotonic()
-    report, _ = client.messages.create_with_completion(
-        model=_config.model_for("summarizer"),
-        max_tokens=5000,
-        response_model=GameReport,
-        max_retries=2,
-        system=[
-            {
-                "type": "text",
-                "text": SYNTHESIS_SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": _build_synthesis_user_message(
-                    aggregated_signals,
-                    game_name,
-                    total_reviews,
-                    hidden_gem_score,
-                    sentiment_trend,
-                    sentiment_trend_note,
-                    steam_positive_pct=steam_positive_pct,
-                    steam_review_score_desc=steam_review_score_desc,
-                    temporal=temporal,
-                    metadata=metadata,
-                ),
-            }
-        ],
-    )
-    elapsed_ms = round((time.monotonic() - t0) * 1000)
-    logger.info("synthesis_done", extra={"latency_ms": elapsed_ms})
-    return report
-
-
-def analyze_reviews(
-    reviews: list[dict],
-    game_name: str,
-    appid: int | None = None,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
-    steam_positive_pct: int | float | None = None,
-    steam_review_count: int | None = None,
-    steam_review_score_desc: str | None = None,
-) -> dict:
-    """Full two-pass LLM analysis pipeline.
-
-    Pass 1: extract raw signals per chunk (LLM_MODEL__CHUNKING).
-    Pass 2: synthesize aggregated chunk signals into a structured report (LLM_MODEL__SUMMARIZER).
-
-    Sentiment magnitude is owned by Steam — pass `steam_positive_pct` and
-    `steam_review_count` from the Game record so hidden_gem_score and the LLM's
-    sentiment context use the canonical Steam numbers, not sampled batch_stats.
-    `sentiment_trend` is still computed locally from the review sample's
-    voted_up flags (it's a window-comparison, not a magnitude).
-    """
-    if not reviews:
-        raise ValueError("No reviews to analyze")
-
-    client = _get_instructor_client()
-    chunks = _chunk_reviews(reviews)
-    total_chunks = len(chunks)
-    t_start = time.monotonic()
-    logger.info(
-        "analysis_start", extra={"appid": appid, "reviews": len(reviews), "chunks": total_chunks}
-    )
-
-    # Pass 1
-    chunk_summaries = [
-        _summarize_chunk(client, chunk, i, total_chunks, game_name)
-        for i, chunk in enumerate(chunks)
-    ]
-
-    # Hidden gem and trend are computed in Python before calling Sonnet
-    hidden_gem_score = _compute_hidden_gem_score(steam_positive_pct, steam_review_count)
-    trend = _compute_sentiment_trend(reviews)
-
-    # Pass 2
-    result: GameReport = _synthesize(
-        client,
-        _aggregate_chunk_summaries(chunk_summaries),
+    steam_positive_pct: int | float | None,
+    steam_review_score_desc: str | None,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+) -> str:
+    # Reuse the existing contextual block builders from the legacy path so
+    # the synthesis prompt stays consistent while swapping the signal payload
+    # from a flat dict to the structured MergedSummary.
+    legacy_signals = {
+        "topics": [t.model_dump(mode="json") for t in merged.topics],
+        "competitor_refs": [c.model_dump(mode="json") for c in merged.competitor_refs],
+        "notable_quotes": [q.model_dump(mode="json") for q in merged.notable_quotes],
+        "total_stats": merged.total_stats.model_dump(mode="json"),
+        "chunks_merged": merged.chunks_merged,
+    }
+    return _build_synthesis_user_message(
+        legacy_signals,
         game_name,
-        len(reviews),
+        total_reviews,
         hidden_gem_score,
-        trend["trend"],
-        trend["note"],
+        sentiment_trend,
+        sentiment_trend_note,
         steam_positive_pct=steam_positive_pct,
         steam_review_score_desc=steam_review_score_desc,
         temporal=temporal,
         metadata=metadata,
     )
 
-    # Override with Python-computed values — more reliable than LLM-guessed values
-    result.hidden_gem_score = hidden_gem_score
-    result.sentiment_trend = trend["trend"]  # type: ignore[typeddict-item]
-    result.sentiment_trend_note = trend["note"]
-    result.sentiment_trend_reliable = trend["reliable"]
-    result.sentiment_trend_sample_size = trend["sample_size"]
 
-    if appid is not None:
-        result.appid = appid
+# ---------------------------------------------------------------------------
+# Pure request builders — reused by both ConverseBackend (realtime) and
+# BatchBackend (batch prepare Lambdas). These do NOT hit the DB or the LLM.
+# ---------------------------------------------------------------------------
 
-    elapsed_ms = round((time.monotonic() - t_start) * 1000)
+
+def build_chunk_requests(
+    *,
+    appid: int,
+    game_name: str,
+    reviews: list[dict],
+    cached_hashes: set[str],
+) -> tuple[list[list[dict]], list[LLMRequest], list[tuple[int, str, int]]]:
+    """Compute chunks and build LLMRequests for those not in `cached_hashes`.
+
+    Returns:
+        chunks: the full stratified chunk list (length = total_chunks)
+        pending: LLMRequests for chunks whose hash is not cached
+        pending_meta: parallel list of (chunk_index, chunk_hash, chunk_size)
+    """
+    chunks = stratified_chunk_reviews(reviews, STRATIFIED_CHUNK_SIZE)
+    total = len(chunks)
+    pending: list[LLMRequest] = []
+    pending_meta: list[tuple[int, str, int]] = []
+    for i, chunk in enumerate(chunks):
+        h = compute_chunk_hash(chunk)
+        if h in cached_hashes:
+            continue
+        pending.append(
+            LLMRequest(
+                record_id=f"{appid}-chunk-{i}",
+                task="chunking",
+                system=CHUNK_SYSTEM_PROMPT_V2,
+                user=_build_chunk_user_message_v2(chunk, game_name, i, total),
+                max_tokens=1024,
+                response_model=RichChunkSummary,
+            )
+        )
+        pending_meta.append((i, h, len(chunk)))
+    return chunks, pending, pending_meta
+
+
+def build_merge_requests(
+    *,
+    appid: int,
+    game_name: str,
+    groups: list[tuple[int, list[RichChunkSummary]]],
+    level: int,
+) -> list[LLMRequest]:
+    """Build LLMRequests for a merge level given pre-grouped input summaries.
+
+    `groups` is a list of (group_index, summaries) so caller controls the
+    grouping strategy (see `plan_merge_groups`).
+    """
+    return [
+        LLMRequest(
+            record_id=f"{appid}-merge-L{level}-{gi}",
+            task="merging",
+            system=MERGE_SYSTEM_PROMPT,
+            user=_build_merge_user_message(summaries, game_name, level),
+            max_tokens=2048,
+            response_model=MergedSummary,
+        )
+        for gi, summaries in groups
+    ]
+
+
+def build_synthesis_request(
+    *,
+    appid: int,
+    game_name: str,
+    merged: MergedSummary,
+    total_reviews: int,
+    hidden_gem_score: float,
+    sentiment_trend: str,
+    sentiment_trend_note: str,
+    steam_positive_pct: int | float | None,
+    steam_review_score_desc: str | None,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+) -> LLMRequest:
+    return LLMRequest(
+        record_id=f"{appid}-synthesis",
+        task="summarizer",
+        system=SYNTHESIS_SYSTEM_PROMPT,
+        user=_build_synthesis_user_message_v3(
+            merged,
+            game_name,
+            total_reviews,
+            hidden_gem_score,
+            sentiment_trend,
+            sentiment_trend_note,
+            steam_positive_pct,
+            steam_review_score_desc,
+            temporal,
+            metadata,
+        ),
+        max_tokens=5000,
+        response_model=GameReport,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase helpers — invoked identically from realtime and batch paths.
+# ---------------------------------------------------------------------------
+
+
+def _promote_single_chunk(chunk: RichChunkSummary) -> MergedSummary:
+    """Skip the merge LLM call when there's only one chunk."""
+    return MergedSummary(
+        topics=list(chunk.topics),
+        competitor_refs=list(chunk.competitor_refs),
+        notable_quotes=list(chunk.notable_quotes)[:5],
+        total_stats=chunk.batch_stats.model_copy(),
+        merge_level=0,
+        chunks_merged=1,
+        source_chunk_ids=[],
+    )
+
+
+def plan_merge_groups(
+    summaries: list[RichChunkSummary],
+    *,
+    group_size: int = 6,
+) -> list[list[RichChunkSummary]]:
+    """Split summaries into merge groups of up to `group_size`.
+
+    Hierarchy selection is implicit in the caller's loop — repeat until the
+    number of remaining summaries is 1. Max depth is 3 (enforced in
+    run_merge_phase).
+    """
+    if not summaries:
+        return []
+    return [summaries[i : i + group_size] for i in range(0, len(summaries), group_size)]
+
+
+def run_chunk_phase(
+    *,
+    appid: int,
+    game_name: str,
+    reviews: list[dict],
+    backend: LLMBackend,
+    chunk_repo: ChunkSummaryRepository,
+) -> tuple[list[RichChunkSummary], list[int]]:
+    """Phase 1: chunk + LLM summarise, with idempotent persistence.
+
+    Returns (summaries_in_chunk_order, chunk_row_ids_in_order).
+    """
+    # Pre-load cache hits so we only send the DB-missing chunks to the backend.
+    existing = {
+        row["chunk_hash"]: row
+        for row in chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
+    }
+    chunks, pending, pending_meta = build_chunk_requests(
+        appid=appid,
+        game_name=game_name,
+        reviews=reviews,
+        cached_hashes=set(existing.keys()),
+    )
     logger.info(
-        "analysis_complete",
+        "chunk_phase_start",
         extra={
             "appid": appid,
-            "trend": result.sentiment_trend,
-            "hidden_gem_score": result.hidden_gem_score,
-            "latency_ms": elapsed_ms,
+            "total_chunks": len(chunks),
+            "cached": len(chunks) - len(pending),
+            "pending": len(pending),
         },
     )
 
-    return result.model_dump()
+    fresh = backend.run(pending) if pending else []
+    if len(fresh) != len(pending):
+        raise RuntimeError(
+            f"backend.run returned {len(fresh)} responses for {len(pending)} requests"
+        )
+
+    # Interleave cached + fresh back into chunk_index order.
+    summaries_by_index: dict[int, RichChunkSummary] = {}
+    ids_by_index: dict[int, int] = {}
+    model_id = _config.model_for("chunking")
+
+    # Insert fresh rows first so ids exist for return.
+    fresh_iter = iter(zip(pending_meta, fresh, strict=True))
+    for (chunk_index, chunk_hash, chunk_size), summary in fresh_iter:
+        if not isinstance(summary, RichChunkSummary):
+            raise TypeError(
+                f"backend returned {type(summary).__name__} for a chunking request"
+            )
+        row_id = chunk_repo.insert(
+            appid,
+            chunk_index,
+            chunk_hash,
+            chunk_size,
+            summary,
+            model_id=model_id,
+            prompt_version=CHUNK_PROMPT_VERSION,
+        )
+        summaries_by_index[chunk_index] = summary
+        ids_by_index[chunk_index] = row_id
+
+    # Backfill cached rows using the chunk_index they were stored with.
+    for i, chunk in enumerate(chunks):
+        if i in summaries_by_index:
+            continue
+        h = compute_chunk_hash(chunk)
+        row = existing.get(h)
+        if row is None:
+            raise RuntimeError(f"cache expected for chunk {i} (hash={h}) but missing")
+        summaries_by_index[i] = RichChunkSummary.model_validate(row["summary_json"])
+        ids_by_index[i] = int(row["id"])
+
+    ordered_summaries = [summaries_by_index[i] for i in range(len(chunks))]
+    ordered_ids = [ids_by_index[i] for i in range(len(chunks))]
+    return ordered_summaries, ordered_ids
+
+
+def run_merge_phase(
+    *,
+    appid: int,
+    game_name: str,
+    chunk_summaries: list[RichChunkSummary],
+    chunk_ids: list[int],
+    backend: LLMBackend,
+    merge_repo: MergedSummaryRepository,
+) -> MergedSummary:
+    """Phase 2: hierarchical merge with cache-check per level. Max depth 3."""
+    if not chunk_summaries:
+        raise ValueError("run_merge_phase called with zero chunks")
+
+    if len(chunk_summaries) == 1:
+        merged = _promote_single_chunk(chunk_summaries[0])
+        logger.info(
+            "merge_phase_single_chunk_promoted",
+            extra={"appid": appid, "source_chunk_id": chunk_ids[0]},
+        )
+        return merged
+
+    # Try whole-set cache hit before doing any LLM work.
+    cached = merge_repo.find_latest_by_source_ids(appid, chunk_ids, MERGE_PROMPT_VERSION)
+    if cached is not None:
+        logger.info(
+            "merge_phase_cache_hit",
+            extra={"appid": appid, "merge_id": cached["id"]},
+        )
+        return MergedSummary.model_validate(cached["summary_json"])
+
+    current_summaries = chunk_summaries
+    current_source_ids = chunk_ids
+    model_id = _config.model_for("merging")
+
+    for level in range(1, 4):  # levels 1..3
+        groups = plan_merge_groups(current_summaries)
+        indexed_groups = list(enumerate(groups))
+        if len(groups) == 1 and level > 1:
+            # Final reduction — single merge call producing the root.
+            pass
+
+        # Build requests for this level.
+        requests = build_merge_requests(
+            appid=appid,
+            game_name=game_name,
+            groups=indexed_groups,
+            level=level,
+        )
+        responses = backend.run(requests)
+        if len(responses) != len(requests):
+            raise RuntimeError(
+                f"merge backend.run returned {len(responses)} for {len(requests)} requests"
+            )
+
+        next_summaries: list[MergedSummary] = []
+        for (group_index, summaries_in_group), response in zip(
+            indexed_groups, responses, strict=True
+        ):
+            if not isinstance(response, MergedSummary):
+                raise TypeError(
+                    f"backend returned {type(response).__name__} for a merging request"
+                )
+            # Populate server-computed bookkeeping so downstream consumers
+            # never rely on the LLM filling these.
+            response.merge_level = level
+            response.chunks_merged = sum(
+                getattr(s, "chunks_merged", 1) if isinstance(s, MergedSummary) else 1
+                for s in summaries_in_group
+            )
+            # Persist this level's artifact so a re-run can reuse it.
+            source_ids_for_group = _source_ids_for_group(
+                summaries_in_group, level, current_source_ids, group_index
+            )
+            response.source_chunk_ids = sorted(source_ids_for_group)
+            merge_repo.insert(
+                appid,
+                level,
+                response,
+                source_ids_for_group,
+                response.chunks_merged,
+                model_id=model_id,
+                prompt_version=MERGE_PROMPT_VERSION,
+            )
+            next_summaries.append(response)
+
+        if len(next_summaries) == 1:
+            logger.info(
+                "merge_phase_complete",
+                extra={"appid": appid, "levels": level},
+            )
+            return next_summaries[0]
+
+        # Fan back in for another level. The "summaries" at the next level
+        # are MergedSummaries, which structurally share the fields
+        # RichChunkSummary uses in _build_merge_user_message (topics,
+        # competitor_refs, notable_quotes, batch_stats via total_stats).
+        current_summaries = [
+            _merged_as_chunk_like(m) for m in next_summaries  # type: ignore[misc]
+        ]
+        # Source ids for the next level are the level's own row ids — but
+        # we don't carry them back because the cache-check at level N uses
+        # a find-by-source-ids lookup keyed on chunk ids, not merge ids.
+        # Accept that higher levels always run fresh if the full-set cache
+        # check above missed.
+        current_source_ids = []
+
+    raise RuntimeError("merge phase exceeded max depth of 3")
+
+
+def _source_ids_for_group(
+    summaries_in_group: list,
+    level: int,
+    chunk_ids: list[int],
+    group_index: int,
+) -> list[int]:
+    """Map a group-at-level-N back to the underlying chunk row ids.
+
+    At level 1 the group corresponds to a contiguous slice of `chunk_ids`
+    (same ordering as `plan_merge_groups`). At levels > 1 we can't
+    reconstruct chunk ids from summaries alone, so we store an empty list
+    and accept that higher-level caching is coarser.
+    """
+    if level != 1 or not chunk_ids:
+        return []
+    # plan_merge_groups split the current list into contiguous slices of
+    # `group_size`. Recompute the slice bounds so we can return the matching
+    # chunk ids.
+    group_size = 6
+    start = group_index * group_size
+    end = start + len(summaries_in_group)
+    return chunk_ids[start:end]
+
+
+def _merged_as_chunk_like(merged: MergedSummary) -> RichChunkSummary:
+    """Wrap a MergedSummary so it can be merged again at a higher level.
+
+    We hand the same prompt a `RichChunkSummary`-shaped object because the
+    merge prompt is agnostic about whether inputs are primary chunks or
+    prior merges — it just needs topics + stats + quotes.
+    """
+    return RichChunkSummary(
+        topics=list(merged.topics),
+        competitor_refs=list(merged.competitor_refs),
+        notable_quotes=list(merged.notable_quotes)[:3],
+        batch_stats=merged.total_stats.model_copy(),
+    )
+
+
+def run_synthesis_phase(
+    *,
+    appid: int,
+    game_name: str,
+    merged: MergedSummary,
+    total_reviews: int,
+    reviews: list[dict],
+    steam_positive_pct: int | float | None,
+    steam_review_count: int | None,
+    steam_review_score_desc: str | None,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+    backend: LLMBackend,
+) -> GameReport:
+    """Phase 3: synthesise MergedSummary → GameReport with Python overrides."""
+    hidden_gem_score = _compute_hidden_gem_score(steam_positive_pct, steam_review_count)
+    trend = _compute_sentiment_trend(reviews)
+
+    request = build_synthesis_request(
+        appid=appid,
+        game_name=game_name,
+        merged=merged,
+        total_reviews=total_reviews,
+        hidden_gem_score=hidden_gem_score,
+        sentiment_trend=trend["trend"],
+        sentiment_trend_note=trend["note"],
+        steam_positive_pct=steam_positive_pct,
+        steam_review_score_desc=steam_review_score_desc,
+        temporal=temporal,
+        metadata=metadata,
+    )
+    [response] = backend.run([request])
+    if not isinstance(response, GameReport):
+        raise TypeError(
+            f"backend returned {type(response).__name__} for a synthesis request"
+        )
+
+    # Defensive overrides — Steam owns sentiment magnitude, Python owns derived scores.
+    response.hidden_gem_score = hidden_gem_score
+    response.sentiment_trend = trend["trend"]  # type: ignore[assignment]
+    response.sentiment_trend_note = trend["note"]
+    response.sentiment_trend_reliable = trend["reliable"]
+    response.sentiment_trend_sample_size = trend["sample_size"]
+    response.appid = appid
+    return response
+
+
+def analyze_game(
+    request: AnalysisRequest,
+    *,
+    backend: LLMBackend,
+    chunk_repo: ChunkSummaryRepository,
+    merge_repo: MergedSummaryRepository,
+    report_repo: ReportRepository,
+    reviews: list[dict],
+    game_name: str,
+    temporal: GameTemporalContext | None = None,
+    metadata: GameMetadataContext | None = None,
+    steam_positive_pct: int | float | None = None,
+    steam_review_count: int | None = None,
+    steam_review_score_desc: str | None = None,
+) -> GameReport:
+    """The single entry point for the three-phase pipeline.
+
+    Identical call shape for realtime and batch modes — the ONLY thing that
+    differs is the `backend` instance. Callers (the realtime handler and
+    the batch Prepare Lambdas) are responsible for loading the Game row,
+    review list, temporal/metadata contexts, and the backend.
+    """
+    if not reviews:
+        raise ValueError(f"no reviews to analyze for appid={request.appid}")
+
+    logger.append_keys(appid=request.appid, mode=request.mode)
+    t_start = time.monotonic()
+
+    chunk_summaries, chunk_ids = run_chunk_phase(
+        appid=request.appid,
+        game_name=game_name,
+        reviews=reviews,
+        backend=backend,
+        chunk_repo=chunk_repo,
+    )
+    merged = run_merge_phase(
+        appid=request.appid,
+        game_name=game_name,
+        chunk_summaries=chunk_summaries,
+        chunk_ids=chunk_ids,
+        backend=backend,
+        merge_repo=merge_repo,
+    )
+    report = run_synthesis_phase(
+        appid=request.appid,
+        game_name=game_name,
+        merged=merged,
+        total_reviews=len(reviews),
+        reviews=reviews,
+        steam_positive_pct=steam_positive_pct,
+        steam_review_count=steam_review_count,
+        steam_review_score_desc=steam_review_score_desc,
+        temporal=temporal,
+        metadata=metadata,
+        backend=backend,
+    )
+
+    # Persist the final report with pipeline bookkeeping.
+    report_repo.upsert(report.model_dump())
+
+    elapsed_ms = round((time.monotonic() - t_start) * 1000)
+    logger.info(
+        "analyze_game_complete",
+        extra={
+            "appid": request.appid,
+            "mode": request.mode,
+            "chunks": len(chunk_summaries),
+            "latency_ms": elapsed_ms,
+            "pipeline_version": PIPELINE_VERSION,
+        },
+    )
+    return report

@@ -5,7 +5,7 @@ pool so chunk Phase 1 runs concurrently over warm HTTPS connections.
 psycopg2 / instructor / boto3 are all sync, so there is no asyncio here.
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal
 
 import anthropic
@@ -48,14 +48,36 @@ class ConverseBackend:
             return [self._execute_one(requests[0])]
 
         # Thread pool for chunk fan-out. Order is preserved via index map.
+        # We iterate with `as_completed` so that a single failing request
+        # interrupts the whole run instead of blocking on an earlier slow
+        # future — and we immediately cancel any futures that haven't
+        # started yet so we stop paying LLM cost on a known-bad run.
         results: list[BaseModel | None] = [None] * len(requests)
         with ThreadPoolExecutor(max_workers=min(self._max_workers, len(requests))) as pool:
             future_to_idx = {
                 pool.submit(self._execute_one, req): i for i, req in enumerate(requests)
             }
-            for future in future_to_idx:
-                idx = future_to_idx[future]
-                results[idx] = future.result()
+            try:
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        results[idx] = future.result()
+                    except Exception as exc:
+                        logger.error(
+                            "llm_call_failed",
+                            extra={
+                                "record_id": requests[idx].record_id,
+                                "task": requests[idx].task,
+                                "error": str(exc),
+                            },
+                        )
+                        raise
+            except Exception:
+                # Cancel anything not yet started so we stop spending on
+                # a run we already know is going to fail.
+                for pending in future_to_idx:
+                    pending.cancel()
+                raise
         return [r for r in results if r is not None]
 
     def _execute_one(self, request: LLMRequest) -> BaseModel:

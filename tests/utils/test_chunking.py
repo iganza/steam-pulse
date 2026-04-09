@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 from library_layer.utils.chunking import (
+    _sort_key,
     compute_chunk_hash,
     dataset_reference_time,
     stratified_chunk_reviews,
@@ -163,8 +164,6 @@ def test_recency_boost_excludes_future_dated_reviews() -> None:
     recency multiplier. Without a lower-bound guard, a negative
     timedelta would satisfy `<= 90 days` and silently boost future
     reviews (e.g. from clock skew or a wall-clock anchor)."""
-    from library_layer.utils.chunking import _sort_key
-
     old_review = _review(
         "old", voted_up=True, votes_helpful=100,
         posted_at="2020-01-01T00:00:00+00:00",

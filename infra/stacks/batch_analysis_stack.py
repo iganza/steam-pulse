@@ -15,8 +15,6 @@ Resources:
 
 import aws_cdk as cdk
 import aws_cdk.aws_ec2 as ec2
-import aws_cdk.aws_events as events
-import aws_cdk.aws_events_targets as events_targets
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_logs as logs
@@ -299,16 +297,20 @@ class BatchAnalysisStack(cdk.Stack):
             string_value=state_machine.state_machine_arn,
         )
 
-        # ── EventBridge rule (disabled — enable when Bedrock Batch is unblocked)
-        events.Rule(
-            self,
-            "WeeklyBatchRule",
-            schedule=events.Schedule.cron(hour="3", minute="0", week_day="SUN"),
-            enabled=False,
-            targets=[
-                events_targets.SfnStateMachine(
-                    state_machine,
-                    input=events.RuleTargetInput.from_object({"appid": 0}),
-                )
-            ],
-        )
+        # ── Scheduled trigger is NOT wired here on purpose.
+        #
+        # This state machine expects a per-game input
+        # (`{appid, phase, execution_id}`) and runs one execution per appid.
+        # A scheduled trigger must therefore fan out over a list of appids
+        # before it invokes the machine — a Map state driven by a parent
+        # trigger, or a small dispatcher Lambda that queries eligible
+        # appids and issues `StartExecution` per row.
+        #
+        # We previously carried a disabled EventBridge rule with a
+        # placeholder `{"appid": 0}` input as a reminder to wire this up.
+        # That turned out to be a foot-gun: if someone enabled the rule
+        # without noticing the placeholder, every execution would fail
+        # with a validation error (or worse, hit appid 0 as real data).
+        # Remove the reminder rule entirely; the fan-out dispatcher is the
+        # right place to add the schedule when Bedrock Batch Inference is
+        # unblocked and we're ready to run bulk re-analysis.

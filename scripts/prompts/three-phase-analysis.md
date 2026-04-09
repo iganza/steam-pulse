@@ -210,26 +210,41 @@ in the codebase hardcodes these values.
 
 ### Files to Modify
 
-- **Models**: `src/library-layer/library_layer/models/analyzer_models.py` — add `TopicSignal`, `ReviewQuote`, `RichChunkSummary`, `MergedSummary`
-- **Analyzer**: `src/library-layer/library_layer/analyzer.py` — v2 prompts, new chunk/merge/synthesis functions, `analyze_reviews_v3()` orchestrator
-- **Scores**: `src/library-layer/library_layer/utils/scores.py` — no new helpers needed; `compute_hidden_gem_score(positive_pct, review_count)` and `compute_sentiment_trend(reviews) -> dict` already exist post-data-source-clarity
-- **Config**: `src/library-layer/library_layer/config.py` — add `LLM_MODEL__MERGING` task
-- **Schema reference**: `src/library-layer/library_layer/schema.py` — add new tables
-- **Analysis handler**: `src/lambda-functions/lambda_functions/analysis/handler.py` — switch to `analyze_reviews_v3()`
-- **Batch prepare_pass1**: `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass1.py` — stratified chunking + v2 prompts
-- **Batch prepare_pass2**: rename to `prepare_pass3.py`, accept MergedSummary input
-- **Batch process_results**: `process_results.py` — store pipeline_version in reports
-- **CDK**: `infra/stacks/batch_analysis_stack.py` — add merge Lambda + update Step Functions ASL
+- **Models**: `src/library-layer/library_layer/models/analyzer_models.py` — adds `TopicSignal`, `ReviewQuote`, `RichBatchStats`, `RichChunkSummary`, `MergedSummary`; deletes legacy `ChunkSummary`/`BatchStats`.
+- **Analyzer**: `src/library-layer/library_layer/analyzer.py` — v2 chunk prompt + new merge prompt, `AnalyzerSettings` pydantic bundle, `analyze_game()` single entry point, `run_chunk_phase` / `run_merge_phase` / `run_synthesis_phase`, pure request builders (`build_chunk_requests`, `build_merge_request`, `build_synthesis_request`), `parse_chunk_record_id()` helper for the batch collect path.
+- **Scores**: `src/library-layer/library_layer/utils/scores.py` — unchanged; `compute_hidden_gem_score(positive_pct, review_count)` and `compute_sentiment_trend(reviews) -> dict` already exist post-data-source-clarity.
+- **Config**: `src/library-layer/library_layer/config.py` — adds `LLM_MODEL__MERGING` plus the `ANALYSIS_*` tuning-knob fields (`ANALYSIS_MAX_REVIEWS`, `ANALYSIS_CHUNK_SIZE`, `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`, `ANALYSIS_CHUNK_MAX_TOKENS`, `ANALYSIS_MERGE_MAX_TOKENS`, `ANALYSIS_SYNTHESIS_MAX_TOKENS`, `ANALYSIS_CONVERSE_MAX_WORKERS`, `ANALYSIS_CHUNK_SHUFFLE_SEED`).
+- **Schema**: `src/library-layer/library_layer/schema.py` — mirrors the new `chunk_summaries` / `merged_summaries` tables and the three new `reports` bookkeeping columns.
+- **ReportRepository**: `src/library-layer/library_layer/repositories/report_repo.py` — `upsert` writes `pipeline_version` / `chunk_count` / `merged_summary_id` to dedicated columns (stripping them from `report_json`), with `COALESCE` on UPDATE so absent keys preserve existing values.
+- **Analysis handler**: `src/lambda-functions/lambda_functions/analysis/handler.py` — constructs `AnalyzerSettings.from_config()` + module-level `ConverseBackend`, reads `ANALYSIS_MAX_REVIEWS` per invocation, derives `reference_time` from the dataset, calls `analyze_game()`.
+- **Batch handlers**: `src/lambda-functions/lambda_functions/batch_analysis/prepare_phase.py` + `collect_phase.py` (parametrized on `event["phase"]`); `check_batch_status.py` (thinned). Old `prepare_pass1.py`, `prepare_pass2.py`, `process_results.py`, `submit_batch_job.py` are **deleted**.
+- **API handler**: `src/lambda-functions/lambda_functions/api/handler.py` — `/api/preview`, `/api/status/{job_id}`, and all job/preview plumbing removed.
+- **CDK**: `infra/stacks/batch_analysis_stack.py` — three Lambdas (`PreparePhaseFn`, `CollectPhaseFn`, `CheckBatchStatusFn`) and a Step Functions state machine built from a `_phase_chain(phase, next_step)` helper. No merge loop (merge runs inline via ConverseBackend).
 
 ### Files to Create
 
-- `src/library-layer/library_layer/utils/chunking.py` — stratified chunking + chunk hash
-- `src/library-layer/library_layer/repositories/chunk_summary_repo.py` — CRUD for chunk_summaries
-- `src/library-layer/library_layer/repositories/merged_summary_repo.py` — CRUD for merged_summaries
+- `src/library-layer/library_layer/llm/backend.py` — `LLMRequest` + `LLMBackend` protocol
+- `src/library-layer/library_layer/llm/converse.py` — `ConverseBackend` (required `max_workers`, `as_completed` fan-out with cancel-on-error)
+- `src/library-layer/library_layer/llm/batch.py` — `BatchBackend` with `prepare/submit/status/collect` + `_safe_job_name` (sanitized + SHA1-truncated) + paginated S3 collect
+- `src/library-layer/library_layer/utils/chunking.py` — `stratified_chunk_reviews`, `dataset_reference_time`, `compute_chunk_hash` (all required keyword args, no defaults)
+- `src/library-layer/library_layer/repositories/chunk_summary_repo.py` — CRUD for `chunk_summaries`
+- `src/library-layer/library_layer/repositories/merged_summary_repo.py` — CRUD for `merged_summaries` + `find_latest_by_source_ids`
 - `src/lambda-functions/migrations/0035_chunk_summaries.sql` — new table
-- `src/lambda-functions/migrations/0036_merged_summaries.sql` — new table + reports columns
-- `src/lambda-functions/lambda_functions/batch_analysis/prepare_merge.py` — batch merge Lambda
-- Tests: `tests/utils/test_chunking.py`, `tests/repositories/test_chunk_summary_repo.py`, `tests/repositories/test_merged_summary_repo.py`, `tests/services/test_analyzer_v3.py`
+- `src/lambda-functions/migrations/0036_merged_summaries.sql` — new table + reports bookkeeping columns
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_phase.py` — single parametrized prepare Lambda
+- `src/lambda-functions/lambda_functions/batch_analysis/collect_phase.py` — single parametrized collect Lambda
+- Tests: `tests/utils/test_chunking.py`, `tests/llm/test_batch_jsonl.py`, `tests/services/test_analyzer_three_phase.py`, plus repository tests under `tests/repositories/`
+
+### Files to Delete
+
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass1.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass2.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/process_results.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/submit_batch_job.py`
+- `src/library-layer/library_layer/services/analysis_service.py` (dead wrapper around the legacy two-pass `analyze_reviews()`)
+- Legacy `analyze_reviews()`, `_summarize_chunk`, `_synthesize`, `_aggregate_chunk_summaries` in `analyzer.py`
+- Legacy `ChunkSummary`/`BatchStats` in `analyzer_models.py`
+- `POST /api/preview` + `GET /api/status/{job_id}` + related frontend (`getPreview`, `pollStatus`, `waitForReport`, `PreviewResponse`, `JobStatus`) and e2e mock routes
 
 ### Existing Patterns to Follow
 
@@ -968,8 +983,8 @@ calls instead of 44.
 | 11 | `analyze_game()` + `run_{chunk,merge,synthesis}_phase()` orchestrator | Steps 7, 8, 9, 10 |
 | 12 | Update `analysis/handler.py` to parse `AnalysisRequest` + call `analyze_game` with `ConverseBackend` | Step 11 |
 | 13 | Delete `/api/preview` (backend + frontend + e2e specs) | Step 12 |
-| 14 | Batch Lambdas: `prepare_chunk/collect_chunk/prepare_merge/collect_merge/prepare_synthesis/collect_synthesis` — thin wrappers over shared helpers + `BatchBackend` | Steps 10, 11 |
-| 15 | CDK: add merge + collect Lambdas, update STANDARD SFN ASL | Step 14 |
+| 14 | Two parametrized batch Lambdas: `prepare_phase.py` + `collect_phase.py`, dispatched on `event["phase"]`. Thin wrappers over shared analyzer helpers; merge runs inline via module-level ConverseBackend and always returns `skip=true`. | Steps 10, 11 |
+| 15 | CDK: `PreparePhaseFn` + `CollectPhaseFn` + `CheckBatchStatusFn` + `_phase_chain` SFN helper (no merge loop). | Step 14 |
 | 16 | Remove old two-pass `analyze_reviews()` + legacy `ChunkSummary` | Steps 11, 12 |
 | 17 | Tests | Steps 1–12 |
 | 18 | Update `ARCHITECTURE.org` | All |
@@ -980,11 +995,11 @@ calls instead of 44.
 
 ### Unit Tests
 
-1. Stratified chunking: sentiment ratio preservation, playtime bucket coverage,
-   helpful-vote priority, deterministic chunk hash
-2. Repository CRUD: insert, find_by_hash, find_by_appid, find_latest
-3. Score computation: `compute_sentiment_score_from_counts` matches existing function
-4. Model validation: `RichChunkSummary`, `MergedSummary` round-trip through JSON
+1. Stratified chunking: sentiment ratio preservation, partition invariant (every input review appears in exactly one chunk), deterministic chunk hash (order-insensitive, raises on missing `steam_review_id`), reproducibility with a fixed `reference_time`, and `_sort_key` recency-multiplier guard against future-dated reviews.
+2. Repository CRUD: insert, `find_by_hash`, `find_by_appid`, `find_latest_by_source_ids`, `find_latest_by_appid`.
+3. `ChunkSummaryRepository.upsert` idempotency (ON CONFLICT returns canonical id).
+4. Model validation: `RichChunkSummary`, `MergedSummary`, `GameReport` round-trip through JSON.
+5. `AnalyzerSettings.from_config()` exercises every field (cold-start typo guard).
 
 ### Integration Tests (mocked LLM)
 
@@ -996,7 +1011,7 @@ calls instead of 44.
 
 ### End-to-End
 
-1. Run `analyze_reviews_v3()` against a real game on staging
+1. Invoke the realtime `analysis` Lambda with a real appid on staging — this drives the entire `analyze_game()` pipeline end-to-end
 2. Compare GameReport quality vs v2 for same game
 3. Verify frontend renders report identically
 4. Verify `chunk_summaries` and `merged_summaries` tables are populated

@@ -111,7 +111,8 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         cur.execute("""
             TRUNCATE games, reviews, tags, game_tags, genres, game_genres,
                      game_categories, reports, app_catalog, rate_limits,
-                     analysis_jobs, game_relations, index_insights
+                     analysis_jobs, game_relations, index_insights,
+                     chunk_summaries, merged_summaries
             RESTART IDENTITY CASCADE
         """)
     conn.commit()

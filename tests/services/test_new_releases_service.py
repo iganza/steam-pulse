@@ -53,7 +53,7 @@ def test_get_released_returns_envelope_and_counts() -> None:
     assert result["items"][0]["appid"] == 1
     assert set(result["counts"].keys()) == {"today", "week", "month", "quarter"}
     assert result["filters"] == {"genre": None, "tag": None}
-    # 1 total + 4 headline counts (today/week/month/all) = 5
+    # 1 total + 4 headline counts (today/week/month/quarter) = 5
     assert repo.count_released_between.call_count == 5
 
 

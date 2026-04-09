@@ -66,6 +66,9 @@ minus review fields. Summary bucket counts shown above the grid:
 - Later this quarter
 - Date TBA
 
+**No time-window pills** (by design — see *Time windows* section below for rationale).
+Genre and Tag filters still apply.
+
 ### Lens 3 — Just Added (new on Steam)
 Games whose `app_catalog.discovered_at` falls in the selected window. Includes rows where
 metadata hasn't been crawled yet — those render as a **"metadata pending" skeleton card**
@@ -73,9 +76,9 @@ with just the name and "added {relative} ago" instead of being hidden.
 
 ---
 
-## Time windows (four pills)
+## Time windows (Released and Just Added only)
 
-Each lens (except Coming Soon) exposes four window pills with live counts:
+Released and Just Added each expose four window pills with live counts:
 
 - **Today** — last 24h
 - **This Week** — last 7d
@@ -87,9 +90,32 @@ Each lens (except Coming Soon) exposes four window pills with live counts:
 "Try This Quarter →" and "Browse the full catalog →" (linking to `/search`) so users who
 want a wider scope have an obvious path.
 
-The window keys (`today | week | month | quarter`) are consistent across the Released and
-Just Added lenses. Coming Soon uses the four natural release-date buckets above instead of
-time windows.
+### Coming Soon deliberately has no time-window pills
+
+This is an intentional exception, not an oversight. Five reasons:
+
+1. **The list is already sorted by the dimension the windows would filter.** Coming Soon is
+   `ORDER BY release_date ASC NULLS LAST` — the first page of results *is* next week's
+   releases, the next page is next month's, and so on. A window filter over an
+   already-date-sorted list duplicates what scrolling already does. Released and Just Added
+   don't have this property because their firehose is too large for scroll to be a
+   substitute for a cutoff.
+2. **The cohort is small and curated.** Released has thousands of new rows per week; Coming
+   Soon is bounded by however many developers have flagged `coming_soon=TRUE` on Steam
+   (typically a few thousand total). Users can page meaningfully without narrowing first.
+3. **The user's mental model is different.** Released and Just Added answer *"what happened
+   recently?"* — a backward-looking question where windows are natural. Coming Soon answers
+   *"what should I watch?"* — a scanning/bookmarking task, not a cutoff task.
+4. **Genre + Tag filters still carry their weight on this lens.** "Upcoming roguelikes" is
+   a real question; those filters stay. Time pills are the ones that don't earn their pixels
+   on this lens specifically.
+5. **The bucket summary strip already surfaces the flow metric.** "This week: N · This
+   month: N · Later: N · TBA: N" is the actual insight users want from time information on
+   Coming Soon. It's informational, not navigational — and that's the right role here.
+
+If this ever feels wrong in user testing, the right move is to add forward-looking pills
+(next 7d / 30d / 90d / TBA), NOT to reuse the backward-looking Released/Just Added pills.
+Mixing directions in one pill row would be the worst outcome.
 
 ---
 
@@ -410,6 +436,14 @@ test was updated to assert the three new lens tabs via `data-testid`.
 - [x] `/new-releases` URL preserved; default lens is Released
 - [x] No user-visible "Pulse" / "Catalog Pulse" branding — labels are
       Released / Coming Soon / Just Added, windows are Today / Week / Month / Quarter
+- [x] Coming Soon has no time-window pills — bucket summary strip is display-only,
+      intentional. See "Time windows" section for the five reasons.
+- [x] Repository genre/tag filters use `@> ARRAY[%s]` (GIN-indexable), NOT `= ANY(array)`
+      which would silently ignore the GIN indexes
+- [x] `NewReleaseEntry.price_usd` has a field_serializer to emit float (not Decimal string)
+      so the JSON contract matches the frontend's `number | null` expectation
+- [x] Frontend validates `lens` and `window` URL params against allowed sets and falls back
+      to defaults — an invalid deep link shouldn't render an empty grid
 - [x] FeedCard uses a `<div>` wrapper with per-element `<Link>`s to avoid nested anchors
 - [x] Developer/publisher credit line mirrors `GameHero.tsx` pattern exactly
 - [x] Playwright tests cover all three lenses, all four windows, filter flow, and the two

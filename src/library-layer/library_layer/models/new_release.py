@@ -3,13 +3,21 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 
 class NewReleaseEntry(BaseModel):
     """One row from mv_new_releases. Used by all three lenses."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("price_usd")
+    def _serialize_price(self, v: Decimal | None) -> float | None:
+        # Pydantic's JSON mode serializes Decimal as str by default, which
+        # breaks the frontend's `price_usd: number | null` contract and
+        # disagrees with every other API endpoint that casts price_usd to
+        # float. Force numeric serialization here.
+        return float(v) if v is not None else None
 
     appid: int
     name: str

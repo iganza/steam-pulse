@@ -30,6 +30,18 @@ const WINDOWS: { key: NewReleasesWindow; label: string }[] = [
   { key: "quarter", label: "This Quarter" },
 ];
 
+const DEFAULT_LENS: Lens = "released";
+const DEFAULT_WINDOW: NewReleasesWindow = "week";
+const VALID_LENSES = new Set<string>(LENSES.map((l) => l.key));
+const VALID_WINDOWS = new Set<string>(WINDOWS.map((w) => w.key));
+
+function parseLens(raw: string | null): Lens {
+  return raw && VALID_LENSES.has(raw) ? (raw as Lens) : DEFAULT_LENS;
+}
+function parseWindow(raw: string | null): NewReleasesWindow {
+  return raw && VALID_WINDOWS.has(raw) ? (raw as NewReleasesWindow) : DEFAULT_WINDOW;
+}
+
 const PER_PAGE = 24;
 
 interface FeedState {
@@ -203,8 +215,11 @@ export function NewReleasesClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const lens = (searchParams.get("lens") as Lens) || "released";
-  const window = (searchParams.get("window") as NewReleasesWindow) || "week";
+  // Validate URL params against the allowed sets so an invalid/stale deep link
+  // falls back to sensible defaults rather than rendering no active tab or
+  // pushing `window=foo` to the API (which would 400 and leave an empty grid).
+  const lens = parseLens(searchParams.get("lens"));
+  const window = parseWindow(searchParams.get("window"));
   const page = Number(searchParams.get("page") ?? "1");
   const genre = searchParams.get("genre") || "";
   const tag = searchParams.get("tag") || "";

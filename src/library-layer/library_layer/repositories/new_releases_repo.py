@@ -17,14 +17,18 @@ def _filter_clause(genre: str | None, tag: str | None) -> tuple[str, list]:
     """Build the genre/tag filter SQL fragment + params.
 
     Returns ("" or " AND ...", [params]) — caller appends to an existing WHERE.
+
+    Uses the `@>` array-contains operator so the GIN indexes on
+    `genre_slugs` and `top_tag_slugs` are actually used. `col = ANY(array)`
+    is functionally equivalent but does NOT hit GIN — only `@>` / `&&` do.
     """
     parts: list[str] = []
     params: list = []
     if genre:
-        parts.append("%s = ANY(genre_slugs)")
+        parts.append("genre_slugs @> ARRAY[%s]::text[]")
         params.append(genre)
     if tag:
-        parts.append("%s = ANY(top_tag_slugs)")
+        parts.append("top_tag_slugs @> ARRAY[%s]::text[]")
         params.append(tag)
     if not parts:
         return "", []

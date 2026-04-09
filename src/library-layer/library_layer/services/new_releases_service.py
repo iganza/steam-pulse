@@ -1,6 +1,6 @@
 """NewReleasesService — business logic for the /new-releases feed.
 
-Handles window translation (today/week/month/all), filter passthrough
+Handles window translation (today/week/month/quarter), filter passthrough
 (genre, tag), headline counts, and bucketing for the upcoming lens. All data
 access goes through NewReleasesRepository (which reads from mv_new_releases).
 """

@@ -208,6 +208,10 @@ def test_prepare_merge_always_returns_skip_and_persists() -> None:
     )
     assert result["skip"] is True
     assert result["job_id"] is None
+    # merged_summary_id from run_merge_phase is threaded forward to
+    # PrepareSynthesis via the state machine so the next phase does
+    # not race on find_latest_by_appid under concurrent re-analysis.
+    assert result["merged_summary_id"] == 99
     batch_backend.prepare.assert_not_called()
     batch_backend.submit.assert_not_called()
     # Promotion row was persisted via the inline Converse path.
@@ -311,6 +315,57 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     assert "FPS" in rendered_user  # tag from _install_fake_tag_repo
     pp._tag_repo.find_tags_for_game.assert_called_with(440)
     pp._tag_repo.find_genres_for_game.assert_called_with(440)
+
+
+def test_prepare_synthesis_uses_threaded_merged_summary_id() -> None:
+    """When the state machine threads `merged_summary_id` into the
+    synthesis prepare payload, the handler MUST load it via
+    `find_by_id` and NOT fall back to `find_latest_by_appid` — the
+    latter races with concurrent re-analysis for the same appid and
+    could synthesise against a merge row from a different execution.
+    """
+    pp = _get_module()
+    _install_fake_game(pp)
+    pp._game_repo.find_by_appid.return_value.positive_pct = 85
+    pp._game_repo.find_by_appid.return_value.review_count = 500
+    pp._game_repo.find_by_appid.return_value.review_score_desc = "Very Positive"
+    pp._game_repo.find_by_appid.return_value.release_date = None
+    pp._game_repo.find_by_appid.return_value.coming_soon = False
+
+    merged = MergedSummary(
+        topics=[],
+        competitor_refs=[],
+        notable_quotes=[],
+        total_stats=RichBatchStats(),
+        merge_level=1,
+        chunks_merged=3,
+        source_chunk_ids=[1, 2, 3],
+    )
+    pp._merge_repo = MagicMock()
+    pp._merge_repo.find_by_id.return_value = {
+        "id": 123,
+        "summary_json": merged.model_dump(mode="json"),
+    }
+    pp._chunk_repo = MagicMock()
+    pp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}]
+    _install_fake_reviews(pp, count=5)
+    _install_fake_tag_repo(pp)
+    pp._review_repo.find_review_velocity = MagicMock(return_value={"summary": {}})
+    pp._review_repo.find_early_access_impact = MagicMock(return_value={})
+    _install_fake_backend(pp)
+
+    result = pp.handler(
+        {
+            "appid": 440,
+            "phase": "synthesis",
+            "execution_id": "exec-threaded",
+            "merged_summary_id": 123,
+        },
+        context=None,
+    )
+    assert result["merged_summary_id"] == 123
+    pp._merge_repo.find_by_id.assert_called_once_with(123)
+    pp._merge_repo.find_latest_by_appid.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

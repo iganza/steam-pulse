@@ -203,17 +203,27 @@ class BatchAnalysisStack(cdk.Stack):
         )
 
         def _phase_chain(phase: str, next_step: sfn.IChainable) -> sfn.IChainable:
+            prepare_payload: dict[str, object] = {
+                "appid": sfn.JsonPath.number_at("$.appid"),
+                "phase": phase,
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+            }
+            if phase == "synthesis":
+                # Thread the exact merge artifact this execution produced
+                # forward into PrepareSynthesis so it does NOT re-discover
+                # the merge row via a non-deterministic "(appid, latest)"
+                # lookup — which races under concurrent re-analysis for
+                # the same appid. PrepareMerge runs inline and returns
+                # `merged_summary_id` in its phase output (stored under
+                # `$.merge` via its `result_path`).
+                prepare_payload["merged_summary_id"] = sfn.JsonPath.number_at(
+                    "$.merge.merged_summary_id"
+                )
             prepare = tasks.LambdaInvoke(
                 self,
                 f"Prepare{phase.capitalize()}",
                 lambda_function=prepare_fn,
-                payload=sfn.TaskInput.from_object(
-                    {
-                        "appid": sfn.JsonPath.number_at("$.appid"),
-                        "phase": phase,
-                        "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                    }
-                ),
+                payload=sfn.TaskInput.from_object(prepare_payload),
                 payload_response_only=True,
                 result_path=f"$.{phase}",
             )

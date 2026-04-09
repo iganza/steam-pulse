@@ -105,7 +105,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if phase == "merge":
         return _prepare_merge(appid, backend, execution_id)
     if phase == "synthesis":
-        return _prepare_synthesis(appid, backend, execution_id)
+        # `merged_summary_id` is threaded in from the state machine —
+        # it's the id `_prepare_merge` returned for THIS execution, so
+        # synthesis does not race on find_latest_by_appid under
+        # concurrent re-analysis for the same appid.
+        raw = event.get("merged_summary_id")
+        merge_id = int(raw) if raw is not None else None
+        return _prepare_synthesis(appid, backend, execution_id, merge_id)
 
     raise ValueError(f"Unknown phase: {phase!r}")
 
@@ -207,7 +213,7 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
     summaries = [RichChunkSummary.model_validate(r["summary_json"]) for r in rows]
     chunk_ids = [int(r["id"]) for r in rows]
 
-    run_merge_phase(
+    _merged, merged_summary_id = run_merge_phase(
         appid=appid,
         game_name=game.name,
         chunk_summaries=summaries,
@@ -219,7 +225,7 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
     )
     logger.info(
         "merge_prepare_inline_complete",
-        extra={"chunks": len(summaries)},
+        extra={"chunks": len(summaries), "merged_summary_id": merged_summary_id},
     )
     return {
         "appid": appid,
@@ -227,23 +233,44 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
         "execution_id": execution_id,
         "job_id": None,
         "skip": True,
+        # Threaded forward to PrepareSynthesis via the state machine so
+        # synthesis reads the exact merge row THIS execution produced,
+        # not whatever `find_latest_by_appid` returns under a concurrent
+        # re-analysis. Same bookkeeping pattern as the synthesis →
+        # collect `merged_summary_id` / `chunk_count` threading.
+        "merged_summary_id": merged_summary_id,
     }
 
 
-def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> dict:
+def _prepare_synthesis(
+    appid: int,
+    backend: BatchBackend,
+    execution_id: str,
+    merged_summary_id: int | None,
+) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
 
-    merged_row = _merge_repo.find_latest_by_appid(appid)
-    if merged_row is None:
-        raise ValueError(f"No merged_summary for appid={appid} — run merge phase first")
+    # The state machine threads `merged_summary_id` forward from
+    # PrepareMerge, so we read the exact row that execution wrote.
+    # If it's missing (old state machine deployment, hand-invoked test)
+    # we fall back to the latest row for the appid — non-concurrent
+    # paths are unaffected.
+    if merged_summary_id is not None:
+        merged_row = _merge_repo.find_by_id(merged_summary_id)
+        if merged_row is None:
+            raise ValueError(
+                f"merged_summary id={merged_summary_id} not found for appid={appid}"
+            )
+    else:
+        merged_row = _merge_repo.find_latest_by_appid(appid)
+        if merged_row is None:
+            raise ValueError(
+                f"No merged_summary for appid={appid} — run merge phase first"
+            )
+        merged_summary_id = int(merged_row["id"])
     merged = MergedSummary.model_validate(merged_row["summary_json"])
-    # Capture the exact merged row id we're synthesising against so the
-    # collect phase can write it into reports.merged_summary_id WITHOUT
-    # re-querying find_latest_by_appid (which races with concurrent
-    # re-analysis and could mis-attribute the bookkeeping).
-    merged_summary_id = int(merged_row["id"])
 
     # Same race fix for chunk_count: capture "how many chunks fed this
     # synthesis" at prepare time and thread it through SFN state so the

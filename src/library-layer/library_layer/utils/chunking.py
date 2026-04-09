@@ -106,16 +106,34 @@ def stratified_chunk_reviews(
     chunks: list[list[dict]] = [[] for _ in range(num_chunks)]
     pi = ni = 0
     for idx in range(num_chunks):
-        want_pos = math.ceil(chunk_size * target_positive_ratio)
-        want_neg = chunk_size - want_pos
+        # Target positives first, using floor instead of ceil so we never
+        # over-demand from a pool that's running out. The remaining capacity
+        # is filled per-chunk below from whichever pool still has reviews.
+        want_pos = min(
+            int(chunk_size * target_positive_ratio),
+            len(positive) - pi,
+        )
         take_pos = positive[pi : pi + want_pos]
         pi += len(take_pos)
-        take_neg = negative[ni : ni + want_neg]
-        ni += len(take_neg)
         chunks[idx].extend(take_pos)
+
+        # Fill the rest of this chunk with negatives, then fall back to any
+        # remaining positives — this keeps every non-final chunk at
+        # `chunk_size` whenever enough reviews exist globally, and avoids
+        # dumping a rounding leftover into the last chunk.
+        remaining = chunk_size - len(chunks[idx])
+        take_neg = negative[ni : ni + remaining]
+        ni += len(take_neg)
         chunks[idx].extend(take_neg)
 
-    # Drain any remaining reviews (rounding fill) into the last chunk.
+        remaining = chunk_size - len(chunks[idx])
+        if remaining > 0 and pi < len(positive):
+            fallback_pos = positive[pi : pi + remaining]
+            pi += len(fallback_pos)
+            chunks[idx].extend(fallback_pos)
+
+    # If either pool still has leftovers (can only happen on the very last
+    # chunk when `total % chunk_size != 0`) drain them into that chunk.
     leftover = positive[pi:] + negative[ni:]
     if leftover:
         chunks[-1].extend(leftover)

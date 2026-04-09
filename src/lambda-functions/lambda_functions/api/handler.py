@@ -5,6 +5,7 @@ from typing import Annotated
 
 import boto3  # type: ignore[import-untyped]
 from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.utilities.parameters import get_parameter
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
@@ -36,8 +37,6 @@ _is_lambda = bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
 
 if _is_lambda:
     _api_config = SteamPulseConfig()
-    from aws_lambda_powertools.utilities.parameters import get_parameter
-
     _email_queue_url: str | None = get_parameter(_api_config.EMAIL_QUEUE_PARAM_NAME)
 else:
     _api_config = None  # type: ignore[assignment]

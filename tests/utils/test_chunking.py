@@ -159,6 +159,45 @@ def test_stratified_chunk_reviews_requires_all_knobs() -> None:
         stratified_chunk_reviews([_review("a", voted_up=True)])  # type: ignore[call-arg]
 
 
+def test_non_final_chunks_are_full_sized() -> None:
+    """Regression: ceil-rounding used to over-demand from the smaller pool
+    and leave non-final chunks short, draining the rounding leftover into
+    the final chunk. Per-chunk fill now keeps every non-final chunk at
+    exactly `chunk_size` whenever total reviews allow it.
+
+    Scenario: 97 reviews (78 pos + 19 neg) split into chunks of 20.
+    Before the fix, non-final chunks could be short with the last
+    absorbing everything. After the fix, chunks 1-4 are exactly 20 and
+    chunk 5 has the remainder.
+    """
+    pos = [_review(f"p{i}", voted_up=True) for i in range(78)]
+    neg = [_review(f"n{i}", voted_up=False) for i in range(19)]
+    chunks = stratified_chunk_reviews(
+        pos + neg, chunk_size=20, reference_time=_REF_TIME, seed=_SEED
+    )
+    assert len(chunks) == 5
+    for i, chunk in enumerate(chunks[:-1]):
+        assert len(chunk) == 20, f"chunk {i} has {len(chunk)} reviews, expected 20"
+    assert len(chunks[-1]) == 97 - 80
+    seen = {r["steam_review_id"] for c in chunks for r in c}
+    assert len(seen) == 97
+
+
+def test_chunking_never_over_demands_from_exhausted_pool() -> None:
+    """Many positives + very few negatives — non-final chunks must still
+    be full size, not short because the negative pool ran out early."""
+    pos = [_review(f"p{i}", voted_up=True) for i in range(150)]
+    neg = [_review(f"n{i}", voted_up=False) for i in range(3)]
+    chunks = stratified_chunk_reviews(
+        pos + neg, chunk_size=50, reference_time=_REF_TIME, seed=_SEED
+    )
+    assert len(chunks) == 4
+    assert len(chunks[0]) == 50
+    assert len(chunks[1]) == 50
+    assert len(chunks[2]) == 50
+    assert len(chunks[3]) == 3
+
+
 def test_recency_boost_excludes_future_dated_reviews() -> None:
     """Reviews post-dating `reference_time` must NOT receive the 1.5x
     recency multiplier. Without a lower-bound guard, a negative

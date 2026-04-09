@@ -23,6 +23,7 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.repositories.waitlist_repo import WaitlistRepository
 from library_layer.services.analytics_service import AnalyticsService
 from library_layer.services.new_releases_service import NewReleasesService
+from library_layer.services.new_releases_service import Window as NewReleasesWindow
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.db import get_conn
 from pydantic import BaseModel, EmailStr
@@ -784,21 +785,20 @@ async def get_analytics_trend_query(
 
 
 _NEW_RELEASES_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
-_VALID_NR_WINDOWS = ("today", "week", "month", "quarter")
 
 
 @app.get("/api/new-releases/released")
 async def new_releases_released(
-    window: str = "week",
+    window: NewReleasesWindow = "week",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
     genre: str | None = None,
     tag: str | None = None,
 ) -> JSONResponse:
-    if window not in _VALID_NR_WINDOWS:
-        raise HTTPException(status_code=400, detail={"error": "invalid_window"})
+    # `window` is the service's Literal — FastAPI validates against the allowed
+    # values and emits a 422 for anything else, so no manual membership check.
     data = _new_releases_service.get_released(
-        window, page, page_size, genre=genre, tag=tag,  # type: ignore[arg-type]
+        window, page, page_size, genre=genre, tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
 
@@ -816,16 +816,14 @@ async def new_releases_upcoming(
 
 @app.get("/api/new-releases/added")
 async def new_releases_added(
-    window: str = "week",
+    window: NewReleasesWindow = "week",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
     genre: str | None = None,
     tag: str | None = None,
 ) -> JSONResponse:
-    if window not in _VALID_NR_WINDOWS:
-        raise HTTPException(status_code=400, detail={"error": "invalid_window"})
     data = _new_releases_service.get_added(
-        window, page, page_size, genre=genre, tag=tag,  # type: ignore[arg-type]
+        window, page, page_size, genre=genre, tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
 

@@ -132,6 +132,45 @@ class NewReleasesRepository(BaseRepository):
         row = self._fetchone(sql, tuple(fparams))
         return int(row["c"]) if row else 0
 
+    def upcoming_bucket_counts(
+        self, genre: str | None = None, tag: str | None = None
+    ) -> dict[str, int]:
+        """Bucket counts for the Coming Soon summary strip — full filtered set.
+
+        Computed in a single aggregate so the numbers reflect every matching
+        upcoming row, not just the current page. CURRENT_DATE is evaluated
+        once per query, so buckets are internally consistent.
+        """
+        filt, fparams = _filter_clause(genre, tag)
+        sql = f"""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE release_date IS NOT NULL
+                      AND release_date <= CURRENT_DATE + INTERVAL '7 days'
+                ) AS this_week,
+                COUNT(*) FILTER (
+                    WHERE release_date IS NOT NULL
+                      AND release_date > CURRENT_DATE + INTERVAL '7 days'
+                      AND release_date <= CURRENT_DATE + INTERVAL '30 days'
+                ) AS this_month,
+                COUNT(*) FILTER (
+                    WHERE release_date IS NOT NULL
+                      AND release_date > CURRENT_DATE + INTERVAL '30 days'
+                ) AS this_quarter,
+                COUNT(*) FILTER (WHERE release_date IS NULL) AS tba
+            FROM mv_new_releases
+            WHERE coming_soon = TRUE {filt}
+        """
+        row = self._fetchone(sql, tuple(fparams))
+        if row is None:
+            return {"this_week": 0, "this_month": 0, "this_quarter": 0, "tba": 0}
+        return {
+            "this_week": int(row["this_week"]),
+            "this_month": int(row["this_month"]),
+            "this_quarter": int(row["this_quarter"]),
+            "tba": int(row["tba"]),
+        }
+
     # ── Just Added lens ──────────────────────────────────────────────────────
 
     def find_recently_added(

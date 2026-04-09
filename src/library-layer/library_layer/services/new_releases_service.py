@@ -18,11 +18,21 @@ _PAGE_SIZE_MAX = 100
 
 
 def _now() -> datetime:
+    """Current UTC time. Separate function so tests can monkeypatch it."""
     return datetime.now(tz=UTC)
 
 
+def _today() -> date:
+    """Current UTC date. Separate function so tests can monkeypatch it."""
+    return _now().date()
+
+
 def _window_start(window: Window, now: datetime | None = None) -> datetime:
-    """Translate a window keyword to its lower bound (UTC)."""
+    """Lower bound for the Just Added lens (rolling TIMESTAMPTZ windows).
+
+    The repo's WHERE clause is `discovered_at >= since`, so for N days of data
+    we subtract exactly N days from NOW. `today` is a rolling 24h window.
+    """
     now = now or _now()
     match window:
         case "today":
@@ -38,16 +48,23 @@ def _window_start(window: Window, now: datetime | None = None) -> datetime:
 
 
 def _window_start_date(window: Window, today: date | None = None) -> date:
-    today = today or date.today()
+    """Lower bound for the Released lens (inclusive DATE windows).
+
+    The repo's WHERE clause is `release_date >= since AND release_date <= today`
+    (both inclusive), so for N calendar days we subtract N-1. Example: `week`
+    returns 6 days ago, producing a 7-day inclusive range (today and the six
+    prior calendar days). `today` returns today itself — a single calendar day.
+    """
+    today = today or _today()
     match window:
         case "today":
             return today
         case "week":
-            return today - timedelta(days=7)
+            return today - timedelta(days=6)
         case "month":
-            return today - timedelta(days=30)
+            return today - timedelta(days=29)
         case "quarter":
-            return today - timedelta(days=90)
+            return today - timedelta(days=89)
         case _:
             raise ValueError(f"Unknown window: {window}")
 
@@ -76,7 +93,7 @@ class NewReleasesService:
         tag: str | None = None,
     ) -> dict:
         page, page_size, offset = _clamp_page(page, page_size)
-        today = date.today()
+        today = _today()
         since = _window_start_date(window, today)
         items = self._repo.find_recently_released(
             since, today, page_size, offset, genre=genre, tag=tag
@@ -122,32 +139,18 @@ class NewReleasesService:
         page, page_size, offset = _clamp_page(page, page_size)
         items = self._repo.find_upcoming(page_size, offset, genre=genre, tag=tag)
         total = self._repo.count_upcoming(genre=genre, tag=tag)
+        # Buckets are a summary of the *full* filtered upcoming set, not just
+        # the current page — computed in SQL by the repo so they stay
+        # consistent as the user pages through results.
+        buckets = self._repo.upcoming_bucket_counts(genre=genre, tag=tag)
         return {
             "items": [it.model_dump(mode="json") for it in items],
             "total": total,
             "page": page,
             "page_size": page_size,
             "filters": {"genre": genre, "tag": tag},
-            "buckets": self._upcoming_buckets(items),
+            "buckets": buckets,
         }
-
-    @staticmethod
-    def _upcoming_buckets(items: list) -> dict[str, int]:
-        today = date.today()
-        week = today + timedelta(days=7)
-        month = today + timedelta(days=30)
-        b = {"this_week": 0, "this_month": 0, "this_quarter": 0, "tba": 0}
-        for it in items:
-            rd = it.release_date
-            if rd is None:
-                b["tba"] += 1
-            elif rd <= week:
-                b["this_week"] += 1
-            elif rd <= month:
-                b["this_month"] += 1
-            else:
-                b["this_quarter"] += 1
-        return b
 
     # ── Just Added ───────────────────────────────────────────────────────────
 

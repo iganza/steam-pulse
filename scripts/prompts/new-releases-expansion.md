@@ -78,12 +78,21 @@ with just the name and "added {relative} ago" instead of being hidden.
 
 ## Time windows (Released and Just Added only)
 
-Released and Just Added each expose four window pills with live counts:
+Released and Just Added each expose four window pills with live counts. The two lenses
+use slightly different bound semantics because they operate on different column types:
 
-- **Today** — last 24h
-- **This Week** — last 7d
-- **This Month** — last 30d
-- **This Quarter** — last 90d
+| Pill | Released (DATE, inclusive calendar days) | Just Added (TIMESTAMPTZ, rolling) |
+|---|---|---|
+| **Today** | `release_date = CURRENT_DATE` — 1 calendar day | `discovered_at >= now - 24h` — last 24 hours |
+| **This Week** | `release_date >= today - 6` — 7 inclusive days | `discovered_at >= now - 7d` |
+| **This Month** | `release_date >= today - 29` — 30 inclusive days | `discovered_at >= now - 30d` |
+| **This Quarter** | `release_date >= today - 89` — 90 inclusive days | `discovered_at >= now - 90d` |
+
+**Why the off-by-one on Released.** The repo WHERE clause is
+`release_date >= since AND release_date <= today` (both inclusive). For N calendar days
+of data the lower bound must be `today - (N-1)` — subtracting N directly would yield
+N+1 days. `_window_start_date()` encodes this; `_window_start()` for Just Added stays at
+the straight N-day subtraction because it's a half-open `>=` on a TIMESTAMPTZ.
 
 **No "All time" option.** The feed answers "what's fresh?" not "show me the full catalog."
 `/search` and `/genre/*` already cover exhaustive browsing. The empty-state offers both
@@ -189,8 +198,10 @@ WHERE (g.type IS NULL OR g.type = 'game')
 - Partial b-tree on `release_date DESC` where `coming_soon = FALSE` — Released lens ordering
 - Partial b-tree on `release_date ASC NULLS LAST` where `coming_soon = TRUE` — Upcoming lens
 - b-tree on `discovered_at DESC` — Just Added lens
-- **GIN index on `genre_slugs`** — so `'action' = ANY(genre_slugs)` is index-backed
-- **GIN index on `top_tag_slugs`** — so `'roguelike' = ANY(top_tag_slugs)` is index-backed
+- **GIN index on `genre_slugs`** — supports array-contains filters like
+  `genre_slugs @> ARRAY['action']::text[]`. Do NOT use `'action' = ANY(genre_slugs)` —
+  that's equivalent in result but Postgres won't use the GIN index for it.
+- **GIN index on `top_tag_slugs`** — same rule, use `@> ARRAY[...]::text[]`.
 
 **Mirrored** in `src/library-layer/library_layer/schema.py` under `MATERIALIZED_VIEWS` so
 the test suite (`create_all`) builds the same shape against `steampulse_test`.
@@ -229,8 +240,10 @@ Methods:
 All return `list[NewReleaseEntry]` or `int`. Never dicts.
 
 Filter SQL is assembled by a tiny `_filter_clause()` helper that emits
-`" AND %s = ANY(genre_slugs) AND %s = ANY(top_tag_slugs)"` fragments + a params list. Both
-arms hit the GIN indexes.
+`" AND genre_slugs @> ARRAY[%s]::text[] AND top_tag_slugs @> ARRAY[%s]::text[]"` fragments
+plus a params list. **Note:** the `@>` array-contains operator is mandatory — `= ANY(col)`
+is functionally equivalent but Postgres will NOT use the GIN indexes for it. If you see
+`= ANY(array_col)` in this repo, that's a bug.
 
 ### Model: `NewReleaseEntry`
 

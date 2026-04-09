@@ -220,7 +220,11 @@ export function NewReleasesClient() {
   // pushing `window=foo` to the API (which would 400 and leave an empty grid).
   const lens = parseLens(searchParams.get("lens"));
   const window = parseWindow(searchParams.get("window"));
-  const page = Number(searchParams.get("page") ?? "1");
+  // Clamp page to a positive integer. `Number("foo")` is NaN, `Number("0")` is
+  // 0, `Number("-1")` is -1 — all of which would 422 on the API. Normalize
+  // before we use it anywhere.
+  const pageRaw = Number(searchParams.get("page") ?? "1");
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
   const genre = searchParams.get("genre") || "";
   const tag = searchParams.get("tag") || "";
 

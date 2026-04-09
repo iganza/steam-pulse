@@ -240,13 +240,19 @@ def _install_fake_reviews_for_synth(cp: Any) -> None:
 
 @mock_aws
 def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
+    """merged_summary_id is threaded from the SFN state (the prepare
+    payload), NOT re-queried from find_latest_by_appid. Re-querying
+    would race with concurrent re-analysis and could mis-attribute
+    the final report to the wrong merge row."""
     cp = _get_module()
     _install_fake_game(cp)
     _install_fake_reviews_for_synth(cp)
 
     cp._report_repo = MagicMock()
     cp._merge_repo = MagicMock()
-    cp._merge_repo.find_latest_by_appid.return_value = {"id": 99}
+    # Deliberately make find_latest_by_appid return a DIFFERENT id so
+    # we prove the code path no longer depends on it.
+    cp._merge_repo.find_latest_by_appid.return_value = {"id": 123}
     cp._chunk_repo = MagicMock()
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
     cp._sns = MagicMock()
@@ -260,6 +266,8 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
             "phase": "synthesis",
             "execution_id": "exec-4",
             "job_id": "arn:aws:bedrock:...:job/abc",
+            # SFN threads this from prepare_synthesis's output.
+            "merged_summary_id": 99,
         },
         context=None,
     )
@@ -270,12 +278,16 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     cp._report_repo.upsert.assert_called_once()
     payload = cp._report_repo.upsert.call_args.args[0]
     assert payload["pipeline_version"]  # non-empty
+    # merged_summary_id is the value from the SFN payload (99), NOT the
+    # stale find_latest_by_appid return (123).
     assert payload["merged_summary_id"] == 99
     assert payload["chunk_count"] == 3
     # Python overrides were applied to the returned report before upsert.
     assert payload["appid"] == 440
     assert "hidden_gem_score" in payload
     assert "sentiment_trend" in payload
+    # collect no longer consults find_latest_by_appid for bookkeeping.
+    cp._merge_repo.find_latest_by_appid.assert_not_called()
 
 
 @mock_aws
@@ -289,19 +301,18 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
 
     cp._report_repo = MagicMock()
     cp._merge_repo = MagicMock()
-    cp._merge_repo.find_latest_by_appid.return_value = {"id": 99}
     cp._chunk_repo = MagicMock()
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}]
 
-    # Force publish_event to raise.
-    import lambda_functions.batch_analysis.collect_phase as cp_mod
-
-    original_publish = cp_mod.publish_event
+    # Force publish_event to raise. `cp` is already the module object
+    # returned by _get_module() — we reach through it rather than doing
+    # a fresh inline import.
+    original_publish = cp.publish_event
 
     def _boom(*args: object, **kwargs: object) -> None:
         raise EventPublishError("simulated SNS outage")
 
-    cp_mod.publish_event = _boom  # type: ignore[assignment]
+    cp.publish_event = _boom  # type: ignore[assignment]
     try:
         backend = _stub_backend(cp)
         backend.collect.return_value = [("440-synthesis", _minimal_game_report())]
@@ -313,13 +324,14 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
                 "phase": "synthesis",
                 "execution_id": "exec-5",
                 "job_id": "arn:aws:bedrock:...:job/abc",
+                "merged_summary_id": 42,
             },
             context=None,
         )
         assert result["done"] is True
         cp._report_repo.upsert.assert_called_once()
     finally:
-        cp_mod.publish_event = original_publish  # type: ignore[assignment]
+        cp.publish_event = original_publish  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------

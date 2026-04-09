@@ -21,6 +21,11 @@ from library_layer.models.analyzer_models import (
     RichChunkSummary,
     TopicSignal,
 )
+from library_layer.utils.chunking import (
+    compute_chunk_hash,
+    dataset_reference_time,
+    stratified_chunk_reviews,
+)
 
 
 def _get_module() -> Any:
@@ -92,13 +97,8 @@ def _install_fake_backend(pp: Any) -> MagicMock:
 def test_prepare_chunk_returns_skip_when_all_chunks_cached() -> None:
     pp = _get_module()
     _install_fake_game(pp)
-    _install_fake_reviews(pp, count=60)  # 2 chunks of 50 (single chunk of 60)
-
-    from library_layer.utils.chunking import (
-        compute_chunk_hash,
-        dataset_reference_time,
-        stratified_chunk_reviews,
-    )
+    # 60 reviews at chunk_size=50 → 2 chunks (50 + 10 remainder).
+    _install_fake_reviews(pp, count=60)
 
     # Pre-seed the cache with hashes that match EVERY chunk prepare would
     # build. We compute them the exact same way prepare does.
@@ -270,6 +270,9 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     )
     assert result["skip"] is False
     assert result["job_id"] == "arn:aws:bedrock:...:job/abc"
+    # The merged_summary_id we synthesised against is threaded through
+    # the payload so collect_phase doesn't race on find_latest_by_appid.
+    assert result["merged_summary_id"] == 7
     backend.prepare.assert_called_once()
     backend.submit.assert_called_once()
     # Exactly one synthesis request submitted.

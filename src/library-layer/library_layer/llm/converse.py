@@ -78,7 +78,19 @@ class ConverseBackend:
                 for pending in future_to_idx:
                     pending.cancel()
                 raise
-        return [r for r in results if r is not None]
+        # `LLMBackend.run()`'s contract is one response per request in the
+        # same order as input. If a slot is still None here, something
+        # silently dropped a response — fail loudly with the offending
+        # indexes instead of returning a shorter list and corrupting
+        # downstream indexing.
+        missing = [i for i, r in enumerate(results) if r is None]
+        if missing:
+            raise RuntimeError(
+                f"ConverseBackend.run() produced no result for request "
+                f"indexes {missing} (record_ids: "
+                f"{[requests[i].record_id for i in missing]})"
+            )
+        return results  # type: ignore[return-value]
 
     def _execute_one(self, request: LLMRequest) -> BaseModel:
         model_id = self._config.model_for(request.task)

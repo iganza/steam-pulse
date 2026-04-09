@@ -236,6 +236,11 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
     if merged_row is None:
         raise ValueError(f"No merged_summary for appid={appid} — run merge phase first")
     merged = MergedSummary.model_validate(merged_row["summary_json"])
+    # Capture the exact merged row id we're synthesising against so the
+    # collect phase can write it into reports.merged_summary_id WITHOUT
+    # re-querying find_latest_by_appid (which races with concurrent
+    # re-analysis and could mis-attribute the bookkeeping).
+    merged_summary_id = int(merged_row["id"])
 
     # Load the review list needed for compute_sentiment_trend. We only need
     # posted_at + voted_up for trend; the LLM does NOT see raw reviews in
@@ -281,4 +286,8 @@ def _prepare_synthesis(appid: int, backend: BatchBackend, execution_id: str) -> 
         "execution_id": execution_id,
         "job_id": job_id,
         "skip": False,
+        # Threaded through SFN state into the collect-phase payload so the
+        # report's merged_summary_id points at the row we actually used,
+        # not whatever find_latest_by_appid happens to return later.
+        "merged_summary_id": merged_summary_id,
     }

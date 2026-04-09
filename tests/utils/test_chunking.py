@@ -156,3 +156,36 @@ def test_stratified_chunk_reviews_requires_all_knobs() -> None:
     # No default values on any parameter — every call must be explicit.
     with pytest.raises(TypeError):
         stratified_chunk_reviews([_review("a", voted_up=True)])  # type: ignore[call-arg]
+
+
+def test_recency_boost_excludes_future_dated_reviews() -> None:
+    """Reviews post-dating `reference_time` must NOT receive the 1.5x
+    recency multiplier. Without a lower-bound guard, a negative
+    timedelta would satisfy `<= 90 days` and silently boost future
+    reviews (e.g. from clock skew or a wall-clock anchor)."""
+    from library_layer.utils.chunking import _sort_key
+
+    old_review = _review(
+        "old", voted_up=True, votes_helpful=100,
+        posted_at="2020-01-01T00:00:00+00:00",
+    )
+    future_review = _review(
+        "future", voted_up=True, votes_helpful=100,
+        posted_at="2099-01-01T00:00:00+00:00",
+    )
+    # A review posted exactly at the reference time is inside the 90d
+    # window (delta == 0) and SHOULD be boosted.
+    at_ref = _review(
+        "at_ref", voted_up=True, votes_helpful=100,
+        posted_at=_REF_TIME.isoformat(),
+    )
+    # A review 30 days before reference is inside the window → boosted.
+    recent = _review(
+        "recent", voted_up=True, votes_helpful=100,
+        posted_at="2024-12-02T00:00:00+00:00",  # _REF_TIME - 30d
+    )
+
+    assert _sort_key(future_review, _REF_TIME) == 100.0   # future → no boost
+    assert _sort_key(old_review, _REF_TIME) == 100.0      # too old → no boost
+    assert _sort_key(at_ref, _REF_TIME) == 150.0          # at anchor → boosted
+    assert _sort_key(recent, _REF_TIME) == 150.0          # within 90d → boosted

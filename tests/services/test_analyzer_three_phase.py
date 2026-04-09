@@ -10,11 +10,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from library_layer.analyzer import (
+    AnalyzerSettings,
     _promote_single_chunk,
     build_chunk_requests,
+    parse_chunk_record_id,
     run_chunk_phase,
     run_merge_phase,
 )
+from library_layer.config import SteamPulseConfig
 from library_layer.llm.backend import LLMRequest
 from library_layer.models.analyzer_models import (
     MergedSummary,
@@ -89,6 +92,25 @@ def _chunks_for(reviews: list[dict]) -> list[list[dict]]:
         reference_time=_REF_TIME,
         seed=_SHUFFLE_SEED,
     )
+
+
+# ---------------------------------------------------------------------------
+# Config wiring — catches cold-start crashes like a typo in from_config().
+# ---------------------------------------------------------------------------
+
+
+def test_analyzer_settings_from_config_reads_every_field() -> None:
+    """Regression test: this exercises the exact code path that runs at
+    Lambda cold-start. A typo in an attribute name (e.g. lowercase
+    `config.ANALYSIS_max_chunks_per_merge_call`) would crash here."""
+    config = SteamPulseConfig()
+    settings = AnalyzerSettings.from_config(config)
+    assert settings.chunk_size == config.ANALYSIS_CHUNK_SIZE
+    assert settings.max_chunks_per_merge_call == config.ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL
+    assert settings.chunk_max_tokens == config.ANALYSIS_CHUNK_MAX_TOKENS
+    assert settings.merge_max_tokens == config.ANALYSIS_MERGE_MAX_TOKENS
+    assert settings.synthesis_max_tokens == config.ANALYSIS_SYNTHESIS_MAX_TOKENS
+    assert settings.shuffle_seed == config.ANALYSIS_CHUNK_SHUFFLE_SEED
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +193,44 @@ def test_build_chunk_requests_skips_cached() -> None:
     assert pending[0].task == "chunking"
     # max_tokens flows through explicitly — not a hardcoded 1024.
     assert pending[0].max_tokens == _CHUNK_MAX_TOKENS
+
+
+def test_build_chunk_requests_encodes_hash_in_record_id() -> None:
+    """prepare→collect desync guard: the batch path's collect Lambda recovers
+    chunk_index / chunk_size / chunk_hash from record_id alone, without
+    re-chunking live DB reviews (which may have shifted during a multi-hour
+    Bedrock Batch job). Every request's record_id must round-trip through
+    parse_chunk_record_id to the same metadata that would be persisted in
+    chunk_summaries."""
+    reviews = [_review(f"r{i}") for i in range(60)]
+    _chunks_out, pending, meta = build_chunk_requests(
+        appid=440,
+        game_name="TF2",
+        reviews=reviews,
+        cached_hashes=set(),
+        chunk_size=_CHUNK_SIZE,
+        reference_time=_REF_TIME,
+        shuffle_seed=_SHUFFLE_SEED,
+        chunk_max_tokens=_CHUNK_MAX_TOKENS,
+    )
+    assert len(pending) == len(meta)
+    for request, (expected_index, expected_hash, expected_size) in zip(
+        pending, meta, strict=True
+    ):
+        parsed = parse_chunk_record_id(request.record_id)
+        assert parsed is not None, f"parse failed for {request.record_id}"
+        appid, chunk_index, chunk_size, chunk_hash = parsed
+        assert appid == 440
+        assert chunk_index == expected_index
+        assert chunk_size == expected_size
+        assert chunk_hash == expected_hash
+
+
+def test_parse_chunk_record_id_rejects_garbage() -> None:
+    # Malformed ids must log and return None, never raise.
+    assert parse_chunk_record_id("not-a-record-id") is None
+    assert parse_chunk_record_id("440-chunk-abc-def-ghi") is None  # non-int fields
+    assert parse_chunk_record_id("") is None
 
 
 def test_build_chunk_requests_uses_explicit_max_tokens() -> None:

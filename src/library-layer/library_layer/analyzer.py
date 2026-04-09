@@ -69,7 +69,7 @@ class AnalyzerSettings(BaseModel):
     def from_config(cls, config: SteamPulseConfig) -> "AnalyzerSettings":
         return cls(
             chunk_size=config.ANALYSIS_CHUNK_SIZE,
-            max_chunks_per_merge_call=config.ANALYSIS_max_chunks_per_merge_call,
+            max_chunks_per_merge_call=config.ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL,
             chunk_max_tokens=config.ANALYSIS_CHUNK_MAX_TOKENS,
             merge_max_tokens=config.ANALYSIS_MERGE_MAX_TOKENS,
             synthesis_max_tokens=config.ANALYSIS_SYNTHESIS_MAX_TOKENS,
@@ -457,7 +457,7 @@ def _build_merge_user_message(
 
     Callers guarantee `len(summaries) <= settings.max_chunks_per_merge_call`.
     Larger chunk counts are handled by `run_merge_phase` via hierarchical
-    recursion — see `SteamPulseConfig.ANALYSIS_max_chunks_per_merge_call`
+    recursion — see `SteamPulseConfig.ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`
     for the configured bound.
     """
     payload = [s.model_dump(mode="json") for s in summaries]
@@ -559,9 +559,17 @@ def build_chunk_requests(
         h = compute_chunk_hash(chunk)
         if h in cached_hashes:
             continue
+        # record_id encodes chunk_index, chunk_size, and chunk_hash so the
+        # batch collect Lambda can recover the exact prepare-time mapping
+        # WITHOUT re-chunking live DB reviews. Bedrock Batch Inference jobs
+        # run for hours; reviews ingested between prepare and collect would
+        # otherwise shift chunk membership and corrupt chunk_hash cache keys.
+        #
+        # Format: "<appid>-chunk-<index>-<size>-<hash>"
+        # Parse with `parse_chunk_record_id(record_id)` in collect_phase.
         pending.append(
             LLMRequest(
-                record_id=f"{appid}-chunk-{i}",
+                record_id=f"{appid}-chunk-{i}-{len(chunk)}-{h}",
                 task="chunking",
                 system=CHUNK_SYSTEM_PROMPT_V2,
                 user=_build_chunk_user_message_v2(chunk, game_name, i, total),
@@ -571,6 +579,33 @@ def build_chunk_requests(
         )
         pending_meta.append((i, h, len(chunk)))
     return chunks, pending, pending_meta
+
+
+def parse_chunk_record_id(record_id: str) -> tuple[int, int, int, str] | None:
+    """Recover (appid, chunk_index, chunk_size, chunk_hash) from a chunk record_id.
+
+    Inverse of the `record_id` format built by `build_chunk_requests`. Used
+    by the batch `collect_phase` Lambda to persist chunk summaries under
+    the exact mapping produced at prepare time, even when the underlying
+    review set has changed between the batch job submit and its output
+    becoming available (Bedrock Batch Inference runs for hours).
+
+    Returns None and logs a warning on any parse failure — malformed
+    record_ids should never fail an entire collect, only drop the
+    offending record.
+    """
+    try:
+        appid_str, _chunk_label, index_str, size_str, chunk_hash = record_id.rsplit("-", 4)
+        return int(appid_str), int(index_str), int(size_str), chunk_hash
+    except (AttributeError, ValueError):
+        logger.warning(
+            "bad_chunk_record_id",
+            extra={
+                "record_id": record_id,
+                "expected_format": "<appid>-chunk-<index>-<size>-<hash>",
+            },
+        )
+        return None
 
 
 def build_merge_request(

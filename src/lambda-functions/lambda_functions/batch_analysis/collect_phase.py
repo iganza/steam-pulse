@@ -33,6 +33,7 @@ from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     PIPELINE_VERSION,
     AnalyzerSettings,
+    parse_chunk_record_id,
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
@@ -43,11 +44,6 @@ from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.utils.chunking import (
-    compute_chunk_hash,
-    dataset_reference_time,
-    stratified_chunk_reviews,
-)
 from library_layer.utils.db import get_conn
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
@@ -101,55 +97,39 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
 
 def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
-    results = backend.collect(job_id, default_response_model=RichChunkSummary)
+    """Persist chunk_summaries rows from a completed chunking batch job.
 
+    The prepare_phase Lambda encodes (chunk_index, chunk_size, chunk_hash)
+    into each request's `record_id`. We parse those fields out here
+    instead of re-chunking the current DB review set — the review set
+    may have grown between prepare and collect (Bedrock Batch jobs run
+    for hours), which would shift chunk membership and corrupt chunk_hash
+    cache keys.
+    """
+    results = backend.collect(job_id, default_response_model=RichChunkSummary)
     model_id = _config.model_for("chunking")
     persisted = 0
-    # Rebuild chunks by re-running the same deterministic chunking with
-    # the same config knobs that prepare_phase used. `record_id` encodes
-    # chunk_index so we can map each LLM response back to its chunk.
-    max_reviews = _config.ANALYSIS_MAX_REVIEWS
-    db_reviews = _review_repo.find_by_appid(appid, limit=max_reviews)
-    reviews = [
-        {
-            "steam_review_id": r.steam_review_id,
-            "voted_up": r.voted_up,
-            "review_text": r.body,
-            "playtime_hours": r.playtime_hours or 0,
-            "votes_helpful": r.votes_helpful,
-            "votes_funny": r.votes_funny,
-            "posted_at": r.posted_at.isoformat() if r.posted_at else None,
-            "written_during_early_access": r.written_during_early_access,
-            "received_for_free": r.received_for_free,
-        }
-        for r in db_reviews
-        if r.body
-    ]
-    chunks = stratified_chunk_reviews(
-        reviews,
-        chunk_size=_analyzer_settings.chunk_size,
-        reference_time=dataset_reference_time(reviews),
-        seed=_analyzer_settings.shuffle_seed,
-    )
 
     for record_id, summary in results:
         if not isinstance(summary, RichChunkSummary):
             logger.warning("unexpected_type", extra={"record_id": record_id})
             continue
-        try:
-            chunk_index = int(record_id.rsplit("-", 1)[1])
-        except (ValueError, IndexError):
-            logger.warning("bad_record_id", extra={"record_id": record_id})
+        parsed = parse_chunk_record_id(record_id)
+        if parsed is None:
+            # parse_chunk_record_id already logged the failure.
             continue
-        if chunk_index >= len(chunks):
-            logger.warning("chunk_index_out_of_range", extra={"record_id": record_id})
+        record_appid, chunk_index, chunk_size, chunk_hash = parsed
+        if record_appid != appid:
+            logger.warning(
+                "record_id_appid_mismatch",
+                extra={"record_id": record_id, "expected": appid, "got": record_appid},
+            )
             continue
-        chunk = chunks[chunk_index]
         _chunk_repo.insert(
             appid,
             chunk_index,
-            compute_chunk_hash(chunk),
-            len(chunk),
+            chunk_hash,
+            chunk_size,
             summary,
             model_id=model_id,
             prompt_version=CHUNK_PROMPT_VERSION,

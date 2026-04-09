@@ -37,14 +37,26 @@ def _posted_at(review: dict) -> datetime | None:
         return None
 
 
+_NINETY_DAYS = timedelta(days=90)
+
+
 def _sort_key(review: dict, reference_time: datetime) -> float:
-    """Higher = sorted earlier. Reviews within 90d of `reference_time`
-    get a 1.5x multiplier.
+    """Higher = sorted earlier. Reviews posted within the 90 days BEFORE
+    `reference_time` get a 1.5x multiplier.
+
+    The lower bound (`delta >= 0`) is important: without it, reviews
+    post-dating `reference_time` (from clock skew, a caller that passes
+    a wall-clock anchor instead of `dataset_reference_time`, or future
+    test fixtures) would also satisfy `reference_time - posted <= 90d`
+    because `timedelta` can be negative. We only want the window
+    *behind* the anchor.
     """
     helpful = float(review.get("votes_helpful") or 0)
     posted = _posted_at(review)
-    if posted is not None and reference_time - posted <= timedelta(days=90):
-        helpful *= 1.5
+    if posted is not None:
+        delta = reference_time - posted
+        if timedelta(0) <= delta <= _NINETY_DAYS:
+            helpful *= 1.5
     return helpful
 
 

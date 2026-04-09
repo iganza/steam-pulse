@@ -2,7 +2,16 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Silent-truncation cap for ReviewQuote.text. Sized against Phase 2's
+# merge-call context budget: worst case ~1920 quotes per merge batch
+# (40 chunks x 15 topics x 3 quotes + 3 notable_quotes), so at 400
+# chars each we stay under ~200k tokens including prompt scaffolding.
+# 400 chars fits 2-3 English sentences — what an actually-representative
+# quote should be. The value is enforced by a field_validator that
+# TRUNCATES (never rejects) so a verbose LLM response still lands.
+REVIEW_QUOTE_MAX_CHARS = 400
 
 
 class StorePageAlignment(BaseModel):
@@ -15,7 +24,7 @@ class StorePageAlignment(BaseModel):
 
 class CompetitorRef(BaseModel):
     game: str
-    sentiment: Literal["positive", "negative", "neutral"]
+    sentiment: Literal["positive", "negative", "neutral", "mixed"]
     context: str
 
 
@@ -38,13 +47,34 @@ TopicCategory = Literal[
 
 
 class ReviewQuote(BaseModel):
-    """A verbatim quote linked back to its source review."""
+    """A verbatim quote linked back to its source review.
 
-    text: str = Field(max_length=200)
-    steam_review_id: str | None = None
+    `text` is silently truncated to `REVIEW_QUOTE_MAX_CHARS` — NOT
+    validated. The Phase 2 merge prompt receives every quote from
+    every chunk in its input; an unbounded quote field would blow
+    the merge context window the first time the LLM copies a long
+    review body verbatim. See `REVIEW_QUOTE_MAX_CHARS` for the
+    context-budget math.
+    """
+
+    text: str
+    steam_review_id: str
     voted_up: bool
     playtime_hours: int = 0
     votes_helpful: int = 0
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _truncate_text(cls, v: object) -> object:
+        if isinstance(v, str) and len(v) > REVIEW_QUOTE_MAX_CHARS:
+            # Trim to the last whitespace inside the window so we don't
+            # cut a word in half, then append an ellipsis.
+            cut = v[: REVIEW_QUOTE_MAX_CHARS - 1]
+            ws = cut.rfind(" ")
+            if ws > REVIEW_QUOTE_MAX_CHARS // 2:
+                cut = cut[:ws]
+            return cut.rstrip() + "…"
+        return v
 
 
 class TopicSignal(BaseModel):

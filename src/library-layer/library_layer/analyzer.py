@@ -337,6 +337,9 @@ A later model merges and synthesizes your output — your ONLY job is accurate e
   mention count, confidence, and representative quotes.
 - Multiple reviews about the same subject = ONE topic with a higher mention_count.
 - Quotes must be word-for-word from reviews. Include the steam_review_id.
+- Quotes MUST be at most 400 characters (2-3 sentences). Pick the most
+  representative excerpt — do NOT paste whole review bodies. Longer
+  quotes are silently truncated downstream and waste your output budget.
 - Counts in batch_stats must be exact for this batch.
 - Do not invent, generalize, or embellish.
 - confidence rule: "high" if mention_count >= 5 OR avg_helpful_votes >= 50,
@@ -408,7 +411,7 @@ def _build_chunk_user_message_v2(
     total_chunks: int,
 ) -> str:
     reviews_text = "\n\n".join(
-        f"[id:{r.get('steam_review_id') or 'unknown'}, "
+        f"[id:{r['steam_review_id']}, "
         f"{'POSITIVE' if r['voted_up'] else 'NEGATIVE'}, "
         f"{r.get('playtime_hours') or 0}h played, "
         f"{r.get('votes_helpful') or 0} helpful, "

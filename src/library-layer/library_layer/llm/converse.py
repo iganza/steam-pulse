@@ -34,11 +34,21 @@ class ConverseBackend:
         config: SteamPulseConfig,
         *,
         max_workers: int,
+        max_retries: int = 2,
     ) -> None:
         if max_workers <= 0:
             raise ValueError(f"max_workers must be positive, got {max_workers}")
+        if max_retries < 0:
+            raise ValueError(f"max_retries must be >= 0, got {max_retries}")
         self._config = config
         self._max_workers = max_workers
+        # `max_retries` is instructor's in-band repair loop. Set to 0
+        # when the caller owns an idempotent outer retry (e.g.
+        # `scripts/dev/run_phase.py` re-runs via the chunk_hash cache)
+        # — instructor's Bedrock retry path has a long-standing bug
+        # where it round-trips the failed assistant tool_use block with
+        # `caller=None` and the Anthropic Bedrock API 400s on it.
+        self._max_retries = max_retries
         self._client = instructor.from_anthropic(anthropic.AnthropicBedrock())
 
     def run(self, requests: list[LLMRequest]) -> list[BaseModel]:
@@ -106,7 +116,7 @@ class ConverseBackend:
             model=model_id,
             max_tokens=request.max_tokens,
             response_model=request.response_model,
-            max_retries=2,
+            max_retries=self._max_retries,
             system=[
                 {
                     "type": "text",

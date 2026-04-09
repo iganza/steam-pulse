@@ -48,25 +48,26 @@ repo-root/
   src/
     library-layer/      # Shared Lambda layer: httpx, psycopg2, boto3, anthropic + framework code
       library_layer/
-        analyzer.py     # LLM two-pass analysis orchestration (Haiku + Sonnet)
+        analyzer.py     # Three-phase LLM analysis (chunk → merge → synthesize)
         config.py       # SteamPulseConfig (env var parsing)
         fetcher.py      # HTTP client wrapper
         reporter.py     # Report generation / storage
         schema.py       # PostgreSQL schema reference
         steam_source.py # Steam API abstraction (SteamDataSource)
         models/         # Domain + LLM output models
-          analyzer_models.py  # GameReport, ChunkSummary + all LLM output types
+          analyzer_models.py  # GameReport, RichChunkSummary, MergedSummary, TopicSignal + all LLM output types
           catalog.py    # CatalogEntry
           game.py       # Game, GameSummary
           report.py     # Report (DB wrapper for stored report_json)
           review.py     # Review
           tag.py        # Tag, Genre, Category
         repositories/   # SQL I/O: game_repo, review_repo, report_repo, analytics_repo, etc.
-        services/       # Business logic: analysis_service, crawl_service, catalog_service
+        services/       # Business logic: crawl_service, catalog_service
         utils/          # Shared helpers: db, sqs, ssm, slugify, events, time, steam_metrics
     lambda-functions/   # All Lambda handlers
       lambda_functions/
-        analysis/       # LLM two-pass analysis handler
+        analysis/       # Three-phase LLM analysis handler (realtime entry point)
+        batch_analysis/ # Batch Step Functions prepare/collect Lambdas (chunk/merge/synthesis)
         api/            # FastAPI app: all /api/* endpoints
         crawler/        # App + review crawler, spoke, ingest handlers
         admin/          # Admin ops + migrate handler (no X-Ray — intentional)
@@ -100,7 +101,6 @@ repo-root/
   doc/                  # Architecture diagrams, sequence diagrams, prompt strategy
   Dockerfile            # Lambda container image
   docker-compose.yml    # Local Postgres for dev
-  main.py               # CLI tool for local LLM testing
   pyproject.toml        # Python deps (main + infra groups)
   cdk.json              # "app": "poetry run python infra/app.py"
   CLAUDE.md
@@ -118,10 +118,12 @@ repo-root/
 ./scripts/dev/run-api.sh              # API at http://localhost:8000
 ./scripts/dev/db-tunnel.sh            # SSH tunnel to RDS (staging/prod)
 
-# CLI analysis (local LLM testing)
-poetry run python main.py --appid 440
-poetry run python main.py --appid 440 --max-reviews 200 --json
-poetry run python main.py --appid 440 --dry-run  # no LLM
+# CLI analysis (local LLM testing) — incremental, per-phase
+# Each phase persists its output (chunk_summaries → merged_summaries → reports)
+# and the next phase short-circuits on cache hits. Safe to re-run.
+poetry run python scripts/dev/run_phase.py --appid 440 --phase chunk
+poetry run python scripts/dev/run_phase.py --appid 440 --phase merge
+poetry run python scripts/dev/run_phase.py --appid 440 --phase synthesis
 
 # Deploy (no pipeline — deploy runs locally)
 bash scripts/deploy.sh --env staging        # build frontend + cdk deploy + migrate + cdn invalidate
@@ -356,25 +358,54 @@ All Steam data access goes through `SteamDataSource`. Currently only `DirectStea
 store page HTML — the `InitAppTagModal()` JS call embeds up to 20 tags per game with vote
 counts. Age-gated games require bypass cookies (handled in `_get_store_page()`).
 
-### LLM Two-Pass Analysis (analyzer.py)
+### LLM Three-Phase Analysis (analyzer.py)
 
-**Pass 1 (Haiku — cheap, parallel):** 50-review chunks → extract 11 signal types:
-`design_praise`, `gameplay_friction`, `wishlist_items`, `dropout_moments`, `competitor_refs`,
-`notable_quotes`, `technical_issues`, `refund_signals`, `community_health`,
-`monetization_sentiment`, `content_depth`
+See `scripts/prompts/three-phase-analysis.md` for the full design.
 
-**Pass 2 (Sonnet — synthesis):** All chunk signals → structured `GameReport` JSON.
-`hidden_gem_score` and `sentiment_trend` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
+**Phase 1 — CHUNK (LLM_MODEL__CHUNKING, map, parallel):**
+Stratified 50-review chunks → `RichChunkSummary`. Each chunk extracts structured
+`TopicSignal` objects (topic, category, sentiment, mention_count, confidence,
+quotes) across nine categories: `design_praise`, `gameplay_friction`,
+`wishlist_items`, `dropout_moments`, `technical_issues`, `refund_signals`,
+`community_health`, `monetization_sentiment`, `content_depth`.
+Persisted in `chunk_summaries`, idempotent on `(appid, chunk_hash, prompt_version)`.
+
+**Phase 2 — MERGE (LLM_MODEL__MERGING, reduce):** Hierarchical merge of chunk
+summaries into a single `MergedSummary`. One-chunk → Python promotion, no LLM call.
+≤ N chunks → single merge call. > N → hierarchical recursion with leaf `chunk_summaries.id`s
+threaded transitively through every level so each merge row is cache-keyed by the exact
+set of primary chunks it derives from. Persisted in `merged_summaries`.
+
+**Phase 3 — SYNTHESIZE (LLM_MODEL__SUMMARIZER):** `MergedSummary` + game metadata +
+temporal context + store description → `GameReport` JSON. `hidden_gem_score`,
+`sentiment_trend`, `sentiment_trend_sample_size`, and `sentiment_trend_reliable` are
+computed in Python BEFORE calling the LLM and defensively overridden on the response —
+never LLM-guessed. Persisted in `reports`.
 
 **Sentiment magnitude is owned by Steam, not the LLM.** The `GameReport` does NOT contain
 `sentiment_score` or `overall_sentiment`. Steam's `positive_pct` (0–100) and `review_score_desc`
 on the `Game` row are the only sentiment numbers shown to users. The LLM produces narrative
-sections only; the analyzer prompt receives Steam's positive_pct as canonical context.
+sections only; the synthesis prompt receives Steam's positive_pct as canonical context.
 See `scripts/prompts/data-source-clarity.md` for the rationale.
 
-**Execution path:** Real-time only — `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`).
-Model-agnostic — swap model ID via env var, zero code changes. Batch Inference path is designed
-but not yet implemented (see `scripts/prompts/bedrock-batch-analysis.md`).
+**Execution modes:** Both realtime (`ConverseBackend`, used by `analysis/handler.py`)
+and batch (`BatchBackend`, driven by the Step Functions state machine in
+`infra/stacks/batch_analysis_stack.py` via `batch_analysis/prepare_phase.py` and
+`collect_phase.py`) call the SAME `analyze_game()` entry point. Editing a prompt or
+a phase helper in `analyzer.py` propagates to both modes. All code is plain sync `def` —
+no asyncio. The only parallelism is a thread pool inside `ConverseBackend.run()` for
+chunk fan-out.
+
+**Tuning knobs** (all defined in `SteamPulseConfig`, bundled into `AnalyzerSettings`,
+passed explicitly down the call chain — no hardcoded defaults in helpers):
+`ANALYSIS_MAX_REVIEWS`, `ANALYSIS_CHUNK_SIZE`, `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`,
+`ANALYSIS_CHUNK_MAX_TOKENS`, `ANALYSIS_MERGE_MAX_TOKENS`, `ANALYSIS_SYNTHESIS_MAX_TOKENS`,
+`ANALYSIS_CONVERSE_MAX_WORKERS`, `ANALYSIS_CHUNK_SHUFFLE_SEED`.
+
+**Local per-phase dev loop:** `scripts/dev/run_phase.py --appid <id> --phase chunk|merge|synthesis`
+runs the three-phase pipeline against your local Postgres + live Bedrock, stopping
+after the requested phase. Idempotent — re-running `--phase synthesis` after `--phase chunk`
+skips Phase 1 entirely via the chunk_hash cache.
 
 **Critical:** Each output section answers a DIFFERENT question. No duplication between sections:
 - `gameplay_friction` = what design is broken
@@ -410,8 +441,6 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | Endpoint | Notes |
 |---|---|
 | `GET /health` | Storage backend + version |
-| `POST /api/preview` | Free: triggers analysis, returns `game_name`, `one_liner`, plus Steam's `positive_pct` / `review_score_desc` from the Game row. 1 per IP. |
-| `GET /api/status/{job_id}` | Step Functions job polling |
 | `GET /api/games` | List games with filters (genre, tag, sentiment, etc.) |
 | `GET /api/games/{appid}/report` | Full report + game metadata |
 | `GET /api/games/{appid}/review-stats` | Weekly sentiment timeline + playtime buckets + velocity |
@@ -430,7 +459,10 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | `GET /api/developers/{slug}/analytics` | Developer-level analytics |
 | `POST /api/chat` | V2 only (pending Auth0 integration): NL → SQL → answer |
 
-Rate limit on `/api/preview`: 1 free analysis per IP. Returns `402 {"error": "free_limit_reached"}` on breach.
+Analysis is NOT triggered via the API. Bulk/re-analysis is driven by the batch
+Step Functions state machine in `infra/stacks/batch_analysis_stack.py`
+(one execution per appid, three phases, idempotent caches). Admin re-analyze
+goes through the same machine via a direct `StartExecution`.
 
 ---
 

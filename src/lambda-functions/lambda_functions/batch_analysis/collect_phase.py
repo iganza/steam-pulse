@@ -32,7 +32,6 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     PIPELINE_VERSION,
-    AnalyzerSettings,
     parse_chunk_record_id,
 )
 from library_layer.config import SteamPulseConfig
@@ -41,7 +40,6 @@ from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.utils.db import get_conn
@@ -56,15 +54,14 @@ _BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
 _CONTENT_EVENTS_TOPIC_ARN = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
+# Merge is handled entirely inline by `prepare_phase._prepare_merge` via
+# ConverseBackend, so collect_phase owns no MergedSummaryRepository singleton
+# — merged_summary_id flows in through the Step Functions event payload.
 _game_repo = GameRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
-_merge_repo = MergedSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
 _sns = boto3.client("sns")
-
-# All tuning knobs from config — no hardcoded limits anywhere in this file.
-_analyzer_settings = AnalyzerSettings.from_config(_config)
 
 
 def _backend_for(execution_id: str) -> BatchBackend:

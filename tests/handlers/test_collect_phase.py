@@ -249,13 +249,18 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     _install_fake_reviews_for_synth(cp)
 
     cp._report_repo = MagicMock()
-    cp._merge_repo = MagicMock()
-    # Deliberately make find_latest_by_appid return a DIFFERENT id so
-    # we prove the code path no longer depends on it.
-    cp._merge_repo.find_latest_by_appid.return_value = {"id": 123}
     cp._chunk_repo = MagicMock()
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
     cp._sns = MagicMock()
+
+    # collect_phase does NOT own a MergedSummaryRepository — it reads
+    # merged_summary_id directly from the SFN event payload. This test
+    # verifies that contract by asserting the module has no such
+    # attribute AND that the payload value flows through to upsert.
+    assert not hasattr(cp, "_merge_repo"), (
+        "collect_phase must not carry a MergedSummaryRepository singleton — "
+        "merged_summary_id flows in via the SFN event payload"
+    )
 
     backend = _stub_backend(cp)
     backend.collect.return_value = [("440-synthesis", _minimal_game_report())]
@@ -278,16 +283,13 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     cp._report_repo.upsert.assert_called_once()
     payload = cp._report_repo.upsert.call_args.args[0]
     assert payload["pipeline_version"]  # non-empty
-    # merged_summary_id is the value from the SFN payload (99), NOT the
-    # stale find_latest_by_appid return (123).
+    # merged_summary_id is the value from the SFN payload.
     assert payload["merged_summary_id"] == 99
     assert payload["chunk_count"] == 3
     # Python overrides were applied to the returned report before upsert.
     assert payload["appid"] == 440
     assert "hidden_gem_score" in payload
     assert "sentiment_trend" in payload
-    # collect no longer consults find_latest_by_appid for bookkeeping.
-    cp._merge_repo.find_latest_by_appid.assert_not_called()
 
 
 @mock_aws
@@ -300,7 +302,6 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
     _install_fake_reviews_for_synth(cp)
 
     cp._report_repo = MagicMock()
-    cp._merge_repo = MagicMock()
     cp._chunk_repo = MagicMock()
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}]
 

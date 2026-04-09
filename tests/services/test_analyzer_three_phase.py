@@ -5,6 +5,7 @@ under test carries defaults. Misusing the API (e.g. calling without
 `chunk_size`) must raise TypeError.
 """
 
+import json
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -80,10 +81,13 @@ class _FakeBackend:
         self.received: list[LLMRequest] = []
         self._responses = list(responses)
 
-    def run(self, requests: list[LLMRequest]) -> list:
+    def run(self, requests: list[LLMRequest], *, on_result: object = None) -> list:
         self.received.extend(requests)
         out = self._responses[: len(requests)]
         self._responses = self._responses[len(requests) :]
+        if on_result is not None:
+            for i, r in enumerate(out):
+                on_result(i, r)
         return out
 
 
@@ -302,6 +306,43 @@ def test_run_chunk_phase_inserts_and_returns_in_order() -> None:
     assert len(backend.received) == n
     assert all(r.task == "chunking" for r in backend.received)
     assert chunk_repo.insert.call_count == n
+
+
+def test_run_chunk_phase_persists_incrementally_on_partial_failure() -> None:
+    """If the backend raises partway through the fan-out, all chunks that
+    succeeded BEFORE the failure must already be persisted — so a re-run
+    picks them up as cache hits instead of paying for them again."""
+    reviews = [_review(f"r{i}") for i in range(120)]
+    chunk_repo = MagicMock()
+    chunk_repo.find_by_appid.return_value = []
+    n = len(_chunks_for(reviews))
+    assert n >= 3  # the test only makes sense with ≥3 chunks
+
+    class _FailingBackend:
+        mode = "realtime"
+
+        def __init__(self) -> None:
+            self.received: list[LLMRequest] = []
+
+        def run(self, requests: list[LLMRequest], *, on_result: object = None) -> list:
+            self.received.extend(requests)
+            # Simulate the first two succeeding, then chunk 2 raising.
+            on_result(0, _empty_summary("c0"))
+            on_result(1, _empty_summary("c1"))
+            raise RuntimeError("simulated llm failure on chunk 2")
+
+    ids = iter(range(500, 500 + n))
+    chunk_repo.insert.side_effect = lambda *a, **k: next(ids)
+    backend = _FailingBackend()
+
+    with pytest.raises(RuntimeError, match="simulated llm failure"):
+        _call_run_chunk_phase(
+            appid=440, reviews=reviews, backend=backend, chunk_repo=chunk_repo
+        )
+
+    # Chunks 0 and 1 persisted BEFORE the exception — the whole point of
+    # the streaming callback is that their work isn't thrown away.
+    assert chunk_repo.insert.call_count == 2
 
 
 def test_run_chunk_phase_uses_cache_and_skips_backend() -> None:
@@ -633,3 +674,38 @@ def test_build_synthesis_user_message_omits_metadata_when_none() -> None:
     prompt = _build_synthesis_user_message(**_synth_kwargs(metadata=None))
     assert "<store_description>" not in prompt
     assert "store_page_alignment" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Sonnet json-in-string coercion
+# ---------------------------------------------------------------------------
+
+
+def test_rich_chunk_summary_coerces_stringified_topics() -> None:
+    """Sonnet occasionally serializes nested arrays as JSON strings inside
+    tool_use blocks. The mode='before' validator should parse them so we
+    don't fail validation on an otherwise-valid response."""
+    topics_json = json.dumps(
+        [
+            {
+                "topic": "parry system",
+                "category": "gameplay_friction",
+                "sentiment": "negative",
+                "mention_count": 3,
+                "confidence": "medium",
+                "summary": "players find parry timing unforgiving",
+                "quotes": [],
+                "avg_playtime_hours": 0.0,
+                "avg_helpful_votes": 0.0,
+            }
+        ]
+    )
+    payload = {
+        "topics": topics_json,  # intentionally a string
+        "competitor_refs": [],
+        "notable_quotes": [],
+        "batch_stats": {"positive_count": 1, "negative_count": 0},
+    }
+    summary = RichChunkSummary.model_validate(payload)
+    assert len(summary.topics) == 1
+    assert summary.topics[0].topic == "parry system"

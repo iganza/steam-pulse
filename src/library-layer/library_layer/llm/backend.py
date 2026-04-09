@@ -12,9 +12,17 @@ anti-patterns. Step Functions owns the pending state for batch via its
 native Wait/Choice loop.
 """
 
+from collections.abc import Callable
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
+
+# Streaming-result callback. Called from inside `ConverseBackend.run()` as
+# each per-request future completes — gives callers a hook to persist
+# incrementally instead of waiting for the whole fan-out to finish. Args
+# are (request_index, parsed_response). Raising from the callback
+# propagates up and cancels the remaining work.
+LLMResultCallback = Callable[[int, BaseModel], None]
 
 LLMTask = Literal["chunking", "merging", "summarizer"]
 
@@ -49,6 +57,18 @@ class LLMBackend(Protocol):
 
     mode: Literal["realtime", "batch"]
 
-    def run(self, requests: list[LLMRequest]) -> list[BaseModel]:
-        """Return parsed pydantic responses in the same order as requests."""
+    def run(
+        self,
+        requests: list[LLMRequest],
+        *,
+        on_result: LLMResultCallback | None = None,
+    ) -> list[BaseModel]:
+        """Return parsed pydantic responses in the same order as requests.
+
+        When `on_result` is supplied, it's invoked for every successful
+        response as soon as that response arrives — before the rest of
+        the fan-out has finished. Use this to stream persistence and
+        make long-running phases crash-tolerant: if request N fails,
+        requests 0..N-1 have already been persisted.
+        """
         ...

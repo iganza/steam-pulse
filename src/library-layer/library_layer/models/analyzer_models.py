@@ -1,8 +1,20 @@
 """Pydantic models for the two-pass LLM analysis pipeline."""
 
+import json
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_json_array(v: object) -> object:
+    """Sonnet sometimes serializes nested arrays in tool_use as a string.
+    If we get a JSON-encoded string where a list is expected, parse it."""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return v
+    return v
 
 # Silent-truncation cap for ReviewQuote.text. Sized against Phase 2's
 # merge-call context budget: worst case ~1920 quotes per merge batch
@@ -117,6 +129,14 @@ class RichChunkSummary(BaseModel):
     notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
     batch_stats: RichBatchStats = Field(default_factory=RichBatchStats)
 
+    _coerce_topics = field_validator("topics", mode="before")(_coerce_json_array)
+    _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
+        _coerce_json_array
+    )
+    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
+        _coerce_json_array
+    )
+
 
 class MergedSummary(BaseModel):
     """Phase 2 output — consolidated topic signals from merging chunk summaries."""
@@ -128,6 +148,14 @@ class MergedSummary(BaseModel):
     merge_level: int = 0
     chunks_merged: int = 1
     source_chunk_ids: list[int] = Field(default_factory=list)
+
+    _coerce_topics = field_validator("topics", mode="before")(_coerce_json_array)
+    _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
+        _coerce_json_array
+    )
+    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
+        _coerce_json_array
+    )
 
 
 class AudienceProfile(BaseModel):

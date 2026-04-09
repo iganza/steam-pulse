@@ -725,33 +725,37 @@ def run_chunk_phase(
         },
     )
 
-    fresh = backend.run(pending) if pending else []
-    if len(fresh) != len(pending):
-        raise RuntimeError(
-            f"backend.run returned {len(fresh)} responses for {len(pending)} requests"
-        )
-
-    # Interleave cached + fresh back into chunk_index order.
+    # Stream-insert: persist each chunk_summary as soon as its LLM call
+    # returns, not after all 40 complete. A failure on chunk N no longer
+    # throws away the 0..N-1 successful responses — they're already in
+    # the DB and will be picked up as cache hits on the next run. See
+    # CLAUDE.md "Streaming persistence in fan-out phases" for the rule.
     summaries_by_index: dict[int, RichChunkSummary] = {}
     ids_by_index: dict[int, int] = {}
     model_id = _config.model_for("chunking")
 
-    # Insert fresh rows first so ids exist for return.
-    fresh_iter = iter(zip(pending_meta, fresh, strict=True))
-    for (chunk_index, chunk_hash, chunk_size), summary in fresh_iter:
-        if not isinstance(summary, RichChunkSummary):
-            raise TypeError(f"backend returned {type(summary).__name__} for a chunking request")
+    def _persist_fresh(idx: int, response: BaseModel) -> None:
+        if not isinstance(response, RichChunkSummary):
+            raise TypeError(f"backend returned {type(response).__name__} for a chunking request")
+        chunk_index, chunk_hash, chunk_size = pending_meta[idx]
         row_id = chunk_repo.insert(
             appid,
             chunk_index,
             chunk_hash,
             chunk_size,
-            summary,
+            response,
             model_id=model_id,
             prompt_version=CHUNK_PROMPT_VERSION,
         )
-        summaries_by_index[chunk_index] = summary
+        summaries_by_index[chunk_index] = response
         ids_by_index[chunk_index] = row_id
+
+    if pending:
+        fresh = backend.run(pending, on_result=_persist_fresh)
+        if len(fresh) != len(pending):
+            raise RuntimeError(
+                f"backend.run returned {len(fresh)} responses for {len(pending)} requests"
+            )
 
     # Backfill cached rows using the chunk_index they were stored with.
     for i, chunk in enumerate(chunks):

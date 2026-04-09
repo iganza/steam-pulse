@@ -12,7 +12,7 @@ import anthropic
 import instructor
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.llm.backend import LLMRequest
+from library_layer.llm.backend import LLMRequest, LLMResultCallback
 from pydantic import BaseModel
 
 logger = Logger()
@@ -51,17 +51,28 @@ class ConverseBackend:
         self._max_retries = max_retries
         self._client = instructor.from_anthropic(anthropic.AnthropicBedrock())
 
-    def run(self, requests: list[LLMRequest]) -> list[BaseModel]:
+    def run(
+        self,
+        requests: list[LLMRequest],
+        *,
+        on_result: LLMResultCallback | None = None,
+    ) -> list[BaseModel]:
         if not requests:
             return []
         if len(requests) == 1:
-            return [self._execute_one(requests[0])]
+            result = self._execute_one(requests[0])
+            if on_result is not None:
+                on_result(0, result)
+            return [result]
 
         # Thread pool for chunk fan-out. Order is preserved via index map.
         # We iterate with `as_completed` so that a single failing request
         # interrupts the whole run instead of blocking on an earlier slow
         # future — and we immediately cancel any futures that haven't
         # started yet so we stop paying LLM cost on a known-bad run.
+        # When `on_result` is supplied we invoke it here, inside the
+        # as_completed loop, so callers can stream-persist each result
+        # as it arrives rather than waiting for the whole batch.
         results: list[BaseModel | None] = [None] * len(requests)
         with ThreadPoolExecutor(max_workers=min(self._max_workers, len(requests))) as pool:
             future_to_idx = {
@@ -71,7 +82,7 @@ class ConverseBackend:
                 for future in as_completed(future_to_idx):
                     idx = future_to_idx[future]
                     try:
-                        results[idx] = future.result()
+                        result = future.result()
                     except Exception as exc:
                         logger.error(
                             "llm_call_failed",
@@ -82,6 +93,13 @@ class ConverseBackend:
                             },
                         )
                         raise
+                    results[idx] = result
+                    if on_result is not None:
+                        # Callback exceptions also propagate and cancel
+                        # pending work — callers that raise here are
+                        # signalling "abort the phase, you've got enough
+                        # partial progress persisted already".
+                        on_result(idx, result)
             except Exception:
                 # Cancel anything not yet started so we stop spending on
                 # a run we already know is going to fail.

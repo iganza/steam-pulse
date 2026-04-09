@@ -413,6 +413,47 @@ skips Phase 1 entirely via the chunk_hash cache.
 - `dev_priorities` = the ranked FIX (not a re-description)
 - `player_wishlist` = net-new features (not fixes to broken things)
 
+### Streaming persistence in fan-out phases (mandatory)
+
+Any phase that fans out N independent LLM calls in parallel MUST persist
+each result as soon as its future completes — not after the whole batch
+returns. A failure on call N should NOT throw away the 0..N-1 successful
+responses: they're already paid for in tokens, and the next run will skip
+them via the cache.
+
+The canonical implementation:
+
+1. `ConverseBackend.run()` takes an optional `on_result: LLMResultCallback`
+   (`Callable[[int, BaseModel], None]`). It's invoked from inside the
+   `as_completed` loop as each future resolves, BEFORE the remaining
+   futures finish.
+2. Phase helpers (`run_chunk_phase` today; any future "map" phase the
+   same way) define a nested `_persist(idx, response)` that writes the
+   row via the repository and updates the local order-preserving dict.
+   Pass this to `backend.run(pending, on_result=_persist)`.
+3. The fan-out is cache-idempotent: `(appid, chunk_hash, prompt_version)`
+   for chunks, `(appid, source_chunk_ids, prompt_version)` for merges.
+   Re-running after a crash skips anything already persisted.
+
+Anti-pattern to avoid:
+
+```python
+# DON'T — partial progress is lost on any failure
+fresh = backend.run(pending)
+for meta, response in zip(meta_list, fresh):
+    repo.insert(..., response, ...)
+```
+
+The rule applies to Phase 1 (chunks) today. Phase 2's hierarchical merge
+persists per-level inside the loop for the same reason. Phase 3 is a
+single call — nothing to stream. Any NEW map-style phase (e.g. a future
+per-genre fan-out) must follow this pattern.
+
+Callback exceptions propagate and cancel the remaining futures — that's
+intentional. Raising from the callback means "abort, you've got enough
+partial progress persisted already." The outer cache-idempotent loop
+handles the retry.
+
 ### Async — use it correctly
 
 FastAPI routes are `async def`. The httpx Steam API calls are genuinely async (`httpx.AsyncClient`).

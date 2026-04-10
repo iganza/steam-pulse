@@ -654,26 +654,28 @@ def cmd_queue(
 
 def cmd_batch(
     appids: list[int],
-    all_eligible: bool,
+    concurrency: int,
     dry_run: bool,
     watch: bool,
     env: str,
 ) -> None:
-    """Start a Bedrock batch analysis Step Functions execution."""
+    """Start a batch analysis orchestrator execution (fan-out over appids)."""
     import boto3
 
-    payload: dict = {"appids": "ALL_ELIGIBLE" if all_eligible else appids}
-    label = "ALL_ELIGIBLE" if all_eligible else f"{len(appids)} appid(s): {appids}"
+    payload = {"appids": appids, "max_concurrency": concurrency}
 
     _info(f"Batch analysis → {env}")
-    _info(f"  Input: {label}")
+    _info(f"  Appids:      {len(appids)}: {appids}")
+    _info(f"  Concurrency: {concurrency}")
 
     if dry_run:
-        _warn(f"[dry-run] Would start SFN execution with: {json.dumps(payload)}")
+        _warn(f"[dry-run] Would start orchestrator with: {json.dumps(payload)}")
         return
 
     ssm = boto3.client("ssm")
-    sfn_arn = ssm.get_parameter(Name=f"/steampulse/{env}/batch/sfn-arn")["Parameter"]["Value"]
+    sfn_arn = ssm.get_parameter(Name=f"/steampulse/{env}/batch/orchestrator-sfn-arn")["Parameter"][
+        "Value"
+    ]
     _info(f"  SFN: {sfn_arn}")
 
     sfn = boto3.client("stepfunctions")
@@ -1014,14 +1016,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # ── batch
-    ba = sub.add_parser("batch", help="Start a Bedrock batch analysis execution")
+    ba = sub.add_parser("batch", help="Start a batch analysis orchestrator execution")
+    ba.add_argument("appids", type=int, nargs="+", metavar="appid", help="Appids to analyze")
     ba.add_argument(
-        "appids", type=int, nargs="*", metavar="appid", help="Specific appids to analyze"
-    )
-    ba.add_argument(
-        "--all-eligible",
-        action="store_true",
-        help="Analyze all eligible games (passes ALL_ELIGIBLE to the state machine)",
+        "--concurrency",
+        type=int,
+        default=20,
+        help="Max concurrent per-game executions (default: 20)",
     )
     ba.add_argument(
         "--env",
@@ -1165,9 +1166,7 @@ def main() -> None:
             cmd_db_query(args.env, args.sql)
 
     elif args.cmd == "batch":
-        if not args.appids and not args.all_eligible:
-            parser.error("batch requires appids or --all-eligible")
-        cmd_batch(args.appids, args.all_eligible, args.dry_run, args.watch, args.env)
+        cmd_batch(args.appids, args.concurrency, args.dry_run, args.watch, args.env)
 
     elif args.cmd == "spokes":
         if args.spokes_cmd == "status":

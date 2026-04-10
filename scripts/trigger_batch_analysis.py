@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Trigger a SteamPulse batch analysis execution.
+"""Trigger a SteamPulse batch analysis orchestrator execution.
 
 Usage:
   # Analyze specific appids
   python scripts/trigger_batch_analysis.py --env staging --appids 440 730 570
+
+  # Limit concurrency for testing
+  python scripts/trigger_batch_analysis.py --env staging --appids 440 730 --concurrency 2
 
   # Dry run — print what would be sent without starting execution
   python scripts/trigger_batch_analysis.py --env staging --appids 440 --dry-run
@@ -21,12 +24,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Trigger SteamPulse batch analysis")
     parser.add_argument("--env", choices=["staging", "production"], default="staging")
     parser.add_argument("--appids", type=int, nargs="+", required=True, help="Appids to analyze")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=20,
+        help="Max concurrent per-game executions (default: 20)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print intent without executing")
     args = parser.parse_args()
 
-    # Resolve state machine ARN from SSM
+    # Resolve orchestrator state machine ARN from SSM
     ssm = boto3.client("ssm")
-    param_name = f"/steampulse/{args.env}/batch/sfn-arn"
+    param_name = f"/steampulse/{args.env}/batch/orchestrator-sfn-arn"
     try:
         sfn_arn = ssm.get_parameter(Name=param_name)["Parameter"]["Value"]
     except ssm.exceptions.ParameterNotFound:
@@ -36,7 +45,8 @@ def main() -> None:
         )
         sys.exit(1)
 
-    execution_input = json.dumps({"appids": args.appids})
+    payload = {"appids": args.appids, "max_concurrency": args.concurrency}
+    execution_input = json.dumps(payload)
     execution_name = f"batch-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     if args.dry_run:
@@ -56,6 +66,7 @@ def main() -> None:
     print(f"Started execution: {resp['executionArn']}")
     print(f"Name: {execution_name}")
     print(f"Appids: {args.appids}")
+    print(f"Concurrency: {args.concurrency}")
 
 
 if __name__ == "__main__":

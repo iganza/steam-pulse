@@ -264,9 +264,7 @@ class BatchAnalysisStack(cdk.Stack):
                 collect_payload["merged_summary_id"] = sfn.JsonPath.number_at(
                     "$.synthesis.merged_summary_id"
                 )
-                collect_payload["chunk_count"] = sfn.JsonPath.number_at(
-                    "$.synthesis.chunk_count"
-                )
+                collect_payload["chunk_count"] = sfn.JsonPath.number_at("$.synthesis.chunk_count")
             collect = tasks.LambdaInvoke(
                 self,
                 f"Collect{phase.capitalize()}",
@@ -323,22 +321,60 @@ class BatchAnalysisStack(cdk.Stack):
             string_value=state_machine.state_machine_arn,
         )
 
-        # ── Scheduled trigger is NOT wired here on purpose.
+        # ── Orchestrator: fan-out over appid list via DistributedMap ─────
         #
-        # This state machine runs one execution per appid. The only
-        # required external input is `{"appid": <int>}`; `phase` is
-        # selected by the workflow itself and `execution_id` is derived
-        # from the Step Functions execution context (`$$.Execution.Name`).
-        # A scheduled trigger must therefore fan out over a list of appids
-        # before it invokes the machine — a Map state driven by a parent
-        # trigger, or a small dispatcher Lambda that queries eligible
-        # appids and issues `StartExecution` per row.
-        #
-        # We previously carried a disabled EventBridge rule with a
-        # placeholder `{"appid": 0}` input as a reminder to wire this up.
-        # That turned out to be a foot-gun: if someone enabled the rule
-        # without noticing the placeholder, every execution would fail
-        # with a validation error (or worse, hit appid 0 as real data).
-        # Remove the reminder rule entirely; the fan-out dispatcher is the
-        # right place to add the schedule when Bedrock Batch Inference is
-        # unblocked and we're ready to run bulk re-analysis.
+        # Accepts {"appids": [440, 730, ...], "max_concurrency": 20} and
+        # starts one per-game child execution per appid. MaxConcurrency is
+        # read from the input payload at runtime (max_concurrency_path) so
+        # the CLI can throttle without redeploying.
+
+        fan_out = sfn.DistributedMap(
+            self,
+            "FanOut",
+            items_path="$.appids",
+            max_concurrency_path="$.max_concurrency",
+            tolerated_failure_percentage=10,
+        )
+        fan_out.item_processor(
+            tasks.StepFunctionsStartExecution(
+                self,
+                "RunPerGame",
+                state_machine=state_machine,
+                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                input=sfn.TaskInput.from_object({"appid": sfn.JsonPath.number_at("$")}),
+            )
+        )
+
+        batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
+        fan_out.next(batch_complete)
+
+        orchestrator = sfn.StateMachine(
+            self,
+            "BatchOrchestrator",
+            state_machine_name=f"steampulse-batch-orchestrator-{env}",
+            definition_body=sfn.DefinitionBody.from_chainable(fan_out),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            logs=sfn.LogOptions(
+                destination=logs.LogGroup(
+                    self,
+                    "OrchestratorLogs",
+                    log_group_name=f"/steampulse/{env}/batch-orchestrator",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+
+        # Grant orchestrator permission to drive the per-game machine
+        state_machine.grant_start_execution(orchestrator)
+        state_machine.grant(orchestrator, "states:DescribeExecution")
+        state_machine.grant(orchestrator, "states:StopExecution")
+
+        # Publish orchestrator ARN to SSM
+        ssm.StringParameter(
+            self,
+            "OrchestratorSfnArnParam",
+            parameter_name=f"/steampulse/{env}/batch/orchestrator-sfn-arn",
+            string_value=orchestrator.state_machine_arn,
+        )

@@ -12,6 +12,7 @@ import boto3
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
+from library_layer.llm import resolve_anthropic_api_key
 
 logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
@@ -52,7 +53,7 @@ def _check_bedrock(job_id: str) -> dict:
 
 
 def _check_anthropic(job_id: str) -> dict:
-    client = anthropic.Anthropic(api_key=_config.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=resolve_anthropic_api_key(_config))
     batch = client.messages.batches.retrieve(job_id)
     raw_status = batch.processing_status
     mapped_status = _ANTHROPIC_STATUS_MAP.get(raw_status, "Failed")

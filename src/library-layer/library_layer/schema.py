@@ -687,6 +687,27 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(discovered_at DESC)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_genre_slugs_gin ON mv_new_releases USING GIN(genre_slugs)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_top_tag_slugs_gin ON mv_new_releases USING GIN(top_tag_slugs)",
+    # 0037_analysis_candidates — games eligible for analysis; consumers ORDER BY review_count when querying
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_analysis_candidates AS
+    SELECT
+        g.appid,
+        g.name AS game_name,
+        g.slug,
+        g.developer,
+        g.header_image,
+        g.review_count,
+        g.positive_pct,
+        g.review_score_desc,
+        g.release_date,
+        g.estimated_revenue_usd
+    FROM games g
+    LEFT JOIN reports r ON r.appid = g.appid
+    WHERE g.type = 'game'
+      AND g.coming_soon = FALSE
+      AND g.review_count >= 200
+      AND r.appid IS NULL""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS mv_analysis_candidates_pk ON mv_analysis_candidates(appid)",
+    "CREATE INDEX IF NOT EXISTS mv_analysis_candidates_review_count_idx ON mv_analysis_candidates(review_count DESC)",
 )
 
 
@@ -742,6 +763,7 @@ def create_matviews(conn: object) -> None:
             # Dropped so a persistent test DB picks up schema changes to
             # mv_new_releases (added genre_slugs / top_tag_slugs arrays).
             "mv_new_releases",
+            "mv_analysis_candidates",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

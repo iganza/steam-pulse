@@ -35,6 +35,8 @@ Usage:
   poetry run python scripts/sp.py batch <appid...> [--env staging|production] [--watch] [--dry-run]
   poetry run python scripts/sp.py batch --all-eligible [--env staging|production] [--watch]
 
+  poetry run python scripts/sp.py dispatch --env staging [--batch-size N] [--dry-run] [--watch]
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
@@ -63,7 +65,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 # Commands that resolve config from .env.{environment} via for_environment().
 # Skipping load_dotenv for these prevents dummy .env values from overriding
 # real SSM paths that pydantic-settings would read from the env file.
-_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "logs"}
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "dispatch", "logs"}
 _cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
 if _cmd not in _DEPLOYED_COMMANDS:
@@ -509,6 +511,14 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
+def _resolve_dispatch_fn_name(env: str) -> str:
+    """Resolve the dispatch Lambda function name from SSM."""
+    import boto3
+
+    ssm = boto3.client("ssm", region_name="us-west-2")
+    return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
+
+
 # ── subcommand implementations ────────────────────────────────────────────────
 
 
@@ -710,6 +720,61 @@ def cmd_batch(
                         _err(f"  Cause: {desc['cause']}")
                     if desc.get("error"):
                         _err(f"  Error: {desc['error']}")
+                break
+    except KeyboardInterrupt:
+        _info("Stopped watching (execution still running)")
+
+
+def cmd_dispatch(
+    batch_size: int | None,
+    dry_run: bool,
+    watch: bool,
+    env: str,
+) -> None:
+    """Invoke the deployed dispatch Lambda to start the next batch."""
+    fn_name = _resolve_dispatch_fn_name(env)
+    payload: dict[str, object] = {"dry_run": dry_run}
+    if batch_size is not None:
+        payload["batch_size"] = batch_size
+
+    _info(f"Invoking {fn_name} (batch_size={batch_size or 'default'}, dry_run={dry_run})")
+    result = _invoke_lambda(fn_name, payload)
+
+    dispatched = result.get("dispatched", 0)
+    appids = result.get("appids", [])
+
+    if not appids:
+        _warn("No candidates — matview is empty or fully analyzed")
+        return
+
+    if dry_run:
+        for i, appid in enumerate(appids, 1):
+            _info(f"  {i:>4}. {appid}")
+        _warn(f"[dry-run] Would dispatch {dispatched} games to orchestrator")
+        return
+
+    execution_arn = result.get("execution_arn", "")
+    _ok(f"Dispatched {dispatched} games")
+    _info(f"  Execution ARN: {execution_arn}")
+
+    if not watch or not execution_arn:
+        return
+
+    import boto3
+
+    sfn = boto3.client("stepfunctions")
+    _info("Watching (Ctrl+C to stop)...")
+    try:
+        while True:
+            time.sleep(30)
+            desc = sfn.describe_execution(executionArn=execution_arn)
+            status = desc["status"]
+            _info(f"  [{time.strftime('%H:%M:%S')}] {status}")
+            if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                if status == "SUCCEEDED":
+                    _ok("Execution succeeded")
+                else:
+                    _err(f"Execution {status.lower()}")
                 break
     except KeyboardInterrupt:
         _info("Stopped watching (execution still running)")
@@ -1039,6 +1104,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Poll execution status every 30s until complete (Ctrl+C to stop)",
     )
 
+    # ── dispatch (read matview → start orchestrator)
+    di = sub.add_parser("dispatch", help="Dispatch next batch from analysis candidate list")
+    di.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
+    di.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of games to dispatch (omit to use the deployed default)",
+    )
+    di.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show candidates without starting an execution",
+    )
+    di.add_argument(
+        "--watch",
+        action="store_true",
+        help="Poll execution status every 30s until complete (Ctrl+C to stop)",
+    )
+
     # ── spokes
     sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
     sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
@@ -1167,6 +1258,9 @@ def main() -> None:
 
     elif args.cmd == "batch":
         cmd_batch(args.appids, args.concurrency, args.dry_run, args.watch, args.env)
+
+    elif args.cmd == "dispatch":
+        cmd_dispatch(args.batch_size, args.dry_run, args.watch, args.env)
 
     elif args.cmd == "spokes":
         if args.spokes_cmd == "status":

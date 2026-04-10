@@ -310,7 +310,7 @@ TABLES: tuple[str, ...] = (
     # 0031_add_publisher_slug
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS publisher_slug TEXT",
     # 0036_merged_summaries — three-phase pipeline bookkeeping on reports.
-    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT DEFAULT '2.0'",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS chunk_count INTEGER",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS merged_summary_id BIGINT",
 )

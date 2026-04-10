@@ -91,12 +91,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
         # `merged_summary_id` and `chunk_count` are both threaded through
         # SFN state from the prepare-synthesis payload so the collect
         # phase never races on `find_latest_by_appid` / `find_by_appid`.
-        merged_summary_id = event.get("merged_summary_id")
-        if merged_summary_id is not None:
-            merged_summary_id = int(merged_summary_id)
-        chunk_count = event.get("chunk_count")
-        if chunk_count is not None:
-            chunk_count = int(chunk_count)
+        if "merged_summary_id" not in event or event["merged_summary_id"] is None:
+            raise ValueError("Missing required synthesis event field: merged_summary_id")
+        if "chunk_count" not in event or event["chunk_count"] is None:
+            raise ValueError("Missing required synthesis event field: chunk_count")
+        merged_summary_id = int(event["merged_summary_id"])
+        chunk_count = int(event["chunk_count"])
         return _collect_synthesis(appid, backend, job_id, merged_summary_id, chunk_count)
     # `merge` is handled entirely inline by `prepare_phase._prepare_merge`
     # via ConverseBackend — it always returns skip=true and the state
@@ -150,8 +150,8 @@ def _collect_synthesis(
     appid: int,
     backend: BatchBackend | AnthropicBatchBackend,
     job_id: str,
-    merged_summary_id: int | None,
-    chunk_count: int | None,
+    merged_summary_id: int,
+    chunk_count: int,
 ) -> dict:
     """Collect synthesis output and upsert the final report.
 

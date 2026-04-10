@@ -103,11 +103,12 @@ LEFT JOIN reports r ON r.appid = g.appid
 WHERE g.type = 'game'
   AND g.coming_soon = FALSE
   AND g.review_count >= 200
-  AND r.appid IS NULL
-ORDER BY g.review_count DESC;
+  AND r.appid IS NULL;
 
 CREATE UNIQUE INDEX mv_analysis_candidates_pk
     ON mv_analysis_candidates(appid);
+CREATE INDEX mv_analysis_candidates_review_count_idx
+    ON mv_analysis_candidates(review_count DESC);
 ```
 
 **Implementation notes (deviations from original design):**
@@ -124,6 +125,9 @@ CREATE UNIQUE INDEX mv_analysis_candidates_pk
   discovery page UI (game card links need slug, cards show developer).
 - **`header_image`** not `header_image_url` — matches the actual
   column name in the `games` table.
+- **No `ORDER BY` in matview DDL.** Postgres does not guarantee row
+  order from a matview regardless. A btree index on `(review_count DESC)`
+  makes the dispatch query's `ORDER BY ... LIMIT` fast instead.
 
 ### `lambda_functions/batch_analysis/dispatch_batch.py`
 

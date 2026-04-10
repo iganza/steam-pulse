@@ -65,7 +65,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 # Commands that resolve config from .env.{environment} via for_environment().
 # Skipping load_dotenv for these prevents dummy .env values from overriding
 # real SSM paths that pydantic-settings would read from the env file.
-_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "logs"}
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "dispatch", "logs"}
 _cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
 if _cmd not in _DEPLOYED_COMMANDS:
@@ -515,7 +515,7 @@ def _resolve_dispatch_fn_name(env: str) -> str:
     """Resolve the dispatch Lambda function name from SSM."""
     import boto3
 
-    ssm = boto3.client("ssm", region_name="us-west-2")
+    ssm = boto3.client("ssm")
     return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
 
 

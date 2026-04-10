@@ -687,7 +687,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(discovered_at DESC)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_genre_slugs_gin ON mv_new_releases USING GIN(genre_slugs)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_top_tag_slugs_gin ON mv_new_releases USING GIN(top_tag_slugs)",
-    # 0037_analysis_candidates — games eligible for analysis, ordered by review count
+    # 0037_analysis_candidates — games eligible for analysis; consumers ORDER BY review_count when querying
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_analysis_candidates AS
     SELECT
         g.appid,

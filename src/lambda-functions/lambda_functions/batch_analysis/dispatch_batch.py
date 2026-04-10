@@ -58,7 +58,7 @@ def _fetch_candidates(*, batch_size: int) -> list[int]:
             "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",
             (batch_size,),
         )
-        return [row[0] for row in cur.fetchall()]
+        return [row["appid"] for row in cur.fetchall()]
 
 
 @tracer.capture_lambda_handler

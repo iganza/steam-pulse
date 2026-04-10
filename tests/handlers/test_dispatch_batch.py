@@ -38,10 +38,10 @@ def _get_module() -> Any:
     return db
 
 
-def _mock_conn_with(rows: list[tuple]) -> MagicMock:
-    """Create a mock connection whose cursor returns the given rows."""
+def _mock_conn_with(appids: list[int]) -> MagicMock:
+    """Create a mock connection whose cursor returns dict-like rows (RealDictCursor)."""
     mock_cursor = MagicMock()
-    mock_cursor.fetchall.return_value = rows
+    mock_cursor.fetchall.return_value = [{"appid": a} for a in appids]
     mock_conn = MagicMock()
     mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -52,7 +52,7 @@ def _mock_conn_with(rows: list[tuple]) -> MagicMock:
 def test_returns_top_n_candidates(monkeypatch: Any) -> None:
     mod = _get_module()
 
-    mock_conn = _mock_conn_with([(440,), (730,), (570,)])
+    mock_conn = _mock_conn_with([440, 730, 570])
     monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
 
     mock_sfn = MagicMock()
@@ -73,7 +73,7 @@ def test_returns_top_n_candidates(monkeypatch: Any) -> None:
 def test_dry_run_no_execution(monkeypatch: Any) -> None:
     mod = _get_module()
 
-    mock_conn = _mock_conn_with([(440,), (730,)])
+    mock_conn = _mock_conn_with([440, 730])
     monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
 
     mock_sfn = MagicMock()
@@ -110,7 +110,7 @@ def test_empty_matview_no_execution(monkeypatch: Any) -> None:
 def test_batch_size_override(monkeypatch: Any) -> None:
     mod = _get_module()
 
-    mock_conn = _mock_conn_with([(440,), (730,)])
+    mock_conn = _mock_conn_with([440, 730])
     mock_cursor = mock_conn.cursor.return_value.__enter__.return_value
     monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
 
@@ -132,7 +132,7 @@ def test_batch_size_override(monkeypatch: Any) -> None:
 def test_batch_size_non_positive_uses_default(monkeypatch: Any) -> None:
     mod = _get_module()
 
-    mock_conn = _mock_conn_with([(440,)])
+    mock_conn = _mock_conn_with([440])
     monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
 
     mock_sfn = MagicMock()
@@ -147,7 +147,7 @@ def test_batch_size_non_positive_uses_default(monkeypatch: Any) -> None:
 def test_batch_size_string_uses_default(monkeypatch: Any) -> None:
     mod = _get_module()
 
-    mock_conn = _mock_conn_with([(440,)])
+    mock_conn = _mock_conn_with([440])
     monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
 
     mock_sfn = MagicMock()

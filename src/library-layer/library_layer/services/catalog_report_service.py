@@ -6,6 +6,8 @@ All data access goes through CatalogReportRepository and AnalysisRequestReposito
 
 from __future__ import annotations
 
+from typing import cast, get_args
+
 from aws_lambda_powertools import Logger
 from library_layer.repositories.analysis_request_repo import AnalysisRequestRepository
 from library_layer.repositories.catalog_report_repo import (
@@ -17,8 +19,8 @@ from library_layer.repositories.catalog_report_repo import (
 logger = Logger()
 
 _PAGE_SIZE_MAX = 100
-_VALID_REPORT_SORTS: set[str] = {"last_analyzed", "review_count", "positive_pct", "hidden_gem_score"}
-_VALID_CANDIDATE_SORTS: set[str] = {"request_count", "review_count"}
+_VALID_REPORT_SORTS: set[str] = set(get_args(ReportSort))
+_VALID_CANDIDATE_SORTS: set[str] = set(get_args(CandidateSort))
 
 
 def _clamp_page(page: int, page_size: int) -> tuple[int, int, int]:
@@ -48,7 +50,7 @@ class CatalogReportService:
         page: int,
         page_size: int,
     ) -> dict:
-        sort_key: ReportSort = sort if sort in _VALID_REPORT_SORTS else "last_analyzed"  # type: ignore[assignment]
+        sort_key = cast(ReportSort, sort) if sort in _VALID_REPORT_SORTS else cast(ReportSort, "last_analyzed")
         page, page_size, offset = _clamp_page(page, page_size)
 
         items = self._catalog_repo.find_reports(
@@ -73,7 +75,7 @@ class CatalogReportService:
         page: int,
         page_size: int,
     ) -> dict:
-        sort_key: CandidateSort = sort if sort in _VALID_CANDIDATE_SORTS else "request_count"  # type: ignore[assignment]
+        sort_key = cast(CandidateSort, sort) if sort in _VALID_CANDIDATE_SORTS else cast(CandidateSort, "request_count")
         page, page_size, offset = _clamp_page(page, page_size)
 
         items = self._catalog_repo.find_candidates(

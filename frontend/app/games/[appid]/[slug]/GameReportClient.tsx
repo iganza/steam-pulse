@@ -614,7 +614,7 @@ export function GameReportClient({
                   This game hasn&apos;t been analyzed yet.
                 </p>
               </div>
-              <RequestAnalysis appid={appid} gameName={name} />
+              <RequestAnalysis appid={appid} />
             </div>
           </section>
         )}

@@ -160,7 +160,6 @@ function CandidateCard({ entry }: { entry: AnalysisCandidateEntry }) {
         <div className="mt-auto">
           <RequestAnalysis
             appid={entry.appid}
-            gameName={entry.game_name}
             initialRequestCount={entry.request_count}
             compact
           />
@@ -216,7 +215,8 @@ export function ReportsClient() {
 
   const data = tab === "reports" ? reportsData : comingSoonData;
   const total = data?.total ?? 0;
-  const totalPages = Math.ceil(total / PER_PAGE);
+  const pageSize = data?.page_size ?? PER_PAGE;
+  const totalPages = Math.ceil(total / pageSize);
   const sortOptions = tab === "reports" ? REPORT_SORTS : CANDIDATE_SORTS;
 
   return (

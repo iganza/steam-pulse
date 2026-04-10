@@ -5,12 +5,11 @@ import { requestAnalysis } from "@/lib/api";
 
 interface RequestAnalysisProps {
   appid: number;
-  gameName: string;
   initialRequestCount?: number;
   compact?: boolean;
 }
 
-export function RequestAnalysis({ appid, gameName, initialRequestCount = 0, compact = false }: RequestAnalysisProps) {
+export function RequestAnalysis({ appid, initialRequestCount = 0, compact = false }: RequestAnalysisProps) {
   const [email, setEmail] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [status, setStatus] = useState<"idle" | "submitting" | "requested" | "already_requested">("idle");

@@ -15,9 +15,11 @@ class AnalysisRequestRepository(BaseRepository):
             VALUES (%s, %s)
             ON CONFLICT (appid, email) DO NOTHING
         """
-        cur = self._execute(sql, (appid, email))
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (appid, email))
+            inserted = cur.rowcount > 0
         self.conn.commit()
-        return cur.rowcount > 0
+        return inserted
 
     def count_for_appid(self, *, appid: int) -> int:
         """Count distinct requests for a game."""

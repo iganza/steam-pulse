@@ -95,6 +95,7 @@ secrets/
 # =============================================================================
 /frontend/test-results/
 /frontend/playwright-report/
+/frontend/playwright-report-production/
 /frontend/blob-report/
 /frontend/.playwright/
 

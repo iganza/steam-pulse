@@ -155,6 +155,7 @@ def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
         reference_time=dataset_reference_time(reviews),
         shuffle_seed=_analyzer_settings.shuffle_seed,
         chunk_max_tokens=_analyzer_settings.chunk_max_tokens,
+        chunk_temperature=_analyzer_settings.chunk_temperature,
     )
 
     if not pending:
@@ -224,6 +225,7 @@ def _prepare_merge(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
         merge_repo=_merge_repo,
         max_chunks_per_merge_call=_analyzer_settings.max_chunks_per_merge_call,
         merge_max_tokens=_analyzer_settings.merge_max_tokens,
+        merge_temperature=_analyzer_settings.merge_temperature,
     )
     logger.info(
         "merge_prepare_inline_complete",
@@ -327,6 +329,7 @@ def _prepare_synthesis(
         temporal=temporal,
         metadata=metadata,
         synthesis_max_tokens=_analyzer_settings.synthesis_max_tokens,
+        synthesis_temperature=_analyzer_settings.synthesis_temperature,
     )
     s3_uri = backend.prepare([request], phase=f"synth-{appid}")
     job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")

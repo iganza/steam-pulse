@@ -64,6 +64,9 @@ class AnalyzerSettings(BaseModel):
     merge_max_tokens: int = Field(gt=0)
     synthesis_max_tokens: int = Field(gt=0)
     shuffle_seed: int
+    chunk_temperature: float | None = None
+    merge_temperature: float | None = None
+    synthesis_temperature: float | None = None
 
     @classmethod
     def from_config(cls, config: SteamPulseConfig) -> "AnalyzerSettings":
@@ -74,6 +77,9 @@ class AnalyzerSettings(BaseModel):
             merge_max_tokens=config.ANALYSIS_MERGE_MAX_TOKENS,
             synthesis_max_tokens=config.ANALYSIS_SYNTHESIS_MAX_TOKENS,
             shuffle_seed=config.ANALYSIS_CHUNK_SHUFFLE_SEED,
+            chunk_temperature=float(config.ANALYSIS_CHUNK_TEMPERATURE) if config.ANALYSIS_CHUNK_TEMPERATURE else None,
+            merge_temperature=float(config.ANALYSIS_MERGE_TEMPERATURE) if config.ANALYSIS_MERGE_TEMPERATURE else None,
+            synthesis_temperature=float(config.ANALYSIS_SYNTHESIS_TEMPERATURE) if config.ANALYSIS_SYNTHESIS_TEMPERATURE else None,
         )
 
 
@@ -539,6 +545,7 @@ def build_chunk_requests(
     reference_time: datetime,
     shuffle_seed: int,
     chunk_max_tokens: int,
+    chunk_temperature: float | None,
 ) -> tuple[list[list[dict]], list[LLMRequest], list[tuple[int, str, int]]]:
     """Compute chunks and build LLMRequests for those not in `cached_hashes`.
 
@@ -579,6 +586,7 @@ def build_chunk_requests(
                 user=_build_chunk_user_message_v2(chunk, game_name, i, total),
                 max_tokens=chunk_max_tokens,
                 response_model=RichChunkSummary,
+                temperature=chunk_temperature,
             )
         )
         pending_meta.append((i, h, len(chunk)))
@@ -618,6 +626,7 @@ def build_merge_request(
     game_name: str,
     summaries: list[RichChunkSummary],
     merge_max_tokens: int,
+    merge_temperature: float | None,
 ) -> LLMRequest:
     """Build the single merge LLMRequest for a group of chunk summaries."""
     return LLMRequest(
@@ -627,6 +636,7 @@ def build_merge_request(
         user=_build_merge_user_message(summaries, game_name),
         max_tokens=merge_max_tokens,
         response_model=MergedSummary,
+        temperature=merge_temperature,
     )
 
 
@@ -644,6 +654,7 @@ def build_synthesis_request(
     temporal: GameTemporalContext | None,
     metadata: GameMetadataContext | None,
     synthesis_max_tokens: int,
+    synthesis_temperature: float | None,
 ) -> LLMRequest:
     return LLMRequest(
         record_id=f"{appid}-synthesis",
@@ -663,6 +674,7 @@ def build_synthesis_request(
         ),
         max_tokens=synthesis_max_tokens,
         response_model=GameReport,
+        temperature=synthesis_temperature,
     )
 
 
@@ -695,6 +707,7 @@ def run_chunk_phase(
     reference_time: datetime,
     shuffle_seed: int,
     chunk_max_tokens: int,
+    chunk_temperature: float | None,
 ) -> tuple[list[RichChunkSummary], list[int]]:
     """Phase 1: chunk + LLM summarise, with idempotent persistence.
 
@@ -714,6 +727,7 @@ def run_chunk_phase(
         reference_time=reference_time,
         shuffle_seed=shuffle_seed,
         chunk_max_tokens=chunk_max_tokens,
+        chunk_temperature=chunk_temperature,
     )
     logger.info(
         "chunk_phase_start",
@@ -810,6 +824,7 @@ def run_merge_phase(
     merge_repo: MergedSummaryRepository,
     max_chunks_per_merge_call: int,
     merge_max_tokens: int,
+    merge_temperature: float | None,
 ) -> tuple[MergedSummary, int | None]:
     """Phase 2: hierarchical merge with correct source_chunk_ids tracking.
 
@@ -932,6 +947,7 @@ def run_merge_phase(
                     game_name=game_name,
                     summaries=group,
                     merge_max_tokens=merge_max_tokens,
+                    merge_temperature=merge_temperature,
                 )
                 merge_usage: list[LLMUsage] = []
                 [response] = backend.run(
@@ -1015,6 +1031,7 @@ def run_synthesis_phase(
     metadata: GameMetadataContext | None,
     backend: LLMBackend,
     synthesis_max_tokens: int,
+    synthesis_temperature: float | None,
 ) -> GameReport:
     """Phase 3: synthesise MergedSummary → GameReport with Python overrides.
 
@@ -1036,6 +1053,7 @@ def run_synthesis_phase(
         temporal=temporal,
         metadata=metadata,
         synthesis_max_tokens=synthesis_max_tokens,
+        synthesis_temperature=synthesis_temperature,
     )
     [response] = backend.run([request])
     if not isinstance(response, GameReport):
@@ -1098,6 +1116,7 @@ def analyze_game(
         reference_time=reference_time,
         shuffle_seed=settings.shuffle_seed,
         chunk_max_tokens=settings.chunk_max_tokens,
+        chunk_temperature=settings.chunk_temperature,
     )
     merged, merged_summary_id = run_merge_phase(
         appid=request.appid,
@@ -1108,6 +1127,7 @@ def analyze_game(
         merge_repo=merge_repo,
         max_chunks_per_merge_call=settings.max_chunks_per_merge_call,
         merge_max_tokens=settings.merge_max_tokens,
+        merge_temperature=settings.merge_temperature,
     )
     report = run_synthesis_phase(
         appid=request.appid,
@@ -1122,6 +1142,7 @@ def analyze_game(
         metadata=metadata,
         backend=backend,
         synthesis_max_tokens=settings.synthesis_max_tokens,
+        synthesis_temperature=settings.synthesis_temperature,
     )
 
     # Persist the final report with pipeline bookkeeping. These columns

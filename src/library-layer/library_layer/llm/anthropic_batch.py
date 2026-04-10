@@ -47,18 +47,17 @@ class AnthropicBatchBackend:
         """
         if not requests:
             raise ValueError("AnthropicBatchBackend.prepare called with no requests")
-        prepared = [
-            {
-                "custom_id": req.record_id,
-                "params": {
-                    "model": self._config.model_for(req.task),
-                    "max_tokens": req.max_tokens,
-                    "system": [{"type": "text", "text": req.system}],
-                    "messages": [{"role": "user", "content": req.user}],
-                },
+        prepared = []
+        for req in requests:
+            params: dict[str, object] = {
+                "model": self._config.model_for(req.task),
+                "max_tokens": req.max_tokens,
+                "system": [{"type": "text", "text": req.system}],
+                "messages": [{"role": "user", "content": req.user}],
             }
-            for req in requests
-        ]
+            if req.temperature is not None:
+                params["temperature"] = req.temperature
+            prepared.append({"custom_id": req.record_id, "params": params})
         logger.info(
             "batch_prepare",
             extra={"phase": phase, "records": len(prepared), "execution_id": self._execution_id},

@@ -174,6 +174,7 @@ def test_run_merge_phase_rejects_non_positive_bound() -> None:
             merge_repo=merge_repo,
             max_chunks_per_merge_call=0,
             merge_max_tokens=_MERGE_MAX_TOKENS,
+            merge_temperature=None,
         )
 
 
@@ -196,6 +197,7 @@ def test_build_chunk_requests_skips_cached() -> None:
         reference_time=_REF_TIME,
         shuffle_seed=_SHUFFLE_SEED,
         chunk_max_tokens=_CHUNK_MAX_TOKENS,
+        chunk_temperature=None,
     )
     assert len(pending) == len(chunks) - 2
     assert len(meta) == len(pending)
@@ -222,6 +224,7 @@ def test_build_chunk_requests_encodes_hash_in_record_id() -> None:
         reference_time=_REF_TIME,
         shuffle_seed=_SHUFFLE_SEED,
         chunk_max_tokens=_CHUNK_MAX_TOKENS,
+        chunk_temperature=None,
     )
     assert len(pending) == len(meta)
     for request, (expected_index, expected_hash, expected_size) in zip(
@@ -254,6 +257,7 @@ def test_build_chunk_requests_uses_explicit_max_tokens() -> None:
         reference_time=_REF_TIME,
         shuffle_seed=_SHUFFLE_SEED,
         chunk_max_tokens=2048,
+        chunk_temperature=None,
     )
     assert pending[0].max_tokens == 2048
 
@@ -286,6 +290,7 @@ def _call_run_chunk_phase(
         reference_time=_REF_TIME,
         shuffle_seed=_SHUFFLE_SEED,
         chunk_max_tokens=_CHUNK_MAX_TOKENS,
+        chunk_temperature=None,
     )
 
 
@@ -391,6 +396,7 @@ def _call_run_merge_phase(
         merge_repo=merge_repo,
         max_chunks_per_merge_call=_MAX_CHUNKS_PER_MERGE_CALL,
         merge_max_tokens=_MERGE_MAX_TOKENS,
+        merge_temperature=None,
     )
 
 
@@ -564,6 +570,7 @@ def test_run_merge_phase_recurses_when_chunk_count_exceeds_per_call_bound() -> N
         merge_repo=merge_repo,
         max_chunks_per_merge_call=tight_bound,
         merge_max_tokens=_MERGE_MAX_TOKENS,
+        merge_temperature=None,
     )
     assert len(backend.received) == 3
     assert root.source_chunk_ids == sorted(chunk_ids)

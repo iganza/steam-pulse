@@ -521,15 +521,15 @@ def main() -> None:
         sys.exit(1)
     print(f"  Loaded {len(reviews)} review(s) with non-empty bodies.")
 
-    # max_retries=0: instructor's Bedrock in-band retry path round-trips
-    # the prior tool_use block with `caller=None` and the API rejects it.
-    # This script's outer loop is already idempotent via the chunk_hash
-    # cache, so just re-run the command on a transient failure and the
-    # successful chunks get skipped.
+    # Bedrock's instructor retry path had a bug (round-tripping tool_use
+    # with caller=None). The direct Anthropic API doesn't have this issue,
+    # so retries are safe there. Haiku in particular needs retries —
+    # it occasionally misspells enum values that instructor can self-correct.
+    retries = config.ANALYSIS_CONVERSE_MAX_RETRIES if config.LLM_BACKEND == "anthropic" else 0
     backend = make_converse_backend(
         config,
         max_workers=config.ANALYSIS_CONVERSE_MAX_WORKERS,
-        max_retries=0,
+        max_retries=retries,
     )
     reference_time = dataset_reference_time(reviews)
 
@@ -545,12 +545,14 @@ def main() -> None:
         reference_time=reference_time,
         shuffle_seed=settings.shuffle_seed,
         chunk_max_tokens=settings.chunk_max_tokens,
+        chunk_temperature=settings.chunk_temperature,
     )
     _print_chunk_summary(chunk_summaries)
     print(f"    chunk_summary row ids: {chunk_ids}")
     if not args.no_dump:
         args.dump_dir.mkdir(parents=True, exist_ok=True)
-        chunk_dump = args.dump_dir / f"{appid}_{game.slug}_chunk.org"
+        chunk_model = config.model_for("chunking").replace(".", "-").replace("claude-", "")
+        chunk_dump = args.dump_dir / f"{appid}_{game.slug}_{chunk_model}_chunk.org"
         _dump_chunk_phase(
             chunk_dump,
             appid=appid,
@@ -572,10 +574,12 @@ def main() -> None:
         merge_repo=merge_repo,
         max_chunks_per_merge_call=settings.max_chunks_per_merge_call,
         merge_max_tokens=settings.merge_max_tokens,
+        merge_temperature=settings.merge_temperature,
     )
     _print_merge_summary(merged, merge_id)
     if not args.no_dump and merge_id is not None:
-        merge_dump = args.dump_dir / f"{appid}_{game.slug}_merge.org"
+        merge_model = config.model_for("merging").replace(".", "-").replace("claude-", "")
+        merge_dump = args.dump_dir / f"{appid}_{game.slug}_{merge_model}_merge.org"
         _dump_merge_phase(
             merge_dump,
             appid=appid,
@@ -610,6 +614,7 @@ def main() -> None:
         metadata=metadata,
         backend=backend,
         synthesis_max_tokens=settings.synthesis_max_tokens,
+        synthesis_temperature=settings.synthesis_temperature,
     )
     _print_report(report)
 
@@ -622,7 +627,8 @@ def main() -> None:
     print(f"\n✔ Report upserted. pipeline_version={PIPELINE_VERSION}")
 
     if not args.no_dump:
-        synth_dump = args.dump_dir / f"{appid}_{game.slug}_synthesis.org"
+        synth_model = config.model_for("summarizer").replace(".", "-").replace("claude-", "")
+        synth_dump = args.dump_dir / f"{appid}_{game.slug}_{synth_model}_synthesis.org"
         _dump_synthesis_phase(
             synth_dump,
             appid=appid,

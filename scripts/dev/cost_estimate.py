@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Estimate the Bedrock LLM cost for analyzed games.
+"""Estimate LLM cost for analyzed games.
 
 Reads the persisted token counts from `chunk_summaries` (Phase 1) and
-`merged_summaries` (Phase 2), multiplies by the hardcoded per-model
-pricing table, and prints a breakdown per appid (or across the whole
-local DB).
+`merged_summaries` (Phase 2), multiplies by the per-model pricing table,
+and prints a breakdown per appid (or across the whole local DB).
+
+Supports both Bedrock and Anthropic direct API pricing. The pricing
+table includes Bedrock model IDs (with `anthropic.` or `us.anthropic.`
+prefixes) and Anthropic direct model IDs (plain `claude-*`). Anthropic
+Message Batches API gets 50% off vs realtime — use `--batch` flag to
+apply batch pricing.
 
 Token counts were collected by `ConverseBackend._execute_one` via
 `completion.usage` from the Anthropic/instructor client. `input_tokens`
@@ -26,12 +31,17 @@ Usage:
     # One specific appid
     poetry run python scripts/dev/cost_estimate.py --appid 2358720
 
+    # Anthropic batch pricing (50% off)
+    poetry run python scripts/dev/cost_estimate.py --batch
+
     # JSON output for scripting
     poetry run python scripts/dev/cost_estimate.py --appid 2358720 --json
 
 Pricing source:
     https://aws.amazon.com/bedrock/pricing/
     https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-pricing
+
+    Anthropic batch pricing is 50% of realtime for both input and output.
 
     Update `_PRICING` below when pricing changes or new models are
     added. The inference-profile IDs (us.anthropic.claude-*) resolve to
@@ -65,6 +75,7 @@ from library_layer.utils.db import get_conn  # noqa: E402
 # ---------------------------------------------------------------------------
 
 _PRICING: dict[str, dict[str, float]] = {
+    # ── Bedrock realtime pricing (Converse API) ────────────────────────
     "anthropic.claude-sonnet-4-6": {
         "input_per_million": 3.00,
         "output_per_million": 15.00,
@@ -73,12 +84,23 @@ _PRICING: dict[str, dict[str, float]] = {
         "input_per_million": 0.80,
         "output_per_million": 4.00,
     },
-    # Alias for the shorter form that sometimes shows up
     "anthropic.claude-haiku-4-5": {
         "input_per_million": 0.80,
         "output_per_million": 4.00,
     },
+    # ── Anthropic direct API realtime pricing ──────────────────────────
+    # Batch pricing is 50% of these rates — applied via --batch flag.
+    "claude-sonnet-4-6": {
+        "input_per_million": 3.00,
+        "output_per_million": 15.00,
+    },
+    "claude-haiku-4-5": {
+        "input_per_million": 0.80,
+        "output_per_million": 4.00,
+    },
 }
+
+_BATCH_DISCOUNT = 0.50  # Anthropic Message Batches API: 50% off
 
 
 def _normalize_model_id(model_id: str) -> str:
@@ -96,10 +118,17 @@ def _price(model_id: str) -> dict[str, float] | None:
     return _PRICING.get(normalized)
 
 
-def _cost(input_tokens: int, output_tokens: int, rates: dict[str, float]) -> float:
+def _cost(
+    input_tokens: int,
+    output_tokens: int,
+    rates: dict[str, float],
+    *,
+    batch: bool,
+) -> float:
+    discount = _BATCH_DISCOUNT if batch else 1.0
     return (
-        input_tokens * rates["input_per_million"] / 1_000_000
-        + output_tokens * rates["output_per_million"] / 1_000_000
+        input_tokens * rates["input_per_million"] * discount / 1_000_000
+        + output_tokens * rates["output_per_million"] * discount / 1_000_000
     )
 
 
@@ -107,6 +136,11 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--appid", type=int, default=None, help="Limit to a single appid")
     p.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p.add_argument(
+        "--batch",
+        action="store_true",
+        help="Apply Anthropic batch pricing (50%% off realtime rates)",
+    )
     return p.parse_args()
 
 
@@ -162,7 +196,7 @@ def _query_phase_totals(
     return out
 
 
-def _phase_cost_rows(phase: str, totals: list[dict]) -> list[dict]:
+def _phase_cost_rows(phase: str, totals: list[dict], *, batch: bool) -> list[dict]:
     rows: list[dict] = []
     for t in totals:
         rates = _price(t["model_id"])
@@ -179,8 +213,10 @@ def _phase_cost_rows(phase: str, totals: list[dict]) -> list[dict]:
             row["cost_usd"] = None
             row["note"] = "unknown model pricing — add to _PRICING"
         else:
-            row["cost_usd"] = round(_cost(t["input_tokens"], t["output_tokens"], rates), 4)
-            row["note"] = ""
+            row["cost_usd"] = round(
+                _cost(t["input_tokens"], t["output_tokens"], rates, batch=batch), 4
+            )
+            row["note"] = "(batch 50% off)" if batch else ""
         rows.append(row)
     return rows
 
@@ -226,7 +262,8 @@ def _print_human(rows: list[dict]) -> None:
         grand_total += appid_total
 
     print()
-    print(f"Grand total (chunks + merges): ${grand_total:.4f}")
+    pricing_mode = "batch (50% off)" if any(r.get("note", "").startswith("(batch") for r in rows) else "realtime"
+    print(f"Grand total (chunks + merges, {pricing_mode}): ${grand_total:.4f}")
     if grand_unknown > 0:
         print(f"  ({grand_unknown} row(s) had unknown model pricing — see notes)")
     print()
@@ -234,13 +271,17 @@ def _print_human(rows: list[dict]) -> None:
         "NOTE: Phase 3 (synthesis) is NOT included — no token columns on the "
         "reports table. Typically 10-20% of the chunk-phase cost for a 2000-review game."
     )
+    if pricing_mode == "realtime":
+        print("TIP:  Use --batch to see Anthropic batch pricing (50% off).")
 
 
 def main() -> None:
     args = _parse_args()
     chunk_totals = _query_phase_totals("chunk_summaries", args.appid)
     merge_totals = _query_phase_totals("merged_summaries", args.appid)
-    rows = _phase_cost_rows("chunk", chunk_totals) + _phase_cost_rows("merge", merge_totals)
+    rows = _phase_cost_rows("chunk", chunk_totals, batch=args.batch) + _phase_cost_rows(
+        "merge", merge_totals, batch=args.batch
+    )
 
     if args.json:
         print(json.dumps({"rows": rows}, indent=2, default=str))

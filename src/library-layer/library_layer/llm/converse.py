@@ -132,20 +132,23 @@ class ConverseBackend:
             },
         )
         t0 = time.monotonic()
-        response, completion = self._client.messages.create_with_completion(
-            model=model_id,
-            max_tokens=request.max_tokens,
-            response_model=request.response_model,
-            max_retries=self._max_retries,
-            system=[
+        kwargs: dict[str, object] = {
+            "model": model_id,
+            "max_tokens": request.max_tokens,
+            "response_model": request.response_model,
+            "max_retries": self._max_retries,
+            "system": [
                 {
                     "type": "text",
                     "text": request.system,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": request.user}],
-        )
+            "messages": [{"role": "user", "content": request.user}],
+        }
+        if request.temperature is not None:
+            kwargs["temperature"] = request.temperature
+        response, completion = self._client.messages.create_with_completion(**kwargs)
         latency_ms = int((time.monotonic() - t0) * 1000)
         u = completion.usage
         usage = LLMUsage(

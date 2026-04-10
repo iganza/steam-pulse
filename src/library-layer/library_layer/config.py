@@ -146,6 +146,12 @@ class SteamPulseConfig(BaseSettings):
     # ANALYSIS_CHUNK_SHUFFLE_SEED: deterministic in-chunk shuffle seed so
     #   tests/replays are stable.
     ANALYSIS_CHUNK_SHUFFLE_SEED: int = 42
+    # ANALYSIS_*_TEMPERATURE: per-phase temperature. Lower = more
+    #   deterministic, better schema adherence (important for Haiku chunking).
+    #   Anthropic default is 1.0. 0.0 = greedy. Empty string = use API default.
+    ANALYSIS_CHUNK_TEMPERATURE: str = "0.2"
+    ANALYSIS_MERGE_TEMPERATURE: str = "0.2"
+    ANALYSIS_SYNTHESIS_TEMPERATURE: str = ""
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

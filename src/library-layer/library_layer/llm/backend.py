@@ -60,6 +60,7 @@ class LLMRequest(BaseModel):
     user: str
     max_tokens: int
     response_model: type[BaseModel]
+    temperature: float | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 

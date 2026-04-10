@@ -378,3 +378,34 @@ class BatchAnalysisStack(cdk.Stack):
             parameter_name=f"/steampulse/{env}/batch/orchestrator-sfn-arn",
             string_value=orchestrator.state_machine_arn,
         )
+
+        # ── Dispatch Lambda — reads matview, starts orchestrator ──────────
+        dispatch_fn = PythonFunction(
+            self,
+            "DispatchBatchFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/batch_analysis/dispatch_batch.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=batch_lambda_role,
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.seconds(30),
+            memory_size=256,
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=logs.LogGroup(
+                self,
+                "DispatchBatchLogs",
+                log_group_name=f"/steampulse/{env}/batch-dispatch",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment={
+                **shared_env,
+                "POWERTOOLS_SERVICE_NAME": "batch-dispatch",
+                "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
+            },
+        )
+        orchestrator.grant_start_execution(dispatch_fn)

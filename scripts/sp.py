@@ -35,6 +35,8 @@ Usage:
   poetry run python scripts/sp.py batch <appid...> [--env staging|production] [--watch] [--dry-run]
   poetry run python scripts/sp.py batch --all-eligible [--env staging|production] [--watch]
 
+  poetry run python scripts/sp.py dispatch --env staging [--batch-size N] [--dry-run] [--watch]
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
@@ -509,6 +511,16 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
+def _analysis_candidates(n: int) -> list[int]:
+    """Return top N appids from mv_analysis_candidates (review_count DESC)."""
+    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
+        cur.execute(
+            "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",
+            (n,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
 # ── subcommand implementations ────────────────────────────────────────────────
 
 
@@ -713,6 +725,29 @@ def cmd_batch(
                 break
     except KeyboardInterrupt:
         _info("Stopped watching (execution still running)")
+
+
+def cmd_dispatch(
+    batch_size: int,
+    dry_run: bool,
+    watch: bool,
+    env: str,
+) -> None:
+    """Dispatch next batch from mv_analysis_candidates to the orchestrator."""
+    appids = _analysis_candidates(batch_size)
+    _info(f"Found {len(appids)} analysis candidates (top {batch_size} by review count)")
+
+    if not appids:
+        _warn("No candidates — matview is empty or fully analyzed")
+        return
+
+    if dry_run:
+        for i, appid in enumerate(appids, 1):
+            _info(f"  {i:>4}. {appid}")
+        _warn(f"[dry-run] Would dispatch {len(appids)} games to orchestrator")
+        return
+
+    cmd_batch(appids, concurrency=20, dry_run=False, watch=watch, env=env)
 
 
 # ── DB ───────────────────────────────────────────────────────────────────────
@@ -1039,6 +1074,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Poll execution status every 30s until complete (Ctrl+C to stop)",
     )
 
+    # ── dispatch (read matview → start orchestrator)
+    di = sub.add_parser("dispatch", help="Dispatch next batch from analysis candidate list")
+    di.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
+    di.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        metavar="N",
+        help="Number of games to dispatch (default: 100)",
+    )
+    di.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show candidates without starting an execution",
+    )
+    di.add_argument(
+        "--watch",
+        action="store_true",
+        help="Poll execution status every 30s until complete (Ctrl+C to stop)",
+    )
+
     # ── spokes
     sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
     sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
@@ -1167,6 +1228,9 @@ def main() -> None:
 
     elif args.cmd == "batch":
         cmd_batch(args.appids, args.concurrency, args.dry_run, args.watch, args.env)
+
+    elif args.cmd == "dispatch":
+        cmd_dispatch(args.batch_size, args.dry_run, args.watch, args.env)
 
     elif args.cmd == "spokes":
         if args.spokes_cmd == "status":

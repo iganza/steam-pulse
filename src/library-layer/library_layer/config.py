@@ -153,6 +153,10 @@ class SteamPulseConfig(BaseSettings):
     ANALYSIS_MERGE_TEMPERATURE: str = "0.2"
     ANALYSIS_SYNTHESIS_TEMPERATURE: str = ""
 
+    # ── Batch dispatch tuning knobs ───────────────────────────────────────
+    BATCH_DISPATCH_SIZE: int = 100
+    ANALYSIS_MIN_REVIEW_COUNT: int = 200
+
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.
 

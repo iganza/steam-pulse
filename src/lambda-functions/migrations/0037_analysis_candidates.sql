@@ -6,6 +6,8 @@ CREATE MATERIALIZED VIEW mv_analysis_candidates AS
 SELECT
     g.appid,
     g.name AS game_name,
+    g.slug,
+    g.developer,
     g.header_image,
     g.review_count,
     g.positive_pct,

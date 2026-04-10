@@ -79,56 +79,51 @@ Per-Game State Machine (existing)
 
 ## Files to Create
 
-### `migrations/00NN_analysis_candidates.sql`
+### `migrations/0037_analysis_candidates.sql`
 
 ```sql
--- depends: <previous migration>
+-- depends: 0036_merged_summaries
 
--- Games eligible for analysis, ordered by review count.
--- Excludes games that already have a current report.
 DROP MATERIALIZED VIEW IF EXISTS mv_analysis_candidates;
 
 CREATE MATERIALIZED VIEW mv_analysis_candidates AS
 SELECT
     g.appid,
     g.name AS game_name,
-    g.header_image_url,
+    g.slug,
+    g.developer,
+    g.header_image,
     g.review_count,
     g.positive_pct,
     g.review_score_desc,
     g.release_date,
-    g.estimated_revenue_usd,
-    r.last_analyzed,
-    r.pipeline_version AS report_pipeline_version,
-    r.reviews_analyzed,
-    CASE WHEN r.appid IS NULL THEN TRUE ELSE FALSE END AS never_analyzed
+    g.estimated_revenue_usd
 FROM games g
 LEFT JOIN reports r ON r.appid = g.appid
 WHERE g.type = 'game'
   AND g.coming_soon = FALSE
   AND g.review_count >= 200
-  AND (
-      r.appid IS NULL                    -- never analyzed
-      OR r.pipeline_version IS DISTINCT FROM '3.0/chunk-v2.0/merge-v1.0/synthesis-v3.0'
-  )
+  AND r.appid IS NULL
 ORDER BY g.review_count DESC;
 
 CREATE UNIQUE INDEX mv_analysis_candidates_pk
     ON mv_analysis_candidates(appid);
 ```
 
-**Note on `pipeline_version`:** The version string is hardcoded in the
-migration DDL. When prompts change, a new migration must drop and
-recreate the matview with the updated string. This is intentional —
-prompt changes are infrequent and a migration makes the change
-auditable. The Python `PIPELINE_VERSION` constant and the migration
-string must stay in sync.
+**Implementation notes (deviations from original design):**
 
-**Why not filter by `last_analyzed` staleness?** For the initial
-backfill, nearly every game has never been analyzed. Staleness-based
-refresh is a follow-up concern. The `pipeline_version` check handles
-the one case that matters now: if prompts change mid-backfill,
-already-analyzed games re-enter the list.
+- **No `pipeline_version` filter.** The original design hardcoded the
+  pipeline version string in the matview DDL, requiring a new migration
+  on every prompt change. For the initial backfill nearly every game is
+  unanalyzed, so `r.appid IS NULL` covers the use case. Version-based
+  re-analysis is a follow-up concern.
+- **No report columns** (`last_analyzed`, `report_pipeline_version`,
+  `reviews_analyzed`, `never_analyzed`). These are unnecessary — every
+  row in the matview is by definition unanalyzed (`r.appid IS NULL`).
+- **Added `slug` and `developer`** to support the future catalog
+  discovery page UI (game card links need slug, cards show developer).
+- **`header_image`** not `header_image_url` — matches the actual
+  column name in the `games` table.
 
 ### `lambda_functions/batch_analysis/dispatch_batch.py`
 

@@ -543,3 +543,66 @@ export interface TrendQueryResult {
   periods: TrendQueryPeriod[];
   metrics: TrendQueryMetricMeta[];
 }
+
+// --- Reports / Catalog page types ---
+
+export interface CatalogReportEntry {
+  appid: number;
+  name: string;
+  slug: string | null;
+  developer: string | null;
+  developer_slug: string | null;
+  header_image: string | null;
+  release_date: string | null;
+  price_usd: number | null;
+  is_free: boolean;
+  review_count: number | null;
+  positive_pct: number | null;
+  review_score_desc: string | null;
+  hidden_gem_score: number | null;
+  estimated_revenue_usd: number | null;
+  last_analyzed: string;
+  reviews_analyzed: number | null;
+  top_tags: string[];
+  tag_slugs: string[];
+  genres: string[];
+  genre_slugs: string[];
+}
+
+export interface AnalysisCandidateEntry {
+  appid: number;
+  game_name: string;
+  slug: string | null;
+  developer: string | null;
+  header_image: string | null;
+  review_count: number | null;
+  positive_pct: number | null;
+  review_score_desc: string | null;
+  release_date: string | null;
+  estimated_revenue_usd: number | null;
+  request_count: number;
+}
+
+export interface CatalogReportsResponse {
+  items: CatalogReportEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  sort: string;
+  filters: { genre: string | null; tag: string | null };
+}
+
+export interface ComingSoonResponse {
+  items: AnalysisCandidateEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  sort: string;
+}
+
+export interface AnalysisRequestResult {
+  status: "requested" | "already_requested";
+  request_count: number;
+}

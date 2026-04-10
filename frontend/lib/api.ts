@@ -5,6 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   MetricDefinition, TrendQueryResult,
+  CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -442,6 +443,50 @@ export async function getNewReleasesAdded(
     tag: opts.tag,
   });
   return apiFetch(`/api/new-releases/added?${qs}`, { next: { revalidate: 300 } });
+}
+
+// --- Reports / Catalog page ---
+
+export async function getCatalogReports(opts: {
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+  genre?: string;
+  tag?: string;
+} = {}): Promise<CatalogReportsResponse> {
+  const params = new URLSearchParams();
+  if (opts.sort) params.set("sort", opts.sort);
+  if (opts.page) params.set("page", String(opts.page));
+  if (opts.pageSize) params.set("page_size", String(opts.pageSize));
+  if (opts.genre) params.set("genre", opts.genre);
+  if (opts.tag) params.set("tag", opts.tag);
+  const qs = params.toString();
+  return apiFetch(`/api/reports${qs ? `?${qs}` : ""}`, { next: { revalidate: 300 } });
+}
+
+export async function getComingSoon(opts: {
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<ComingSoonResponse> {
+  const params = new URLSearchParams();
+  if (opts.sort) params.set("sort", opts.sort);
+  if (opts.page) params.set("page", String(opts.page));
+  if (opts.pageSize) params.set("page_size", String(opts.pageSize));
+  const qs = params.toString();
+  return apiFetch(`/api/reports/coming-soon${qs ? `?${qs}` : ""}`, { next: { revalidate: 300 } });
+}
+
+export async function requestAnalysis(appid: number, email: string): Promise<AnalysisRequestResult> {
+  return apiFetch("/api/reports/request-analysis", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ appid, email }),
+  });
+}
+
+export async function getReportRequestCount(appid: number): Promise<{ appid: number; request_count: number }> {
+  return apiFetch(`/api/reports/request-count/${appid}`, { next: { revalidate: 300 } });
 }
 
 export { ApiError };

@@ -23,6 +23,7 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_trend_by_tag",
     "mv_new_releases",
     "mv_analysis_candidates",
+    "mv_catalog_reports",
 )
 
 

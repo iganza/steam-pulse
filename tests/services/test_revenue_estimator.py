@@ -35,7 +35,7 @@ def test_indie_default_bucket() -> None:
     assert result.reason is None
     assert result.method == METHOD_VERSION
     assert result.estimated_owners == 1000 * GENRE_MULTIPLIERS["indie"]
-    assert result.estimated_revenue_usd == Decimal("599700.00")
+    assert result.estimated_revenue_usd == Decimal("299850.00")
 
 
 def test_strategy_sim_bucket() -> None:
@@ -101,27 +101,27 @@ def test_age_decay_applied_for_old_game() -> None:
     old_year = date.today().year - 6
     game = _game(release_date=f"{old_year}-01-01")
     result = compute_estimate(game, genres=[], tags=[])
-    # indie=30 x 0.85 = 25.5 → int(1000 * 25.5) = 25500
-    assert result.estimated_owners == 25500
+    # indie=15 x 0.85 = 12.75 → int(1000 * 12.75) = 12750
+    assert result.estimated_owners == 12750
 
 
 def test_sub_5_price_shave_applied() -> None:
     game = _game(price_usd=Decimal("4.99"))
     result = compute_estimate(game, genres=[], tags=[])
-    # indie=30 x 0.80 = 24 → 1000 * 24 = 24000
-    assert result.estimated_owners == 24000
+    # indie=15 x 0.80 = 12 → 1000 * 12 = 12000
+    assert result.estimated_owners == 12000
 
 
 def test_sub_5_and_old_compose() -> None:
     old_year = date.today().year - 6
     game = _game(price_usd=Decimal("4.99"), release_date=f"{old_year}-01-01")
     result = compute_estimate(game, genres=[], tags=[])
-    # indie=30 x 0.85 x 0.80 = 20.4 → 1000 * 20.4 = 20400
-    assert result.estimated_owners == 20400
+    # indie=15 x 0.85 x 0.80 = 10.2 → 1000 * 10.2 = 10200
+    assert result.estimated_owners == 10200
 
 
 def test_revenue_is_owners_times_price() -> None:
     game = _game(price_usd=Decimal("10.00"), review_count=100)
     result = compute_estimate(game, genres=[], tags=[])
-    assert result.estimated_owners == 3000
-    assert result.estimated_revenue_usd == Decimal("30000.00")
+    assert result.estimated_owners == 1500
+    assert result.estimated_revenue_usd == Decimal("15000.00")

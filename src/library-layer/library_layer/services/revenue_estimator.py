@@ -30,10 +30,10 @@ METHOD_VERSION = "boxleiter_v1"
 # See module docstring for sources. Numbers are intentionally round — the
 # noise in the underlying heuristic swamps any pretense of precision.
 GENRE_MULTIPLIERS: dict[str, int] = {
-    "mainstream": 20,  # AAA / high-profile — unused in v1 (no reliable classifier yet)
-    "indie": 30,  # default bucket
-    "strategy_sim": 50,  # Strategy / Simulation genres review at low rates per sale
-    "niche": 70,  # Visual novels, hardcore sims, etc.
+    "mainstream": 10,  # AAA / high-profile — unused in v1 (no reliable classifier yet)
+    "indie": 15,  # default bucket
+    "strategy_sim": 25,  # Strategy / Simulation genres review at low rates per sale
+    "niche": 35,  # Visual novels, hardcore sims, etc.
 }
 
 # Genre-name → bucket. Matched case-insensitively against Steam genre names.

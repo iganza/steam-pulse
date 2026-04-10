@@ -36,6 +36,7 @@ import { GameHero } from "@/components/game/GameHero";
 import { SteamFactsCard } from "@/components/game/SteamFactsCard";
 import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
+import { RequestAnalysis } from "@/components/game/RequestAnalysis";
 import { slugify, relativeTime } from "@/lib/format";
 
 interface GameReportClientProps {
@@ -604,13 +605,16 @@ export function GameReportClient({
         {!report && (
           <section className="text-center py-8">
             <div
-              className="inline-flex items-center gap-3 px-6 py-4 rounded-xl"
+              className="flex flex-col items-center gap-4 px-6 py-6 rounded-xl"
               style={{ background: "var(--card)", border: "1px solid var(--border)" }}
             >
-              <Clock className="w-5 h-5 text-muted-foreground" />
-              <p className="text-base text-muted-foreground">
-                Analysis in progress — check back once this game reaches sufficient reviews.
-              </p>
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-muted-foreground" />
+                <p className="text-base text-muted-foreground">
+                  This game hasn&apos;t been analyzed yet.
+                </p>
+              </div>
+              <RequestAnalysis appid={appid} />
             </div>
           </section>
         )}

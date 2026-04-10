@@ -258,6 +258,18 @@ TABLES: tuple[str, ...] = (
         upserted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    # 0038_analysis_requests — user-submitted requests for game analysis
+    """
+    CREATE TABLE IF NOT EXISTS analysis_requests (
+        id         BIGSERIAL PRIMARY KEY,
+        appid      INTEGER NOT NULL,
+        email      TEXT NOT NULL,
+        user_id    TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (appid, email)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_analysis_requests_appid ON analysis_requests(appid)",
     # Legacy table — kept for CLI backward compatibility
     """
     CREATE TABLE IF NOT EXISTS review_summaries (
@@ -687,7 +699,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(discovered_at DESC)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_genre_slugs_gin ON mv_new_releases USING GIN(genre_slugs)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_top_tag_slugs_gin ON mv_new_releases USING GIN(top_tag_slugs)",
-    # 0037_analysis_candidates — games eligible for analysis; consumers ORDER BY review_count when querying
+    # 0037_analysis_candidates (extended in 0040 with request_count)
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_analysis_candidates AS
     SELECT
         g.appid,
@@ -699,15 +711,66 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         g.positive_pct,
         g.review_score_desc,
         g.release_date,
-        g.estimated_revenue_usd
+        g.estimated_revenue_usd,
+        COALESCE(ar.request_count, 0) AS request_count
     FROM games g
     LEFT JOIN reports r ON r.appid = g.appid
+    LEFT JOIN (
+        SELECT appid, COUNT(*) AS request_count
+        FROM analysis_requests
+        GROUP BY appid
+    ) ar ON ar.appid = g.appid
     WHERE g.type = 'game'
       AND g.coming_soon = FALSE
       AND g.review_count >= 200
       AND r.appid IS NULL""",
     "CREATE UNIQUE INDEX IF NOT EXISTS mv_analysis_candidates_pk ON mv_analysis_candidates(appid)",
     "CREATE INDEX IF NOT EXISTS mv_analysis_candidates_review_count_idx ON mv_analysis_candidates(review_count DESC)",
+    "CREATE INDEX IF NOT EXISTS mv_analysis_candidates_request_count_idx ON mv_analysis_candidates(request_count DESC)",
+    # 0039_catalog_reports_matview — games with completed analysis reports
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_catalog_reports AS
+    SELECT
+        g.appid, g.name, g.slug, g.developer, g.developer_slug,
+        g.header_image, g.release_date, g.price_usd,
+        COALESCE(g.is_free, FALSE) AS is_free,
+        g.review_count, g.positive_pct, g.review_score_desc,
+        g.hidden_gem_score, g.estimated_revenue_usd,
+        r.last_analyzed, r.reviews_analyzed,
+        COALESCE((
+            SELECT array_agg(tag_name ORDER BY votes DESC)
+            FROM (
+                SELECT t.name AS tag_name, gt.votes
+                FROM game_tags gt JOIN tags t ON t.id = gt.tag_id
+                WHERE gt.appid = g.appid
+                ORDER BY gt.votes DESC LIMIT 3
+            ) tt
+        ), ARRAY[]::text[]) AS top_tags,
+        COALESCE((
+            SELECT array_agg(t.slug)
+            FROM game_tags gt JOIN tags t ON t.id = gt.tag_id
+            WHERE gt.appid = g.appid
+        ), ARRAY[]::text[]) AS tag_slugs,
+        COALESCE((
+            SELECT array_agg(gn.name)
+            FROM game_genres gg JOIN genres gn ON gn.id = gg.genre_id
+            WHERE gg.appid = g.appid
+        ), ARRAY[]::text[]) AS genres,
+        COALESCE((
+            SELECT array_agg(gn.slug)
+            FROM game_genres gg JOIN genres gn ON gn.id = gg.genre_id
+            WHERE gg.appid = g.appid
+        ), ARRAY[]::text[]) AS genre_slugs
+    FROM games g
+    JOIN reports r ON r.appid = g.appid
+    WHERE g.type = 'game'
+      AND r.is_public = TRUE""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS mv_catalog_reports_pk ON mv_catalog_reports(appid)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_last_analyzed_idx ON mv_catalog_reports(last_analyzed DESC)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_review_count_idx ON mv_catalog_reports(review_count DESC)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_hidden_gem_idx ON mv_catalog_reports(hidden_gem_score DESC NULLS LAST)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_positive_pct_idx ON mv_catalog_reports(positive_pct DESC NULLS LAST)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_genre_slugs_gin ON mv_catalog_reports USING GIN(genre_slugs)",
+    "CREATE INDEX IF NOT EXISTS mv_catalog_reports_tag_slugs_gin ON mv_catalog_reports USING GIN(tag_slugs)",
 )
 
 
@@ -764,6 +827,7 @@ def create_matviews(conn: object) -> None:
             # mv_new_releases (added genre_slugs / top_tag_slugs arrays).
             "mv_new_releases",
             "mv_analysis_candidates",
+            "mv_catalog_reports",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

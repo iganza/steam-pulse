@@ -4,6 +4,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from library_layer.services.catalog_report_service import CatalogReportService
 
 # ---------------------------------------------------------------------------
 # Lightweight in-memory repo mocks — injected at module level before each test
@@ -89,6 +90,39 @@ class _MemWaitlistRepo:
         return True
 
 
+class _MemCatalogReportRepo:
+    """Stub for CatalogReportRepository — returns empty results by default."""
+
+    def find_reports(self, **kwargs: object) -> list:
+        return []
+
+    def count_reports(self, **kwargs: object) -> int:
+        return 0
+
+    def find_candidates(self, **kwargs: object) -> list:
+        return []
+
+    def count_candidates(self) -> int:
+        return 0
+
+
+class _MemAnalysisRequestRepo:
+    """Stub for AnalysisRequestRepository."""
+
+    def __init__(self) -> None:
+        self._store: set[tuple[int, str]] = set()
+
+    def add(self, *, appid: int, email: str) -> bool:
+        key = (appid, email)
+        if key in self._store:
+            return False
+        self._store.add(key)
+        return True
+
+    def count_for_appid(self, *, appid: int) -> int:
+        return sum(1 for a, _ in self._store if a == appid)
+
+
 class _StubSqsClient:
     def __init__(self) -> None:
         self.sent: list[dict] = []
@@ -107,6 +141,12 @@ def reset_api_state() -> None:
     api_module._matview_repo = _MemMatviewRepo()  # type: ignore[assignment]
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
     api_module._waitlist_repo = _MemWaitlistRepo()  # type: ignore[assignment]
+    api_module._catalog_report_repo = _MemCatalogReportRepo()  # type: ignore[assignment]
+    api_module._analysis_request_repo = _MemAnalysisRequestRepo()  # type: ignore[assignment]
+    api_module._catalog_report_service = CatalogReportService(  # type: ignore[assignment]
+        api_module._catalog_report_repo,  # type: ignore[arg-type]
+        api_module._analysis_request_repo,  # type: ignore[arg-type]
+    )
     api_module._sqs_client = _StubSqsClient()  # type: ignore[assignment]
     api_module._email_queue_url = None  # type: ignore[assignment]
     os.environ.pop("DATABASE_URL", None)
@@ -597,3 +637,103 @@ def test_analytics_trend_query_invalid_granularity_returns_400(client: TestClien
 def test_analytics_trend_query_empty_metrics_returns_400(client: TestClient) -> None:
     resp = client.get("/api/analytics/trend-query?metrics=&granularity=month")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# /api/reports — Reports / Catalog page
+# ---------------------------------------------------------------------------
+
+
+def test_reports_returns_200_with_shape(client: TestClient) -> None:
+    resp = client.get("/api/reports")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "items" in data
+    assert "total" in data
+    assert "page" in data
+    assert "page_size" in data
+    assert "has_more" in data
+    assert "sort" in data
+    assert data["sort"] == "last_analyzed"
+
+
+def test_reports_invalid_sort_falls_back(client: TestClient) -> None:
+    resp = client.get("/api/reports?sort=bogus")
+    assert resp.status_code == 200
+    assert resp.json()["sort"] == "last_analyzed"
+
+
+def test_reports_has_cache_header(client: TestClient) -> None:
+    resp = client.get("/api/reports")
+    assert "s-maxage" in resp.headers.get("cache-control", "")
+
+
+def test_coming_soon_returns_200_with_shape(client: TestClient) -> None:
+    resp = client.get("/api/reports/coming-soon")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "items" in data
+    assert "total" in data
+    assert data["sort"] == "request_count"
+
+
+def test_coming_soon_invalid_sort_falls_back(client: TestClient) -> None:
+    resp = client.get("/api/reports/coming-soon?sort=nope")
+    assert resp.status_code == 200
+    assert resp.json()["sort"] == "request_count"
+
+
+def test_request_analysis_new_request(client: TestClient) -> None:
+    resp = client.post(
+        "/api/reports/request-analysis",
+        json={"appid": 440, "email": "test@example.com"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "requested"
+    assert data["request_count"] == 1
+
+
+def test_request_analysis_duplicate(client: TestClient) -> None:
+    client.post("/api/reports/request-analysis", json={"appid": 440, "email": "test@example.com"})
+    resp = client.post(
+        "/api/reports/request-analysis",
+        json={"appid": 440, "email": "test@example.com"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "already_requested"
+    assert resp.json()["request_count"] == 1
+
+
+def test_request_analysis_email_normalized(client: TestClient) -> None:
+    resp = client.post(
+        "/api/reports/request-analysis",
+        json={"appid": 440, "email": "  TEST@Example.COM  "},
+    )
+    assert resp.status_code == 200
+    # Second request with the normalized form should be duplicate
+    resp2 = client.post(
+        "/api/reports/request-analysis",
+        json={"appid": 440, "email": "test@example.com"},
+    )
+    assert resp2.json()["status"] == "already_requested"
+
+
+def test_request_analysis_invalid_email_returns_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/reports/request-analysis",
+        json={"appid": 440, "email": "not-an-email"},
+    )
+    assert resp.status_code == 422
+
+
+def test_report_request_count(client: TestClient) -> None:
+    # No requests yet
+    resp = client.get("/api/reports/request-count/440")
+    assert resp.status_code == 200
+    assert resp.json()["request_count"] == 0
+
+    # Add a request, then check count
+    client.post("/api/reports/request-analysis", json={"appid": 440, "email": "a@b.com"})
+    resp = client.get("/api/reports/request-count/440")
+    assert resp.json()["request_count"] == 1

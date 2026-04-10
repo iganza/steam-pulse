@@ -11,7 +11,9 @@ from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
 from library_layer.models.temporal import build_temporal_context
+from library_layer.repositories.analysis_request_repo import AnalysisRequestRepository
 from library_layer.repositories.analytics_repo import AnalyticsRepository
+from library_layer.repositories.catalog_report_repo import CatalogReportRepository
 from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
 from library_layer.repositories.matview_repo import MatviewRepository
 from library_layer.repositories.new_releases_repo import NewReleasesRepository
@@ -20,6 +22,7 @@ from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.repositories.waitlist_repo import WaitlistRepository
 from library_layer.services.analytics_service import AnalyticsService
+from library_layer.services.catalog_report_service import CatalogReportService
 from library_layer.services.new_releases_service import NewReleasesService
 from library_layer.services.new_releases_service import Window as NewReleasesWindow
 from library_layer.utils.db import get_conn
@@ -61,6 +64,9 @@ _matview_repo = MatviewRepository(get_conn)
 _new_releases_repo = NewReleasesRepository(get_conn)
 _new_releases_service = NewReleasesService(_new_releases_repo)
 _analytics_service = AnalyticsService(_analytics_repo)
+_catalog_report_repo = CatalogReportRepository(get_conn)
+_analysis_request_repo = AnalysisRequestRepository(get_conn)
+_catalog_report_service = CatalogReportService(_catalog_report_repo, _analysis_request_repo)
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +75,11 @@ _analytics_service = AnalyticsService(_analytics_repo)
 
 
 class WaitlistRequest(BaseModel):
+    email: EmailStr
+
+
+class AnalysisRequestBody(BaseModel):
+    appid: int
     email: EmailStr
 
 
@@ -638,6 +649,52 @@ async def new_releases_added(
         window, page, page_size, genre=genre, tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
+
+
+_REPORTS_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
+
+
+@app.get("/api/reports")
+async def catalog_reports(
+    sort: str = "last_analyzed",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
+    genre: str | None = None,
+    tag: str | None = None,
+) -> JSONResponse:
+    data = _catalog_report_service.get_available_reports(
+        genre=genre, tag=tag, sort=sort, page=page, page_size=page_size,
+    )
+    return JSONResponse(content=data, headers={"Cache-Control": _REPORTS_CACHE})
+
+
+@app.get("/api/reports/coming-soon")
+async def catalog_coming_soon(
+    sort: str = "request_count",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
+) -> JSONResponse:
+    data = _catalog_report_service.get_coming_soon(
+        sort=sort, page=page, page_size=page_size,
+    )
+    return JSONResponse(content=data, headers={"Cache-Control": _REPORTS_CACHE})
+
+
+@app.post("/api/reports/request-analysis")
+async def request_analysis(body: AnalysisRequestBody) -> dict:
+    normalized_email = body.email.strip().lower()
+    return _catalog_report_service.request_analysis(
+        appid=body.appid, email=normalized_email,
+    )
+
+
+@app.get("/api/reports/request-count/{appid}")
+async def report_request_count(appid: int) -> JSONResponse:
+    count = _catalog_report_service.get_request_count(appid=appid)
+    return JSONResponse(
+        content={"appid": appid, "request_count": count},
+        headers={"Cache-Control": _REPORTS_CACHE},
+    )
 
 
 @app.post("/api/waitlist")

@@ -1,19 +1,25 @@
-"""CheckBatchStatus Lambda — poll Bedrock batch job status.
+"""CheckBatchStatus Lambda — poll batch job status.
+
+Supports both Bedrock Batch Inference and Anthropic Message Batches,
+selected by the LLM_BACKEND config flag.
 
 Input:  {job_id: str}
 Output: {status: "Running"|"Completed"|"Failed", message: str}
 """
 
+import anthropic
 import boto3
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
+from library_layer.config import SteamPulseConfig
 
 logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
 
-_bedrock = boto3.client("bedrock")
+_config = SteamPulseConfig()
 
-_STATUS_MAP = {
+# ── Bedrock path ─────────────────────────────────────────────────────────────
+_BEDROCK_STATUS_MAP = {
     "Submitted": "Running",
     "InProgress": "Running",
     "Stopping": "Running",
@@ -26,17 +32,44 @@ _STATUS_MAP = {
     "Scheduled": "Running",
 }
 
+# ── Anthropic path ───────────────────────────────────────────────────────────
+_ANTHROPIC_STATUS_MAP = {
+    "in_progress": "Running",
+    "ended": "Completed",
+    "canceling": "Failed",
+    "canceled": "Failed",
+    "expired": "Failed",
+}
+
+
+def _check_bedrock(job_id: str) -> dict:
+    bedrock = boto3.client("bedrock")
+    resp = bedrock.get_model_invocation_job(jobIdentifier=job_id)
+    raw_status: str = resp.get("status", "Unknown")
+    mapped_status = _BEDROCK_STATUS_MAP.get(raw_status, "Failed")
+    message = resp.get("message", raw_status)
+    return {"status": mapped_status, "message": message, "raw": raw_status}
+
+
+def _check_anthropic(job_id: str) -> dict:
+    client = anthropic.Anthropic(api_key=_config.ANTHROPIC_API_KEY)
+    batch = client.messages.batches.retrieve(job_id)
+    raw_status = batch.processing_status
+    mapped_status = _ANTHROPIC_STATUS_MAP.get(raw_status, "Failed")
+    return {"status": mapped_status, "message": raw_status, "raw": raw_status}
+
 
 @tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     job_id: str = event["job_id"]
 
-    resp = _bedrock.get_model_invocation_job(jobIdentifier=job_id)
-    raw_status: str = resp.get("status", "Unknown")
-    mapped_status = _STATUS_MAP.get(raw_status, "Failed")
-    message = resp.get("message", raw_status)
+    if _config.LLM_BACKEND == "anthropic":
+        result = _check_anthropic(job_id)
+    else:
+        result = _check_bedrock(job_id)
 
     logger.info(
-        "batch job status", extra={"job_id": job_id, "raw": raw_status, "mapped": mapped_status}
+        "batch job status",
+        extra={"job_id": job_id, "raw": result["raw"], "mapped": result["status"]},
     )
-    return {"status": mapped_status, "message": message}
+    return {"status": result["status"], "message": result["message"]}

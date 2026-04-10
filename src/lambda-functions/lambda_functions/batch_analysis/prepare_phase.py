@@ -42,8 +42,9 @@ from library_layer.analyzer import (
     run_merge_phase,
 )
 from library_layer.config import SteamPulseConfig
+from library_layer.llm import make_batch_backend, make_converse_backend
+from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.batch import BatchBackend
-from library_layer.llm.converse import ConverseBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
@@ -60,8 +61,8 @@ logger = Logger(service="batch-prepare-phase")
 tracer = Tracer(service="batch-prepare-phase")
 
 _config = SteamPulseConfig()
-_BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
-_BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
+_BATCH_BUCKET = os.environ.get("BATCH_BUCKET_NAME", "")
+_BATCH_ROLE_ARN = os.environ.get("BEDROCK_BATCH_ROLE_ARN", "")
 
 _game_repo = GameRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
@@ -76,19 +77,19 @@ _analyzer_settings = AnalyzerSettings.from_config(_config)
 # Module-level ConverseBackend singleton — used by _prepare_merge which
 # runs the merge phase inline. Building instructor/AnthropicBedrock on
 # every invocation would defeat Lambda warm-start reuse.
-_converse_backend = ConverseBackend(
+_converse_backend = make_converse_backend(
     _config,
     max_workers=_config.ANALYSIS_CONVERSE_MAX_WORKERS,
     max_retries=_config.ANALYSIS_CONVERSE_MAX_RETRIES,
 )
 
 
-def _backend_for(execution_id: str) -> BatchBackend:
-    return BatchBackend(
+def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+    return make_batch_backend(
         _config,
+        execution_id=execution_id,
         batch_bucket_name=_BATCH_BUCKET,
         batch_role_arn=_BATCH_ROLE_ARN,
-        execution_id=execution_id,
     )
 
 
@@ -117,7 +118,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict:
+def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -177,7 +178,7 @@ def _prepare_chunk(appid: int, backend: BatchBackend, execution_id: str) -> dict
     }
 
 
-def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict:
+def _prepare_merge(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
     """Run the merge phase INLINE via ConverseBackend and short-circuit the
     Step Functions wait loop.
 
@@ -245,7 +246,7 @@ def _prepare_merge(appid: int, backend: BatchBackend, execution_id: str) -> dict
 
 def _prepare_synthesis(
     appid: int,
-    backend: BatchBackend,
+    backend: BatchBackend | AnthropicBatchBackend,
     execution_id: str,
     merged_summary_id: int | None,
 ) -> dict:

@@ -36,6 +36,8 @@ from library_layer.analyzer import (
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
+from library_layer.llm import make_batch_backend
+from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
@@ -50,8 +52,8 @@ logger = Logger(service="batch-collect-phase")
 tracer = Tracer(service="batch-collect-phase")
 
 _config = SteamPulseConfig()
-_BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
-_BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
+_BATCH_BUCKET = os.environ.get("BATCH_BUCKET_NAME", "")
+_BATCH_ROLE_ARN = os.environ.get("BEDROCK_BATCH_ROLE_ARN", "")
 _CONTENT_EVENTS_TOPIC_ARN = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
 # Merge is handled entirely inline by `prepare_phase._prepare_merge` via
@@ -64,12 +66,12 @@ _review_repo = ReviewRepository(get_conn)
 _sns = boto3.client("sns")
 
 
-def _backend_for(execution_id: str) -> BatchBackend:
-    return BatchBackend(
+def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+    return make_batch_backend(
         _config,
+        execution_id=execution_id,
         batch_bucket_name=_BATCH_BUCKET,
         batch_role_arn=_BATCH_ROLE_ARN,
-        execution_id=execution_id,
     )
 
 
@@ -102,7 +104,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
+def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, job_id: str) -> dict:
     """Persist chunk_summaries rows from a completed chunking batch job.
 
     The prepare_phase Lambda encodes (chunk_index, chunk_size, chunk_hash)
@@ -146,7 +148,7 @@ def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
 
 def _collect_synthesis(
     appid: int,
-    backend: BatchBackend,
+    backend: BatchBackend | AnthropicBatchBackend,
     job_id: str,
     merged_summary_id: int | None,
     chunk_count: int | None,

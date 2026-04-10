@@ -55,7 +55,7 @@ from library_layer.analyzer import (  # noqa: E402
     run_synthesis_phase,
 )
 from library_layer.config import SteamPulseConfig  # noqa: E402
-from library_layer.llm.converse import ConverseBackend  # noqa: E402
+from library_layer.llm import make_converse_backend  # noqa: E402
 from library_layer.models.analyzer_models import (  # noqa: E402
     MergedSummary,
     RichChunkSummary,
@@ -526,7 +526,7 @@ def main() -> None:
     # This script's outer loop is already idempotent via the chunk_hash
     # cache, so just re-run the command on a transient failure and the
     # successful chunks get skipped.
-    backend = ConverseBackend(
+    backend = make_converse_backend(
         config,
         max_workers=config.ANALYSIS_CONVERSE_MAX_WORKERS,
         max_retries=0,

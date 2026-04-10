@@ -35,6 +35,13 @@ class SteamPulseConfig(BaseSettings):
     # ── Deployment ────────────────────────────────────────────────────────────
     ENVIRONMENT: Literal["staging", "production"] = "staging"
 
+    # ── LLM backend selection ────────────────────────────────────────────────
+    # "bedrock" (default) uses AnthropicBedrock via instructor.
+    # "anthropic" uses the direct Anthropic Messages API (higher rate limits,
+    # 50 % batch discount). ANTHROPIC_API_KEY is required when "anthropic".
+    LLM_BACKEND: Literal["bedrock", "anthropic"] = "bedrock"
+    ANTHROPIC_API_KEY: str = ""
+
     # ── LLM model routing (required — set LLM_MODEL__<task> in .env files) ──
     # Known tasks: chunking, summarizer
     # Add new tasks by adding LLM_MODEL__<newtask>=<model_id> to env files.

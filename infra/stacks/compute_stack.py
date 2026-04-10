@@ -104,6 +104,12 @@ class ComputeStack(cdk.Stack):
             ],
         )
         db_secret.grant_read(analysis_role)
+        anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
+            self,
+            "AnalysisAnthropicApiKey",
+            f"/steampulse/{env}/anthropic-api-key",
+        )
+        anthropic_secret.grant_read(analysis_role)
         analysis_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],

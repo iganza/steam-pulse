@@ -1,11 +1,12 @@
 """MergedSummaryRepository — Phase 2 artifact CRUD for the three-phase pipeline.
 
-A merged_summaries row consolidates a set of chunk_summaries (at
-merge_level=1) or prior merged_summaries (at merge_level>=2) into a single
-MergedSummary. `source_chunk_ids` is the sorted list of row ids that fed
-the merge; `find_latest_by_source_ids()` uses it to short-circuit a merge
-call when the same set of inputs already produced a cached merge under the
-current prompt version.
+A merged_summaries row consolidates chunk summaries into a single
+MergedSummary. `source_chunk_ids` always contains **leaf chunk_summaries
+ids** — at every merge level, the ids are threaded transitively from the
+primary chunks, not from intermediate merged_summaries rows.
+`find_latest_by_source_ids()` uses this to short-circuit a merge call when
+the exact same set of primary chunks already produced a cached merge under
+the current prompt version.
 """
 
 import json

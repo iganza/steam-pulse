@@ -17,7 +17,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import AnalyzerSettings, analyze_game
 from library_layer.config import SteamPulseConfig
 from library_layer.events import AnalysisRequest, ReportReadyEvent
-from library_layer.llm.converse import ConverseBackend
+from library_layer.llm import make_converse_backend
 from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
@@ -52,7 +52,7 @@ _analysis_config = SteamPulseConfig()
 # No function signature anywhere in the pipeline carries a default for
 # any of these.
 _analyzer_settings = AnalyzerSettings.from_config(_analysis_config)
-_backend = ConverseBackend(
+_backend = make_converse_backend(
     _analysis_config,
     max_workers=_analysis_config.ANALYSIS_CONVERSE_MAX_WORKERS,
     max_retries=_analysis_config.ANALYSIS_CONVERSE_MAX_RETRIES,

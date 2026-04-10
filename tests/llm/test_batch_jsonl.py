@@ -194,4 +194,10 @@ def test_jsonl_record_is_byte_stable() -> None:
         max_tokens=5000,
         response_model=RichChunkSummary,
     )
-    assert backend._to_jsonl_record(req) == backend._to_jsonl_record(req)
+    expected = (
+        '{"recordId": "440-synthesis", '
+        '"modelInput": {"anthropic_version": "bedrock-2023-05-31", '
+        '"max_tokens": 5000, "system": "S", '
+        '"messages": [{"role": "user", "content": "U"}]}}'
+    )
+    assert backend._to_jsonl_record(req) == expected

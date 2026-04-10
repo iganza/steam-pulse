@@ -79,7 +79,9 @@ def check_evergreen(days_since_release: int | None, last_30d: int) -> bool:
     return days_since_release is not None and days_since_release > 730 and last_30d > 5
 
 
-def build_temporal_context(game: Game, velocity_data: dict, ea_data: dict) -> GameTemporalContext:
+def build_temporal_context(
+    game: Game, velocity_data: dict | None, ea_data: dict | None
+) -> GameTemporalContext:
     """Assemble GameTemporalContext from a Game model + existing repo outputs.
 
     Args:
@@ -100,6 +102,7 @@ def build_temporal_context(game: Game, velocity_data: dict, ea_data: dict) -> Ga
         days_since_release = (date.today() - release_date_parsed).days
 
     # Velocity from existing repo data
+    velocity_data = velocity_data or {}
     summary = velocity_data.get("summary", {})
     last_30d: int = summary.get("last_30_days", 0)
     existing_trend: str = summary.get("trend", "stable")

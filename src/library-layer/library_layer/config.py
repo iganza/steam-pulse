@@ -17,6 +17,7 @@ they live in Secrets Manager and are fetched at runtime.
 
 from typing import Literal, Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,8 +36,26 @@ class SteamPulseConfig(BaseSettings):
     # ── Deployment ────────────────────────────────────────────────────────────
     ENVIRONMENT: Literal["staging", "production"] = "staging"
 
+    # ── LLM backend selection ────────────────────────────────────────────────
+    # "bedrock" (default) uses AnthropicBedrock via instructor.
+    # "anthropic" uses the direct Anthropic Messages API (higher rate limits,
+    # 50 % batch discount). ANTHROPIC_API_KEY is required when "anthropic".
+    LLM_BACKEND: Literal["bedrock", "anthropic"] = "bedrock"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_API_KEY_SECRET_NAME: str = ""
+
+    @model_validator(mode="after")
+    def _validate_anthropic_config(self) -> Self:
+        if self.LLM_BACKEND == "anthropic":
+            if not self.ANTHROPIC_API_KEY and not self.ANTHROPIC_API_KEY_SECRET_NAME:
+                raise ValueError(
+                    "LLM_BACKEND=anthropic requires ANTHROPIC_API_KEY or "
+                    "ANTHROPIC_API_KEY_SECRET_NAME to be set."
+                )
+        return self
+
     # ── LLM model routing (required — set LLM_MODEL__<task> in .env files) ──
-    # Known tasks: chunking, summarizer
+    # Known tasks: chunking, merging, summarizer
     # Add new tasks by adding LLM_MODEL__<newtask>=<model_id> to env files.
     LLM_MODEL: dict[str, str]
 

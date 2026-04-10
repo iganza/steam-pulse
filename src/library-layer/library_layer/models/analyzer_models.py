@@ -1,4 +1,4 @@
-"""Pydantic models for the two-pass LLM analysis pipeline."""
+"""Pydantic models for the three-phase LLM analysis pipeline (chunk → merge → synthesize)."""
 
 import json
 from typing import Literal
@@ -105,9 +105,17 @@ class TopicSignal(BaseModel):
     mention_count: int = Field(ge=1)
     confidence: Literal["low", "medium", "high"]
     summary: str
-    quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    quotes: list[ReviewQuote] = Field(default_factory=list)
     avg_playtime_hours: float = 0.0
     avg_helpful_votes: float = 0.0
+
+    @field_validator("quotes", mode="before")
+    @classmethod
+    def _truncate_quotes(cls, v: object) -> object:
+        v = _coerce_json_array(v)
+        if isinstance(v, list) and len(v) > 3:
+            return v[:3]
+        return v
 
 
 class RichBatchStats(BaseModel):
@@ -126,16 +134,21 @@ class RichChunkSummary(BaseModel):
 
     topics: list[TopicSignal] = Field(default_factory=list)
     competitor_refs: list[CompetitorRef] = Field(default_factory=list)
-    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list)
     batch_stats: RichBatchStats = Field(default_factory=RichBatchStats)
 
     _coerce_topics = field_validator("topics", mode="before")(_coerce_json_array)
     _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
         _coerce_json_array
     )
-    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
-        _coerce_json_array
-    )
+
+    @field_validator("notable_quotes", mode="before")
+    @classmethod
+    def _truncate_notable_quotes(cls, v: object) -> object:
+        v = _coerce_json_array(v)
+        if isinstance(v, list) and len(v) > 3:
+            return v[:3]
+        return v
 
 
 class MergedSummary(BaseModel):
@@ -143,7 +156,7 @@ class MergedSummary(BaseModel):
 
     topics: list[TopicSignal] = Field(default_factory=list)
     competitor_refs: list[CompetitorRef] = Field(default_factory=list)
-    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=5)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list)
     total_stats: RichBatchStats = Field(default_factory=RichBatchStats)
     merge_level: int = 0
     chunks_merged: int = 1
@@ -153,9 +166,14 @@ class MergedSummary(BaseModel):
     _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
         _coerce_json_array
     )
-    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
-        _coerce_json_array
-    )
+
+    @field_validator("notable_quotes", mode="before")
+    @classmethod
+    def _truncate_notable_quotes(cls, v: object) -> object:
+        v = _coerce_json_array(v)
+        if isinstance(v, list) and len(v) > 5:
+            return v[:5]
+        return v
 
 
 class AudienceProfile(BaseModel):

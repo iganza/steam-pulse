@@ -36,6 +36,8 @@ from library_layer.analyzer import (
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
+from library_layer.llm import make_batch_backend
+from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
@@ -64,12 +66,12 @@ _review_repo = ReviewRepository(get_conn)
 _sns = boto3.client("sns")
 
 
-def _backend_for(execution_id: str) -> BatchBackend:
-    return BatchBackend(
+def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+    return make_batch_backend(
         _config,
+        execution_id=execution_id,
         batch_bucket_name=_BATCH_BUCKET,
         batch_role_arn=_BATCH_ROLE_ARN,
-        execution_id=execution_id,
     )
 
 
@@ -89,12 +91,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
         # `merged_summary_id` and `chunk_count` are both threaded through
         # SFN state from the prepare-synthesis payload so the collect
         # phase never races on `find_latest_by_appid` / `find_by_appid`.
-        merged_summary_id = event.get("merged_summary_id")
-        if merged_summary_id is not None:
-            merged_summary_id = int(merged_summary_id)
-        chunk_count = event.get("chunk_count")
-        if chunk_count is not None:
-            chunk_count = int(chunk_count)
+        if "merged_summary_id" not in event or event["merged_summary_id"] is None:
+            raise ValueError("Missing required synthesis event field: merged_summary_id")
+        if "chunk_count" not in event or event["chunk_count"] is None:
+            raise ValueError("Missing required synthesis event field: chunk_count")
+        merged_summary_id = int(event["merged_summary_id"])
+        chunk_count = int(event["chunk_count"])
         return _collect_synthesis(appid, backend, job_id, merged_summary_id, chunk_count)
     # `merge` is handled entirely inline by `prepare_phase._prepare_merge`
     # via ConverseBackend — it always returns skip=true and the state
@@ -102,7 +104,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
+def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, job_id: str) -> dict:
     """Persist chunk_summaries rows from a completed chunking batch job.
 
     The prepare_phase Lambda encodes (chunk_index, chunk_size, chunk_hash)
@@ -146,10 +148,10 @@ def _collect_chunk(appid: int, backend: BatchBackend, job_id: str) -> dict:
 
 def _collect_synthesis(
     appid: int,
-    backend: BatchBackend,
+    backend: BatchBackend | AnthropicBatchBackend,
     job_id: str,
-    merged_summary_id: int | None,
-    chunk_count: int | None,
+    merged_summary_id: int,
+    chunk_count: int,
 ) -> dict:
     """Collect synthesis output and upsert the final report.
 

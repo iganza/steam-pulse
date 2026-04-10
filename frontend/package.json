@@ -10,7 +10,10 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "test:production": "PLAYWRIGHT_BASE_URL=https://steampulse.io npx playwright test --config playwright.production.config.ts",
+    "test:production:staging": "PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npx playwright test --config playwright.production.config.ts",
+    "test:production:report": "npx playwright show-report playwright-report-production"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

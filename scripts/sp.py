@@ -515,7 +515,7 @@ def _resolve_dispatch_fn_name(env: str) -> str:
     """Resolve the dispatch Lambda function name from SSM."""
     import boto3
 
-    ssm = boto3.client("ssm")
+    ssm = boto3.client("ssm", region_name="us-west-2")
     return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
 
 
@@ -726,16 +726,18 @@ def cmd_batch(
 
 
 def cmd_dispatch(
-    batch_size: int,
+    batch_size: int | None,
     dry_run: bool,
     watch: bool,
     env: str,
 ) -> None:
     """Invoke the deployed dispatch Lambda to start the next batch."""
     fn_name = _resolve_dispatch_fn_name(env)
-    payload = {"batch_size": batch_size, "dry_run": dry_run}
+    payload: dict[str, object] = {"dry_run": dry_run}
+    if batch_size is not None:
+        payload["batch_size"] = batch_size
 
-    _info(f"Invoking {fn_name} (batch_size={batch_size}, dry_run={dry_run})")
+    _info(f"Invoking {fn_name} (batch_size={batch_size or 'default'}, dry_run={dry_run})")
     result = _invoke_lambda(fn_name, payload)
 
     dispatched = result.get("dispatched", 0)
@@ -1113,9 +1115,9 @@ def _build_parser() -> argparse.ArgumentParser:
     di.add_argument(
         "--batch-size",
         type=int,
-        default=100,
+        default=None,
         metavar="N",
-        help="Number of games to dispatch (default: 100)",
+        help="Number of games to dispatch (omit to use the deployed default)",
     )
     di.add_argument(
         "--dry-run",

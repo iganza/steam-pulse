@@ -1,5 +1,5 @@
 import type {
-  GameReport, PreviewResponse, JobStatus, Game, Genre, Tag, TagGroup, ReviewStats, Benchmarks, DeckTestResult,
+  GameReport, Game, Genre, Tag, TagGroup, ReviewStats, Benchmarks, DeckTestResult,
   Granularity, ReleaseVolumePeriod, SentimentDistPeriod, GenreSharePeriod, VelocityDistPeriod,
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
@@ -56,15 +56,6 @@ async function apiFetch<T>(
   return res.json();
 }
 
-/** POST /api/preview — free fields, unconditional */
-export async function getPreview(appid: number): Promise<PreviewResponse> {
-  return apiFetch<PreviewResponse>("/api/preview", {
-    method: "POST",
-    body: JSON.stringify({ appid }),
-    next: { revalidate: 3600, tags: [`preview-${appid}`] },
-  });
-}
-
 /** GET /api/games/{appid}/report — full report JSON */
 export async function getGameReport(appid: number, signal?: AbortSignal): Promise<{
   status: string;
@@ -104,33 +95,6 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
     signal,
     next: { revalidate: 3600, tags: [`report-${appid}`] },
   });
-}
-
-/** GET /api/status/{jobId} — polls Step Functions execution */
-export async function pollStatus(jobId: string): Promise<JobStatus> {
-  return apiFetch<JobStatus>(`/api/status/${jobId}`);
-}
-
-/** Poll until SUCCEEDED or FAILED, with timeout */
-export async function waitForReport(
-  jobId: string,
-  timeoutMs = 120_000,
-): Promise<GameReport> {
-  const deadline = Date.now() + timeoutMs;
-  const delay = (ms: number) =>
-    new Promise<void>((r) => setTimeout(r, ms));
-  let interval = 2000;
-
-  while (Date.now() < deadline) {
-    const status = await pollStatus(jobId);
-    if (status.status === "SUCCEEDED" && status.report) return status.report;
-    if (status.status === "FAILED" || status.status === "TIMED_OUT") {
-      throw new Error(`Analysis ${status.status.toLowerCase()}`);
-    }
-    await delay(interval);
-    interval = Math.min(interval * 1.5, 8000);
-  }
-  throw new Error("Analysis timed out");
 }
 
 /** Response shape from GET /api/games */

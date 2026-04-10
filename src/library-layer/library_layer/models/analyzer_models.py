@@ -1,8 +1,29 @@
 """Pydantic models for the two-pass LLM analysis pipeline."""
 
+import json
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_json_array(v: object) -> object:
+    """Sonnet sometimes serializes nested arrays in tool_use as a string.
+    If we get a JSON-encoded string where a list is expected, parse it."""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return v
+    return v
+
+# Silent-truncation cap for ReviewQuote.text. Sized against Phase 2's
+# merge-call context budget: worst case ~1920 quotes per merge batch
+# (40 chunks x 15 topics x 3 quotes + 3 notable_quotes), so at 400
+# chars each we stay under ~200k tokens including prompt scaffolding.
+# 400 chars fits 2-3 English sentences — what an actually-representative
+# quote should be. The value is enforced by a field_validator that
+# TRUNCATES (never rejects) so a verbose LLM response still lands.
+REVIEW_QUOTE_MAX_CHARS = 400
 
 
 class StorePageAlignment(BaseModel):
@@ -15,32 +36,126 @@ class StorePageAlignment(BaseModel):
 
 class CompetitorRef(BaseModel):
     game: str
-    sentiment: Literal["positive", "negative", "neutral"]
+    sentiment: Literal["positive", "negative", "neutral", "mixed"]
     context: str
 
 
-class BatchStats(BaseModel):
+# ---------------------------------------------------------------------------
+# Three-phase pipeline models (chunk → merge → synthesize)
+# ---------------------------------------------------------------------------
+
+
+TopicCategory = Literal[
+    "design_praise",
+    "gameplay_friction",
+    "wishlist_items",
+    "dropout_moments",
+    "technical_issues",
+    "refund_signals",
+    "community_health",
+    "monetization_sentiment",
+    "content_depth",
+]
+
+
+class ReviewQuote(BaseModel):
+    """A verbatim quote linked back to its source review.
+
+    `text` is silently truncated to `REVIEW_QUOTE_MAX_CHARS` — NOT
+    validated. The Phase 2 merge prompt receives every quote from
+    every chunk in its input; an unbounded quote field would blow
+    the merge context window the first time the LLM copies a long
+    review body verbatim. See `REVIEW_QUOTE_MAX_CHARS` for the
+    context-budget math.
+    """
+
+    text: str
+    steam_review_id: str
+    voted_up: bool
+    playtime_hours: int = 0
+    votes_helpful: int = 0
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _truncate_text(cls, v: object) -> object:
+        if isinstance(v, str) and len(v) > REVIEW_QUOTE_MAX_CHARS:
+            # Trim to the last whitespace inside the window so we don't
+            # cut a word in half, then append an ellipsis.
+            cut = v[: REVIEW_QUOTE_MAX_CHARS - 1]
+            ws = cut.rfind(" ")
+            if ws > REVIEW_QUOTE_MAX_CHARS // 2:
+                cut = cut[:ws]
+            return cut.rstrip() + "…"
+        return v
+
+
+class TopicSignal(BaseModel):
+    """A structured topic extracted from a chunk of reviews.
+
+    NOTE on `sentiment`: this is a per-TOPIC tag, not a game-wide sentiment
+    score. Game-wide sentiment magnitude is owned by Steam (`positive_pct` /
+    `review_score_desc` on the Game row) and is never derived from these tags.
+    The topic-level tag is only used to render Topic cards in the UI and to
+    weight signals during merge.
+    """
+
+    topic: str
+    category: TopicCategory
+    sentiment: Literal["positive", "negative", "mixed"]
+    mention_count: int = Field(ge=1)
+    confidence: Literal["low", "medium", "high"]
+    summary: str
+    quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    avg_playtime_hours: float = 0.0
+    avg_helpful_votes: float = 0.0
+
+
+class RichBatchStats(BaseModel):
     positive_count: int = 0
     negative_count: int = 0
     avg_playtime_hours: float = 0.0
     high_playtime_count: int = 0
     early_access_count: int = 0
     free_key_count: int = 0
+    date_range_start: str | None = None  # ISO date
+    date_range_end: str | None = None
 
 
-class ChunkSummary(BaseModel):
-    design_praise: list[str] = []
-    gameplay_friction: list[str] = []
-    wishlist_items: list[str] = []
-    dropout_moments: list[str] = []
-    competitor_refs: list[CompetitorRef] = []
-    notable_quotes: list[str] = []
-    technical_issues: list[str] = []
-    refund_signals: list[str] = []
-    community_health: list[str] = []
-    monetization_sentiment: list[str] = []
-    content_depth: list[str] = []
-    batch_stats: BatchStats = Field(default_factory=BatchStats)
+class RichChunkSummary(BaseModel):
+    """Phase 1 output — structured topic signals from a chunk of reviews."""
+
+    topics: list[TopicSignal] = Field(default_factory=list)
+    competitor_refs: list[CompetitorRef] = Field(default_factory=list)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=3)
+    batch_stats: RichBatchStats = Field(default_factory=RichBatchStats)
+
+    _coerce_topics = field_validator("topics", mode="before")(_coerce_json_array)
+    _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
+        _coerce_json_array
+    )
+    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
+        _coerce_json_array
+    )
+
+
+class MergedSummary(BaseModel):
+    """Phase 2 output — consolidated topic signals from merging chunk summaries."""
+
+    topics: list[TopicSignal] = Field(default_factory=list)
+    competitor_refs: list[CompetitorRef] = Field(default_factory=list)
+    notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=5)
+    total_stats: RichBatchStats = Field(default_factory=RichBatchStats)
+    merge_level: int = 0
+    chunks_merged: int = 1
+    source_chunk_ids: list[int] = Field(default_factory=list)
+
+    _coerce_topics = field_validator("topics", mode="before")(_coerce_json_array)
+    _coerce_competitor_refs = field_validator("competitor_refs", mode="before")(
+        _coerce_json_array
+    )
+    _coerce_notable_quotes = field_validator("notable_quotes", mode="before")(
+        _coerce_json_array
+    )
 
 
 class AudienceProfile(BaseModel):
@@ -59,7 +174,7 @@ class DevPriority(BaseModel):
 
 class CompetitiveRef(BaseModel):
     game: str
-    comparison_sentiment: Literal["positive", "negative", "neutral"]
+    comparison_sentiment: Literal["positive", "negative", "neutral", "mixed"]
     note: str
 
 

@@ -48,25 +48,26 @@ repo-root/
   src/
     library-layer/      # Shared Lambda layer: httpx, psycopg2, boto3, anthropic + framework code
       library_layer/
-        analyzer.py     # LLM two-pass analysis orchestration (Haiku + Sonnet)
+        analyzer.py     # Three-phase LLM analysis (chunk → merge → synthesize)
         config.py       # SteamPulseConfig (env var parsing)
         fetcher.py      # HTTP client wrapper
         reporter.py     # Report generation / storage
         schema.py       # PostgreSQL schema reference
         steam_source.py # Steam API abstraction (SteamDataSource)
         models/         # Domain + LLM output models
-          analyzer_models.py  # GameReport, ChunkSummary + all LLM output types
+          analyzer_models.py  # GameReport, RichChunkSummary, MergedSummary, TopicSignal + all LLM output types
           catalog.py    # CatalogEntry
           game.py       # Game, GameSummary
           report.py     # Report (DB wrapper for stored report_json)
           review.py     # Review
           tag.py        # Tag, Genre, Category
         repositories/   # SQL I/O: game_repo, review_repo, report_repo, analytics_repo, etc.
-        services/       # Business logic: analysis_service, crawl_service, catalog_service
+        services/       # Business logic: crawl_service, catalog_service
         utils/          # Shared helpers: db, sqs, ssm, slugify, events, time, steam_metrics
     lambda-functions/   # All Lambda handlers
       lambda_functions/
-        analysis/       # LLM two-pass analysis handler
+        analysis/       # Three-phase LLM analysis handler (realtime entry point)
+        batch_analysis/ # Batch Step Functions prepare/collect Lambdas (chunk/merge/synthesis)
         api/            # FastAPI app: all /api/* endpoints
         crawler/        # App + review crawler, spoke, ingest handlers
         admin/          # Admin ops + migrate handler (no X-Ray — intentional)
@@ -100,7 +101,6 @@ repo-root/
   doc/                  # Architecture diagrams, sequence diagrams, prompt strategy
   Dockerfile            # Lambda container image
   docker-compose.yml    # Local Postgres for dev
-  main.py               # CLI tool for local LLM testing
   pyproject.toml        # Python deps (main + infra groups)
   cdk.json              # "app": "poetry run python infra/app.py"
   CLAUDE.md
@@ -118,10 +118,12 @@ repo-root/
 ./scripts/dev/run-api.sh              # API at http://localhost:8000
 ./scripts/dev/db-tunnel.sh            # SSH tunnel to RDS (staging/prod)
 
-# CLI analysis (local LLM testing)
-poetry run python main.py --appid 440
-poetry run python main.py --appid 440 --max-reviews 200 --json
-poetry run python main.py --appid 440 --dry-run  # no LLM
+# CLI analysis (local LLM testing) — incremental, per-phase
+# Each phase persists its output (chunk_summaries → merged_summaries → reports)
+# and the next phase short-circuits on cache hits. Safe to re-run.
+poetry run python scripts/dev/run_phase.py --appid 440 --phase chunk
+poetry run python scripts/dev/run_phase.py --appid 440 --phase merge
+poetry run python scripts/dev/run_phase.py --appid 440 --phase synthesis
 
 # Deploy (no pipeline — deploy runs locally)
 bash scripts/deploy.sh --env staging        # build frontend + cdk deploy + migrate + cdn invalidate
@@ -356,31 +358,101 @@ All Steam data access goes through `SteamDataSource`. Currently only `DirectStea
 store page HTML — the `InitAppTagModal()` JS call embeds up to 20 tags per game with vote
 counts. Age-gated games require bypass cookies (handled in `_get_store_page()`).
 
-### LLM Two-Pass Analysis (analyzer.py)
+### LLM Three-Phase Analysis (analyzer.py)
 
-**Pass 1 (Haiku — cheap, parallel):** 50-review chunks → extract 11 signal types:
-`design_praise`, `gameplay_friction`, `wishlist_items`, `dropout_moments`, `competitor_refs`,
-`notable_quotes`, `technical_issues`, `refund_signals`, `community_health`,
-`monetization_sentiment`, `content_depth`
+See `scripts/prompts/three-phase-analysis.md` for the full design.
 
-**Pass 2 (Sonnet — synthesis):** All chunk signals → structured `GameReport` JSON.
-`hidden_gem_score` and `sentiment_trend` are computed in Python BEFORE calling Sonnet — never LLM-guessed.
+**Phase 1 — CHUNK (LLM_MODEL__CHUNKING, map, parallel):**
+Stratified 50-review chunks → `RichChunkSummary`. Each chunk extracts structured
+`TopicSignal` objects (topic, category, sentiment, mention_count, confidence,
+quotes) across nine categories: `design_praise`, `gameplay_friction`,
+`wishlist_items`, `dropout_moments`, `technical_issues`, `refund_signals`,
+`community_health`, `monetization_sentiment`, `content_depth`.
+Persisted in `chunk_summaries`, idempotent on `(appid, chunk_hash, prompt_version)`.
+
+**Phase 2 — MERGE (LLM_MODEL__MERGING, reduce):** Hierarchical merge of chunk
+summaries into a single `MergedSummary`. One-chunk → Python promotion, no LLM call.
+≤ N chunks → single merge call. > N → hierarchical recursion with leaf `chunk_summaries.id`s
+threaded transitively through every level so each merge row is cache-keyed by the exact
+set of primary chunks it derives from. Persisted in `merged_summaries`.
+
+**Phase 3 — SYNTHESIZE (LLM_MODEL__SUMMARIZER):** `MergedSummary` + game metadata +
+temporal context + store description → `GameReport` JSON. `hidden_gem_score`,
+`sentiment_trend`, `sentiment_trend_sample_size`, and `sentiment_trend_reliable` are
+computed in Python BEFORE calling the LLM and defensively overridden on the response —
+never LLM-guessed. Persisted in `reports`.
 
 **Sentiment magnitude is owned by Steam, not the LLM.** The `GameReport` does NOT contain
 `sentiment_score` or `overall_sentiment`. Steam's `positive_pct` (0–100) and `review_score_desc`
 on the `Game` row are the only sentiment numbers shown to users. The LLM produces narrative
-sections only; the analyzer prompt receives Steam's positive_pct as canonical context.
+sections only; the synthesis prompt receives Steam's positive_pct as canonical context.
 See `scripts/prompts/data-source-clarity.md` for the rationale.
 
-**Execution path:** Real-time only — `AnthropicBedrock` via **Converse API** (`bedrock_runtime.converse()`).
-Model-agnostic — swap model ID via env var, zero code changes. Batch Inference path is designed
-but not yet implemented (see `scripts/prompts/bedrock-batch-analysis.md`).
+**Execution modes:** Both realtime (`ConverseBackend`, used by `analysis/handler.py`)
+and batch (`BatchBackend`, driven by the Step Functions state machine in
+`infra/stacks/batch_analysis_stack.py` via `batch_analysis/prepare_phase.py` and
+`collect_phase.py`) call the SAME `analyze_game()` entry point. Editing a prompt or
+a phase helper in `analyzer.py` propagates to both modes. All code is plain sync `def` —
+no asyncio. The only parallelism is a thread pool inside `ConverseBackend.run()` for
+chunk fan-out.
+
+**Tuning knobs** (all defined in `SteamPulseConfig`, bundled into `AnalyzerSettings`,
+passed explicitly down the call chain — no hardcoded defaults in helpers):
+`ANALYSIS_MAX_REVIEWS`, `ANALYSIS_CHUNK_SIZE`, `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`,
+`ANALYSIS_CHUNK_MAX_TOKENS`, `ANALYSIS_MERGE_MAX_TOKENS`, `ANALYSIS_SYNTHESIS_MAX_TOKENS`,
+`ANALYSIS_CONVERSE_MAX_WORKERS`, `ANALYSIS_CHUNK_SHUFFLE_SEED`.
+
+**Local per-phase dev loop:** `scripts/dev/run_phase.py --appid <id> --phase chunk|merge|synthesis`
+runs the three-phase pipeline against your local Postgres + live Bedrock, stopping
+after the requested phase. Idempotent — re-running `--phase synthesis` after `--phase chunk`
+skips Phase 1 entirely via the chunk_hash cache.
 
 **Critical:** Each output section answers a DIFFERENT question. No duplication between sections:
 - `gameplay_friction` = what design is broken
 - `churn_triggers` = WHEN it causes a player to leave
 - `dev_priorities` = the ranked FIX (not a re-description)
 - `player_wishlist` = net-new features (not fixes to broken things)
+
+### Streaming persistence in fan-out phases (mandatory)
+
+Any phase that fans out N independent LLM calls in parallel MUST persist
+each result as soon as its future completes — not after the whole batch
+returns. A failure on call N should NOT throw away the 0..N-1 successful
+responses: they're already paid for in tokens, and the next run will skip
+them via the cache.
+
+The canonical implementation:
+
+1. `ConverseBackend.run()` takes an optional `on_result: LLMResultCallback`
+   (`Callable[[int, BaseModel], None]`). It's invoked from inside the
+   `as_completed` loop as each future resolves, BEFORE the remaining
+   futures finish.
+2. Phase helpers (`run_chunk_phase` today; any future "map" phase the
+   same way) define a nested `_persist(idx, response)` that writes the
+   row via the repository and updates the local order-preserving dict.
+   Pass this to `backend.run(pending, on_result=_persist)`.
+3. The fan-out is cache-idempotent: `(appid, chunk_hash, prompt_version)`
+   for chunks, `(appid, source_chunk_ids, prompt_version)` for merges.
+   Re-running after a crash skips anything already persisted.
+
+Anti-pattern to avoid:
+
+```python
+# DON'T — partial progress is lost on any failure
+fresh = backend.run(pending)
+for meta, response in zip(meta_list, fresh):
+    repo.insert(..., response, ...)
+```
+
+The rule applies to Phase 1 (chunks) today. Phase 2's hierarchical merge
+persists per-level inside the loop for the same reason. Phase 3 is a
+single call — nothing to stream. Any NEW map-style phase (e.g. a future
+per-genre fan-out) must follow this pattern.
+
+Callback exceptions propagate and cancel the remaining futures — that's
+intentional. Raising from the callback means "abort, you've got enough
+partial progress persisted already." The outer cache-idempotent loop
+handles the retry.
 
 ### Async — use it correctly
 
@@ -410,8 +482,6 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | Endpoint | Notes |
 |---|---|
 | `GET /health` | Storage backend + version |
-| `POST /api/preview` | Free: triggers analysis, returns `game_name`, `one_liner`, plus Steam's `positive_pct` / `review_score_desc` from the Game row. 1 per IP. |
-| `GET /api/status/{job_id}` | Step Functions job polling |
 | `GET /api/games` | List games with filters (genre, tag, sentiment, etc.) |
 | `GET /api/games/{appid}/report` | Full report + game metadata |
 | `GET /api/games/{appid}/review-stats` | Weekly sentiment timeline + playtime buckets + velocity |
@@ -430,7 +500,10 @@ CloudFront routes: `/api/*` → FastAPI Lambda, `/*` → Next.js Lambda, `/stati
 | `GET /api/developers/{slug}/analytics` | Developer-level analytics |
 | `POST /api/chat` | V2 only (pending Auth0 integration): NL → SQL → answer |
 
-Rate limit on `/api/preview`: 1 free analysis per IP. Returns `402 {"error": "free_limit_reached"}` on breach.
+Analysis is NOT triggered via the API. Bulk/re-analysis is driven by the batch
+Step Functions state machine in `infra/stacks/batch_analysis_stack.py`
+(one execution per appid, three phases, idempotent caches). Admin re-analyze
+goes through the same machine via a direct `StartExecution`.
 
 ---
 
@@ -600,6 +673,96 @@ Ruff is configured in `pyproject.toml`. Run `poetry run ruff check .` and `poetr
   Type them as required params, not `| None`. If a caller can't provide them, that's a bug.
 - FastAPI endpoints: raise `HTTPException` with appropriate status codes. Never return error dicts with 200.
 - Use Powertools `Logger` — not stdlib `logging`, not `print()`. Use structured fields via `extra={}`: `logger.error("msg", extra={"appid": appid})`.
+
+**Imports — ALL at the top of the file:**
+Every `import` / `from ... import ...` goes in the module header block at
+the top of the file. No imports inside functions, methods, `if`/`else`
+branches, or `try` blocks. This is non-negotiable:
+
+- Inline imports hide the module's true dependency graph, making it
+  impossible to see what a file needs at a glance.
+- They defer failure until the first call site executes, so an import
+  error that would have been caught at cold-start surfaces deep inside a
+  request handler instead.
+- Ruff's import-sorter can't order them; circular-import detection can't
+  see them; test collection can't pre-import them.
+- "I only need it in one branch" is not a justification — a single
+  top-level import costs nothing at runtime after the module is loaded.
+
+The narrow, named exceptions:
+- **Genuine circular import** that cannot be broken by refactoring. Rare
+  and should be fixed, not worked around.
+- **Truly optional dependencies** gated behind a feature flag (e.g.
+  `if USE_OPTIONAL_LIB: import optional_lib`). SteamPulse does not have
+  any of these today.
+- **Lazy loading of something huge** at cold-start-sensitive paths, with
+  a comment explaining the measured cost. Does not apply to normal
+  library imports.
+
+If you find yourself reaching for an inline import because you added a
+helper in the middle of a function: stop, scroll to the top, add it
+there, then go back and finish the helper.
+
+**No defaults in function signatures — pass values explicitly from the entry point:**
+Tuning knobs, bounds, token budgets, timeouts, retry counts, thread pool
+sizes, chunk sizes, magic constants — none of these belong as default
+parameter values in helper functions. Every function that depends on a
+knob takes it as a **required** (keyword-only) argument. The default
+lives in **exactly one place**: `SteamPulseConfig` (or another
+config-layer pydantic model). The handler reads config once and passes
+values explicitly down the call chain.
+
+Rationale:
+- A default buried in a helper is an **assumption** that cannot be
+  seen from the call site. Two callers can disagree about what the
+  "right" value is and silently use different ones.
+- When the config changes, every hardcoded default must be hunted down
+  and updated. Explicit passing makes the data flow searchable.
+- Tests must pass explicit values, so test fixtures document the
+  operating conditions rather than relying on whatever default the
+  code currently happens to carry.
+- Misconfiguration fails loudly at the handler boundary instead of
+  silently producing degraded output.
+
+Examples:
+
+```python
+# ❌ BAD — default hides the assumption, two callers drift apart
+def run_merge(summaries, max_per_call=40):
+    ...
+
+# ❌ BAD — module constant is still an assumption, just hoisted up
+MAX_PER_CALL = 40
+def run_merge(summaries):
+    for group in chunks_of(summaries, MAX_PER_CALL):
+        ...
+
+# ✅ GOOD — required keyword arg, value flows from config
+def run_merge(summaries, *, max_chunks_per_merge_call: int):
+    if max_chunks_per_merge_call <= 0:
+        raise ValueError(...)
+    ...
+
+# Handler (the ONE place config is read):
+settings = AnalyzerSettings.from_config(config)
+run_merge(summaries, max_chunks_per_merge_call=settings.max_chunks_per_merge_call)
+```
+
+For a bundle of related knobs that flow together, define a pydantic
+model (e.g. `AnalyzerSettings`) and pass the bundle. See
+`library_layer/analyzer.py::AnalyzerSettings` for the canonical pattern.
+
+Optional values (e.g. `temporal`, `metadata`, unknown-at-call-site
+fields) are still passed explicitly — the parameter is typed
+`T | None` with NO default, and the caller writes `temporal=None` at
+the call site if they genuinely have nothing. This forces every caller
+to consciously decide whether they have the value, rather than
+inheriting a silent `None` from the signature.
+
+Exceptions (narrow and named):
+- **Test seams** (e.g. `s3_client: object | None = None` on a backend
+  constructor so tests can inject a mock) — acceptable because the
+  default is a dependency-injection slot, not a tuning knob.
 
 **General:**
 - No mutable default arguments (`def f(x=[])` → use `None` sentinel).

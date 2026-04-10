@@ -39,3 +39,25 @@ fi
 echo "▶ Applying migrations from ${MIGRATIONS_DIR}..."
 poetry run yoyo apply --database "$DATABASE_URL" --no-config-file --batch "$MIGRATIONS_DIR"
 echo "✓ Migrations applied."
+
+echo ""
+echo "▶ Last 5 applied migrations:"
+poetry run python3 - <<'PY'
+import os, sys
+try:
+    import psycopg2
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT migration_id, applied_at_utc
+        FROM _yoyo_migration
+        ORDER BY applied_at_utc DESC
+        LIMIT 5
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    for mid, ts in reversed(rows):
+        print(f"  {ts.strftime('%Y-%m-%d %H:%M')}  {mid}")
+except Exception as e:
+    print(f"  (could not query migration state: {e})", file=sys.stderr)
+PY

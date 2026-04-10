@@ -8,6 +8,87 @@
 > `sentiment_trend*` fields (a window comparison, not a magnitude). See
 > `scripts/prompts/data-source-clarity.md` for the full rationale.
 
+---
+
+## Errata — bookkeeping races found during PR review
+
+Two concurrency gaps were identified after the initial implementation landed.
+Both are corrections to the spec's own "no races on bookkeeping" promise — fix
+them in the same branch before merging.
+
+### E1. `run_merge_phase` root verification races with concurrent re-analysis
+
+**Symptom.** At the end of `run_merge_phase` (`library_layer/analyzer.py`,
+post-loop verification block) the code re-reads the root via
+`merge_repo.find_latest_by_appid(appid)` and asserts the returned row id
+equals `last_row_id`. `find_latest_by_appid` orders by
+`(merge_level DESC, created_at DESC)` — it returns "the latest row for this
+appid", not "the row we just inserted". Any concurrent invocation for the
+same appid (admin reanalyze racing bulk seed, SFN retry overlapping a
+realtime call) that inserts a merge row between our last insert and this
+read flips the assertion into a spurious `RuntimeError` on an otherwise
+clean run.
+
+**Fix.**
+1. Add `MergedSummaryRepository.find_by_id(merge_id: int) -> dict | None` —
+   a plain `SELECT ... WHERE id = %s`. This is the race-free lookup.
+2. In `run_merge_phase`, replace the `find_latest_by_appid` + id-equality
+   check with `merge_repo.find_by_id(last_row_id)`. If it's `None`, that's
+   a real consistency bug and should raise; otherwise return the hydrated
+   `MergedSummary` from that exact row.
+3. Do **not** trust `last_row_id` without re-reading — we still want the
+   canonical server-side shape (with `merge_level`, `chunks_merged`,
+   `source_chunk_ids` as the repo stored them) rather than the in-memory
+   `response` object we mutated before insert.
+
+**Test.** Add a case to `tests/services/test_analyzer_three_phase.py` that
+inserts a higher-`merge_level` row for the SAME appid between the last
+per-group insert and the verification read (monkeypatch or a spy on the
+repo) and asserts `run_merge_phase` still returns the correct root.
+
+### E2. Batch `collect_phase` recomputes `chunk_count` from live DB
+
+**Symptom.** `lambda_functions/batch_analysis/collect_phase.py::_collect_synthesis`
+sets `payload["chunk_count"] = len(_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION))`.
+The spec already threads `merged_summary_id` through SFN state (captured
+at prepare-synthesis time) specifically to avoid "the set of persisted
+artifacts changed between prepare and collect" races. `chunk_count` has
+the identical failure mode: a concurrent re-analyze (or a CHUNK_PROMPT_VERSION
+bump landing between prepare and collect) can inflate or shrink the count
+so the stored value no longer reflects what the synthesis actually saw.
+
+**Fix.** Thread `chunk_count` through SFN state the same way
+`merged_summary_id` is threaded today.
+
+1. In `prepare_phase._prepare_synthesis`: compute `chunk_count` from the
+   `_chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)` result that
+   already drives merge-lookup, and return it in the output payload
+   alongside `merged_summary_id`.
+2. In `collect_phase.handler`: pull `event.get("chunk_count")` the same
+   way `merged_summary_id` is pulled.
+3. In `collect_phase._collect_synthesis`: accept `chunk_count: int | None`
+   as a required parameter (no default), assign it into `payload["chunk_count"]`,
+   and **remove the `find_by_appid(...)` re-query entirely**.
+4. Update `infra/stacks/batch_analysis_stack.py` so the Step Functions
+   state machine passes `chunk_count` through the synthesis prepare →
+   collect transition. If `merged_summary_id` is already passed via
+   `ResultSelector` / `Parameters`, extend the same path.
+
+**Test.** Update `tests/handlers/test_collect_phase.py` so the synthesis
+collect test asserts the stored `chunk_count` came from the event payload,
+not from a live repo call. The existing merged_summary_id test is the
+template.
+
+### Non-goal
+
+The third PR-review finding (`metadata=None` at both call sites — lost
+`store_page_alignment` + metadata context block) is a **missing feature**,
+not a race. It is tracked in its own spec at
+`scripts/prompts/metadata-context-wiring.md` and must land in this same
+branch before merge.
+
+---
+
 ## Background
 
 The current two-pass analysis pipeline has five structural limitations:
@@ -59,8 +140,10 @@ Reviews (DB)
 ┌──────────────────────────────────────────────────┐
 │  PHASE 2: MERGE SUMMARIES (reduce)               │
 │  Model: LLM_MODEL__MERGING                       │
-│  ≤5 chunks: single merge pass                    │
-│  >5 chunks: hierarchical (groups of 5–8)         │
+│  1 chunk:   promotion, no LLM call (persisted)   │
+│  ≤N chunks: single merge call (N = config knob)  │
+│  >N chunks: hierarchical recursion, source ids   │
+│             threaded transitively through levels │
 │  Output: MergedSummary (superset of chunk schema)│
 │  Storage: merged_summaries table                 │
 └──────────────────┬───────────────────────────────┘
@@ -89,8 +172,118 @@ artifacts, adds a merge phase, and uses structured topic signals instead of flat
 
 The `GameReport` output schema is **unchanged** — the frontend does not break.
 
-Both execution paths (real-time Converse API and Bedrock Batch Inference) use the same
-prompts and produce identical output.
+Both execution modes (real-time via Converse and batch via Bedrock Batch Inference) run the
+**same three phases against the same Postgres tables with the same prompts**. The only
+difference between modes is *how* an `LLMRequest` becomes a parsed pydantic response.
+
+### Unified framework design
+
+The entry point is a typed `AnalysisRequest` (new in `library_layer/events.py`):
+
+```python
+class AnalysisRequest(BaseSqsMessage):
+    message_type: SqsMessageType = "analysis_request"
+    appid: int
+    mode: Literal["realtime", "batch"] = "realtime"
+    reason: str | None = None       # "bulk_seed" | "stale_refresh" | "admin_reanalyze" | ...
+```
+
+Triggers (admin re-analyze, bulk seed, scheduled refresh) construct an `AnalysisRequest`
+and hand it to the dispatcher. No HTTP endpoint is involved — in particular **`/api/preview`
+is deleted** as part of this work (backend handler, rate limiter, frontend form, e2e specs).
+
+Two distinct seams sit under the shared analyzer — **no pretending batch is sync, no
+exceptions-as-control-flow**:
+
+```
+┌─────────────────── shared pure helpers (analyzer.py) ──────────────────┐
+│ stratified_chunk_reviews, compute_chunk_hash,                           │
+│ build_chunk_requests, plan_merge_hierarchy, build_synthesis_request,    │
+│ prompt constants, prompt versions, pydantic response models,            │
+│ ChunkSummaryRepository / MergedSummaryRepository persistence,           │
+│ compute_hidden_gem_score, compute_sentiment_trend, Python overrides.    │
+└─────────────────────────────────────────────────────────────────────────┘
+            │                                        │
+            ▼                                        ▼
+   ConverseBackend (sync)                  BatchBackend (explicit lifecycle)
+   def run(requests) -> list[BaseModel]    def prepare(requests) -> s3_uri
+                                            def submit(s3_uri, task) -> job_id
+                                            def status(job_id) -> "running"|"completed"|"failed"
+                                            def collect(job_id, models) -> list[BaseModel]
+```
+
+`ConverseBackend.run()` blocks and returns parsed pydantic objects; used by the realtime
+Lambda. `BatchBackend` does **not** implement `run()` — Step Functions Lambdas call
+`prepare/submit/status/collect` across multiple invocations, and "job still pending" is
+Step Functions state (Wait → Choice loop), never a Python exception.
+
+**All code is plain sync `def`.** No `async`/`await`. psycopg2, instructor, and boto3 are
+all sync; async adds no concurrency on Lambda and just clutters signatures. The only
+parallelism is a thread pool inside `ConverseBackend.run()` for chunk fan-out.
+
+```python
+# library_layer/llm/backend.py
+class LLMRequest(BaseModel):
+    record_id: str                    # "{appid}-chunk-{i}" | "{appid}-merge-L{n}" | "{appid}-synthesis"
+    task: Literal["chunking", "merging", "summarizer"]
+    system: str
+    user: str
+    max_tokens: int
+    response_model: type[BaseModel]   # RichChunkSummary | MergedSummary | GameReport
+
+class LLMBackend(Protocol):
+    mode: Literal["realtime", "batch"]
+```
+
+Models are chosen per request via `config.model_for(request.task)` — one place to swap
+Haiku/Sonnet/Opus per phase.
+
+### Tuning knobs: explicit everywhere, no defaults in helpers
+
+**No function in the three-phase pipeline carries default values** for
+tuning knobs (chunk size, token budgets, merge group size, thread pool,
+shuffle seed, review cap). Every knob lives in exactly one place —
+`SteamPulseConfig` — and flows down through an `AnalyzerSettings`
+pydantic bundle constructed at the handler:
+
+```python
+# library_layer/analyzer.py
+class AnalyzerSettings(BaseModel):
+    chunk_size: int = Field(gt=0)
+    max_chunks_per_merge_call: int = Field(gt=0)   # per-call context bound
+    chunk_max_tokens: int = Field(gt=0)
+    merge_max_tokens: int = Field(gt=0)
+    synthesis_max_tokens: int = Field(gt=0)
+    shuffle_seed: int
+
+    @classmethod
+    def from_config(cls, config: SteamPulseConfig) -> "AnalyzerSettings": ...
+```
+
+Handlers read `SteamPulseConfig` once, build an `AnalyzerSettings`, and
+pass it (plus `reference_time`, computed via
+`library_layer.utils.chunking.dataset_reference_time(reviews)`) into
+`analyze_game`. Every phase helper — `run_chunk_phase`, `run_merge_phase`,
+`run_synthesis_phase`, `build_chunk_requests`, `build_merge_request`,
+`build_synthesis_request` — takes the relevant knobs as required
+keyword arguments. Misconfiguration fails loudly at the handler boundary,
+never silently inside a helper.
+
+Config fields (defined in `SteamPulseConfig`):
+
+| Config field                           | Default | Purpose |
+|----------------------------------------|---------|---------|
+| `ANALYSIS_MAX_REVIEWS`                 | 2000    | reviews loaded per game |
+| `ANALYSIS_CHUNK_SIZE`                  | 50      | reviews per Phase 1 chunk |
+| `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`   | 40      | per-call LLM context-budget limit (NOT a review-count limit — larger counts recurse hierarchically) |
+| `ANALYSIS_CHUNK_MAX_TOKENS`            | 1024    | Bedrock max_tokens per chunk call |
+| `ANALYSIS_MERGE_MAX_TOKENS`            | 4096    | per merge call |
+| `ANALYSIS_SYNTHESIS_MAX_TOKENS`        | 5000    | per synthesis call |
+| `ANALYSIS_CONVERSE_MAX_WORKERS`        | 8       | ConverseBackend chunk-phase fan-out thread pool |
+| `ANALYSIS_CHUNK_SHUFFLE_SEED`          | 42      | deterministic in-chunk shuffle seed |
+
+All of these are overridable via `.env.{environment}`. No other location
+in the codebase hardcodes these values.
 
 ---
 
@@ -98,26 +291,41 @@ prompts and produce identical output.
 
 ### Files to Modify
 
-- **Models**: `src/library-layer/library_layer/models/analyzer_models.py` — add `TopicSignal`, `ReviewQuote`, `RichChunkSummary`, `MergedSummary`
-- **Analyzer**: `src/library-layer/library_layer/analyzer.py` — v2 prompts, new chunk/merge/synthesis functions, `analyze_reviews_v3()` orchestrator
-- **Scores**: `src/library-layer/library_layer/utils/scores.py` — no new helpers needed; `compute_hidden_gem_score(positive_pct, review_count)` and `compute_sentiment_trend(reviews) -> dict` already exist post-data-source-clarity
-- **Config**: `src/library-layer/library_layer/config.py` — add `LLM_MODEL__MERGING` task
-- **Schema reference**: `src/library-layer/library_layer/schema.py` — add new tables
-- **Analysis handler**: `src/lambda-functions/lambda_functions/analysis/handler.py` — switch to `analyze_reviews_v3()`
-- **Batch prepare_pass1**: `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass1.py` — stratified chunking + v2 prompts
-- **Batch prepare_pass2**: rename to `prepare_pass3.py`, accept MergedSummary input
-- **Batch process_results**: `process_results.py` — store pipeline_version in reports
-- **CDK**: `infra/stacks/batch_analysis_stack.py` — add merge Lambda + update Step Functions ASL
+- **Models**: `src/library-layer/library_layer/models/analyzer_models.py` — adds `TopicSignal`, `ReviewQuote`, `RichBatchStats`, `RichChunkSummary`, `MergedSummary`; deletes legacy `ChunkSummary`/`BatchStats`.
+- **Analyzer**: `src/library-layer/library_layer/analyzer.py` — v2 chunk prompt + new merge prompt, `AnalyzerSettings` pydantic bundle, `analyze_game()` single entry point, `run_chunk_phase` / `run_merge_phase` / `run_synthesis_phase`, pure request builders (`build_chunk_requests`, `build_merge_request`, `build_synthesis_request`), `parse_chunk_record_id()` helper for the batch collect path.
+- **Scores**: `src/library-layer/library_layer/utils/scores.py` — unchanged; `compute_hidden_gem_score(positive_pct, review_count)` and `compute_sentiment_trend(reviews) -> dict` already exist post-data-source-clarity.
+- **Config**: `src/library-layer/library_layer/config.py` — adds `LLM_MODEL__MERGING` plus the `ANALYSIS_*` tuning-knob fields (`ANALYSIS_MAX_REVIEWS`, `ANALYSIS_CHUNK_SIZE`, `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`, `ANALYSIS_CHUNK_MAX_TOKENS`, `ANALYSIS_MERGE_MAX_TOKENS`, `ANALYSIS_SYNTHESIS_MAX_TOKENS`, `ANALYSIS_CONVERSE_MAX_WORKERS`, `ANALYSIS_CHUNK_SHUFFLE_SEED`).
+- **Schema**: `src/library-layer/library_layer/schema.py` — mirrors the new `chunk_summaries` / `merged_summaries` tables and the three new `reports` bookkeeping columns.
+- **ReportRepository**: `src/library-layer/library_layer/repositories/report_repo.py` — `upsert` writes `pipeline_version` / `chunk_count` / `merged_summary_id` to dedicated columns (stripping them from `report_json`), with `COALESCE` on UPDATE so absent keys preserve existing values.
+- **Analysis handler**: `src/lambda-functions/lambda_functions/analysis/handler.py` — constructs `AnalyzerSettings.from_config()` + module-level `ConverseBackend`, reads `ANALYSIS_MAX_REVIEWS` per invocation, derives `reference_time` from the dataset, calls `analyze_game()`.
+- **Batch handlers**: `src/lambda-functions/lambda_functions/batch_analysis/prepare_phase.py` + `collect_phase.py` (parametrized on `event["phase"]`); `check_batch_status.py` (thinned). Old `prepare_pass1.py`, `prepare_pass2.py`, `process_results.py`, `submit_batch_job.py` are **deleted**.
+- **API handler**: `src/lambda-functions/lambda_functions/api/handler.py` — `/api/preview`, `/api/status/{job_id}`, and all job/preview plumbing removed.
+- **CDK**: `infra/stacks/batch_analysis_stack.py` — three Lambdas (`PreparePhaseFn`, `CollectPhaseFn`, `CheckBatchStatusFn`) and a Step Functions state machine built from a `_phase_chain(phase, next_step)` helper. No merge loop (merge runs inline via ConverseBackend).
 
 ### Files to Create
 
-- `src/library-layer/library_layer/utils/chunking.py` — stratified chunking + chunk hash
-- `src/library-layer/library_layer/repositories/chunk_summary_repo.py` — CRUD for chunk_summaries
-- `src/library-layer/library_layer/repositories/merged_summary_repo.py` — CRUD for merged_summaries
-- `src/lambda-functions/migrations/0012_chunk_summaries.sql` — new table
-- `src/lambda-functions/migrations/0013_merged_summaries.sql` — new table + reports columns
-- `src/lambda-functions/lambda_functions/batch_analysis/prepare_merge.py` — batch merge Lambda
-- Tests: `tests/utils/test_chunking.py`, `tests/repositories/test_chunk_summary_repo.py`, `tests/repositories/test_merged_summary_repo.py`, `tests/services/test_analyzer_v3.py`
+- `src/library-layer/library_layer/llm/backend.py` — `LLMRequest` + `LLMBackend` protocol
+- `src/library-layer/library_layer/llm/converse.py` — `ConverseBackend` (required `max_workers`, `as_completed` fan-out with cancel-on-error)
+- `src/library-layer/library_layer/llm/batch.py` — `BatchBackend` with `prepare/submit/status/collect` + `_safe_job_name` (sanitized + SHA1-truncated) + paginated S3 collect
+- `src/library-layer/library_layer/utils/chunking.py` — `stratified_chunk_reviews`, `dataset_reference_time`, `compute_chunk_hash` (all required keyword args, no defaults)
+- `src/library-layer/library_layer/repositories/chunk_summary_repo.py` — CRUD for `chunk_summaries`
+- `src/library-layer/library_layer/repositories/merged_summary_repo.py` — CRUD for `merged_summaries` + `find_latest_by_source_ids`
+- `src/lambda-functions/migrations/0035_chunk_summaries.sql` — new table
+- `src/lambda-functions/migrations/0036_merged_summaries.sql` — new table + reports bookkeeping columns
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_phase.py` — single parametrized prepare Lambda
+- `src/lambda-functions/lambda_functions/batch_analysis/collect_phase.py` — single parametrized collect Lambda
+- Tests: `tests/utils/test_chunking.py`, `tests/llm/test_batch_jsonl.py`, `tests/services/test_analyzer_three_phase.py`, plus repository tests under `tests/repositories/`
+
+### Files to Delete
+
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass1.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/prepare_pass2.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/process_results.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/submit_batch_job.py`
+- `src/library-layer/library_layer/services/analysis_service.py` (dead wrapper around the legacy two-pass `analyze_reviews()`)
+- Legacy `analyze_reviews()`, `_summarize_chunk`, `_synthesize`, `_aggregate_chunk_summaries` in `analyzer.py`
+- Legacy `ChunkSummary`/`BatchStats` in `analyzer_models.py`
+- `POST /api/preview` + `GET /api/status/{job_id}` + related frontend (`getPreview`, `pollStatus`, `waitForReport`, `PreviewResponse`, `JobStatus`) and e2e mock routes
 
 ### Existing Patterns to Follow
 
@@ -205,7 +413,7 @@ class MergedSummary(BaseModel):
     competitor_refs: list[CompetitorRef] = Field(default_factory=list)
     notable_quotes: list[ReviewQuote] = Field(default_factory=list, max_length=5)
     total_stats: RichBatchStats = Field(default_factory=RichBatchStats)
-    merge_level: int = 0                # 0=no merge (single chunk), 1=first, 2=second
+    merge_level: int = 0                # 0=single-chunk promotion, 1+=LLM merge levels
     chunks_merged: int = 1
     source_chunk_ids: list[int] = Field(default_factory=list)
 ```
@@ -221,27 +429,51 @@ Create `src/library-layer/library_layer/utils/chunking.py`.
 ```
 1. Separate reviews into voted_up=True and voted_up=False pools
 2. Within each pool, sort by votes_helpful DESC
-   - Apply 1.5× multiplier to votes_helpful for reviews from last 90 days
-     (sort key only — does not modify actual vote count)
+   - Apply 1.5x multiplier to votes_helpful for reviews posted within
+     90 days of `reference_time` (sort key only — does not modify the
+     stored vote count)
 3. Compute target_positive_ratio = len(positive) / len(all_reviews)
-4. For each chunk of CHUNK_SIZE (50):
-   a. Draw ceil(CHUNK_SIZE × target_positive_ratio) from positive pool
+4. For each chunk of `chunk_size` (passed from config):
+   a. Draw ceil(chunk_size * target_positive_ratio) from positive pool
    b. Draw remainder from negative pool
    c. If a pool is exhausted, fill from the other
-   d. Ensure at least 1 review from each available playtime bucket:
-      <2h, 2–10h, 10–50h, 50–200h, 200h+
-      (soft constraint — swap lowest-helpful-vote review if needed)
-   e. Shuffle the assembled chunk to avoid ordering bias
+   d. Drain any leftover reviews into the last chunk (rounding fill)
+   e. Shuffle the assembled chunk with the explicit `seed` parameter
 5. Return list of chunks
+
+Partition invariant: every input review appears in exactly one output
+chunk. The input list is not mutated.
+
+Note: the earlier "playtime bucket coverage" constraint was removed. It
+had a correctness bug (could duplicate reviews across chunks) and the
+simpler partition-only behavior is correct.
+```
+
+### Reference time
+
+The 90-day recency window needs a "now" anchor. `stratified_chunk_reviews`
+does NOT call `datetime.now()` — it requires callers to pass a
+`reference_time` explicitly so chunk hashes and cache lookups stay
+reproducible across wall-clock time.
+
+Callers typically derive it from the dataset itself:
+
+```python
+def dataset_reference_time(reviews: list[dict]) -> datetime:
+    """Return max(posted_at) across reviews. Raises ValueError if no
+    review carries a parseable posted_at — NO silent epoch fallback."""
 ```
 
 ### Chunk Hash
 
 ```python
 def compute_chunk_hash(reviews: list[dict]) -> str:
-    """Deterministic hash from sorted steam_review_id values."""
-    review_ids = sorted(str(r.get("steam_review_id", "")) for r in reviews)
-    return hashlib.sha256("|".join(review_ids).encode()).hexdigest()[:16]
+    """Deterministic 16-char hex hash over sorted steam_review_id values.
+
+    Raises ValueError if any review is missing `steam_review_id`. We do
+    NOT fall back to an empty string placeholder — that would collide
+    across different missing-id reviews and cause wrong cache hits.
+    """
 ```
 
 Same reviews in any order = same hash. Adding/removing a review changes the hash.
@@ -249,18 +481,27 @@ Same reviews in any order = same hash. Adding/removing a review changes the hash
 ### Exports
 
 ```python
-def stratified_chunk_reviews(reviews: list[dict], chunk_size: int = 50) -> list[list[dict]]:
+def stratified_chunk_reviews(
+    reviews: list[dict],
+    *,
+    chunk_size: int,           # required — from SteamPulseConfig.ANALYSIS_CHUNK_SIZE
+    reference_time: datetime,  # required — from dataset_reference_time(reviews)
+    seed: int,                 # required — from SteamPulseConfig.ANALYSIS_CHUNK_SHUFFLE_SEED
+) -> list[list[dict]]:
+def dataset_reference_time(reviews: list[dict]) -> datetime:
 def compute_chunk_hash(reviews: list[dict]) -> str:
 ```
+
+**No defaults on any parameter.** Callers must pass every value explicitly.
 
 ---
 
 ## Step 3: Database Migrations
 
-### `0012_chunk_summaries.sql`
+### `0035_chunk_summaries.sql`
 
 ```sql
--- depends: 0011_<previous_migration>
+-- depends: 0034_new_releases_matview
 
 CREATE TABLE IF NOT EXISTS chunk_summaries (
     id              BIGSERIAL PRIMARY KEY,
@@ -281,10 +522,10 @@ CREATE TABLE IF NOT EXISTS chunk_summaries (
 CREATE INDEX IF NOT EXISTS idx_chunk_summaries_appid ON chunk_summaries(appid);
 ```
 
-### `0013_merged_summaries.sql`
+### `0036_merged_summaries.sql`
 
 ```sql
--- depends: 0012_chunk_summaries
+-- depends: 0035_chunk_summaries
 
 CREATE TABLE IF NOT EXISTS merged_summaries (
     id              BIGSERIAL PRIMARY KEY,
@@ -533,150 +774,249 @@ SYNTHESIS_PROMPT_VERSION = "synthesis-v3.0"
 
 ## Step 8: Real-Time Execution Path
 
-The `analyze_reviews()` function in `analyzer.py` is joined by `analyze_reviews_v3()`:
+The single entry point is `analyze_game()` in `analyzer.py`. Every
+tuning knob is required and passed in explicitly — no defaults anywhere.
 
 ```python
-def analyze_reviews_v3(
+def analyze_game(
+    request: AnalysisRequest,
+    *,
+    backend: LLMBackend,
+    chunk_repo: ChunkSummaryRepository,
+    merge_repo: MergedSummaryRepository,
+    report_repo: ReportRepository,
     reviews: list[dict],
     game_name: str,
-    appid: int,
-    conn: psycopg2.extensions.connection,
-    temporal: GameTemporalContext | None = None,
-    metadata: GameMetadataContext | None = None,
-    steam_positive_pct: int | float | None = None,
-    steam_review_count: int | None = None,
-    steam_review_score_desc: str | None = None,
-) -> dict:
-    """Three-phase LLM analysis pipeline.
+    settings: AnalyzerSettings,
+    reference_time: datetime,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+    steam_positive_pct: int | float | None,
+    steam_review_count: int | None,
+    steam_review_score_desc: str | None,
+) -> GameReport:
+    """The one entry point. Identical for realtime and batch.
 
-    Steam's positive_pct/review_count/review_score_desc must be passed by the caller
-    (read from the Game row). They feed both `compute_hidden_gem_score` and the
-    synthesis prompt context. They are NEVER recomputed from `merged.total_stats`.
+    Sentiment magnitude is owned by Steam — `positive_pct` / `review_score_desc`
+    flow from the `Game` row via required params and NEVER get recomputed from
+    merged.total_stats. `settings` bundles all tuning knobs from
+    `SteamPulseConfig`. `reference_time` is derived by the caller via
+    `dataset_reference_time(reviews)`.
     """
-    client = _get_instructor_client()
-
-    # Phase 1: Chunk & Summarize (with idempotency)
-    chunks = stratified_chunk_reviews(reviews)
-    chunk_repo = ChunkSummaryRepository(conn)
-    summaries = []
-    chunk_ids = []
-    for i, chunk in enumerate(chunks):
-        chunk_hash = compute_chunk_hash(chunk)
-        existing = chunk_repo.find_by_hash(appid, chunk_hash, CHUNK_PROMPT_VERSION)
-        if existing:
-            summaries.append(RichChunkSummary.model_validate(existing["summary_json"]))
-            chunk_ids.append(existing["id"])
-        else:
-            summary = _summarize_chunk_v2(client, chunk, i, len(chunks), game_name)
-            row_id = chunk_repo.insert(appid, i, chunk_hash, len(chunk), summary, ...)
-            summaries.append(summary)
-            chunk_ids.append(row_id)
-
-    # Phase 2: Merge
-    merged = _merge_chunk_summaries(client, summaries, chunk_ids, game_name, appid)
-    merged_repo = MergedSummaryRepository(conn)
-    merged_id = merged_repo.insert(appid, merged, ...)
-
-    # Python derived values — sentiment magnitude is owned by Steam, not derived here
-    hidden_gem_score = compute_hidden_gem_score(steam_positive_pct, steam_review_count)
-    trend = compute_sentiment_trend(reviews)  # dict with trend, note, reliable, sample_size
-
-    # Phase 3: Synthesize
-    report = _synthesize_v3(
-        client, merged, game_name, len(reviews),
-        hidden_gem_score=hidden_gem_score,
-        sentiment_trend=trend["trend"],
-        sentiment_trend_note=trend["note"],
-        steam_positive_pct=steam_positive_pct,
-        steam_review_score_desc=steam_review_score_desc,
-        temporal=temporal,
-        metadata=metadata,
-    )
-
-    # Override Python-computed values (defensive — LLM must not produce these)
-    report.hidden_gem_score = hidden_gem_score
-    report.sentiment_trend = trend["trend"]
-    report.sentiment_trend_note = trend["note"]
-    report.sentiment_trend_reliable = trend["reliable"]
-    report.sentiment_trend_sample_size = trend["sample_size"]
-    if appid is not None:
-        report.appid = appid
-
-    return report.model_dump()
 ```
 
-Note: `conn` parameter is new — needed for chunk storage/lookup. The analysis handler
-already has `_conn` at module level. The handler must also pass `steam_positive_pct`
-/ `steam_review_count` / `steam_review_score_desc` from the `Game` row it already
-loads (see the existing pattern in `analysis/handler.py` post-data-source-clarity).
+### Phase helpers — every knob required
+
+```python
+def run_chunk_phase(
+    *,
+    appid: int,
+    game_name: str,
+    reviews: list[dict],
+    backend: LLMBackend,
+    chunk_repo: ChunkSummaryRepository,
+    chunk_size: int,
+    reference_time: datetime,
+    shuffle_seed: int,
+    chunk_max_tokens: int,
+) -> tuple[list[RichChunkSummary], list[int]]:
+    """Cache-check via chunk_hash → build LLMRequests for misses →
+    backend.run() → persist. Returns (summaries, row_ids) in chunk order."""
+
+
+def run_merge_phase(
+    *,
+    appid: int,
+    game_name: str,
+    chunk_summaries: list[RichChunkSummary],
+    chunk_ids: list[int],
+    backend: LLMBackend,
+    merge_repo: MergedSummaryRepository,
+    max_chunks_per_merge_call: int,   # per-call context budget
+    merge_max_tokens: int,
+) -> tuple[MergedSummary, int | None]:
+    """Hierarchical merge. Groups of at most `max_chunks_per_merge_call`
+    inputs per LLM call; recurses until one summary remains.
+
+    Single-chunk input → promotion (no LLM call) but STILL persists a
+    merge_level=0, model_id="python-promotion" row so downstream
+    consumers never see a stale row from a previous analysis run.
+
+    At every level, each group's `source_chunk_ids` is the UNION of
+    leaf chunk row ids the group's inputs transitively derive from.
+    This is server-computed — the LLM is never trusted for it.
+    find_latest_by_source_ids cache-checks at every level.
+
+    Returns (root_merged_summary, root_row_id). row_id is non-None for
+    any analysis run that touches the DB (promotion included)."""
+
+
+def run_synthesis_phase(
+    *,
+    appid: int,
+    game_name: str,
+    merged: MergedSummary,
+    total_reviews: int,
+    reviews: list[dict],
+    steam_positive_pct: int | float | None,
+    steam_review_count: int | None,
+    steam_review_score_desc: str | None,
+    temporal: GameTemporalContext | None,
+    metadata: GameMetadataContext | None,
+    backend: LLMBackend,
+    synthesis_max_tokens: int,
+) -> GameReport:
+    """One backend.run() call. Python computes hidden_gem_score from
+    Steam's positive_pct + review_count and overrides the field on the
+    LLM output. sentiment_trend fields are similarly overridden. Steam
+    owns sentiment magnitude; Python owns derived scores."""
+```
+
+### Realtime Lambda wiring
+
+`lambda_functions/analysis/handler.py` reads `SteamPulseConfig` once at
+module level, builds the `AnalyzerSettings` bundle + `ConverseBackend`,
+then per-invocation loads reviews, computes `reference_time`, and calls
+`analyze_game` with every value explicit:
+
+```python
+_analyzer_settings = AnalyzerSettings.from_config(_analysis_config)
+_backend = ConverseBackend(
+    _analysis_config,
+    max_workers=_analysis_config.ANALYSIS_CONVERSE_MAX_WORKERS,
+)
+
+# inside handler():
+max_reviews = _analysis_config.ANALYSIS_MAX_REVIEWS
+db_reviews = _review_repo.find_by_appid(req.appid, limit=max_reviews)
+reviews_for_llm = [_review_to_dict(r) for r in db_reviews if r.body]
+reference_time = dataset_reference_time(reviews_for_llm)
+
+report = analyze_game(
+    analysis_req,
+    backend=_backend,
+    chunk_repo=_chunk_repo,
+    merge_repo=_merge_repo,
+    report_repo=_report_repo,
+    reviews=reviews_for_llm,
+    game_name=name,
+    settings=_analyzer_settings,
+    reference_time=reference_time,
+    temporal=temporal,
+    metadata=None,
+    steam_positive_pct=...,
+    steam_review_count=...,
+    steam_review_score_desc=...,
+)
+```
+
+`ConverseBackend.__init__` takes `max_workers` as a **required** keyword
+arg — no default. The handler is responsible for reading it from config.
 
 ---
 
 ## Step 9: Batch Execution Path
 
-### Step Functions Changes
+Batch mode runs the **same** `run_chunk_phase` / `run_merge_phase` /
+`run_synthesis_phase` helpers as realtime — just driven across multiple Lambda
+invocations by Step Functions. Each Prepare/Collect Lambda is a thin wrapper
+that instantiates `BatchBackend` and calls the shared helpers. No
+exceptions-as-control-flow: job pending vs. complete is Step Functions state.
 
-Add merge states between Pass 1 output and Pass 3 input:
-
-```
-[PreparePass1] → [SubmitPass1] → [WaitPass1] → [CheckPass1] →
-[PrepareMerge] → [SubmitMerge] → [WaitMerge] → [CheckMerge] →
-  Choice: needs_another_merge? → yes: [PrepareMerge] (loop)
-                                → no:  continue
-[PreparePass3] → [SubmitPass3] → [WaitPass3] → [CheckPass3] →
-[ProcessResults]
-```
-
-### New Lambda: `prepare_merge.py`
-
-- Input: `{execution_id, input_s3_uri (pass1 or prior merge output), merge_level}`
-- Groups chunk/merge summaries by appid
-- For each game, determines if hierarchical merge is needed
-- Writes merge JSONL with `MERGE_SYSTEM_PROMPT`
-- Returns: `{input_s3_uri, output_s3_uri, total_records, needs_another_merge: bool}`
-
-### S3 Structure
+### Step Functions (STANDARD) state machine
 
 ```
-jobs/{execution-id}/
-  pass1/input.jsonl, output/
-  merge/
-    level1/input.jsonl, output/
-    level2/input.jsonl, output/
-  pass3/input.jsonl, scores.json, output/
+StartAnalysis (receives AnalysisRequest with mode="batch", per-appid execution)
+  ├─ PrepareChunkPhase   → shared run_chunk_phase helpers to build requests,
+  │                        filter DB cache hits (insert them immediately),
+  │                        BatchBackend.prepare(pending) → s3_uri
+  │                        BatchBackend.submit(s3_uri, "chunking") → job_id
+  │                        returns {job_id, appid}
+  ├─ WaitChunk + CheckChunkStatus → BatchBackend.status(job_id) loop
+  ├─ CollectChunkPhase   → BatchBackend.collect(job_id, default_response_model=
+  │                        RichChunkSummary) → chunk_repo.insert() for each
+  ├─ PrepareMergePhase   → runs merge INLINE via ConverseBackend (see below);
+  │                        always returns skip=true, short-circuiting the
+  │                        wait/check loop. No batch submission for merge.
+  ├─ PrepareSynthesisPhase → loads merged_summaries.find_latest_by_appid(),
+  │                          Python scores, build_synthesis_request(),
+  │                          BatchBackend.prepare/submit → {job_id}
+  ├─ WaitSynth/CheckSynth
+  └─ CollectSynthAndPersist → BatchBackend.collect() → apply Python overrides →
+                              report_repo.upsert(pipeline_version=..., chunk_count=...,
+                                                 merged_summary_id=...)
+                              publish_report_ready(appid)
 ```
+
+### Why merge runs inline via ConverseBackend in the batch path
+
+Bedrock Batch Inference amortizes a fixed per-job cost across many
+records; merge has at most a handful (one LLM call per group per level,
+bounded by `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL`). Running merge inline
+via `ConverseBackend` from within `prepare_phase.py`:
+
+- Shares the **one** `run_merge_phase` implementation with realtime —
+  hierarchical merge behavior and `source_chunk_ids` tracking cannot
+  drift between paths.
+- Eliminates the need for a per-level Step Functions loop with `level`
+  plumbing and per-level source-id sidecar files on S3.
+- Runs in seconds per LLM call; even a large game with multi-level
+  hierarchy completes well within a Lambda timeout.
+
+The Step Functions state machine therefore treats merge as a phase that
+ALWAYS reports `skip=true` and transitions directly to synthesis.
+
+### Lambda wrappers
+
+Every batch Lambda is a thin adapter. Key property: **all prompt strings,
+chunking, merge hierarchy, synthesis user builder, Python scores, and
+persistence are imported from `library_layer/analyzer.py`**. Batch Lambdas
+contain zero prompt text of their own — drift between realtime and batch is
+impossible. Every tuning knob is read from `SteamPulseConfig` at module
+level into an `AnalyzerSettings` bundle and passed explicitly into every
+call; no hardcoded `MAX_REVIEWS = 2000` or similar constants anywhere.
+
+Two parametrized handlers instead of six per-phase Lambdas:
+
+- `prepare_phase.py` — dispatches on `event["phase"]`:
+  - `"chunk"`: build chunk requests, submit Bedrock batch job, return job_id
+  - `"merge"`: run `run_merge_phase` inline via ConverseBackend, return skip=true
+  - `"synthesis"`: build synthesis request, submit Bedrock batch job, return job_id
+- `collect_phase.py` — dispatches on `event["phase"]`:
+  - `"chunk"`: collect batch output, persist `chunk_summaries` rows
+  - `"synthesis"`: collect batch output, apply Python overrides, upsert
+    `reports` with `pipeline_version` / `chunk_count` / `merged_summary_id`
+  - `"merge"`: never routed here (prepare handles it inline)
+- `check_batch_status.py` — thin status-poller shared by all phases
 
 ### CDK Changes
 
-- Add `PrepareMergeFn` Lambda to `batch_analysis_stack.py`
-- Update Step Functions state machine ASL with merge loop
+- `infra/stacks/batch_analysis_stack.py`: three Lambdas
+  (`PreparePhaseFn`, `CollectPhaseFn`, `CheckBatchStatusFn`) and a
+  Step Functions state machine built from a `_phase_chain(phase,
+  next_step)` helper per phase. Merge's chain short-circuits on
+  `skip=true` and never enters its wait/check loop at runtime.
 
 ---
 
-## Step 10: Replace Old Pipeline
+## Step 10: Replace Old Pipeline + Delete `/api/preview`
 
-No feature flag — there is no production environment to protect. Replace the old
-`analyze_reviews()` call directly.
+No feature flag — there is no production environment to protect.
 
-In `analysis/handler.py`, change the call to (mirrors the post-data-source-clarity
-v2 call signature — Steam values come from the `game` row already loaded above):
-
-```python
-result = analyze_reviews_v3(
-    reviews_for_llm, name,
-    appid=req.appid,
-    conn=_conn,
-    temporal=temporal,
-    metadata=metadata,
-    steam_positive_pct=float(game.positive_pct) if game.positive_pct is not None else None,
-    steam_review_count=game.review_count or None,
-    steam_review_score_desc=game.review_score_desc,
-)
-```
-
-Once verified, remove the old `analyze_reviews()` function and the legacy `ChunkSummary`
-model (keep `BatchStats` if still referenced elsewhere). Rename `analyze_reviews_v3()`
-to `analyze_reviews()` for cleanliness.
+1. **Delete `/api/preview`** entirely:
+   - `POST /api/preview` handler and `_trigger_analysis` helper in
+     `lambda_functions/api/handler.py`
+   - Free-preview rate-limit logic (grep first — remove table/row code if
+     preview is the only caller)
+   - Frontend preview CTA/form/page and related e2e specs
+   - `AnalysisMachine` EXPRESS Step Function if it only served preview; if
+     it's retained for admin re-analyze, repoint it at the new
+     `analyze_game(request, ...)` path
+2. In `lambda_functions/analysis/handler.py`, parse the incoming
+   `AnalysisRequest` from the event, instantiate `ConverseBackend` at module
+   level, and call `analyze_game(request, backend=_converse, ...)`.
+3. Remove the old two-pass `analyze_reviews()` function and the legacy
+   `ChunkSummary` model (keep `BatchStats` only if referenced elsewhere).
 
 ---
 
@@ -713,19 +1053,20 @@ calls instead of 44.
 |------|------|-------------|
 | 1 | New Pydantic models in `analyzer_models.py` | None |
 | 2 | `utils/chunking.py` (stratified chunking + hash) | None |
-| 3 | Migrations `0012` + `0013` | None |
+| 3 | Migrations `0035` + `0036` | None |
 | 4 | Update `schema.py` | Step 3 |
 | 5 | `ChunkSummaryRepository` | Steps 1, 3 |
 | 6 | `MergedSummaryRepository` | Steps 1, 3 |
 | 7 | Phase 1 v2 prompts + `_summarize_chunk_v2()` | Step 1 |
 | 8 | Phase 2 prompts + `_merge_chunk_summaries()` | Steps 1, 5 |
 | 9 | Phase 3 updated synthesis | Step 1 |
-| 10 | `analyze_reviews_v3()` orchestrator | Steps 7, 8, 9 |
-| 11 | Update `analysis/handler.py` to call v3 (passing Steam fields) | Step 10 |
-| 13 | Batch: `prepare_merge.py` | Steps 7, 8 |
-| 14 | Batch: rename `prepare_pass2.py` → `prepare_pass3.py` | Step 9 |
-| 15 | CDK: add merge Lambda + update SFN | Steps 13, 14 |
-| 16 | Remove old `analyze_reviews()` + legacy models | Steps 10, 11 |
+| 10 | `llm/{backend,converse,batch}.py` + `AnalysisRequest` in `events.py` | Step 1 |
+| 11 | `analyze_game()` + `run_{chunk,merge,synthesis}_phase()` orchestrator | Steps 7, 8, 9, 10 |
+| 12 | Update `analysis/handler.py` to parse `AnalysisRequest` + call `analyze_game` with `ConverseBackend` | Step 11 |
+| 13 | Delete `/api/preview` (backend + frontend + e2e specs) | Step 12 |
+| 14 | Two parametrized batch Lambdas: `prepare_phase.py` + `collect_phase.py`, dispatched on `event["phase"]`. Thin wrappers over shared analyzer helpers; merge runs inline via module-level ConverseBackend and always returns `skip=true`. | Steps 10, 11 |
+| 15 | CDK: `PreparePhaseFn` + `CollectPhaseFn` + `CheckBatchStatusFn` + `_phase_chain` SFN helper (no merge loop). | Step 14 |
+| 16 | Remove old two-pass `analyze_reviews()` + legacy `ChunkSummary` | Steps 11, 12 |
 | 17 | Tests | Steps 1–12 |
 | 18 | Update `ARCHITECTURE.org` | All |
 
@@ -735,11 +1076,11 @@ calls instead of 44.
 
 ### Unit Tests
 
-1. Stratified chunking: sentiment ratio preservation, playtime bucket coverage,
-   helpful-vote priority, deterministic chunk hash
-2. Repository CRUD: insert, find_by_hash, find_by_appid, find_latest
-3. Score computation: `compute_sentiment_score_from_counts` matches existing function
-4. Model validation: `RichChunkSummary`, `MergedSummary` round-trip through JSON
+1. Stratified chunking: sentiment ratio preservation, partition invariant (every input review appears in exactly one chunk), deterministic chunk hash (order-insensitive, raises on missing `steam_review_id`), reproducibility with a fixed `reference_time`, and `_sort_key` recency-multiplier guard against future-dated reviews.
+2. Repository CRUD: insert, `find_by_hash`, `find_by_appid`, `find_latest_by_source_ids`, `find_latest_by_appid`.
+3. `ChunkSummaryRepository.upsert` idempotency (ON CONFLICT returns canonical id).
+4. Model validation: `RichChunkSummary`, `MergedSummary`, `GameReport` round-trip through JSON.
+5. `AnalyzerSettings.from_config()` exercises every field (cold-start typo guard).
 
 ### Integration Tests (mocked LLM)
 
@@ -751,7 +1092,7 @@ calls instead of 44.
 
 ### End-to-End
 
-1. Run `analyze_reviews_v3()` against a real game on staging
+1. Invoke the realtime `analysis` Lambda with a real appid on staging — this drives the entire `analyze_game()` pipeline end-to-end
 2. Compare GameReport quality vs v2 for same game
 3. Verify frontend renders report identically
 4. Verify `chunk_summaries` and `merged_summaries` tables are populated
@@ -768,10 +1109,21 @@ calls instead of 44.
 - **Sentiment magnitude is owned by Steam.** `positive_pct` / `review_score_desc` come from the `Game` row and are NEVER recomputed from `merged.total_stats`. Do not reintroduce `sentiment_score` or `overall_sentiment` to `GameReport`. Do not add `compute_sentiment_score_from_counts()`.
 - The synthesis prompt receives Steam's `positive_pct` as canonical context (`steam_positive_pct` parameter on the user-message builder) so the LLM frames its narrative consistently
 - `GameReport` output schema reflects the post-data-source-clarity shape: `refund_signals` (not `refund_risk`), `ContentDepth` has `confidence` + `sample_size`, `sentiment_trend_reliable` + `sentiment_trend_sample_size` are present
-- Hierarchical merge max depth is 3 levels — never deeper
+- **Hierarchical merge is bounded by `ANALYSIS_MAX_CHUNKS_PER_MERGE_CALL` (a per-call LLM context-budget limit, not a review-count limit).** Any chunk count works — the phase recurses until a single root remains. No hardcoded level cap.
+- **`source_chunk_ids` at every merge level is server-computed as the union of the inputs' leaf chunk row ids.** The LLM is NEVER trusted to populate this field. The merge prompt's own `chunks_merged` / `merge_level` are likewise overwritten server-side.
+- **Every analysis run persists at least one `merged_summaries` row**, including the single-chunk promotion case (`merge_level=0`, `model_id="python-promotion"`). Without this, batch synthesis would read a stale row from a previous run via `find_latest_by_appid`.
 - Legacy `review_summaries` table (appid PK) is unrelated to `chunk_summaries`
 - Both real-time and batch paths use the same prompt constants
 - No feature flag — the 3-phase pipeline replaces the 2-pass code directly
-- `steam_review_id` is included in review text sent to LLM for quote attribution
-- Batch path gains merge loop states in Step Functions ASL
-- S3 structure gains `merge/level{N}/` directories
+- `steam_review_id` is **required** on every review — `compute_chunk_hash` raises `ValueError` on missing ids rather than collapsing to an empty-string placeholder
+- `stratified_chunk_reviews` takes `reference_time` explicitly (no `datetime.now()` anchor). Callers compute it via `dataset_reference_time(reviews)` which returns `max(posted_at)` or raises — NO silent epoch fallback.
+- **Single entry point is `analyze_game(request: AnalysisRequest, *, backend, repos, settings, reference_time, ...)`** — not a mode-specific function per execution mode. Every tuning knob is required explicit.
+- **`LLMBackend.run()` is sync-only** and implemented only by `ConverseBackend`. `BatchBackend` exposes `prepare/submit/status/collect` — it does NOT implement `run()`. Do not add an async `run()` or a "pending" exception — job-pending state lives in Step Functions
+- **No `async`/`await` anywhere** in analyzer, backends, handlers, or repos. psycopg2, instructor, and boto3 Bedrock clients are all sync. `ConverseBackend.run()` may use a thread pool for chunk fan-out; that is the only parallelism
+- **`/api/preview` is deleted** — analysis is driven by `AnalysisRequest` (SQS/Step Functions), not by an HTTP endpoint. Do not reintroduce preview
+- Batch Lambdas import prompts/chunking/merge/synthesis/persistence from `library_layer/analyzer.py` — they contain zero prompt strings of their own
+- **No defaults in function signatures.** Tuning knobs, bounds, token budgets, max_workers, chunk sizes, seeds — ALL required keyword args. Defaults live in exactly one place: `SteamPulseConfig` (fields prefixed `ANALYSIS_*`). Handlers read config, build `AnalyzerSettings.from_config()`, pass values explicitly down the call chain. See the `Tuning knobs` section for the full list.
+- **Batch merge runs inline via `ConverseBackend`**, not Bedrock Batch Inference. `prepare_phase._prepare_merge` always returns `skip=true`; `collect_phase` never routes a merge event. One correct hierarchical implementation shared between realtime and batch — no SFN merge loop, no per-level S3 sidecar plumbing.
+- `ReportRepository.upsert` writes `pipeline_version`, `chunk_count`, `merged_summary_id` to dedicated columns (0036 migration); these are stripped from the `report_json` JSONB blob so the JSON stays a pure `GameReport`.
+- `BatchBackend.submit` uses `_safe_job_name(execution_id, phase)` — sanitized + SHA-1-truncated to ≤63 chars, passed as both `jobName` and `clientRequestToken` for idempotent retries. No raw `f"sp-{execution_id}-{phase}"`.
+- **All imports live at the top of the file.** No inline imports inside functions/methods/branches. The single exception is a genuine circular import that can't be refactored — SteamPulse does not have any.

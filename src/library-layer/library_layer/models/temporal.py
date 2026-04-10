@@ -2,9 +2,8 @@
 
 from datetime import date
 
-from pydantic import BaseModel
-
 from library_layer.models.game import Game
+from pydantic import BaseModel
 
 
 class GameTemporalContext(BaseModel):
@@ -110,13 +109,14 @@ def build_temporal_context(game: Game, velocity_data: dict, ea_data: dict) -> Ga
     if days_since_release and days_since_release > 0 and game.review_count_english:
         review_velocity_lifetime = game.review_count_english / days_since_release
 
-    # Early Access
+    # Early Access — ea_data can be None when the repo query returns no rows
+    ea_data = ea_data or {}
     has_ea = ea_data.get("has_ea_reviews", False)
     ea_fraction: float | None = None
     ea_sentiment_delta: float | None = None
     if has_ea:
-        ea_total = ea_data.get("early_access", {}).get("total", 0)
-        post_total = ea_data.get("post_launch", {}).get("total", 0)
+        ea_total = (ea_data.get("early_access") or {}).get("total", 0)
+        post_total = (ea_data.get("post_launch") or {}).get("total", 0)
         total = ea_total + post_total
         if total > 0:
             ea_fraction = ea_total / total

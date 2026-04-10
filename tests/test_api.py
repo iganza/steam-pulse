@@ -32,8 +32,6 @@ class _MemGameRepo:
         pass
 
     def find_by_appid(self, appid: int) -> None:
-        # Returns None — preview test only needs the cache-hit path, which
-        # short-circuits before sentiment magnitude is required.
         return None
 
     def list_games(self, **kwargs: object) -> dict:
@@ -142,60 +140,8 @@ def test_tags_grouped_rejects_invalid_limit(client: TestClient) -> None:
     assert resp.status_code == 422
 
 
-def test_preview_requires_appid(client: TestClient) -> None:
-    """POST /api/preview with empty body returns 422 validation error."""
-    resp = client.post("/api/preview", json={})
-    assert resp.status_code == 422
-
-
-def test_preview_returns_partial_report(client: TestClient) -> None:
-    """POST /api/preview with cached report returns only preview fields, not full report."""
-    from lambda_functions.api import handler as api_module
-
-    report = {
-        "game_name": "Team Fortress 2",
-        "one_liner": "A timeless class-based shooter with wild humor.",
-        "audience_profile": {"ideal_player": "FPS fans who enjoy team play"},
-        "appid": 440,
-        "dev_priorities": [{"action": "Fix bots", "why_it_matters": "Ruins casual play"}],
-        "design_strengths": ["Class variety", "Map design"],
-        "churn_triggers": ["Bot problem in casual mode"],
-    }
-    api_module._upsert_report(440, report)
-
-    resp = client.post("/api/preview", json={"appid": 440})
-    assert resp.status_code == 200
-    data = resp.json()
-
-    # Preview fields present
-    assert data["game_name"] == "Team Fortress 2"
-    assert "one_liner" in data
-    # Sentiment magnitude no longer surfaced via preview (Steam owns it on the Game row)
-    assert "sentiment_score" not in data
-    assert "overall_sentiment" not in data
-
-    # Premium fields NOT in preview response
-    assert "dev_priorities" not in data
-    assert "design_strengths" not in data
-    assert "churn_triggers" not in data
-
-
-def test_preview_unconditional(client: TestClient) -> None:
-    """POST /api/preview returns 200 for every request — no rate limiting."""
-    from lambda_functions.api import handler as api_module
-
-    report = {
-        "game_name": "Team Fortress 2",
-        "one_liner": "Great game.",
-        "audience_profile": {},
-        "appid": 440,
-    }
-    api_module._upsert_report(440, report)
-
-    # Multiple requests from same client — all should succeed (no 402)
-    for _ in range(3):
-        resp = client.post("/api/preview", json={"appid": 440})
-        assert resp.status_code == 200
+# /api/preview removed — analysis is now driven by AnalysisRequest messages,
+# not an HTTP endpoint. See three-phase-analysis.md.
 
 
 # ---------------------------------------------------------------------------

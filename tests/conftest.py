@@ -10,6 +10,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 import pytest
+from psycopg2 import sql as psql
 
 # Expose library_layer and lambda_functions packages to tests
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "library-layer"))
@@ -17,8 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "lambda-functions"
 
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.catalog_repo import CatalogRepository
+from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
+from library_layer.repositories.matview_repo import MATVIEW_NAMES
+from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
@@ -68,6 +72,7 @@ _TEST_ENV_DEFAULTS = {
     "RESEND_API_KEY_SECRET_NAME": "steampulse/test/resend-api-key",
     "EMAIL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/email-queue-url",
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
+    "LLM_MODEL__MERGING": "anthropic.claude-sonnet-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
     "BATCH_BUCKET_NAME": "test-batch-bucket",
     "BEDROCK_BATCH_ROLE_ARN": "arn:aws:iam::123456789012:role/test-bedrock-role",
@@ -108,7 +113,8 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         cur.execute("""
             TRUNCATE games, reviews, tags, game_tags, genres, game_genres,
                      game_categories, reports, app_catalog, rate_limits,
-                     analysis_jobs, game_relations, index_insights
+                     analysis_jobs, game_relations, index_insights,
+                     chunk_summaries, merged_summaries
             RESTART IDENTITY CASCADE
         """)
     conn.commit()
@@ -122,10 +128,6 @@ def refresh_matviews(db_conn: Any) -> Any:
     Analytics tests that seed data and then query matview-backed methods
     must call this after seeding: ``refresh_matviews()``
     """
-    from psycopg2 import sql as psql
-
-    from library_layer.repositories.matview_repo import MATVIEW_NAMES
-
     def _refresh() -> None:
         prev = db_conn.autocommit
         db_conn.autocommit = True
@@ -166,6 +168,16 @@ def catalog_repo(db_conn: Any) -> CatalogRepository:
 @pytest.fixture
 def report_repo(db_conn: Any) -> ReportRepository:
     return ReportRepository(lambda: db_conn)
+
+
+@pytest.fixture
+def chunk_summary_repo(db_conn: Any) -> ChunkSummaryRepository:
+    return ChunkSummaryRepository(lambda: db_conn)
+
+
+@pytest.fixture
+def merged_summary_repo(db_conn: Any) -> MergedSummaryRepository:
+    return MergedSummaryRepository(lambda: db_conn)
 
 
 @pytest.fixture

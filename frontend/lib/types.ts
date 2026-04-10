@@ -88,27 +88,6 @@ export interface StorePageAlignment {
   audience_match_note: string;
 }
 
-/** Free preview — returned by POST /api/preview.
- * positive_pct + review_score_desc come from Steam, not the LLM. */
-export interface PreviewResponse {
-  game_name: string;
-  appid: number;
-  positive_pct?: number | null;
-  review_score_desc?: string | null;
-  one_liner: string;
-  audience_profile?: AudienceProfile;
-  job_id?: string; // present when report is being generated async
-  error?: string;
-  code?: string;
-}
-
-/** Async job status — returned by GET /api/status/{job_id} */
-export interface JobStatus {
-  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT";
-  report?: GameReport;
-  error?: string;
-}
-
 export interface DeckTestResult {
   display_type: number;
   loc_token: string;

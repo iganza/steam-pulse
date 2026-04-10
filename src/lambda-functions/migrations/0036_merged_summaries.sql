@@ -1,12 +1,11 @@
 -- depends: 0035_chunk_summaries
 
 -- Phase 2 artifact storage for the three-phase LLM analysis pipeline.
--- Each row holds the MergedSummary output from consolidating a set of
--- chunk_summaries (or prior merged_summaries, for hierarchical merge).
--- `source_chunk_ids` is the list of chunk_summaries.id values (or
--- merged_summaries.id values at higher merge levels) that fed the merge,
--- used to cache-check via find_latest_by_source_ids() so a re-run with
--- unchanged inputs reuses the stored merge artifact.
+-- Each row holds the MergedSummary output from consolidating chunk summaries.
+-- `source_chunk_ids` always contains leaf chunk_summaries.id values —
+-- threaded transitively at every merge level for stable cache-keying.
+-- find_latest_by_source_ids() uses this to reuse a stored merge artifact
+-- when the exact same set of primary chunks is re-merged.
 
 CREATE TABLE IF NOT EXISTS merged_summaries (
     id               BIGSERIAL PRIMARY KEY,
@@ -25,6 +24,6 @@ CREATE TABLE IF NOT EXISTS merged_summaries (
 
 CREATE INDEX IF NOT EXISTS idx_merged_summaries_appid ON merged_summaries(appid);
 
-ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT DEFAULT '2.0';
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS chunk_count INTEGER;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS merged_summary_id BIGINT;

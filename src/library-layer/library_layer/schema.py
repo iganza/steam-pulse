@@ -138,7 +138,7 @@ TABLES: tuple[str, ...] = (
         last_analyzed TIMESTAMPTZ DEFAULT NOW(),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         -- three-phase pipeline (0036_merged_summaries)
-        pipeline_version TEXT DEFAULT '2.0',
+        pipeline_version TEXT NOT NULL,
         chunk_count INTEGER,
         merged_summary_id BIGINT
     )

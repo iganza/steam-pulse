@@ -107,7 +107,7 @@ class ComputeStack(cdk.Stack):
         anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
             self,
             "AnalysisAnthropicApiKey",
-            f"steampulse/{env}/anthropic-api-key",
+            f"/steampulse/{env}/anthropic-api-key",
         )
         anthropic_secret.grant_read(analysis_role)
         analysis_role.add_to_policy(

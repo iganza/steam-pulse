@@ -19,7 +19,7 @@ LEFT JOIN reports r ON r.appid = g.appid
 WHERE g.type = 'game'
   AND g.coming_soon = FALSE
   AND g.review_count >= 200
-  AND r.appid IS NULL
-ORDER BY g.review_count DESC;
+  AND r.appid IS NULL;
 
 CREATE UNIQUE INDEX mv_analysis_candidates_pk ON mv_analysis_candidates(appid);
+CREATE INDEX mv_analysis_candidates_review_count_idx ON mv_analysis_candidates(review_count DESC);

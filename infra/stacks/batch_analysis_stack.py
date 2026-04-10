@@ -409,3 +409,11 @@ class BatchAnalysisStack(cdk.Stack):
             },
         )
         orchestrator.grant_start_execution(dispatch_fn)
+
+        # Publish dispatch Lambda name to SSM for CLI invocation
+        ssm.StringParameter(
+            self,
+            "DispatchBatchFnNameParam",
+            parameter_name=f"/steampulse/{env}/batch/dispatch-fn-name",
+            string_value=dispatch_fn.function_name,
+        )

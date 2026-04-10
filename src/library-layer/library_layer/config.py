@@ -155,7 +155,6 @@ class SteamPulseConfig(BaseSettings):
 
     # ── Batch dispatch tuning knobs ───────────────────────────────────────
     BATCH_DISPATCH_SIZE: int = 100
-    ANALYSIS_MIN_REVIEW_COUNT: int = 200
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

@@ -29,7 +29,6 @@ logger = Logger(service="batch-dispatch")
 tracer = Tracer(service="batch-dispatch")
 
 _config = SteamPulseConfig()
-_conn = get_conn()
 _sfn = boto3.client("stepfunctions")
 
 
@@ -40,8 +39,21 @@ def _get_orchestrator_arn() -> str:
     )["Parameter"]["Value"]
 
 
+def _normalize_batch_size(raw: object, *, default: int) -> int:
+    if raw is None or isinstance(raw, bool):
+        return default
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if size <= 0:
+        return default
+    return size
+
+
 def _fetch_candidates(*, batch_size: int) -> list[int]:
-    with _conn.cursor() as cur:
+    conn = get_conn()
+    with conn.cursor() as cur:
         cur.execute(
             "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",
             (batch_size,),
@@ -51,7 +63,9 @@ def _fetch_candidates(*, batch_size: int) -> list[int]:
 
 @tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
-    batch_size = event.get("batch_size", _config.BATCH_DISPATCH_SIZE)
+    batch_size = _normalize_batch_size(
+        event.get("batch_size"), default=_config.BATCH_DISPATCH_SIZE
+    )
     dry_run = event.get("dry_run", False)
 
     appids = _fetch_candidates(batch_size=batch_size)

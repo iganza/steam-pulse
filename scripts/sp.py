@@ -511,14 +511,12 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
-def _analysis_candidates(n: int) -> list[int]:
-    """Return top N appids from mv_analysis_candidates (review_count DESC)."""
-    with psycopg2.connect(DB_URL) as c, c.cursor() as cur:
-        cur.execute(
-            "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",
-            (n,),
-        )
-        return [row[0] for row in cur.fetchall()]
+def _resolve_dispatch_fn_name(env: str) -> str:
+    """Resolve the dispatch Lambda function name from SSM."""
+    import boto3
+
+    ssm = boto3.client("ssm", region_name="us-west-2")
+    return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
 
 
 # ── subcommand implementations ────────────────────────────────────────────────
@@ -733,9 +731,15 @@ def cmd_dispatch(
     watch: bool,
     env: str,
 ) -> None:
-    """Dispatch next batch from mv_analysis_candidates to the orchestrator."""
-    appids = _analysis_candidates(batch_size)
-    _info(f"Found {len(appids)} analysis candidates (top {batch_size} by review count)")
+    """Invoke the deployed dispatch Lambda to start the next batch."""
+    fn_name = _resolve_dispatch_fn_name(env)
+    payload = {"batch_size": batch_size, "dry_run": dry_run}
+
+    _info(f"Invoking {fn_name} (batch_size={batch_size}, dry_run={dry_run})")
+    result = _invoke_lambda(fn_name, payload)
+
+    dispatched = result.get("dispatched", 0)
+    appids = result.get("appids", [])
 
     if not appids:
         _warn("No candidates — matview is empty or fully analyzed")
@@ -744,10 +748,34 @@ def cmd_dispatch(
     if dry_run:
         for i, appid in enumerate(appids, 1):
             _info(f"  {i:>4}. {appid}")
-        _warn(f"[dry-run] Would dispatch {len(appids)} games to orchestrator")
+        _warn(f"[dry-run] Would dispatch {dispatched} games to orchestrator")
         return
 
-    cmd_batch(appids, concurrency=20, dry_run=False, watch=watch, env=env)
+    execution_arn = result.get("execution_arn", "")
+    _ok(f"Dispatched {dispatched} games")
+    _info(f"  Execution ARN: {execution_arn}")
+
+    if not watch or not execution_arn:
+        return
+
+    import boto3
+
+    sfn = boto3.client("stepfunctions")
+    _info("Watching (Ctrl+C to stop)...")
+    try:
+        while True:
+            time.sleep(30)
+            desc = sfn.describe_execution(executionArn=execution_arn)
+            status = desc["status"]
+            _info(f"  [{time.strftime('%H:%M:%S')}] {status}")
+            if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                if status == "SUCCEEDED":
+                    _ok("Execution succeeded")
+                else:
+                    _err(f"Execution {status.lower()}")
+                break
+    except KeyboardInterrupt:
+        _info("Stopped watching (execution still running)")
 
 
 # ── DB ───────────────────────────────────────────────────────────────────────

@@ -91,25 +91,16 @@ def make_batch_backend(
     config: SteamPulseConfig,
     *,
     execution_id: str,
-    batch_bucket_name: str = "",
-    batch_role_arn: str = "",
+    batch_bucket_name: str,
+    batch_role_arn: str,
 ) -> BatchBackend | AnthropicBatchBackend:
-    """Return the right batch backend based on config.LLM_BACKEND.
-
-    ``batch_bucket_name`` and ``batch_role_arn`` are only required when
-    ``LLM_BACKEND=bedrock``. They default to empty strings so that
-    Anthropic-mode callers can omit them.
-    """
+    """Return the right batch backend based on config.LLM_BACKEND."""
     if config.LLM_BACKEND == "anthropic":
         return AnthropicBatchBackend(
             config,
             api_key=resolve_anthropic_api_key(config),
             execution_id=execution_id,
         )
-    if not batch_bucket_name:
-        raise ValueError("batch_bucket_name is required when LLM_BACKEND=bedrock")
-    if not batch_role_arn:
-        raise ValueError("batch_role_arn is required when LLM_BACKEND=bedrock")
     return BatchBackend(
         config,
         batch_bucket_name=batch_bucket_name,

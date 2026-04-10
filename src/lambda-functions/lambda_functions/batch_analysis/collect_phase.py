@@ -52,8 +52,8 @@ logger = Logger(service="batch-collect-phase")
 tracer = Tracer(service="batch-collect-phase")
 
 _config = SteamPulseConfig()
-_BATCH_BUCKET = os.environ.get("BATCH_BUCKET_NAME", "")
-_BATCH_ROLE_ARN = os.environ.get("BEDROCK_BATCH_ROLE_ARN", "")
+_BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
+_BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
 _CONTENT_EVENTS_TOPIC_ARN = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
 # Merge is handled entirely inline by `prepare_phase._prepare_merge` via

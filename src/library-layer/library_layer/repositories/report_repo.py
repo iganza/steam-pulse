@@ -18,17 +18,15 @@ class ReportRepository(BaseRepository):
         overwritten wholesale on conflict (no merge). Partial dicts will
         discard previously stored keys from report_json.
 
-        Three optional pipeline-bookkeeping keys are pulled off the dict
-        and written to their own columns (added in migration 0036):
-            pipeline_version: str   — bump to invalidate cached reports
-            chunk_count:      int   — how many Phase 1 chunks fed the merge
-            merged_summary_id: int  — FK-like pointer into merged_summaries
+        Pipeline-bookkeeping keys are pulled off the dict and written to
+        their own columns (added in migration 0036):
+            pipeline_version: str   — required, bump to invalidate cached reports
+            chunk_count:      int   — required, how many Phase 1 chunks fed the merge
+            merged_summary_id: int  — optional FK-like pointer into merged_summaries
 
-        On UPDATE, any of these three keys that are **absent** from the
-        caller's dict are preserved via `COALESCE(EXCLUDED.x, reports.x)`
-        rather than clobbered to NULL. This lets a partial re-upsert
-        (e.g. an admin fixing one field) leave pipeline bookkeeping
-        intact. On INSERT the absent keys become NULL as usual.
+        On UPDATE, `merged_summary_id` is preserved via
+        `COALESCE(EXCLUDED.x, reports.x)` when absent from the caller's
+        dict so a partial re-upsert doesn't clobber it to NULL.
 
         Also syncs denormalized hidden_gem_score and last_analyzed onto the
         games table so catalog queries avoid the JSONB LEFT JOIN. The games
@@ -40,9 +38,9 @@ class ReportRepository(BaseRepository):
         """
         appid: int = report["appid"]
         reviews_analyzed: int = report.get("total_reviews_analyzed", 0)
-        pipeline_version = report.get("pipeline_version")
-        chunk_count = report.get("chunk_count")
-        merged_summary_id = report.get("merged_summary_id")
+        pipeline_version: str = report["pipeline_version"]
+        chunk_count: int = report["chunk_count"]
+        merged_summary_id: int | None = report.get("merged_summary_id")
         # Strip the pipeline bookkeeping out of the JSONB blob — those keys
         # live in dedicated columns now, keeping the JSON a pure GameReport.
         report_json = {
@@ -62,10 +60,8 @@ class ReportRepository(BaseRepository):
                     report_json       = EXCLUDED.report_json,
                     reviews_analyzed  = EXCLUDED.reviews_analyzed,
                     last_analyzed     = NOW(),
-                    -- Absent pipeline keys preserve the stored value
-                    -- instead of clobbering it to NULL.
-                    pipeline_version  = COALESCE(EXCLUDED.pipeline_version, reports.pipeline_version),
-                    chunk_count       = COALESCE(EXCLUDED.chunk_count, reports.chunk_count),
+                    pipeline_version  = EXCLUDED.pipeline_version,
+                    chunk_count       = EXCLUDED.chunk_count,
                     merged_summary_id = COALESCE(EXCLUDED.merged_summary_id, reports.merged_summary_id)
                 """,
                 (

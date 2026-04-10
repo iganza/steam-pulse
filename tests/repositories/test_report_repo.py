@@ -52,6 +52,8 @@ def _report(appid: int = 440) -> dict:
         "game_name": "Team Fortress 2",
         "one_liner": "The gold standard of team shooters.",
         "total_reviews_analyzed": 2000,
+        "pipeline_version": "3.0",
+        "chunk_count": 10,
         "design_strengths": ["Class variety"],
         "gameplay_friction": ["Bot problem"],
     }

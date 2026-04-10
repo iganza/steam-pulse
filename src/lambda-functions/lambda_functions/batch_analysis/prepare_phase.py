@@ -61,8 +61,8 @@ logger = Logger(service="batch-prepare-phase")
 tracer = Tracer(service="batch-prepare-phase")
 
 _config = SteamPulseConfig()
-_BATCH_BUCKET = os.environ.get("BATCH_BUCKET_NAME", "")
-_BATCH_ROLE_ARN = os.environ.get("BEDROCK_BATCH_ROLE_ARN", "")
+_BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
+_BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
 
 _game_repo = GameRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)

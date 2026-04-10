@@ -96,10 +96,15 @@ class BatchAnalysisStack(cdk.Stack):
                 ),
             ],
         )
+        anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
+            self,
+            "BatchAnthropicApiKey",
+            f"steampulse/{env}/anthropic-api-key",
+        )
         batch_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn],
+                resources=[db_secret.secret_arn, anthropic_secret.secret_arn],
             )
         )
         batch_lambda_role.add_to_policy(

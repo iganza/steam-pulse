@@ -24,6 +24,7 @@ TABLES: tuple[str, ...] = (
         website          TEXT,
         -- dates / status
         release_date     DATE,
+        release_date_raw TEXT,                       -- raw string from Steam ("Q3 2025", "Coming Soon", etc.)
         coming_soon      BOOLEAN DEFAULT FALSE,
         -- pricing
         price_usd        NUMERIC(8,2),
@@ -52,6 +53,25 @@ TABLES: tuple[str, ...] = (
         -- steam deck
         deck_compatibility   INTEGER,                 -- 0=unknown, 1=unsupported, 2=playable, 3=verified
         deck_test_results    JSONB,                   -- raw resolved_items array from Steam
+        -- content / input
+        content_descriptor_ids  JSONB,               -- content warning IDs from Steam
+        content_descriptor_notes TEXT,                -- content warning notes
+        controller_support TEXT,                      -- "full" | "partial" | NULL
+        -- DLC / franchise
+        dlc_appids       JSONB,                       -- array of DLC appids
+        parent_appid     INTEGER,                     -- parent game if this is DLC/demo
+        -- media
+        capsule_image    TEXT,                         -- high-res 467x181 capsule art URL
+        -- engagement
+        recommendations_total INTEGER,                -- curator recommendation count
+        -- support
+        support_url      TEXT,
+        support_email    TEXT,
+        legal_notice     TEXT,
+        -- system requirements (HTML)
+        requirements_windows TEXT,
+        requirements_mac TEXT,
+        requirements_linux TEXT,
         -- meta
         crawled_at       TIMESTAMPTZ,
         data_source      TEXT DEFAULT 'steam_direct',
@@ -210,7 +230,10 @@ TABLES: tuple[str, ...] = (
         tags_crawled_at           TIMESTAMPTZ, -- when tags were last fetched
         review_crawled_at         TIMESTAMPTZ, -- when reviews were last fetched (any completion path)
         -- housekeeping
-        discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- GetAppList metadata (0041)
+        steam_last_modified TIMESTAMPTZ,             -- last_modified from IStoreService/GetAppList
+        price_change_number INTEGER                  -- price version counter from GetAppList
     )
     """,
     """
@@ -325,6 +348,23 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS pipeline_version TEXT",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS chunk_count INTEGER",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS merged_summary_id BIGINT",
+    # 0041_capture_steam_fields — GetAppList metadata + appdetails fields.
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS steam_last_modified TIMESTAMPTZ",
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS price_change_number INTEGER",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS release_date_raw TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS content_descriptor_ids JSONB",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS content_descriptor_notes TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS controller_support TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS dlc_appids JSONB",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS parent_appid INTEGER",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS capsule_image TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS recommendations_total INTEGER",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS support_url TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS support_email TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS legal_notice TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_windows TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_mac TEXT",
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_linux TEXT",
 )
 
 # Indexes — kept for test suite use only.
@@ -642,7 +682,8 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     FROM base b CROSS JOIN grains gr
     GROUP BY 1, 2, 3""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(granularity, tag_slug, period)",
-    # 0034_new_releases_matview — three-lens feed for /new-releases
+    # 0042_mv_new_releases_v2 — three-lens feed for /new-releases
+    # Just Added lens uses steam_last_modified + coming_soon=TRUE (not discovered_at)
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new_releases AS
     SELECT
         ac.appid,
@@ -655,6 +696,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         g.publisher_slug,
         g.header_image,
         g.release_date,
+        g.release_date_raw,
         COALESCE(g.coming_soon, FALSE)       AS coming_soon,
         g.price_usd,
         COALESCE(g.is_free, FALSE)           AS is_free,
@@ -663,6 +705,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         g.positive_pct,
         g.review_score_desc,
         ac.discovered_at,
+        ac.steam_last_modified,
         g.crawled_at                         AS meta_crawled_at,
         (g.appid IS NULL)                    AS metadata_pending,
         CASE
@@ -691,12 +734,11 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         (g.release_date IS NOT NULL AND COALESCE(g.coming_soon, FALSE) = FALSE
             AND g.release_date >= CURRENT_DATE - INTERVAL '365 days')
         OR (COALESCE(g.coming_soon, FALSE) = TRUE)
-        OR (ac.discovered_at >= NOW() - INTERVAL '90 days')
       )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS mv_new_releases_appid_idx ON mv_new_releases(appid)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_released_idx ON mv_new_releases(release_date DESC) WHERE coming_soon = FALSE AND release_date IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_upcoming_idx ON mv_new_releases(release_date ASC NULLS LAST) WHERE coming_soon = TRUE",
-    "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(discovered_at DESC)",
+    "CREATE INDEX IF NOT EXISTS mv_new_releases_added_idx ON mv_new_releases(steam_last_modified DESC) WHERE coming_soon = TRUE",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_genre_slugs_gin ON mv_new_releases USING GIN(genre_slugs)",
     "CREATE INDEX IF NOT EXISTS mv_new_releases_top_tag_slugs_gin ON mv_new_releases USING GIN(top_tag_slugs)",
     # 0037_analysis_candidates (extended in 0040 with request_count)

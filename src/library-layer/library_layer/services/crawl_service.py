@@ -309,9 +309,8 @@ class CrawlService:
             if isinstance(release_info, dict)
             else False
         )
-        release_date = _parse_release_date(
-            release_info.get("date", "") if isinstance(release_info, dict) else ""
-        )
+        release_date_raw = release_info.get("date", "") if isinstance(release_info, dict) else ""
+        release_date = _parse_release_date(release_date_raw)
 
         price_info = details.get("price_overview") or {}
         is_free: bool = bool(details.get("is_free", False))
@@ -334,6 +333,11 @@ class CrawlService:
         genres: list[dict] = details.get("genres") or []
         categories: list[dict] = details.get("categories") or []
 
+        content_desc = details.get("content_descriptors") or {}
+        support = details.get("support_info") or {}
+        fullgame = details.get("fullgame") or {}
+        recs = details.get("recommendations") or {}
+
         game_data: dict = {
             "appid": appid,
             "name": name,
@@ -347,6 +351,7 @@ class CrawlService:
             "publishers": json.dumps(pubs),
             "website": details.get("website") or None,
             "release_date": release_date,
+            "release_date_raw": release_date_raw or None,
             "coming_soon": coming_soon,
             "price_usd": price_usd,
             "is_free": is_free,
@@ -370,6 +375,21 @@ class CrawlService:
             "deck_test_results": json.dumps(deck_compat.get("resolved_items", []))
             if deck_compat
             else None,
+            "content_descriptor_ids": json.dumps(content_desc.get("ids", []))
+            if content_desc.get("ids")
+            else None,
+            "content_descriptor_notes": content_desc.get("notes") or None,
+            "controller_support": details.get("controller_support") or None,
+            "dlc_appids": json.dumps(details.get("dlc", [])) if details.get("dlc") else None,
+            "parent_appid": int(fullgame["appid"]) if fullgame.get("appid") else None,
+            "capsule_image": details.get("capsule_imagev5") or None,
+            "recommendations_total": recs.get("total") if recs else None,
+            "support_url": support.get("url") or None,
+            "support_email": support.get("email") or None,
+            "legal_notice": details.get("legal_notice") or None,
+            "requirements_windows": _req_text(details.get("pc_requirements")),
+            "requirements_mac": _req_text(details.get("mac_requirements")),
+            "requirements_linux": _req_text(details.get("linux_requirements")),
             "data_source": "steam_direct",
         }
 
@@ -516,3 +536,16 @@ def _parse_release_date(raw: str) -> date | None:
         except (ValueError, AttributeError):
             continue
     return None
+
+
+def _req_text(req: object) -> str | None:
+    """Extract system requirements text from a Steam appdetails requirements field.
+
+    Steam returns either a dict with "minimum" and/or "recommended" keys (HTML strings),
+    or an empty string / empty list for games without requirements.
+    """
+    if not isinstance(req, dict):
+        return None
+    parts = [req.get("minimum", ""), req.get("recommended", "")]
+    joined = "\n".join(p for p in parts if p)
+    return joined or None

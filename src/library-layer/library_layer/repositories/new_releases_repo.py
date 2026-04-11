@@ -125,9 +125,7 @@ class NewReleasesRepository(BaseRepository):
         rows = self._fetchall(sql, tuple([*fparams, limit, offset]))
         return [NewReleaseEntry.model_validate(dict(r)) for r in rows]
 
-    def count_upcoming(
-        self, genre: str | None = None, tag: str | None = None
-    ) -> int:
+    def count_upcoming(self, genre: str | None = None, tag: str | None = None) -> int:
         filt, fparams = _filter_clause(genre, tag)
         sql = f"SELECT COUNT(*) AS c FROM mv_new_releases WHERE coming_soon = TRUE {filt}"
         row = self._fetchone(sql, tuple(fparams))
@@ -191,18 +189,20 @@ class NewReleasesRepository(BaseRepository):
         if since is not None:
             sql = f"""
                 SELECT * FROM mv_new_releases
-                WHERE discovered_at >= %s
+                WHERE coming_soon = TRUE
+                  AND steam_last_modified >= %s
                   {filt}
-                ORDER BY discovered_at DESC, appid DESC
+                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
                 LIMIT %s OFFSET %s
             """
             params: list = [since, *fparams, limit, offset]
         else:
             sql = f"""
                 SELECT * FROM mv_new_releases
-                WHERE TRUE
+                WHERE coming_soon = TRUE
+                  AND steam_last_modified IS NOT NULL
                   {filt}
-                ORDER BY discovered_at DESC, appid DESC
+                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
                 LIMIT %s OFFSET %s
             """
             params = [*fparams, limit, offset]
@@ -217,10 +217,17 @@ class NewReleasesRepository(BaseRepository):
     ) -> int:
         filt, fparams = _filter_clause(genre, tag)
         if since is not None:
-            sql = f"SELECT COUNT(*) AS c FROM mv_new_releases WHERE discovered_at >= %s {filt}"
+            sql = f"""
+                SELECT COUNT(*) AS c FROM mv_new_releases
+                WHERE coming_soon = TRUE AND steam_last_modified >= %s {filt}
+            """
             params: list = [since, *fparams]
         else:
-            sql = f"SELECT COUNT(*) AS c FROM mv_new_releases WHERE TRUE {filt}"
+            sql = f"""
+                SELECT COUNT(*) AS c FROM mv_new_releases
+                WHERE coming_soon = TRUE
+                  AND steam_last_modified IS NOT NULL {filt}
+            """
             params = list(fparams)
         row = self._fetchone(sql, tuple(params))
         return int(row["c"]) if row else 0

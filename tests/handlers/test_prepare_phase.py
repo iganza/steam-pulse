@@ -242,6 +242,8 @@ def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
 def test_prepare_synthesis_raises_when_no_merged_summary() -> None:
     pp = _get_module()
     _install_fake_game(pp)
+    pp._report_repo = MagicMock()
+    pp._report_repo.has_current_report.return_value = False
     pp._merge_repo = MagicMock()
     pp._merge_repo.find_latest_by_appid.return_value = None
     _install_fake_backend(pp)
@@ -256,6 +258,8 @@ def test_prepare_synthesis_raises_when_no_merged_summary() -> None:
 def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     pp = _get_module()
     _install_fake_game(pp)
+    pp._report_repo = MagicMock()
+    pp._report_repo.has_current_report.return_value = False
     # Attach a positive_pct / review_count so sentiment context has real values
     pp._game_repo.find_by_appid.return_value.positive_pct = 85
     pp._game_repo.find_by_appid.return_value.review_count = 500
@@ -326,6 +330,8 @@ def test_prepare_synthesis_uses_threaded_merged_summary_id() -> None:
     """
     pp = _get_module()
     _install_fake_game(pp)
+    pp._report_repo = MagicMock()
+    pp._report_repo.has_current_report.return_value = False
     pp._game_repo.find_by_appid.return_value.positive_pct = 85
     pp._game_repo.find_by_appid.return_value.review_count = 500
     pp._game_repo.find_by_appid.return_value.review_score_desc = "Very Positive"

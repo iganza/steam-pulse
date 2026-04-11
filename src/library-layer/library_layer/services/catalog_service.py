@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -155,7 +156,19 @@ class CatalogService:
             data = resp.json().get("response", {})
 
             batch = data.get("apps", [])
-            apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+            apps.extend(
+                {
+                    "appid": a["appid"],
+                    "name": a.get("name", ""),
+                    "steam_last_modified": (
+                        datetime.fromtimestamp(a["last_modified"], tz=UTC)
+                        if a.get("last_modified")
+                        else None
+                    ),
+                    "price_change_number": a.get("price_change_number"),
+                }
+                for a in batch
+            )
 
             if not data.get("have_more_results"):
                 break

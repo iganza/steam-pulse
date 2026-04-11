@@ -22,6 +22,7 @@ class Game(BaseModel):
     publishers: list[str] = []
     website: str | None = None
     release_date: str | None = None
+    release_date_raw: str | None = None
     coming_soon: bool = False
     price_usd: Decimal | None = None
     is_free: bool = False
@@ -43,6 +44,25 @@ class Game(BaseModel):
     metacritic_score: int | None = None
     deck_compatibility: int | None = None
     deck_test_results: list[dict] = []
+    # content / input (0041)
+    content_descriptor_ids: list[int] = []
+    content_descriptor_notes: str | None = None
+    controller_support: str | None = None
+    # DLC / franchise
+    dlc_appids: list[int] = []
+    parent_appid: int | None = None
+    # media
+    capsule_image: str | None = None
+    # engagement
+    recommendations_total: int | None = None
+    # support
+    support_url: str | None = None
+    support_email: str | None = None
+    legal_notice: str | None = None
+    # system requirements
+    requirements_windows: str | None = None
+    requirements_mac: str | None = None
+    requirements_linux: str | None = None
     hidden_gem_score: float | None = None
     last_analyzed: datetime | None = None
     crawled_at: datetime | None = None
@@ -63,6 +83,15 @@ class Game(BaseModel):
     def coerce_list(cls, v: object) -> list[str]:
         if v is None:
             return []
+        return v  # type: ignore[return-value]
+
+    @field_validator("content_descriptor_ids", "dlc_appids", mode="before")
+    @classmethod
+    def coerce_int_list(cls, v: object) -> list[int]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return json.loads(v)
         return v  # type: ignore[return-value]
 
     @field_validator(

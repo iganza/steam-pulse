@@ -29,6 +29,7 @@ class NewReleaseEntry(BaseModel):
     publisher_slug: str | None = None
     header_image: str | None = None
     release_date: date | None = None
+    release_date_raw: str | None = None
     coming_soon: bool = False
     price_usd: Decimal | None = None
     is_free: bool = False
@@ -37,6 +38,7 @@ class NewReleaseEntry(BaseModel):
     positive_pct: int | None = None
     review_score_desc: str | None = None
     discovered_at: datetime
+    steam_last_modified: datetime | None = None
     meta_crawled_at: datetime | None = None
     metadata_pending: bool = False
     days_since_release: int | None = None

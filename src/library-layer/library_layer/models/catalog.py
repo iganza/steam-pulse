@@ -16,6 +16,8 @@ class CatalogEntry(BaseModel):
     review_count: int | None = None
     reviews_completed_at: datetime | None = None
     discovered_at: datetime | None = None
+    steam_last_modified: datetime | None = None
+    price_change_number: int | None = None
 
     @property
     def review_not_started(self) -> bool:

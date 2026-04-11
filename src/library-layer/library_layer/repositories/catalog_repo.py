@@ -13,27 +13,51 @@ class CatalogRepository(BaseRepository):
     """CRUD operations for the app_catalog table."""
 
     def bulk_upsert(self, entries: list[dict]) -> int:
-        """INSERT ... ON CONFLICT (appid) DO NOTHING.
+        """INSERT ... ON CONFLICT DO UPDATE for GetAppList metadata.
+
+        Updates steam_last_modified and price_change_number on conflict
+        (these change over time). Only overwrites with newer/non-NULL values.
 
         Returns:
-            Number of new rows inserted.
+            Number of new rows inserted (not updated).
         """
         if not entries:
             return 0
         with self.conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM app_catalog")
+            before = cur.fetchone()["cnt"]
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO app_catalog (appid, name)
+                INSERT INTO app_catalog (appid, name, steam_last_modified, price_change_number)
                 VALUES %s
-                ON CONFLICT (appid) DO NOTHING
+                ON CONFLICT (appid) DO UPDATE SET
+                    steam_last_modified = CASE
+                        WHEN EXCLUDED.steam_last_modified IS NOT NULL
+                         AND (app_catalog.steam_last_modified IS NULL
+                              OR EXCLUDED.steam_last_modified > app_catalog.steam_last_modified)
+                        THEN EXCLUDED.steam_last_modified
+                        ELSE app_catalog.steam_last_modified
+                    END,
+                    price_change_number = COALESCE(
+                        EXCLUDED.price_change_number, app_catalog.price_change_number
+                    )
                 """,
-                [(e["appid"], (e.get("name") or f"App {e['appid']}")[:500]) for e in entries],
+                [
+                    (
+                        e["appid"],
+                        (e.get("name") or f"App {e['appid']}")[:500],
+                        e.get("steam_last_modified"),
+                        e.get("price_change_number"),
+                    )
+                    for e in entries
+                ],
                 page_size=1000,
             )
-            new_rows = cur.rowcount
+            cur.execute("SELECT COUNT(*) AS cnt FROM app_catalog")
+            after = cur.fetchone()["cnt"]
         self.conn.commit()
-        return new_rows
+        return after - before
 
     def find_by_appid(self, appid: int) -> CatalogEntry | None:
         row = self._fetchone("SELECT * FROM app_catalog WHERE appid = %s", (appid,))

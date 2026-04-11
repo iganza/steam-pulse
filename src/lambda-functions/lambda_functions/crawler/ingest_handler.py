@@ -219,7 +219,11 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     )
 
     if not s3_key:
-        raise ValueError(f"success=True but s3_key missing: task=reviews appid={appid}")
+        # Spoke sends success=True with no s3_key when Steam returns zero
+        # reviews for the game. Mark crawled and move on — same pattern as tags.
+        logger.info("No review data available", extra={"appid": appid})
+        _catalog_repo.mark_reviews_crawled(appid)
+        return
 
     response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
     data = json.loads(gzip.decompress(response["Body"].read()))

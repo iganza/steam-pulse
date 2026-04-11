@@ -90,6 +90,14 @@ class ReportRepository(BaseRepository):
             return None
         return Report.model_validate(dict(row))
 
+    def has_current_report(self, appid: int, pipeline_version: str) -> bool:
+        """Return True if a report exists for this appid at the given pipeline version."""
+        row = self._fetchone(
+            "SELECT 1 FROM reports WHERE appid = %s AND pipeline_version = %s",
+            (appid, pipeline_version),
+        )
+        return row is not None
+
     def count_all(self) -> int:
         """Return the total number of rows in the reports table."""
         row = self._fetchone("SELECT COUNT(*) AS cnt FROM reports")

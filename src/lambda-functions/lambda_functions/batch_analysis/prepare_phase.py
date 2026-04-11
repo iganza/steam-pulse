@@ -36,6 +36,7 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
+    PIPELINE_VERSION,
     AnalyzerSettings,
     build_chunk_requests,
     build_synthesis_request,
@@ -51,6 +52,7 @@ from library_layer.models.temporal import build_temporal_context
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
+from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.chunking import dataset_reference_time
@@ -68,6 +70,7 @@ _game_repo = GameRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
+_report_repo = ReportRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
 
 # All analyzer tuning knobs (including max-reviews-per-analysis) come from
@@ -252,6 +255,23 @@ def _prepare_synthesis(
     execution_id: str,
     merged_summary_id: int | None,
 ) -> dict:
+    # Short-circuit: if a report already exists at the current pipeline
+    # version, skip synthesis entirely — no tokens spent.
+    if _report_repo.has_current_report(appid, PIPELINE_VERSION):
+        logger.info(
+            "synthesis_prepare_skipped_current_report",
+            extra={"appid": appid, "pipeline_version": PIPELINE_VERSION},
+        )
+        return {
+            "appid": appid,
+            "phase": "synthesis",
+            "execution_id": execution_id,
+            "job_id": None,
+            "skip": True,
+            "merged_summary_id": merged_summary_id,
+            "chunk_count": 0,
+        }
+
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")

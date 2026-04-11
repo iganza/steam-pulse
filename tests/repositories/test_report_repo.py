@@ -120,3 +120,25 @@ def test_upsert_updated_hidden_gem_syncs_to_games(
     game = game_repo.find_by_appid(440)
     assert game is not None
     assert float(game.hidden_gem_score) == pytest.approx(0.71, abs=0.01)
+
+
+def test_has_current_report_returns_true_when_version_matches(
+    game_repo: GameRepository, report_repo: ReportRepository
+) -> None:
+    _seed_game(game_repo)
+    report_repo.upsert(_report())
+    assert report_repo.has_current_report(440, "3.0") is True
+
+
+def test_has_current_report_returns_false_for_different_version(
+    game_repo: GameRepository, report_repo: ReportRepository
+) -> None:
+    _seed_game(game_repo)
+    report_repo.upsert(_report())
+    assert report_repo.has_current_report(440, "4.0") is False
+
+
+def test_has_current_report_returns_false_when_no_report(
+    report_repo: ReportRepository,
+) -> None:
+    assert report_repo.has_current_report(9999999, "3.0") is False

@@ -12,6 +12,8 @@ Usage:
   python scripts/tail.py all                           # crawler + spoke + ingest
   python scripts/tail.py api
   python scripts/tail.py analysis
+  python scripts/tail.py batch                         # all batch analysis streams
+  python scripts/tail.py batch-prepare batch-collect   # specific batch streams
 
 Options:
   --env staging|production   default: staging
@@ -36,6 +38,11 @@ _COLOURS = {
     "ingest": "\033[32m",  # green
     "api": "\033[35m",  # magenta
     "analysis": "\033[34m",  # blue
+    "batch-prepare": "\033[94m",  # bright blue
+    "batch-collect": "\033[96m",  # bright cyan
+    "batch-status": "\033[93m",  # bright yellow
+    "batch-sfn": "\033[95m",  # bright magenta
+    "batch-dispatch": "\033[92m",  # bright green
 }
 _RESET = "\033[0m"
 _RED = "\033[31m"
@@ -51,10 +58,16 @@ _SUFFIXES: dict[str, str] = {
     "spoke": "spoke",
     "api": "api",
     "analysis": "analysis",
+    "batch-prepare": "batch-prepare-phase",
+    "batch-collect": "batch-collect-phase",
+    "batch-status": "batch-check-status",
+    "batch-sfn": "batch-sfn",
+    "batch-dispatch": "batch-dispatch",
 }
 
 _ALIASES = {
     "all": ["crawler", "spoke", "ingest"],
+    "batch": ["batch-prepare", "batch-collect", "batch-status", "batch-sfn"],
 }
 
 

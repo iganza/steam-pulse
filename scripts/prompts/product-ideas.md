@@ -190,6 +190,19 @@ request time.
   shared with persistence, so server-owned fields (`appid`,
   `pipeline_version`, bookkeeping) don't leak into the LLM schema.
   Flagged during PR #67 review — deferred, not urgent.
+  
+## Added Notes
+
+Absolutely — the three-phase pipeline extracts remarkably structured signal. The TopicSignal objects with category, sentiment, mention counts, confidence
+  levels, playtime context, and verbatim quotes are essentially a quantified voice-of-the-player dataset. That's gold for:
+
+  - Devs: prioritized bug/friction lists with player effort context, churn trigger timing, wishlist items ranked by demand
+  - Marketing: audience archetypes, competitive positioning quotes, sentiment trends to time campaigns around
+  - Publishers: portfolio-level views across genres — which friction patterns repeat, which design choices correlate with positive sentiment
+  - Investors/analysts: revenue estimate × sentiment trend × content depth as a signal for game health
+
+  The Pro section you have planned is the right place for this. Cross-analysis across genres/tags/developers is where the real differentiation lives — nobody
+   else has structured, LLM-extracted topic signals at catalog scale that you can slice by genre, price tier, or player archetype.
 
 ---
 
@@ -202,3 +215,5 @@ section. No need to structure it. The triage step is:
 2. Pick one. Write it up properly under `scripts/prompts/<name>.md` with
    file manifest + tests + acceptance criteria.
 3. Delete the brainstorm entry or replace with a pointer.
+
+

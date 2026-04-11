@@ -342,6 +342,9 @@ A later model merges and synthesizes your output — your ONLY job is accurate e
   (e.g. "base building", "matchmaking latency") with a category, sentiment,
   mention count, confidence, and representative quotes.
 - Multiple reviews about the same subject = ONE topic with a higher mention_count.
+- Maximum 12 topics per chunk. If more exist, keep the 12 with the highest
+  mention_count. Merge borderline-similar topics aggressively to stay under the cap.
+- Maximum 2 quotes per topic. Pick the most representative and helpful.
 - Quotes must be word-for-word from reviews. Include the steam_review_id.
 - Quotes MUST be at most 400 characters (2-3 sentences). Pick the most
   representative excerpt — do NOT paste whole review bodies. Longer
@@ -1104,6 +1107,19 @@ def analyze_game(
         raise ValueError(f"no reviews to analyze for appid={request.appid}")
 
     logger.append_keys(appid=request.appid, mode=request.mode)
+
+    # Short-circuit: if a report already exists at the current pipeline
+    # version, skip the entire pipeline. All three prompt versions are
+    # encoded in PIPELINE_VERSION, so a bump to any phase invalidates.
+    if report_repo.has_current_report(request.appid, PIPELINE_VERSION):
+        existing = report_repo.find_by_appid(request.appid)
+        if existing is not None:
+            logger.info(
+                "analyze_game_skipped_current_report",
+                extra={"appid": request.appid, "pipeline_version": PIPELINE_VERSION},
+            )
+            return GameReport.model_validate(existing.report_json)
+
     t_start = time.monotonic()
 
     chunk_summaries, chunk_ids = run_chunk_phase(

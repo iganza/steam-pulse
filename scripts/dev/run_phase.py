@@ -593,6 +593,20 @@ def main() -> None:
 
     # -------- Phase 3: synthesis --------
     print("\n▶ Phase 3: synthesis (GameReport)...")
+
+    if report_repo.has_current_report(appid, PIPELINE_VERSION):
+        print(f"  ✔ Report already exists at pipeline_version={PIPELINE_VERSION} — skipping synthesis.")
+        if not args.no_dump:
+            synth_model = config.model_for("summarizer").replace(".", "-").replace("claude-", "")
+            synth_dump = args.dump_dir / f"{appid}_{game.slug}_{synth_model}_synthesis.org"
+            _dump_synthesis_phase(
+                synth_dump,
+                appid=appid,
+                game_name=game.name,
+            )
+            print(f"    org dump: {synth_dump}")
+        return
+
     velocity = review_repo.find_review_velocity(appid)
     ea = review_repo.find_early_access_impact(appid)
     temporal = build_temporal_context(game, velocity, ea)

@@ -138,6 +138,18 @@ class BatchAnalysisStack(cdk.Stack):
                 ],
             )
         )
+        # SFN start permission added upfront (not via grant_start_execution)
+        # to avoid a circular dependency: role ← orchestrator ← state machine
+        # ← Lambdas ← role.
+        batch_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution"],
+                resources=[
+                    f"arn:aws:states:{self.region}:{self.account}:stateMachine:steampulse-batch-*-{env}",
+                    f"arn:aws:states:{self.region}:{self.account}:execution:steampulse-batch-*-{env}:*"
+                ],
+            )
+        )
         content_events_topic.grant_publish(batch_lambda_role)
         system_events_topic.grant_publish(batch_lambda_role)
 
@@ -408,7 +420,9 @@ class BatchAnalysisStack(cdk.Stack):
                 "POWERTOOLS_METRICS_NAMESPACE": "SteamPulse",
             },
         )
-        orchestrator.grant_start_execution(dispatch_fn)
+        # NOTE: orchestrator.grant_start_execution(dispatch_fn) is NOT used
+        # here — the permission lives on batch_lambda_role (upfront) to avoid
+        # a circular dependency through the shared role.
 
         # Publish dispatch Lambda name to SSM for CLI invocation
         ssm.StringParameter(

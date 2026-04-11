@@ -165,12 +165,13 @@ def _get_repos() -> tuple[
     ReviewRepository,
 ]:
     conn = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    get_conn = lambda: conn  # noqa: E731
     return (
         conn,
-        GameRepository(conn),
-        CatalogRepository(conn),
-        ReportRepository(conn),
-        ReviewRepository(conn),
+        GameRepository(get_conn),
+        CatalogRepository(get_conn),
+        ReportRepository(get_conn),
+        ReviewRepository(get_conn),
     )
 
 
@@ -193,11 +194,12 @@ def _build_crawl_service(
     import boto3
 
     real_aws = _has_real_aws_credentials()
+    get_conn = lambda: conn  # noqa: E731
     return CrawlService(
-        game_repo=GameRepository(conn),
-        review_repo=ReviewRepository(conn),
-        catalog_repo=CatalogRepository(conn),
-        tag_repo=TagRepository(conn),
+        game_repo=GameRepository(get_conn),
+        review_repo=ReviewRepository(get_conn),
+        catalog_repo=CatalogRepository(get_conn),
+        tag_repo=TagRepository(get_conn),
         steam=DirectSteamSource(http_client),
         sns_client=_NoOpSnsClient(),
         config=SteamPulseConfig(),
@@ -215,7 +217,9 @@ def _build_crawl_service(
 
 
 def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[dict]:
-    """Return [{appid, name}, ...] from IStoreService/GetAppList (cursor-paginated)."""
+    """Return [{appid, name, steam_last_modified, price_change_number}, ...] from IStoreService/GetAppList (cursor-paginated)."""
+    from datetime import datetime, timezone as _tz
+
     if not api_key:
         raise ValueError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
     apps: list[dict] = []
@@ -228,7 +232,19 @@ def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[di
         resp.raise_for_status()
         data = resp.json().get("response", {})
         batch = data.get("apps", [])
-        apps.extend({"appid": a["appid"], "name": a.get("name", "")} for a in batch)
+        apps.extend(
+            {
+                "appid": a["appid"],
+                "name": a.get("name", ""),
+                "steam_last_modified": (
+                    datetime.fromtimestamp(a["last_modified"], tz=_tz.utc)
+                    if a.get("last_modified")
+                    else None
+                ),
+                "price_change_number": a.get("price_change_number"),
+            }
+            for a in batch
+        )
         if not data.get("have_more_results"):
             break
         last_appid = data.get("last_appid")
@@ -359,7 +375,7 @@ def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
         else:
             n = svc.crawl_reviews(appid)
             if n >= 0:
-                CatalogRepository(c).mark_reviews_complete(appid)
+                CatalogRepository(lambda: c).mark_reviews_complete(appid)
                 return "done"
             return "skipped"
     except Exception as exc:

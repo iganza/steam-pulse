@@ -62,25 +62,32 @@ class DeliveryStack(cdk.Stack):
         )
 
         # ── Cache Policies ────────────────────────────────────────────────────
-        # Next.js uses RSC: 1 / Next-Router-* headers to request the RSC wire
-        # payload for client-side navigation instead of a full HTML page.
-        # Without these headers in the cache key, CloudFront caches the RSC
-        # payload and serves raw wire-format text to users who load the page
-        # directly (hard reload / direct link), causing blank or garbled pages.
+        # Next.js App Router flight headers — must ALL be in the cache key so
+        # CloudFront distinguishes HTML / RSC / prefetch / segment-prefetch
+        # responses.  Matches OpenNext's Vary header set in cacheInterceptor:
+        #   Vary: RSC, Next-Router-State-Tree, Next-Router-Prefetch,
+        #         Next-Router-Segment-Prefetch, Next-Url
+        # Query strings included because pages use them (?tab=, ?sort=, etc.)
+        # and Next.js uses _rsc for browser cache busting.
+        # Default TTL=0: let OpenNext's Cache-Control (s-maxage per page)
+        # drive caching rather than a blanket CloudFront default.
         html_cache_policy = cloudfront.CachePolicy(
             self,
             "HtmlCachePolicy",
-            default_ttl=cdk.Duration.seconds(86_400),
-            max_ttl=cdk.Duration.seconds(86_400 * 2),
+            default_ttl=cdk.Duration.seconds(0),
+            max_ttl=cdk.Duration.seconds(86_400 * 365),
             min_ttl=cdk.Duration.seconds(0),
             enable_accept_encoding_gzip=True,
+            enable_accept_encoding_brotli=True,
             header_behavior=cloudfront.CacheHeaderBehavior.allow_list(
                 "RSC",
                 "Next-Router-State-Tree",
                 "Next-Router-Prefetch",
+                "Next-Router-Segment-Prefetch",
+                "Next-Url",
             ),
             cookie_behavior=cloudfront.CacheCookieBehavior.none(),
-            query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),
         )
         static_cache_policy = cloudfront.CachePolicy(
             self,

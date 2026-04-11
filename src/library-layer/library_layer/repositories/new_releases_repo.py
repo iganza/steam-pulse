@@ -192,7 +192,7 @@ class NewReleasesRepository(BaseRepository):
                 WHERE coming_soon = TRUE
                   AND steam_last_modified >= %s
                   {filt}
-                ORDER BY steam_last_modified DESC, appid DESC
+                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
                 LIMIT %s OFFSET %s
             """
             params: list = [since, *fparams, limit, offset]
@@ -200,8 +200,9 @@ class NewReleasesRepository(BaseRepository):
             sql = f"""
                 SELECT * FROM mv_new_releases
                 WHERE coming_soon = TRUE
+                  AND steam_last_modified IS NOT NULL
                   {filt}
-                ORDER BY steam_last_modified DESC, appid DESC
+                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
                 LIMIT %s OFFSET %s
             """
             params = [*fparams, limit, offset]
@@ -224,7 +225,8 @@ class NewReleasesRepository(BaseRepository):
         else:
             sql = f"""
                 SELECT COUNT(*) AS c FROM mv_new_releases
-                WHERE coming_soon = TRUE {filt}
+                WHERE coming_soon = TRUE
+                  AND steam_last_modified IS NOT NULL {filt}
             """
             params = list(fparams)
         row = self._fetchone(sql, tuple(params))

@@ -16,7 +16,11 @@ class CatalogRepository(BaseRepository):
         """INSERT ... ON CONFLICT DO UPDATE for GetAppList metadata.
 
         Updates steam_last_modified and price_change_number on conflict
-        (these change over time). Only overwrites with newer/non-NULL values.
+        (these change over time). Only overwrites with newer/non-NULL values
+        (monotonic — never regresses).
+
+        Uses RETURNING with an xmax check to distinguish inserts from updates
+        without extra COUNT queries.
 
         Returns:
             Number of new rows inserted (not updated).
@@ -24,9 +28,7 @@ class CatalogRepository(BaseRepository):
         if not entries:
             return 0
         with self.conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS cnt FROM app_catalog")
-            before = cur.fetchone()["cnt"]
-            psycopg2.extras.execute_values(
+            result = psycopg2.extras.execute_values(
                 cur,
                 """
                 INSERT INTO app_catalog (appid, name, steam_last_modified, price_change_number)
@@ -39,9 +41,14 @@ class CatalogRepository(BaseRepository):
                         THEN EXCLUDED.steam_last_modified
                         ELSE app_catalog.steam_last_modified
                     END,
-                    price_change_number = COALESCE(
-                        EXCLUDED.price_change_number, app_catalog.price_change_number
-                    )
+                    price_change_number = CASE
+                        WHEN EXCLUDED.price_change_number IS NOT NULL
+                         AND (app_catalog.price_change_number IS NULL
+                              OR EXCLUDED.price_change_number > app_catalog.price_change_number)
+                        THEN EXCLUDED.price_change_number
+                        ELSE app_catalog.price_change_number
+                    END
+                RETURNING (xmax = 0) AS inserted
                 """,
                 [
                     (
@@ -53,11 +60,11 @@ class CatalogRepository(BaseRepository):
                     for e in entries
                 ],
                 page_size=1000,
+                fetch=True,
             )
-            cur.execute("SELECT COUNT(*) AS cnt FROM app_catalog")
-            after = cur.fetchone()["cnt"]
+            new_rows = sum(1 for row in result if row["inserted"])
         self.conn.commit()
-        return after - before
+        return new_rows
 
     def find_by_appid(self, appid: int) -> CatalogEntry | None:
         row = self._fetchone("SELECT * FROM app_catalog WHERE appid = %s", (appid,))

@@ -61,7 +61,10 @@ class SteamDataSource(ABC):
 
     @abstractmethod
     def get_app_list(self, limit: int | None = None) -> list[dict]:
-        """Returns [{appid, name}] for all Steam apps. Optional limit truncates result."""
+        """Returns [{appid, name, steam_last_modified, price_change_number}] for all Steam apps.
+
+        Optional limit truncates result.
+        """
 
     @abstractmethod
     def get_app_details(self, appid: int) -> dict:
@@ -199,7 +202,12 @@ class DirectSteamSource(SteamDataSource):
         raise SteamAPIError(f"Max retries exceeded for {url}")
 
     def get_app_list(self, limit: int | None = None) -> list[dict]:
-        """Fetch full Steam app catalog via IStoreService (cursor-paginated, requires API key)."""
+        """Fetch full Steam app catalog via IStoreService (cursor-paginated, requires API key).
+
+        Returns list of dicts with keys:
+            appid (int), name (str),
+            steam_last_modified (datetime | None), price_change_number (int | None).
+        """
         if not self._api_key:
             raise SteamAPIError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
 

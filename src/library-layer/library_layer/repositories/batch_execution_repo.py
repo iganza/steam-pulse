@@ -161,7 +161,7 @@ class BatchExecutionRepository(BaseRepository):
             """,
         )
 
-    def find_by_appid(self, appid: int, *, limit: int = 20) -> list[dict]:
+    def find_by_appid(self, appid: int, *, limit: int) -> list[dict]:
         """Recent batch executions for a specific game."""
         return self._fetchall(
             """

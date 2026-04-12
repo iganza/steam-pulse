@@ -127,6 +127,10 @@ def _stub_backend(cp: Any) -> MagicMock:
     backend = MagicMock()
     cp._backend_for = MagicMock(return_value=backend)
     cp._batch_exec_repo = MagicMock()
+    # Use a real model ID so estimate_batch_cost_usd resolves pricing.
+    cp._config = MagicMock()
+    cp._config.model_for.return_value = "claude-sonnet-4-6"
+    cp._config.ANALYSIS_MAX_REVIEWS = 5000
     return backend
 
 

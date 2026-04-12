@@ -133,6 +133,10 @@ class BatchAnalysisStack(cdk.Stack):
         shared_env = config.to_lambda_env(
             BATCH_BUCKET_NAME=batch_bucket.bucket_name,
             BEDROCK_BATCH_ROLE_ARN=batch_role.role_arn,
+            # Hard-pin to Anthropic — Bedrock batch IAM permissions have been
+            # removed. Overrides whatever .env sets so a missing/stale config
+            # can't route to a permission-denied Bedrock path.
+            LLM_BACKEND="anthropic",
         )
 
         def _make_batch_fn(

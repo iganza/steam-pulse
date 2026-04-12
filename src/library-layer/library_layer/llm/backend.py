@@ -47,16 +47,22 @@ LLMResultCallback = Callable[[int, BaseModel, LLMUsage], None]
 
 # Anthropic batch pricing per million tokens (as of 2025-05).
 # Batch pricing is 50% of standard; cache reads are 90% off standard input.
+_HAIKU_PRICING = {"input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write": 0.625}
+_SONNET_PRICING = {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_write": 1.875}
+_OPUS_PRICING = {"input": 2.50, "output": 12.50, "cache_read": 0.25, "cache_write": 3.125}
+
 _BATCH_PRICING: dict[str, dict[str, float]] = {
-    # Haiku 4.5
-    "claude-haiku-4-5-20251001": {"input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write": 0.625},
-    "anthropic.claude-3-haiku-20240307-v1:0": {"input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write": 0.625},
-    # Sonnet 4.6
-    "claude-sonnet-4-6-20250514": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_write": 1.875},
-    "anthropic.claude-sonnet-4-6-20250514-v1:0": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_write": 1.875},
-    # Opus 4.6
-    "claude-opus-4-6-20250610": {"input": 2.50, "output": 12.50, "cache_read": 0.25, "cache_write": 3.125},
-    "anthropic.claude-opus-4-6-20250610-v1:0": {"input": 2.50, "output": 12.50, "cache_read": 0.25, "cache_write": 3.125},
+    # Haiku 4.5 — Anthropic direct + Bedrock model IDs
+    "claude-haiku-4-5-20251001": _HAIKU_PRICING,
+    "anthropic.claude-3-haiku-20240307-v1:0": _HAIKU_PRICING,
+    # Sonnet 4.6 — short alias + full date + Bedrock
+    "claude-sonnet-4-6": _SONNET_PRICING,
+    "claude-sonnet-4-6-20250514": _SONNET_PRICING,
+    "anthropic.claude-sonnet-4-6-20250514-v1:0": _SONNET_PRICING,
+    # Opus 4.6 — short alias + full date + Bedrock
+    "claude-opus-4-6": _OPUS_PRICING,
+    "claude-opus-4-6-20250610": _OPUS_PRICING,
+    "anthropic.claude-opus-4-6-20250610-v1:0": _OPUS_PRICING,
 }
 
 
@@ -71,7 +77,10 @@ def estimate_batch_cost_usd(
     """Estimate USD cost from token counts and model ID using batch pricing."""
     pricing = _BATCH_PRICING.get(model_id)
     if pricing is None:
-        return 0.0
+        raise ValueError(
+            f"No batch pricing for model '{model_id}'. "
+            f"Add it to _BATCH_PRICING in backend.py. Known models: {list(_BATCH_PRICING)}"
+        )
     return (
         input_tokens * pricing["input"]
         + output_tokens * pricing["output"]

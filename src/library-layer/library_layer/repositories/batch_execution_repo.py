@@ -23,8 +23,8 @@ class BatchExecutionRepository(BaseRepository):
         batch_id: str,
         model_id: str,
         request_count: int,
-        pipeline_version: str | None,
-        prompt_version: str | None,
+        pipeline_version: str,
+        prompt_version: str,
     ) -> int:
         """Record a new batch submission. Returns the row id.
 

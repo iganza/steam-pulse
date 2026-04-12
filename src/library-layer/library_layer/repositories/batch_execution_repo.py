@@ -8,6 +8,7 @@ how long it took, and what it cost.
 from decimal import Decimal
 
 import psycopg2.extras
+from library_layer.models.batch_execution import BatchExecution
 from library_layer.repositories.base import BaseRepository
 
 
@@ -142,9 +143,12 @@ class BatchExecutionRepository(BaseRepository):
             )
         self.conn.commit()
 
-    def find_by_execution_id(self, execution_id: str) -> list[dict]:
+    def _rows_to_models(self, rows: list[dict]) -> list[BatchExecution]:
+        return [BatchExecution.model_validate(dict(r)) for r in rows]
+
+    def find_by_execution_id(self, execution_id: str) -> list[BatchExecution]:
         """All batch rows for a given Step Functions execution."""
-        return self._fetchall(
+        rows = self._fetchall(
             """
             SELECT * FROM batch_executions
             WHERE execution_id = %s
@@ -152,20 +156,22 @@ class BatchExecutionRepository(BaseRepository):
             """,
             (execution_id,),
         )
+        return self._rows_to_models(rows)
 
-    def find_active(self) -> list[dict]:
+    def find_active(self) -> list[BatchExecution]:
         """All batches currently in-flight (submitted or running)."""
-        return self._fetchall(
+        rows = self._fetchall(
             """
             SELECT * FROM batch_executions
             WHERE status IN ('submitted', 'running')
             ORDER BY submitted_at ASC
             """,
         )
+        return self._rows_to_models(rows)
 
-    def find_by_appid(self, appid: int, *, limit: int) -> list[dict]:
+    def find_by_appid(self, appid: int, *, limit: int) -> list[BatchExecution]:
         """Recent batch executions for a specific game."""
-        return self._fetchall(
+        rows = self._fetchall(
             """
             SELECT * FROM batch_executions
             WHERE appid = %s
@@ -174,3 +180,4 @@ class BatchExecutionRepository(BaseRepository):
             """,
             (appid, limit),
         )
+        return self._rows_to_models(rows)

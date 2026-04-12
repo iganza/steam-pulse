@@ -176,8 +176,8 @@ def _prepare_chunk(
             "skip": True,
         }
 
-    s3_uri = backend.prepare(pending, phase=f"chunk-{appid}")
-    job_id = backend.submit(s3_uri, task="chunking", phase=f"chunk-{appid}")
+    prepared = backend.prepare(pending, phase=f"chunk-{appid}")
+    job_id = backend.submit(prepared, task="chunking", phase=f"chunk-{appid}")
 
     try:
         _batch_exec_repo.insert(
@@ -373,8 +373,8 @@ def _prepare_synthesis(
         synthesis_max_tokens=_analyzer_settings.synthesis_max_tokens,
         synthesis_temperature=_analyzer_settings.synthesis_temperature,
     )
-    s3_uri = backend.prepare([request], phase=f"synth-{appid}")
-    job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")
+    prepared = backend.prepare([request], phase=f"synth-{appid}")
+    job_id = backend.submit(prepared, task="summarizer", phase=f"synth-{appid}")
 
     try:
         _batch_exec_repo.insert(

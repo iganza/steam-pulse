@@ -34,11 +34,11 @@ def test_insert_and_find_by_execution_id(
     )
     assert row_id > 0
 
-    rows = batch_exec_repo.find_by_execution_id("exec-test-1")
-    assert len(rows) == 1
-    assert rows[0]["batch_id"] == "msgbatch_01abc"
-    assert rows[0]["status"] == "submitted"
-    assert rows[0]["request_count"] == 10
+    results = batch_exec_repo.find_by_execution_id("exec-test-1")
+    assert len(results) == 1
+    assert results[0].batch_id == "msgbatch_01abc"
+    assert results[0].status == "submitted"
+    assert results[0].request_count == 10
 
 
 def test_mark_running(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
@@ -56,8 +56,8 @@ def test_mark_running(game_repo: GameRepository, batch_exec_repo: BatchExecution
     )
     batch_exec_repo.mark_running("msgbatch_run")
 
-    rows = batch_exec_repo.find_by_execution_id("exec-run-1")
-    assert rows[0]["status"] == "running"
+    results = batch_exec_repo.find_by_execution_id("exec-run-1")
+    assert results[0].status == "running"
 
 
 def test_mark_completed(
@@ -87,17 +87,18 @@ def test_mark_completed(
         estimated_cost_usd=Decimal("0.0125"),
     )
 
-    rows = batch_exec_repo.find_by_execution_id("exec-done-1")
-    assert rows[0]["status"] == "completed"
-    assert rows[0]["succeeded_count"] == 1
-    assert rows[0]["input_tokens"] == 5000
-    assert rows[0]["output_tokens"] == 2000
-    assert rows[0]["cache_read_tokens"] == 3000
-    assert rows[0]["cache_write_tokens"] == 500
-    assert rows[0]["estimated_cost_usd"] == Decimal("0.0125")
-    assert rows[0]["failed_record_ids"] == []
-    assert rows[0]["completed_at"] is not None
-    assert rows[0]["duration_ms"] is not None
+    results = batch_exec_repo.find_by_execution_id("exec-done-1")
+    row = results[0]
+    assert row.status == "completed"
+    assert row.succeeded_count == 1
+    assert row.input_tokens == 5000
+    assert row.output_tokens == 2000
+    assert row.cache_read_tokens == 3000
+    assert row.cache_write_tokens == 500
+    assert row.estimated_cost_usd == Decimal("0.0125")
+    assert row.failed_record_ids == []
+    assert row.completed_at is not None
+    assert row.duration_ms is not None
 
 
 def test_mark_failed(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
@@ -115,10 +116,10 @@ def test_mark_failed(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
     )
     batch_exec_repo.mark_failed("arn:aws:bedrock:job/fail", failure_reason="Job expired after 24h")
 
-    rows = batch_exec_repo.find_by_execution_id("exec-fail-1")
-    assert rows[0]["status"] == "failed"
-    assert rows[0]["failure_reason"] == "Job expired after 24h"
-    assert rows[0]["completed_at"] is not None
+    results = batch_exec_repo.find_by_execution_id("exec-fail-1")
+    assert results[0].status == "failed"
+    assert results[0].failure_reason == "Job expired after 24h"
+    assert results[0].completed_at is not None
 
 
 def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
@@ -159,7 +160,7 @@ def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
     )
 
     active = batch_exec_repo.find_active()
-    active_batch_ids = [r["batch_id"] for r in active]
+    active_batch_ids = [r.batch_id for r in active]
     assert "msgbatch_active1" in active_batch_ids
     assert "msgbatch_active2" not in active_batch_ids
 
@@ -179,6 +180,6 @@ def test_find_by_appid(
         pipeline_version="v3.0",
         prompt_version="chunk-v2.0",
     )
-    rows = batch_exec_repo.find_by_appid(440, limit=10)
-    assert len(rows) >= 1
-    assert all(r["appid"] == 440 for r in rows)
+    results = batch_exec_repo.find_by_appid(440, limit=10)
+    assert len(results) >= 1
+    assert all(r.appid == 440 for r in results)

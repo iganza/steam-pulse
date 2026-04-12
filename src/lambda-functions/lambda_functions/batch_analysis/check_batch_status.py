@@ -22,6 +22,14 @@ tracer = Tracer(service="batch-check-status")
 _config = SteamPulseConfig()
 _batch_exec_repo = BatchExecutionRepository(get_conn)
 
+# Module-level clients — reused across warm Lambda invocations.
+_bedrock_client = boto3.client("bedrock") if _config.LLM_BACKEND != "anthropic" else None
+_anthropic_client: anthropic.Anthropic | None = (
+    anthropic.Anthropic(api_key=resolve_anthropic_api_key(_config))
+    if _config.LLM_BACKEND == "anthropic"
+    else None
+)
+
 # ── Bedrock path ─────────────────────────────────────────────────────────────
 _BEDROCK_STATUS_MAP = {
     "Submitted": "Running",
@@ -47,8 +55,8 @@ _ANTHROPIC_STATUS_MAP = {
 
 
 def _check_bedrock(job_id: str) -> dict:
-    bedrock = boto3.client("bedrock")
-    resp = bedrock.get_model_invocation_job(jobIdentifier=job_id)
+    assert _bedrock_client is not None
+    resp = _bedrock_client.get_model_invocation_job(jobIdentifier=job_id)
     raw_status: str = resp.get("status", "Unknown")
     mapped_status = _BEDROCK_STATUS_MAP.get(raw_status, "Failed")
     message = resp.get("message", raw_status)
@@ -56,8 +64,8 @@ def _check_bedrock(job_id: str) -> dict:
 
 
 def _check_anthropic(job_id: str) -> dict:
-    client = anthropic.Anthropic(api_key=resolve_anthropic_api_key(_config))
-    batch = client.messages.batches.retrieve(job_id)
+    assert _anthropic_client is not None
+    batch = _anthropic_client.messages.batches.retrieve(job_id)
     raw_status = batch.processing_status
     mapped_status = _ANTHROPIC_STATUS_MAP.get(raw_status, "Failed")
     return {"status": mapped_status, "message": raw_status, "raw": raw_status}

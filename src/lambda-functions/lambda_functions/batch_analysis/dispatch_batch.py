@@ -112,20 +112,16 @@ def _get_system_events_topic_arn() -> str:
 
 
 def _handle_post_batch(event: dict) -> dict:
-    """Publish BatchAnalysisCompleteEvent after all games in a batch complete."""
+    """Publish BatchAnalysisCompleteEvent after all games in a batch complete.
+
+    Counts are best-effort — the DistributedMap output is not passed through
+    to avoid the 256KB Step Functions state size limit. The event's purpose is
+    to trigger matview refresh, not to report precise counts.
+    """
     execution_id: str = event["execution_id"]
-    map_result: list[dict] = event.get("map_result", [])
-
-    succeeded = sum(1 for item in map_result if item.get("Status") == "SUCCEEDED")
-    failed = len(map_result) - succeeded
-
     topic_arn = _get_system_events_topic_arn()
 
-    evt = BatchAnalysisCompleteEvent(
-        execution_id=execution_id,
-        appids_completed=succeeded,
-        appids_failed=failed,
-    )
+    evt = BatchAnalysisCompleteEvent(execution_id=execution_id)
 
     try:
         publish_event(_sns, topic_arn, evt)
@@ -134,23 +130,14 @@ def _handle_post_batch(event: dict) -> dict:
             "Failed to publish batch-analysis-complete",
             extra={"execution_id": execution_id},
         )
-        raise
+        return {"status": "publish_failed", "execution_id": execution_id}
 
     logger.info(
         "Published batch-analysis-complete",
-        extra={
-            "execution_id": execution_id,
-            "appids_completed": succeeded,
-            "appids_failed": failed,
-        },
+        extra={"execution_id": execution_id},
     )
 
-    return {
-        "status": "published",
-        "execution_id": execution_id,
-        "appids_completed": succeeded,
-        "appids_failed": failed,
-    }
+    return {"status": "published", "execution_id": execution_id}
 
 
 @tracer.capture_lambda_handler

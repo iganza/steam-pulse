@@ -33,11 +33,11 @@ File: `src/library-layer/library_layer/events.py`
 Rename `"batch-complete"` → `"batch-analysis-complete"` in the `EventType` literal, then rename the class and align fields:
 
 ```python
-class BatchCompleteEvent(BaseEvent):
-    event_type: EventType = "batch-complete"
+class BatchAnalysisCompleteEvent(BaseEvent):
+    event_type: EventType = "batch-analysis-complete"
     execution_id: str
-    appids_completed: int
-    appids_failed: int
+    appids_completed: int = 0
+    appids_failed: int = 0
 ```
 
 ### 2. Publish from orchestrator completion
@@ -53,13 +53,13 @@ Add a Task state after the DistributedMap in the orchestrator state machine
 File: `infra/stacks/messaging_stack.py`
 
 Add SNS subscription filter on `cache-invalidation-queue` for
-`event_type = "batch-complete"` from `system-events-topic`.
+`event_type = "batch-analysis-complete"` from `system-events-topic`.
 
 ### 4. Bypass debounce for `batch-analysis-complete`
 
 File: `src/lambda-functions/lambda_functions/admin/matview_refresh_handler.py`
 
-When the SQS message body contains `"event_type": "batch-complete"`, skip the debounce
+When the SQS message body contains `"event_type": "batch-analysis-complete"`, skip the debounce
 check and always proceed with refresh. Other event types keep the existing 5-minute debounce.
 
 ## Files Touched

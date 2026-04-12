@@ -373,6 +373,8 @@ class BatchAnalysisStack(cdk.Stack):
 
         # After all games complete, publish batch-analysis-complete event
         # so matview refresh fires immediately (bypassing debounce).
+        # Use result_selector to extract only succeeded/failed counts from
+        # the DistributedMap output — avoids hitting the 256KB state limit.
         publish_batch_complete = tasks.LambdaInvoke(
             self,
             "PublishBatchAnalysisComplete",
@@ -380,9 +382,11 @@ class BatchAnalysisStack(cdk.Stack):
             payload=sfn.TaskInput.from_object({
                 "action": "post_batch",
                 "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "map_result": sfn.JsonPath.object_at("$"),
             }),
             payload_response_only=True,
+            result_selector={
+                "status": sfn.JsonPath.string_at("$.status"),
+            },
         )
         batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
         fan_out.next(publish_batch_complete).next(batch_complete)

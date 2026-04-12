@@ -1,4 +1,4 @@
-"""PreparePhase Lambda — thin wrapper over shared analyzer helpers + BatchBackend.
+"""PreparePhase Lambda — thin wrapper over shared analyzer helpers + AnthropicBatchBackend.
 
 Per-game Step Functions execution: one appid per invocation. Parent orchestrator
 uses a Map state to fan out across an appid list. Parametrized by `phase` so
@@ -26,7 +26,7 @@ this phase and proceed directly to the next phase. The downstream state reads
 the persisted artifacts (chunk_summaries / merged_summaries) from Postgres.
 
 "Job still pending" is Step Functions state, NEVER an exception. This Lambda
-returns immediately after `BatchBackend.submit()`; the polling loop lives in
+returns immediately after `AnthropicBatchBackend.submit()`; the polling loop lives in
 the state machine (see infra/stacks/batch_analysis_stack.py).
 """
 
@@ -46,7 +46,6 @@ from library_layer.analyzer import (
 from library_layer.config import SteamPulseConfig
 from library_layer.llm import make_batch_backend, make_converse_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
-from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
@@ -90,7 +89,7 @@ _converse_backend = make_converse_backend(
 )
 
 
-def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     return make_batch_backend(
         _config,
         execution_id=execution_id,
@@ -118,14 +117,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
         # synthesis does not race on find_latest_by_appid under
         # concurrent re-analysis for the same appid.
         raw = event.get("merged_summary_id")
-        merge_id = int(raw) if raw is not None else None
-        return _prepare_synthesis(appid, backend, execution_id, merge_id)
+        if raw is None:
+            raise ValueError("Missing required synthesis event field: merged_summary_id")
+        return _prepare_synthesis(appid, backend, execution_id, int(raw))
 
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
 def _prepare_chunk(
-    appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str
+    appid: int, backend: AnthropicBatchBackend, execution_id: str
 ) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
@@ -207,7 +207,7 @@ def _prepare_chunk(
 
 
 def _prepare_merge(
-    appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str
+    appid: int, backend: AnthropicBatchBackend, execution_id: str
 ) -> dict:
     """Run the merge phase INLINE via ConverseBackend and short-circuit the
     Step Functions wait loop.
@@ -277,9 +277,9 @@ def _prepare_merge(
 
 def _prepare_synthesis(
     appid: int,
-    backend: BatchBackend | AnthropicBatchBackend,
+    backend: AnthropicBatchBackend,
     execution_id: str,
-    merged_summary_id: int | None,
+    merged_summary_id: int,
 ) -> dict:
     # Short-circuit: if a report already exists at the current pipeline
     # version, skip synthesis entirely — no tokens spent.
@@ -304,18 +304,9 @@ def _prepare_synthesis(
 
     # The state machine threads `merged_summary_id` forward from
     # PrepareMerge, so we read the exact row that execution wrote.
-    # If it's missing (old state machine deployment, hand-invoked test)
-    # we fall back to the latest row for the appid — non-concurrent
-    # paths are unaffected.
-    if merged_summary_id is not None:
-        merged_row = _merge_repo.find_by_id(merged_summary_id)
-        if merged_row is None:
-            raise ValueError(f"merged_summary id={merged_summary_id} not found for appid={appid}")
-    else:
-        merged_row = _merge_repo.find_latest_by_appid(appid)
-        if merged_row is None:
-            raise ValueError(f"No merged_summary for appid={appid} — run merge phase first")
-        merged_summary_id = int(merged_row["id"])
+    merged_row = _merge_repo.find_by_id(merged_summary_id)
+    if merged_row is None:
+        raise ValueError(f"merged_summary id={merged_summary_id} not found for appid={appid}")
     merged = MergedSummary.model_validate(merged_row["summary_json"])
 
     # Same race fix for chunk_count: capture "how many chunks fed this

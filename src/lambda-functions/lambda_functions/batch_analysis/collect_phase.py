@@ -1,7 +1,7 @@
 """CollectPhase Lambda — collect Bedrock batch output and persist.
 
-Runs after BatchBackend.status() reports "completed" for a phase. Reads the
-output JSONL via BatchBackend.collect(), parses responses into the typed
+Runs after AnthropicBatchBackend.status() reports "completed" for a phase. Reads the
+output JSONL via AnthropicBatchBackend.collect(), parses responses into the typed
 pydantic models, and persists them through the SAME repositories the
 realtime path uses (chunk_repo, merge_repo, report_repo).
 
@@ -40,7 +40,6 @@ from library_layer.events import ReportReadyEvent
 from library_layer.llm import make_batch_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.backend import estimate_batch_cost_usd
-from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
@@ -70,7 +69,7 @@ _batch_exec_repo = BatchExecutionRepository(get_conn)
 _sns = boto3.client("sns")
 
 
-def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     return make_batch_backend(
         _config,
         execution_id=execution_id,
@@ -108,7 +107,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, job_id: str) -> dict:
+def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> dict:
     """Persist chunk_summaries rows from a completed chunking batch job.
 
     The prepare_phase Lambda encodes (chunk_index, chunk_size, chunk_hash)
@@ -216,7 +215,7 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
 
 def _collect_synthesis(
     appid: int,
-    backend: BatchBackend | AnthropicBatchBackend,
+    backend: AnthropicBatchBackend,
     job_id: str,
     merged_summary_id: int,
     chunk_count: int,

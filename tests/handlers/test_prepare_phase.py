@@ -247,16 +247,12 @@ def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_synthesis_raises_when_no_merged_summary() -> None:
+def test_prepare_synthesis_raises_when_merged_summary_id_missing() -> None:
+    """Synthesis requires merged_summary_id threaded from the state machine."""
     pp = _get_module()
-    _install_fake_game(pp)
-    pp._report_repo = MagicMock()
-    pp._report_repo.has_current_report.return_value = False
-    pp._merge_repo = MagicMock()
-    pp._merge_repo.find_latest_by_appid.return_value = None
     _install_fake_backend(pp)
 
-    with pytest.raises(ValueError, match="No merged_summary"):
+    with pytest.raises(ValueError, match="Missing required synthesis event field"):
         pp.handler(
             {"appid": 440, "phase": "synthesis", "execution_id": "exec-5"},
             context=None,
@@ -283,7 +279,7 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
         source_chunk_ids=[1, 2, 3],
     )
     pp._merge_repo = MagicMock()
-    pp._merge_repo.find_latest_by_appid.return_value = {
+    pp._merge_repo.find_by_id.return_value = {
         "id": 7,
         "summary_json": merged.model_dump(mode="json"),
     }
@@ -301,7 +297,7 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     backend = _install_fake_backend(pp)
 
     result = pp.handler(
-        {"appid": 440, "phase": "synthesis", "execution_id": "exec-6"},
+        {"appid": 440, "phase": "synthesis", "execution_id": "exec-6", "merged_summary_id": 7},
         context=None,
     )
     assert result["skip"] is False

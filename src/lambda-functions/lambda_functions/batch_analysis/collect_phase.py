@@ -116,70 +116,77 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
     for hours), which would shift chunk membership and corrupt chunk_hash
     cache keys.
     """
-    collect_result = backend.collect(job_id, default_response_model=RichChunkSummary)
-    model_id = _config.model_for("chunking")
-    persisted = 0
-    dropped_ids: list[str] = []
+    try:
+        collect_result = backend.collect(job_id, default_response_model=RichChunkSummary)
+        model_id = _config.model_for("chunking")
+        persisted = 0
+        dropped_ids: list[str] = []
 
-    for record_id, summary in collect_result.results:
-        if not isinstance(summary, RichChunkSummary):
-            logger.warning("unexpected_type", extra={"record_id": record_id})
-            dropped_ids.append(record_id)
-            continue
-        parsed = parse_chunk_record_id(record_id)
-        if parsed is None:
-            # parse_chunk_record_id already logged the failure.
-            dropped_ids.append(record_id)
-            continue
-        record_appid, chunk_index, review_count, chunk_hash = parsed
-        if record_appid != appid:
-            logger.warning(
-                "record_id_appid_mismatch",
-                extra={"record_id": record_id, "expected": appid, "got": record_appid},
+        for record_id, summary in collect_result.results:
+            if not isinstance(summary, RichChunkSummary):
+                logger.warning("unexpected_type", extra={"record_id": record_id})
+                dropped_ids.append(record_id)
+                continue
+            parsed = parse_chunk_record_id(record_id)
+            if parsed is None:
+                # parse_chunk_record_id already logged the failure.
+                dropped_ids.append(record_id)
+                continue
+            record_appid, chunk_index, review_count, chunk_hash = parsed
+            if record_appid != appid:
+                logger.warning(
+                    "record_id_appid_mismatch",
+                    extra={"record_id": record_id, "expected": appid, "got": record_appid},
+                )
+                dropped_ids.append(record_id)
+                continue
+            _chunk_repo.insert(
+                appid,
+                chunk_index,
+                chunk_hash,
+                review_count,
+                summary,
+                model_id=model_id,
+                prompt_version=CHUNK_PROMPT_VERSION,
             )
-            dropped_ids.append(record_id)
-            continue
-        _chunk_repo.insert(
-            appid,
-            chunk_index,
-            chunk_hash,
-            review_count,
-            summary,
-            model_id=model_id,
-            prompt_version=CHUNK_PROMPT_VERSION,
-        )
-        persisted += 1
+            persisted += 1
 
-    all_failed_ids = collect_result.failed_ids + dropped_ids
-    # skipped includes records without a usable record_id (malformed JSON,
-    # missing recordId) that can't appear in failed_ids. Count them in
-    # failed_count so the tracking row reflects the true failure total.
-    failed_count = collect_result.skipped + len(dropped_ids)
-    if failed_count:
-        _sample = 10
-        logger.error(
-            "batch_chunk_records_failed",
-            extra={
-                "appid": appid,
-                "api_failed_count": len(collect_result.failed_ids),
-                "api_failed_ids_sample": collect_result.failed_ids[:_sample],
-                "dropped_count": len(dropped_ids),
-                "dropped_ids_sample": dropped_ids[:_sample],
-                "skipped": collect_result.skipped,
-            },
-        )
+        all_failed_ids = collect_result.failed_ids + dropped_ids
+        # skipped includes records without a usable record_id (malformed JSON,
+        # missing recordId) that can't appear in failed_ids. Count them in
+        # failed_count so the tracking row reflects the true failure total.
+        failed_count = collect_result.skipped + len(dropped_ids)
+        if failed_count:
+            _sample = 10
+            logger.error(
+                "batch_chunk_records_failed",
+                extra={
+                    "appid": appid,
+                    "api_failed_count": len(collect_result.failed_ids),
+                    "api_failed_ids_sample": collect_result.failed_ids[:_sample],
+                    "dropped_count": len(dropped_ids),
+                    "dropped_ids_sample": dropped_ids[:_sample],
+                    "skipped": collect_result.skipped,
+                },
+            )
 
-    _batch_exec_repo.mark_completed(
-        job_id,
-        succeeded_count=persisted,
-        failed_count=failed_count,
-        input_tokens=None,
-        output_tokens=None,
-        cache_read_tokens=None,
-        cache_write_tokens=None,
-        estimated_cost_usd=None,
-        failed_record_ids=all_failed_ids,
-    )
+        _batch_exec_repo.mark_completed(
+            job_id,
+            succeeded_count=persisted,
+            failed_count=failed_count,
+            input_tokens=None,
+            output_tokens=None,
+            cache_read_tokens=None,
+            cache_write_tokens=None,
+            estimated_cost_usd=None,
+            failed_record_ids=all_failed_ids,
+        )
+    except Exception as exc:
+        _batch_exec_repo.mark_failed(
+            job_id,
+            failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
+        )
+        raise
 
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
 

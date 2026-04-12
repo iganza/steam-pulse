@@ -162,6 +162,7 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 "batch_chunk_records_failed",
                 extra={
                     "appid": appid,
+                    "job_id": job_id,
                     "api_failed_count": len(collect_result.failed_ids),
                     "api_failed_ids_sample": collect_result.failed_ids[:_sample],
                     "dropped_count": len(dropped_ids),

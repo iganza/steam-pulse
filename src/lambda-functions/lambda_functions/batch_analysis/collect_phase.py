@@ -1,17 +1,18 @@
-"""CollectPhase Lambda — collect Bedrock batch output and persist.
+"""CollectPhase Lambda — collect Anthropic batch output and persist.
 
-Runs after AnthropicBatchBackend.status() reports "completed" for a phase. Reads the
-output JSONL via AnthropicBatchBackend.collect(), parses responses into the typed
-pydantic models, and persists them through the SAME repositories the
-realtime path uses (chunk_repo, merge_repo, report_repo).
+Runs after the status poller reports "completed" for a phase. Iterates
+batch results via AnthropicBatchBackend.collect(), parses responses into
+typed pydantic models, and persists them through the SAME repositories
+the realtime path uses (chunk_repo, report_repo).
 
 Input:
     {
         "appid": 440,
-        "phase": "chunk" | "merge" | "synthesis",
+        "phase": "chunk" | "synthesis",
         "execution_id": "...",
-        "job_id": "arn:aws:bedrock:...:model-invocation-job/...",
-        "level": 1   # merge only
+        "job_id": "msgbatch_01abc...",
+        "merged_summary_id": 99,  # synthesis only
+        "chunk_count": 7           # synthesis only
     }
 
 Output:

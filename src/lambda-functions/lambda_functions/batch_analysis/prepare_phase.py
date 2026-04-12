@@ -8,7 +8,8 @@ Input:
     {
         "appid": 440,
         "phase": "chunk" | "merge" | "synthesis",
-        "execution_id": "sp-batch-20260409-abcd"
+        "execution_id": "sp-batch-20260409-abcd",
+        "merged_summary_id": 99  # synthesis only, threaded from merge phase
     }
 
 Output (phase == "chunk" | "merge" | "synthesis"):
@@ -16,8 +17,8 @@ Output (phase == "chunk" | "merge" | "synthesis"):
         "appid": 440,
         "phase": "<phase>",
         "execution_id": "...",
-        "job_id": "arn:aws:bedrock:...:model-invocation-job/...",
-        "skip": false  # true if cache hit — no Bedrock job needed, state
+        "job_id": "msgbatch_01abc...",  # Anthropic batch ID
+        "skip": false  # true if cache hit — no batch job needed, state
                        # machine short-circuits directly to the next phase
     }
 
@@ -26,8 +27,8 @@ this phase and proceed directly to the next phase. The downstream state reads
 the persisted artifacts (chunk_summaries / merged_summaries) from Postgres.
 
 "Job still pending" is Step Functions state, NEVER an exception. This Lambda
-returns immediately after `AnthropicBatchBackend.submit()`; the polling loop lives in
-the state machine (see infra/stacks/batch_analysis_stack.py).
+returns immediately after submit; the polling loop lives in the state machine
+(see infra/stacks/batch_analysis_stack.py).
 """
 
 import os

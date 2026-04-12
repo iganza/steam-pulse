@@ -876,6 +876,12 @@ Curated sources for frontend design decisions. Consult these when planning UI ch
   Once added, ACM will validate it and the deploy will continue. The site won't go live until you set domain-live: true.
 
 ** TODO BUG:  When looking at "Recently Released", I see games "released" in 2027, but that is in the future
+** TODO Search: upgrade to pg_trgm for fuzzy/similarity-ranked search
+   Currently using ILIKE with exact/prefix boost in ORDER BY. Works but doesn't
+   scale well and can't handle typos. Switch to pg_trgm: add the extension,
+   create a GIN index on games.name, and use similarity() or word_similarity()
+   for ranking. This would properly rank "Minato" above "Terminator" for the
+   query "minato" without the prefix-boost hack, and also handle misspellings.
 
 * Research / Sources
 

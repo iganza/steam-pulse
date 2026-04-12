@@ -436,11 +436,19 @@ class GameRepository(BaseRepository):
         conditions: list[str] = ["1=1"]
         params: list = []
 
-        # Text search — try pg_trgm, fall back to ILIKE
+        # Text search — ILIKE with exact/prefix boost in ORDER BY
         search_term = q or search
         if search_term:
             conditions.append("g.name ILIKE %s")
             params.append(f"%{search_term}%")
+            # Boost exact and prefix matches so "Minato" ranks above "Terminator"
+            order = (
+                f"(LOWER(g.name) = LOWER(%s))::int DESC, "
+                f"(g.name ILIKE %s)::int DESC, "
+                f"{order}"
+            )
+            params.append(search_term)
+            params.append(f"{search_term}%")
 
         if genre:
             conditions.append(

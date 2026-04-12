@@ -56,7 +56,7 @@ class CatalogRepository(BaseRepository):
                 page_size=1000,
                 fetch=True,
             )
-            new_rows = sum(1 for row in result if row[0])
+            new_rows = sum(1 for row in result if row["inserted"])
         self.conn.commit()
         return new_rows
 

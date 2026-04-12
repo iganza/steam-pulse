@@ -140,8 +140,9 @@ def test_enqueue_pending(
 
     assert enqueued == 3
 
+    # 3 apps × 2 tasks (metadata + tags) = 6 messages
     msgs = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
-    assert len(msgs.get("Messages", [])) == 3
+    assert len(msgs.get("Messages", [])) == 6
 
 
 @mock_aws

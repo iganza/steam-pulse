@@ -97,15 +97,22 @@ class CatalogService:
             logger.warning("Failed to publish catalog-refresh-complete")
 
     def enqueue_pending(self) -> int:
-        """Send all pending catalog entries to app-crawl-queue. Returns total enqueued."""
+        """Send all pending catalog entries to app-crawl-queue.
+
+        Enqueues two messages per appid (task=metadata, task=tags).
+        Returns the number of appids enqueued (not the number of messages).
+        """
         pending = self._catalog_repo.find_pending_meta()
         if not pending:
             logger.info("No pending appids to enqueue")
             return 0
 
-        messages = [{"appid": e.appid, "task": "metadata"} for e in pending]
+        messages: list[dict] = []
+        for e in pending:
+            messages.append({"appid": e.appid, "task": "metadata"})
+            messages.append({"appid": e.appid, "task": "tags"})
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
-        return len(messages)
+        return len(pending)
 
     def enqueue_stale(self, limit: int = 2000) -> int:
         """Find games with stale metadata and enqueue both metadata + tags re-crawl.

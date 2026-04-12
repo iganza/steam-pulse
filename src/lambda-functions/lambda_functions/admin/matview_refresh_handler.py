@@ -1,13 +1,16 @@
 """Materialized view refresh Lambda — keeps catalog matviews up-to-date.
 
 Triggered by:
-- SQS messages from cache_invalidation_queue (report-ready, catalog-refresh-complete)
+- SQS messages from cache_invalidation_queue (report-ready, catalog-refresh-complete,
+  batch-analysis-complete)
 - EventBridge schedule (every 6 hours, as fallback)
 
 Debounce: skips refresh if the last refresh was less than 5 minutes ago.
+Bypassed for batch-analysis-complete events (force refresh after batch).
 Reserved concurrency: 1 (set in CDK) to prevent concurrent refreshes.
 """
 
+import json
 import time
 
 from aws_lambda_powertools import Logger
@@ -22,13 +25,27 @@ _DEBOUNCE_SECONDS = 300  # 5 minutes
 _repo = MatviewRepository(get_conn)
 
 
+def _is_force_refresh(event: dict) -> bool:
+    """Check if any SQS record contains a batch-analysis-complete event."""
+    for record in event.get("Records", []):
+        body = json.loads(record.get("body", "{}"))
+        # SNS wraps the message in a Message field
+        message = body.get("Message", body)
+        if isinstance(message, str):
+            message = json.loads(message)
+        if message.get("event_type") == "batch-analysis-complete":
+            return True
+    return False
+
+
 @logger.inject_lambda_context
 def handler(event: dict, context: LambdaContext) -> dict:
     """Refresh all materialized views with debounce."""
+    force = _is_force_refresh(event)
     last_ts = _repo.get_last_refresh_time()
     now = time.time()
 
-    if last_ts and (now - last_ts) < _DEBOUNCE_SECONDS:
+    if not force and last_ts and (now - last_ts) < _DEBOUNCE_SECONDS:
         logger.info(
             "Skipping refresh — debounced",
             extra={"seconds_since_last": round(now - last_ts)},

@@ -216,13 +216,13 @@ class MessagingStack(cdk.Stack):
             )
         )
 
-        # cache-invalidation-queue ← system-events (catalog-refresh-complete)
+        # cache-invalidation-queue ← system-events (catalog-refresh-complete + batch-analysis-complete)
         self.system_events_topic.add_subscription(
             subs.SqsSubscription(
                 self.cache_invalidation_queue,
                 filter_policy={
                     "event_type": sns.SubscriptionFilter.string_filter(
-                        allowlist=["catalog-refresh-complete"],
+                        allowlist=["catalog-refresh-complete", "batch-analysis-complete"],
                     ),
                 },
             )

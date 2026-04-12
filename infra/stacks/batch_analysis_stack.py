@@ -313,65 +313,8 @@ class BatchAnalysisStack(cdk.Stack):
             string_value=state_machine.state_machine_arn,
         )
 
-        # ── Orchestrator: fan-out over appid list via DistributedMap ─────
-        #
-        # Accepts {"appids": [440, 730, ...], "max_concurrency": 20} and
-        # starts one per-game child execution per appid. MaxConcurrency is
-        # read from the input payload at runtime (max_concurrency_path) so
-        # the CLI can throttle without redeploying.
-
-        fan_out = sfn.DistributedMap(
-            self,
-            "FanOut",
-            items_path="$.appids",
-            max_concurrency_path="$.max_concurrency",
-            tolerated_failure_percentage=10,
-        )
-        fan_out.item_processor(
-            tasks.StepFunctionsStartExecution(
-                self,
-                "RunPerGame",
-                state_machine=state_machine,
-                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                input=sfn.TaskInput.from_object({"appid": sfn.JsonPath.number_at("$")}),
-            )
-        )
-
-        batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
-        fan_out.next(batch_complete)
-
-        orchestrator = sfn.StateMachine(
-            self,
-            "BatchOrchestrator",
-            state_machine_name=f"steampulse-batch-orchestrator-{env}",
-            definition_body=sfn.DefinitionBody.from_chainable(fan_out),
-            state_machine_type=sfn.StateMachineType.STANDARD,
-            logs=sfn.LogOptions(
-                destination=logs.LogGroup(
-                    self,
-                    "OrchestratorLogs",
-                    log_group_name=f"/steampulse/{env}/batch-orchestrator",
-                    retention=logs.RetentionDays.ONE_WEEK,
-                    removal_policy=cdk.RemovalPolicy.DESTROY,
-                ),
-                level=sfn.LogLevel.ERROR,
-            ),
-        )
-
-        # Grant orchestrator permission to drive the per-game machine
-        state_machine.grant_start_execution(orchestrator)
-        state_machine.grant(orchestrator, "states:DescribeExecution")
-        state_machine.grant(orchestrator, "states:StopExecution")
-
-        # Publish orchestrator ARN to SSM
-        ssm.StringParameter(
-            self,
-            "OrchestratorSfnArnParam",
-            parameter_name=f"/steampulse/{env}/batch/orchestrator-sfn-arn",
-            string_value=orchestrator.state_machine_arn,
-        )
-
-        # ── Dispatch Lambda — reads matview, starts orchestrator ──────────
+        # ── Dispatch Lambda — reads matview, starts orchestrator, publishes
+        #    batch-analysis-complete event after fan-out completes ──────────
         dispatch_fn = PythonFunction(
             self,
             "DispatchBatchFn",
@@ -403,6 +346,77 @@ class BatchAnalysisStack(cdk.Stack):
         # NOTE: orchestrator.grant_start_execution(dispatch_fn) is NOT used
         # here — the permission lives on batch_lambda_role (upfront) to avoid
         # a circular dependency through the shared role.
+
+        # ── Orchestrator: fan-out over appid list via DistributedMap ─────
+        #
+        # Accepts {"appids": [440, 730, ...], "max_concurrency": 20} and
+        # starts one per-game child execution per appid. MaxConcurrency is
+        # read from the input payload at runtime (max_concurrency_path) so
+        # the CLI can throttle without redeploying.
+
+        fan_out = sfn.DistributedMap(
+            self,
+            "FanOut",
+            items_path="$.appids",
+            max_concurrency_path="$.max_concurrency",
+            tolerated_failure_percentage=10,
+        )
+        fan_out.item_processor(
+            tasks.StepFunctionsStartExecution(
+                self,
+                "RunPerGame",
+                state_machine=state_machine,
+                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                input=sfn.TaskInput.from_object({"appid": sfn.JsonPath.number_at("$")}),
+            )
+        )
+
+        # After all games complete, publish batch-analysis-complete event
+        # so matview refresh fires immediately (bypassing debounce).
+        publish_batch_complete = tasks.LambdaInvoke(
+            self,
+            "PublishBatchAnalysisComplete",
+            lambda_function=dispatch_fn,
+            payload=sfn.TaskInput.from_object({
+                "action": "post_batch",
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                "map_result": sfn.JsonPath.object_at("$"),
+            }),
+            payload_response_only=True,
+        )
+        batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
+        fan_out.next(publish_batch_complete).next(batch_complete)
+
+        orchestrator = sfn.StateMachine(
+            self,
+            "BatchOrchestrator",
+            state_machine_name=f"steampulse-batch-orchestrator-{env}",
+            definition_body=sfn.DefinitionBody.from_chainable(fan_out),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            logs=sfn.LogOptions(
+                destination=logs.LogGroup(
+                    self,
+                    "OrchestratorLogs",
+                    log_group_name=f"/steampulse/{env}/batch-orchestrator",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+
+        # Grant orchestrator permission to drive the per-game machine
+        state_machine.grant_start_execution(orchestrator)
+        state_machine.grant(orchestrator, "states:DescribeExecution")
+        state_machine.grant(orchestrator, "states:StopExecution")
+
+        # Publish orchestrator ARN to SSM
+        ssm.StringParameter(
+            self,
+            "OrchestratorSfnArnParam",
+            parameter_name=f"/steampulse/{env}/batch/orchestrator-sfn-arn",
+            string_value=orchestrator.state_machine_arn,
+        )
 
         # Publish dispatch Lambda name to SSM for CLI invocation
         ssm.StringParameter(

@@ -106,6 +106,8 @@ class BatchExecutionRepository(BaseRepository):
                     estimated_cost_usd = %s,
                     failed_record_ids = %s
                 WHERE batch_id = %s
+                  AND status IN ('submitted', 'running')
+                  AND completed_at IS NULL
                 """,
                 (
                     succeeded_count,
@@ -132,6 +134,7 @@ class BatchExecutionRepository(BaseRepository):
                     duration_ms = (EXTRACT(EPOCH FROM (NOW() - submitted_at)) * 1000)::BIGINT,
                     failure_reason = %s
                 WHERE batch_id = %s
+                  AND status IN ('submitted', 'running')
                 """,
                 (failure_reason, batch_id),
             )

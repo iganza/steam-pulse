@@ -127,7 +127,7 @@ def test_mark_completed(
         model_id="claude-sonnet-4-6-20250514",
         request_count=1,
         pipeline_version="v3.0",
-        prompt_version="chunk-v2.0",
+        prompt_version="synthesis-v2.0",
     )
     batch_exec_repo.mark_completed(
         "msgbatch_done",

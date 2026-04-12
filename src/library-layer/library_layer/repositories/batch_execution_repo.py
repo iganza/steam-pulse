@@ -82,14 +82,13 @@ class BatchExecutionRepository(BaseRepository):
         *,
         succeeded_count: int,
         failed_count: int,
-        input_tokens: int | None,
-        output_tokens: int | None,
-        cache_read_tokens: int | None,
-        cache_write_tokens: int | None,
-        estimated_cost_usd: float | None,
         failed_record_ids: list[str],
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
     ) -> None:
-        """Finalize a batch as completed with token usage and outcome counts."""
+        """Finalize a batch as completed with outcome counts and token usage."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -99,12 +98,11 @@ class BatchExecutionRepository(BaseRepository):
                     duration_ms = (EXTRACT(EPOCH FROM (NOW() - submitted_at)) * 1000)::BIGINT,
                     succeeded_count = %s,
                     failed_count = %s,
+                    failed_record_ids = %s,
                     input_tokens = %s,
                     output_tokens = %s,
                     cache_read_tokens = %s,
-                    cache_write_tokens = %s,
-                    estimated_cost_usd = %s,
-                    failed_record_ids = %s
+                    cache_write_tokens = %s
                 WHERE batch_id = %s
                   AND status IN ('submitted', 'running')
                   AND completed_at IS NULL
@@ -112,12 +110,11 @@ class BatchExecutionRepository(BaseRepository):
                 (
                     succeeded_count,
                     failed_count,
+                    failed_record_ids,
                     input_tokens,
                     output_tokens,
                     cache_read_tokens,
                     cache_write_tokens,
-                    estimated_cost_usd,
-                    failed_record_ids,
                     batch_id,
                 ),
             )

@@ -221,6 +221,8 @@ class BatchBackend:
         results: list[tuple[str, BaseModel]] = []
         failed_ids: list[str] = []
         skipped = 0
+        total_input = 0
+        total_output = 0
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
@@ -250,6 +252,10 @@ class BatchBackend:
                         continue
 
                     model_output = record.get("modelOutput", {})
+                    usage = model_output.get("usage", {})
+                    total_input += usage.get("inputTokens", 0)
+                    total_output += usage.get("outputTokens", 0)
+
                     content = model_output.get("content") or []
                     if not content:
                         logger.warning(
@@ -295,6 +301,14 @@ class BatchBackend:
                 "skipped": skipped,
                 "failed_ids_count": len(failed_ids),
                 "failed_ids_sample": failed_ids[:10],
+                "input_tokens": total_input,
+                "output_tokens": total_output,
             },
         )
-        return BatchCollectResult(results=results, failed_ids=failed_ids, skipped=skipped)
+        return BatchCollectResult(
+            results=results,
+            failed_ids=failed_ids,
+            skipped=skipped,
+            input_tokens=total_input,
+            output_tokens=total_output,
+        )

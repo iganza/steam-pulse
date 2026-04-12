@@ -176,12 +176,11 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 job_id,
                 succeeded_count=persisted,
                 failed_count=failed_count,
-                input_tokens=None,
-                output_tokens=None,
-                cache_read_tokens=None,
-                cache_write_tokens=None,
-                estimated_cost_usd=None,
                 failed_record_ids=all_failed_ids,
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
             )
         except Exception:
             logger.exception(
@@ -285,12 +284,11 @@ def _collect_synthesis(
             job_id,
             succeeded_count=1,
             failed_count=collect_result.skipped,
-            input_tokens=None,
-            output_tokens=None,
-            cache_read_tokens=None,
-            cache_write_tokens=None,
-            estimated_cost_usd=None,
             failed_record_ids=collect_result.failed_ids,
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
         )
     except Exception:
         logger.exception(

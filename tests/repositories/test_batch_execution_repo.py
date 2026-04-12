@@ -16,65 +16,10 @@ def batch_exec_repo(db_conn: Any) -> BatchExecutionRepository:
     return BatchExecutionRepository(lambda: db_conn)
 
 
-def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
-    game_repo.upsert(
-        {
-            "appid": appid,
-            "name": f"Game {appid}",
-            "slug": f"game-{appid}",
-            "type": "game",
-            "developer": "Dev",
-            "developer_slug": "dev",
-            "publisher": "Pub",
-            "publisher_slug": "pub",
-            "developers": "[]",
-            "publishers": "[]",
-            "website": None,
-            "release_date": None,
-            "release_date_raw": None,
-            "coming_soon": False,
-            "price_usd": None,
-            "is_free": True,
-            "short_desc": None,
-            "detailed_description": None,
-            "about_the_game": None,
-            "review_count": 100,
-            "review_count_english": 100,
-            "total_positive": 90,
-            "total_negative": 10,
-            "positive_pct": 90,
-            "review_score_desc": "Very Positive",
-            "header_image": None,
-            "background_image": None,
-            "required_age": 0,
-            "platforms": "{}",
-            "supported_languages": None,
-            "achievements_total": 0,
-            "metacritic_score": None,
-            "deck_compatibility": None,
-            "deck_test_results": None,
-            "content_descriptor_ids": None,
-            "content_descriptor_notes": None,
-            "controller_support": None,
-            "dlc_appids": None,
-            "parent_appid": None,
-            "capsule_image": None,
-            "recommendations_total": None,
-            "support_url": None,
-            "support_email": None,
-            "legal_notice": None,
-            "requirements_windows": None,
-            "requirements_mac": None,
-            "requirements_linux": None,
-            "data_source": "steam_direct",
-        }
-    )
-
-
 def test_insert_and_find_by_execution_id(
     game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository
 ) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     row_id = batch_exec_repo.insert(
         execution_id="exec-test-1",
         appid=440,
@@ -96,7 +41,7 @@ def test_insert_and_find_by_execution_id(
 
 
 def test_mark_running(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     batch_exec_repo.insert(
         execution_id="exec-run-1",
         appid=440,
@@ -117,7 +62,7 @@ def test_mark_running(game_repo: GameRepository, batch_exec_repo: BatchExecution
 def test_mark_completed(
     game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository
 ) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     batch_exec_repo.insert(
         execution_id="exec-done-1",
         appid=440,
@@ -133,25 +78,27 @@ def test_mark_completed(
         "msgbatch_done",
         succeeded_count=1,
         failed_count=0,
+        failed_record_ids=[],
         input_tokens=5000,
         output_tokens=2000,
         cache_read_tokens=3000,
         cache_write_tokens=500,
-        estimated_cost_usd=0.0125,
-        failed_record_ids=[],
     )
 
     rows = batch_exec_repo.find_by_execution_id("exec-done-1")
     assert rows[0]["status"] == "completed"
     assert rows[0]["succeeded_count"] == 1
     assert rows[0]["input_tokens"] == 5000
+    assert rows[0]["output_tokens"] == 2000
     assert rows[0]["cache_read_tokens"] == 3000
+    assert rows[0]["cache_write_tokens"] == 500
+    assert rows[0]["failed_record_ids"] == []
     assert rows[0]["completed_at"] is not None
     assert rows[0]["duration_ms"] is not None
 
 
 def test_mark_failed(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     batch_exec_repo.insert(
         execution_id="exec-fail-1",
         appid=440,
@@ -172,7 +119,7 @@ def test_mark_failed(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
 
 
 def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     batch_exec_repo.insert(
         execution_id="exec-active-1",
         appid=440,
@@ -193,19 +140,18 @@ def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
         model_id="claude-sonnet-4-6-20250514",
         request_count=1,
         pipeline_version="v3.0",
-        prompt_version="chunk-v2.0",
+        prompt_version="synthesis-v2.0",
     )
     # Complete one of them
     batch_exec_repo.mark_completed(
         "msgbatch_active2",
         succeeded_count=1,
         failed_count=0,
-        input_tokens=None,
-        output_tokens=None,
-        cache_read_tokens=None,
-        cache_write_tokens=None,
-        estimated_cost_usd=None,
         failed_record_ids=[],
+        input_tokens=1000,
+        output_tokens=500,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
     )
 
     active = batch_exec_repo.find_active()
@@ -217,7 +163,7 @@ def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
 def test_find_by_appid(
     game_repo: GameRepository, batch_exec_repo: BatchExecutionRepository
 ) -> None:
-    _seed_game(game_repo)
+    game_repo.ensure_stub(440)
     batch_exec_repo.insert(
         execution_id="exec-appid-1",
         appid=440,

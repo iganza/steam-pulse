@@ -46,11 +46,15 @@ LLMResultCallback = Callable[[int, BaseModel, LLMUsage], None]
 
 
 class BatchCollectResult(BaseModel):
-    """Structured return from batch collect() — successes + failures."""
+    """Structured return from batch collect() — successes + failures + usage."""
 
     results: list[tuple[str, BaseModel]]
     failed_ids: list[str]
     skipped: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
     model_config = {"arbitrary_types_allowed": True}
 

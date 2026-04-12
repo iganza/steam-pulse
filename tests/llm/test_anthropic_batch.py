@@ -82,6 +82,12 @@ def _succeeded_entry(record_id: str, value: str) -> SimpleNamespace:
             type="succeeded",
             message=SimpleNamespace(
                 content=[SimpleNamespace(type="text", text=f'{{"value": "{value}"}}')],
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=50,
+                    cache_read_input_tokens=80,
+                    cache_creation_input_tokens=20,
+                ),
             ),
         ),
     )
@@ -115,6 +121,10 @@ def test_collect_returns_succeeded_results() -> None:
     assert result.results[0][1].value == "hello"
     assert result.failed_ids == []
     assert result.skipped == 0
+    assert result.input_tokens == 100
+    assert result.output_tokens == 50
+    assert result.cache_read_tokens == 80
+    assert result.cache_write_tokens == 20
 
 
 def test_collect_tracks_errored_records_in_failed_ids() -> None:

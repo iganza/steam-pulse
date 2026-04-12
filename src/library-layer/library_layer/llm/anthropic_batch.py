@@ -131,6 +131,10 @@ class AnthropicBatchBackend:
         results: list[tuple[str, BaseModel]] = []
         failed_ids: list[str] = []
         skipped = 0
+        total_input = 0
+        total_output = 0
+        total_cache_read = 0
+        total_cache_write = 0
 
         for entry in self._client.messages.batches.results(batch_id):
             record_id = entry.custom_id
@@ -164,6 +168,13 @@ class AnthropicBatchBackend:
                 continue
 
             message = entry.result.message
+            usage = getattr(message, "usage", None)
+            if usage:
+                total_input += getattr(usage, "input_tokens", 0)
+                total_output += getattr(usage, "output_tokens", 0)
+                total_cache_read += getattr(usage, "cache_read_input_tokens", 0)
+                total_cache_write += getattr(usage, "cache_creation_input_tokens", 0)
+
             content = message.content
             if not content:
                 logger.warning(
@@ -218,6 +229,18 @@ class AnthropicBatchBackend:
                 "skipped": skipped,
                 "failed_ids_count": len(failed_ids),
                 "failed_ids_sample": failed_ids[:10],
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "cache_read_tokens": total_cache_read,
+                "cache_write_tokens": total_cache_write,
             },
         )
-        return BatchCollectResult(results=results, failed_ids=failed_ids, skipped=skipped)
+        return BatchCollectResult(
+            results=results,
+            failed_ids=failed_ids,
+            skipped=skipped,
+            input_tokens=total_input,
+            output_tokens=total_output,
+            cache_read_tokens=total_cache_read,
+            cache_write_tokens=total_cache_write,
+        )

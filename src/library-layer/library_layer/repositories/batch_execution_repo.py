@@ -117,7 +117,7 @@ class BatchExecutionRepository(BaseRepository):
                     cache_read_tokens,
                     cache_write_tokens,
                     estimated_cost_usd,
-                    failed_record_ids or None,
+                    failed_record_ids,
                     batch_id,
                 ),
             )

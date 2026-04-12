@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import boto3
+from library_layer.llm.backend import BatchCollectResult
 from library_layer.models.analyzer_models import (
     AudienceProfile,
     CommunityHealth,
@@ -125,6 +126,7 @@ def _minimal_game_report() -> GameReport:
 def _stub_backend(cp: Any) -> MagicMock:
     backend = MagicMock()
     cp._backend_for = MagicMock(return_value=backend)
+    cp._batch_exec_repo = MagicMock()
     return backend
 
 
@@ -150,10 +152,14 @@ def test_collect_chunk_persists_rows_from_record_id_metadata() -> None:
     cp._chunk_repo = MagicMock()
 
     backend = _stub_backend(cp)
-    backend.collect.return_value = [
-        ("440-chunk-0-50-abc123def4567890", _empty_chunk_summary("c0")),
-        ("440-chunk-1-50-fedcba9876543210", _empty_chunk_summary("c1")),
-    ]
+    backend.collect.return_value = BatchCollectResult(
+        results=[
+            ("440-chunk-0-50-abc123def4567890", _empty_chunk_summary("c0")),
+            ("440-chunk-1-50-fedcba9876543210", _empty_chunk_summary("c1")),
+        ],
+        failed_ids=[],
+        skipped=0,
+    )
 
     result = cp.handler(
         {
@@ -180,10 +186,14 @@ def test_collect_chunk_drops_malformed_record_ids() -> None:
     cp._chunk_repo = MagicMock()
 
     backend = _stub_backend(cp)
-    backend.collect.return_value = [
-        ("garbage-record-id", _empty_chunk_summary("bad")),
-        ("440-chunk-0-50-goodhash12345678", _empty_chunk_summary("good")),
-    ]
+    backend.collect.return_value = BatchCollectResult(
+        results=[
+            ("garbage-record-id", _empty_chunk_summary("bad")),
+            ("440-chunk-0-50-goodhash12345678", _empty_chunk_summary("good")),
+        ],
+        failed_ids=[],
+        skipped=0,
+    )
 
     result = cp.handler(
         {
@@ -204,9 +214,13 @@ def test_collect_chunk_drops_record_id_with_wrong_appid() -> None:
     cp = _get_module()
     cp._chunk_repo = MagicMock()
     backend = _stub_backend(cp)
-    backend.collect.return_value = [
-        ("999-chunk-0-50-abc123def4567890", _empty_chunk_summary("wrong")),
-    ]
+    backend.collect.return_value = BatchCollectResult(
+        results=[
+            ("999-chunk-0-50-abc123def4567890", _empty_chunk_summary("wrong")),
+        ],
+        failed_ids=[],
+        skipped=0,
+    )
     result = cp.handler(
         {
             "appid": 440,
@@ -266,7 +280,11 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     )
 
     backend = _stub_backend(cp)
-    backend.collect.return_value = [("440-synthesis", _minimal_game_report())]
+    backend.collect.return_value = BatchCollectResult(
+        results=[("440-synthesis", _minimal_game_report())],
+        failed_ids=[],
+        skipped=0,
+    )
 
     result = cp.handler(
         {
@@ -322,7 +340,11 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
     cp.publish_event = _boom  # type: ignore[assignment]
     try:
         backend = _stub_backend(cp)
-        backend.collect.return_value = [("440-synthesis", _minimal_game_report())]
+        backend.collect.return_value = BatchCollectResult(
+            results=[("440-synthesis", _minimal_game_report())],
+            failed_ids=[],
+            skipped=0,
+        )
 
         # Must NOT raise.
         result = cp.handler(

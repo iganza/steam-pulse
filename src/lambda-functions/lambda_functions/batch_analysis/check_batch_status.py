@@ -13,11 +13,14 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.llm import resolve_anthropic_api_key
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
+from library_layer.utils.db import get_conn
 
 logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
 
 _config = SteamPulseConfig()
+_batch_exec_repo = BatchExecutionRepository(get_conn)
 
 # ── Bedrock path ─────────────────────────────────────────────────────────────
 _BEDROCK_STATUS_MAP = {
@@ -73,4 +76,11 @@ def handler(event: dict, context: LambdaContext) -> dict:
         "batch job status",
         extra={"job_id": job_id, "raw": result["raw"], "mapped": result["status"]},
     )
+
+    # Update tracking table on status transitions
+    if result["status"] == "Running":
+        _batch_exec_repo.mark_running(job_id)
+    elif result["status"] == "Failed":
+        _batch_exec_repo.mark_failed(job_id, failure_reason=result["message"])
+
     return {"status": result["status"], "message": result["message"]}

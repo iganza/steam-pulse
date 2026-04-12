@@ -49,6 +49,7 @@ from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
@@ -72,6 +73,7 @@ _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
+_batch_exec_repo = BatchExecutionRepository(get_conn)
 
 # All analyzer tuning knobs (including max-reviews-per-analysis) come from
 # SteamPulseConfig. No hardcoded module constants here.
@@ -121,7 +123,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
+def _prepare_chunk(
+    appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str
+) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -173,6 +177,19 @@ def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
 
     s3_uri = backend.prepare(pending, phase=f"chunk-{appid}")
     job_id = backend.submit(s3_uri, task="chunking", phase=f"chunk-{appid}")
+
+    _batch_exec_repo.insert(
+        execution_id=execution_id,
+        appid=appid,
+        phase="chunk",
+        backend=_config.LLM_BACKEND,
+        batch_id=job_id,
+        model_id=_config.model_for("chunking"),
+        request_count=len(pending),
+        pipeline_version=PIPELINE_VERSION,
+        prompt_version=CHUNK_PROMPT_VERSION,
+    )
+
     return {
         "appid": appid,
         "phase": "chunk",
@@ -182,7 +199,9 @@ def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
     }
 
 
-def _prepare_merge(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
+def _prepare_merge(
+    appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str
+) -> dict:
     """Run the merge phase INLINE via ConverseBackend and short-circuit the
     Step Functions wait loop.
 
@@ -284,15 +303,11 @@ def _prepare_synthesis(
     if merged_summary_id is not None:
         merged_row = _merge_repo.find_by_id(merged_summary_id)
         if merged_row is None:
-            raise ValueError(
-                f"merged_summary id={merged_summary_id} not found for appid={appid}"
-            )
+            raise ValueError(f"merged_summary id={merged_summary_id} not found for appid={appid}")
     else:
         merged_row = _merge_repo.find_latest_by_appid(appid)
         if merged_row is None:
-            raise ValueError(
-                f"No merged_summary for appid={appid} — run merge phase first"
-            )
+            raise ValueError(f"No merged_summary for appid={appid} — run merge phase first")
         merged_summary_id = int(merged_row["id"])
     merged = MergedSummary.model_validate(merged_row["summary_json"])
 
@@ -353,6 +368,19 @@ def _prepare_synthesis(
     )
     s3_uri = backend.prepare([request], phase=f"synth-{appid}")
     job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")
+
+    _batch_exec_repo.insert(
+        execution_id=execution_id,
+        appid=appid,
+        phase="synthesis",
+        backend=_config.LLM_BACKEND,
+        batch_id=job_id,
+        model_id=_config.model_for("summarizer"),
+        request_count=1,
+        pipeline_version=PIPELINE_VERSION,
+        prompt_version=CHUNK_PROMPT_VERSION,
+    )
+
     return {
         "appid": appid,
         "phase": "synthesis",

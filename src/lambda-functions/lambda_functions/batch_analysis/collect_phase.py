@@ -40,6 +40,7 @@ from library_layer.llm import make_batch_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
@@ -63,6 +64,7 @@ _game_repo = GameRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
+_batch_exec_repo = BatchExecutionRepository(get_conn)
 _sns = boto3.client("sns")
 
 
@@ -114,11 +116,11 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
     for hours), which would shift chunk membership and corrupt chunk_hash
     cache keys.
     """
-    results = backend.collect(job_id, default_response_model=RichChunkSummary)
+    collect_result = backend.collect(job_id, default_response_model=RichChunkSummary)
     model_id = _config.model_for("chunking")
     persisted = 0
 
-    for record_id, summary in results:
+    for record_id, summary in collect_result.results:
         if not isinstance(summary, RichChunkSummary):
             logger.warning("unexpected_type", extra={"record_id": record_id})
             continue
@@ -143,6 +145,25 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
             prompt_version=CHUNK_PROMPT_VERSION,
         )
         persisted += 1
+
+    if collect_result.failed_ids:
+        logger.error(
+            "batch_chunk_records_failed",
+            extra={"appid": appid, "failed_ids": collect_result.failed_ids},
+        )
+
+    _batch_exec_repo.mark_completed(
+        job_id,
+        succeeded_count=persisted,
+        failed_count=len(collect_result.failed_ids),
+        input_tokens=None,
+        output_tokens=None,
+        cache_read_tokens=None,
+        cache_write_tokens=None,
+        estimated_cost_usd=None,
+        failed_record_ids=collect_result.failed_ids,
+    )
+
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
 
 
@@ -180,10 +201,11 @@ def _collect_synthesis(
         if r.body
     ]
 
-    results = backend.collect(job_id, default_response_model=GameReport)
-    if not results:
+    collect_result = backend.collect(job_id, default_response_model=GameReport)
+    if not collect_result.results:
+        _batch_exec_repo.mark_failed(job_id, failure_reason="No synthesis output returned")
         raise RuntimeError(f"No synthesis output for appid={appid}")
-    _record_id, report = results[0]
+    _record_id, report = collect_result.results[0]
     if not isinstance(report, GameReport):
         raise TypeError(f"Expected GameReport, got {type(report).__name__}")
 
@@ -208,6 +230,18 @@ def _collect_synthesis(
     payload["merged_summary_id"] = merged_summary_id
     payload["chunk_count"] = chunk_count
     _report_repo.upsert(payload)
+
+    _batch_exec_repo.mark_completed(
+        job_id,
+        succeeded_count=1,
+        failed_count=len(collect_result.failed_ids),
+        input_tokens=None,
+        output_tokens=None,
+        cache_read_tokens=None,
+        cache_write_tokens=None,
+        estimated_cost_usd=None,
+        failed_record_ids=collect_result.failed_ids,
+    )
 
     try:
         publish_event(

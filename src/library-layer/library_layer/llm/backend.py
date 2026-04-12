@@ -45,6 +45,16 @@ class LLMUsage(BaseModel):
 LLMResultCallback = Callable[[int, BaseModel, LLMUsage], None]
 
 
+class BatchCollectResult(BaseModel):
+    """Structured return from batch collect() — successes + failures."""
+
+    results: list[tuple[str, BaseModel]]
+    failed_ids: list[str]
+    skipped: int
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
 class LLMRequest(BaseModel):
     """A typed LLM call — system + user + response schema.
 

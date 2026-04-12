@@ -26,7 +26,7 @@ from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.anthropic_converse import AnthropicConverseBackend
-from library_layer.llm.backend import LLMBackend, LLMRequest
+from library_layer.llm.backend import BatchCollectResult, LLMBackend, LLMRequest
 from library_layer.llm.batch import BatchBackend
 from library_layer.llm.converse import ConverseBackend
 
@@ -113,6 +113,7 @@ __all__ = [
     "AnthropicBatchBackend",
     "AnthropicConverseBackend",
     "BatchBackend",
+    "BatchCollectResult",
     "ConverseBackend",
     "LLMBackend",
     "LLMRequest",

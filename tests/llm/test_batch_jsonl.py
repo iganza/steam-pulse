@@ -142,27 +142,27 @@ def test_collect_skips_malformed_json_line() -> None:
             _good_record("440-chunk-0"),
         ]
     )
-    results = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
-    assert len(results) == 1
-    assert results[0][0] == "440-chunk-0"
+    result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
+    assert len(result.results) == 1
+    assert result.results[0][0] == "440-chunk-0"
 
 
 def test_collect_skips_record_missing_record_id() -> None:
     """A record without `recordId` can't be keyed to a request; drop it."""
     missing_id = json.dumps({"modelOutput": {"content": [{"text": _valid_chunk_summary_json()}]}})
     backend = _batch_backend_with_fake_output([missing_id, _good_record("440-chunk-0")])
-    results = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
-    assert len(results) == 1
-    assert results[0][0] == "440-chunk-0"
+    result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
+    assert len(result.results) == 1
+    assert result.results[0][0] == "440-chunk-0"
 
 
 def test_collect_skips_record_with_empty_content() -> None:
     """A record whose modelOutput.content is empty is dropped."""
     empty = json.dumps({"recordId": "440-chunk-5", "modelOutput": {"content": []}})
     backend = _batch_backend_with_fake_output([empty, _good_record("440-chunk-0")])
-    results = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
-    assert len(results) == 1
-    assert results[0][0] == "440-chunk-0"
+    result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
+    assert len(result.results) == 1
+    assert result.results[0][0] == "440-chunk-0"
 
 
 def test_collect_skips_record_that_fails_pydantic_validation() -> None:
@@ -178,9 +178,10 @@ def test_collect_skips_record_that_fails_pydantic_validation() -> None:
         }
     )
     backend = _batch_backend_with_fake_output([bad_validation, _good_record("440-chunk-0")])
-    results = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
-    assert len(results) == 1
-    assert results[0][0] == "440-chunk-0"
+    result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
+    assert len(result.results) == 1
+    assert result.results[0][0] == "440-chunk-0"
+    assert "440-chunk-1" in result.failed_ids
 
 
 def test_jsonl_record_is_byte_stable() -> None:

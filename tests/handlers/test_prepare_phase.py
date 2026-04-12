@@ -101,6 +101,7 @@ def _install_fake_backend(pp: Any) -> MagicMock:
     backend.prepare.return_value = "s3://bucket/key"
     backend.submit.return_value = "arn:aws:bedrock:...:job/abc"
     pp._backend_for = MagicMock(return_value=backend)
+    pp._batch_exec_repo = MagicMock()
     return backend
 
 

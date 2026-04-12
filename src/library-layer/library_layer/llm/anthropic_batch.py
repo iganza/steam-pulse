@@ -11,7 +11,7 @@ from typing import Literal
 import anthropic
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.llm.backend import LLMRequest, LLMTask
+from library_layer.llm.backend import BatchCollectResult, LLMRequest, LLMTask
 from library_layer.llm.batch import BatchStatus
 from pydantic import BaseModel, ValidationError
 
@@ -52,7 +52,13 @@ class AnthropicBatchBackend:
             params: dict[str, object] = {
                 "model": self._config.model_for(req.task),
                 "max_tokens": req.max_tokens,
-                "system": [{"type": "text", "text": req.system}],
+                "system": [
+                    {
+                        "type": "text",
+                        "text": req.system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 "messages": [{"role": "user", "content": req.user}],
             }
             if req.temperature is not None:
@@ -114,8 +120,8 @@ class AnthropicBatchBackend:
         response_models: dict[str, type[BaseModel]] | None = None,
         *,
         default_response_model: type[BaseModel] | None = None,
-    ) -> list[tuple[str, BaseModel]]:
-        """Iterate batch results and return (record_id, parsed) tuples.
+    ) -> BatchCollectResult:
+        """Iterate batch results and return structured results.
 
         Same error-tolerance pattern as ``BatchBackend.collect``: skip
         errored/expired entries with a warning log, never crash the whole
@@ -123,30 +129,59 @@ class AnthropicBatchBackend:
         """
         response_models = response_models or {}
         results: list[tuple[str, BaseModel]] = []
+        failed_ids: list[str] = []
         skipped = 0
+        total_input = 0
+        total_output = 0
+        total_cache_read = 0
+        total_cache_write = 0
 
         for entry in self._client.messages.batches.results(batch_id):
             record_id = entry.custom_id
 
+            if entry.result.type == "errored":
+                error = entry.result.error
+                logger.warning(
+                    "batch_record_errored",
+                    extra={
+                        "record_id": record_id,
+                        "batch_id": batch_id,
+                        "error_type": getattr(error, "type", "unknown"),
+                        "error_message": getattr(error, "message", ""),
+                    },
+                )
+                failed_ids.append(record_id)
+                skipped += 1
+                continue
+
             if entry.result.type != "succeeded":
                 logger.warning(
-                    "batch_record_failed",
+                    "batch_record_terminal",
                     extra={
                         "record_id": record_id,
                         "batch_id": batch_id,
                         "result_type": entry.result.type,
                     },
                 )
+                failed_ids.append(record_id)
                 skipped += 1
                 continue
 
             message = entry.result.message
+            usage = getattr(message, "usage", None)
+            if usage:
+                total_input += getattr(usage, "input_tokens", 0)
+                total_output += getattr(usage, "output_tokens", 0)
+                total_cache_read += getattr(usage, "cache_read_input_tokens", 0)
+                total_cache_write += getattr(usage, "cache_creation_input_tokens", 0)
+
             content = message.content
             if not content:
                 logger.warning(
                     "batch_record_no_content",
                     extra={"record_id": record_id, "batch_id": batch_id},
                 )
+                failed_ids.append(record_id)
                 skipped += 1
                 continue
 
@@ -156,6 +191,7 @@ class AnthropicBatchBackend:
                     "batch_record_unknown",
                     extra={"record_id": record_id, "batch_id": batch_id},
                 )
+                failed_ids.append(record_id)
                 skipped += 1
                 continue
 
@@ -179,6 +215,7 @@ class AnthropicBatchBackend:
                         "error": str(exc),
                     },
                 )
+                failed_ids.append(record_id)
                 skipped += 1
                 continue
 
@@ -190,6 +227,20 @@ class AnthropicBatchBackend:
                 "batch_id": batch_id,
                 "records": len(results),
                 "skipped": skipped,
+                "failed_ids_count": len(failed_ids),
+                "failed_ids_sample": failed_ids[:10],
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "cache_read_tokens": total_cache_read,
+                "cache_write_tokens": total_cache_write,
             },
         )
-        return results
+        return BatchCollectResult(
+            results=results,
+            failed_ids=failed_ids,
+            skipped=skipped,
+            input_tokens=total_input,
+            output_tokens=total_output,
+            cache_read_tokens=total_cache_read,
+            cache_write_tokens=total_cache_write,
+        )

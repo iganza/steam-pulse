@@ -1,4 +1,4 @@
-"""PreparePhase Lambda — thin wrapper over shared analyzer helpers + BatchBackend.
+"""PreparePhase Lambda — thin wrapper over shared analyzer helpers + AnthropicBatchBackend.
 
 Per-game Step Functions execution: one appid per invocation. Parent orchestrator
 uses a Map state to fan out across an appid list. Parametrized by `phase` so
@@ -8,7 +8,8 @@ Input:
     {
         "appid": 440,
         "phase": "chunk" | "merge" | "synthesis",
-        "execution_id": "sp-batch-20260409-abcd"
+        "execution_id": "sp-batch-20260409-abcd",
+        "merged_summary_id": 99  # synthesis only, threaded from merge phase
     }
 
 Output (phase == "chunk" | "merge" | "synthesis"):
@@ -16,8 +17,8 @@ Output (phase == "chunk" | "merge" | "synthesis"):
         "appid": 440,
         "phase": "<phase>",
         "execution_id": "...",
-        "job_id": "arn:aws:bedrock:...:model-invocation-job/...",
-        "skip": false  # true if cache hit — no Bedrock job needed, state
+        "job_id": "msgbatch_01abc...",  # Anthropic batch ID
+        "skip": false  # true if cache hit — no batch job needed, state
                        # machine short-circuits directly to the next phase
     }
 
@@ -26,8 +27,8 @@ this phase and proceed directly to the next phase. The downstream state reads
 the persisted artifacts (chunk_summaries / merged_summaries) from Postgres.
 
 "Job still pending" is Step Functions state, NEVER an exception. This Lambda
-returns immediately after `BatchBackend.submit()`; the polling loop lives in
-the state machine (see infra/stacks/batch_analysis_stack.py).
+returns immediately after submit; the polling loop lives in the state machine
+(see infra/stacks/batch_analysis_stack.py).
 """
 
 import os
@@ -37,6 +38,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     PIPELINE_VERSION,
+    SYNTHESIS_PROMPT_VERSION,
     AnalyzerSettings,
     build_chunk_requests,
     build_synthesis_request,
@@ -45,10 +47,10 @@ from library_layer.analyzer import (
 from library_layer.config import SteamPulseConfig
 from library_layer.llm import make_batch_backend, make_converse_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
-from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.metadata import build_metadata_context
 from library_layer.models.temporal import build_temporal_context
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
@@ -72,6 +74,7 @@ _chunk_repo = ChunkSummaryRepository(get_conn)
 _merge_repo = MergedSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
+_batch_exec_repo = BatchExecutionRepository(get_conn)
 
 # All analyzer tuning knobs (including max-reviews-per-analysis) come from
 # SteamPulseConfig. No hardcoded module constants here.
@@ -87,7 +90,7 @@ _converse_backend = make_converse_backend(
 )
 
 
-def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     return make_batch_backend(
         _config,
         execution_id=execution_id,
@@ -115,13 +118,16 @@ def handler(event: dict, context: LambdaContext) -> dict:
         # synthesis does not race on find_latest_by_appid under
         # concurrent re-analysis for the same appid.
         raw = event.get("merged_summary_id")
-        merge_id = int(raw) if raw is not None else None
-        return _prepare_synthesis(appid, backend, execution_id, merge_id)
+        if raw is None:
+            raise ValueError("Missing required synthesis event field: merged_summary_id")
+        return _prepare_synthesis(appid, backend, execution_id, int(raw))
 
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
+def _prepare_chunk(
+    appid: int, backend: AnthropicBatchBackend, execution_id: str
+) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -171,8 +177,27 @@ def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
             "skip": True,
         }
 
-    s3_uri = backend.prepare(pending, phase=f"chunk-{appid}")
-    job_id = backend.submit(s3_uri, task="chunking", phase=f"chunk-{appid}")
+    prepared = backend.prepare(pending, phase=f"chunk-{appid}")
+    job_id = backend.submit(prepared, task="chunking", phase=f"chunk-{appid}")
+
+    try:
+        _batch_exec_repo.insert(
+            execution_id=execution_id,
+            appid=appid,
+            phase="chunk",
+            backend=_config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=_config.model_for("chunking"),
+            request_count=len(pending),
+            pipeline_version=PIPELINE_VERSION,
+            prompt_version=CHUNK_PROMPT_VERSION,
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_insert_failed",
+            extra={"appid": appid, "execution_id": execution_id, "phase": "chunk", "job_id": job_id},
+        )
+
     return {
         "appid": appid,
         "phase": "chunk",
@@ -182,7 +207,9 @@ def _prepare_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
     }
 
 
-def _prepare_merge(appid: int, backend: BatchBackend | AnthropicBatchBackend, execution_id: str) -> dict:
+def _prepare_merge(
+    appid: int, backend: AnthropicBatchBackend, execution_id: str
+) -> dict:
     """Run the merge phase INLINE via ConverseBackend and short-circuit the
     Step Functions wait loop.
 
@@ -251,9 +278,9 @@ def _prepare_merge(appid: int, backend: BatchBackend | AnthropicBatchBackend, ex
 
 def _prepare_synthesis(
     appid: int,
-    backend: BatchBackend | AnthropicBatchBackend,
+    backend: AnthropicBatchBackend,
     execution_id: str,
-    merged_summary_id: int | None,
+    merged_summary_id: int,
 ) -> dict:
     # Short-circuit: if a report already exists at the current pipeline
     # version, skip synthesis entirely — no tokens spent.
@@ -278,22 +305,9 @@ def _prepare_synthesis(
 
     # The state machine threads `merged_summary_id` forward from
     # PrepareMerge, so we read the exact row that execution wrote.
-    # If it's missing (old state machine deployment, hand-invoked test)
-    # we fall back to the latest row for the appid — non-concurrent
-    # paths are unaffected.
-    if merged_summary_id is not None:
-        merged_row = _merge_repo.find_by_id(merged_summary_id)
-        if merged_row is None:
-            raise ValueError(
-                f"merged_summary id={merged_summary_id} not found for appid={appid}"
-            )
-    else:
-        merged_row = _merge_repo.find_latest_by_appid(appid)
-        if merged_row is None:
-            raise ValueError(
-                f"No merged_summary for appid={appid} — run merge phase first"
-            )
-        merged_summary_id = int(merged_row["id"])
+    merged_row = _merge_repo.find_by_id(merged_summary_id)
+    if merged_row is None:
+        raise ValueError(f"merged_summary id={merged_summary_id} not found for appid={appid}")
     merged = MergedSummary.model_validate(merged_row["summary_json"])
 
     # Same race fix for chunk_count: capture "how many chunks fed this
@@ -351,8 +365,27 @@ def _prepare_synthesis(
         synthesis_max_tokens=_analyzer_settings.synthesis_max_tokens,
         synthesis_temperature=_analyzer_settings.synthesis_temperature,
     )
-    s3_uri = backend.prepare([request], phase=f"synth-{appid}")
-    job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")
+    prepared = backend.prepare([request], phase=f"synth-{appid}")
+    job_id = backend.submit(prepared, task="summarizer", phase=f"synth-{appid}")
+
+    try:
+        _batch_exec_repo.insert(
+            execution_id=execution_id,
+            appid=appid,
+            phase="synthesis",
+            backend=_config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=_config.model_for("summarizer"),
+            request_count=1,
+            pipeline_version=PIPELINE_VERSION,
+            prompt_version=SYNTHESIS_PROMPT_VERSION,
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_insert_failed",
+            extra={"appid": appid, "execution_id": execution_id, "phase": "synthesis", "job_id": job_id},
+        )
+
     return {
         "appid": appid,
         "phase": "synthesis",

@@ -9,7 +9,7 @@ Python exceptions. This backend therefore does NOT implement
     prepare(requests) -> s3_uri         # writes JSONL to S3
     submit(s3_uri, task) -> job_id      # creates the Bedrock invocation job
     status(job_id) -> "running"|"completed"|"failed"
-    collect(job_id, response_models) -> list[BaseModel]
+    collect(job_id, response_models) -> BatchCollectResult
 
 The Step Functions state machine composes these across separate Lambda
 invocations and owns the Wait/Choice polling loop. The ONLY place the
@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 import boto3
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.llm.backend import LLMRequest, LLMTask
+from library_layer.llm.backend import BatchCollectResult, LLMRequest, LLMTask
 from pydantic import BaseModel, ValidationError
 
 logger = Logger()
@@ -192,8 +192,8 @@ class BatchBackend:
         response_models: dict[str, type[BaseModel]] | None = None,
         *,
         default_response_model: type[BaseModel] | None = None,
-    ) -> list[tuple[str, BaseModel]]:
-        """Read a completed job's output JSONL and return (record_id, parsed).
+    ) -> BatchCollectResult:
+        """Read a completed job's output JSONL and return structured results.
 
         `response_models` maps `record_id` → the pydantic class to validate
         against, for jobs that mix multiple schemas. Most phases in this
@@ -219,7 +219,10 @@ class BatchBackend:
         # the whole Lambda — skip the bad record, log it, and keep going.
         paginator = self._s3.get_paginator("list_objects_v2")
         results: list[tuple[str, BaseModel]] = []
+        failed_ids: list[str] = []
         skipped = 0
+        total_input = 0
+        total_output = 0
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
@@ -249,12 +252,17 @@ class BatchBackend:
                         continue
 
                     model_output = record.get("modelOutput", {})
+                    usage = model_output.get("usage", {})
+                    total_input += usage.get("inputTokens", 0)
+                    total_output += usage.get("outputTokens", 0)
+
                     content = model_output.get("content") or []
                     if not content:
                         logger.warning(
                             "batch_record_no_content",
                             extra={"record_id": record_id, "job_id": job_id},
                         )
+                        failed_ids.append(record_id)
                         skipped += 1
                         continue
 
@@ -265,6 +273,7 @@ class BatchBackend:
                             "batch_record_unknown",
                             extra={"record_id": record_id, "job_id": job_id},
                         )
+                        failed_ids.append(record_id)
                         skipped += 1
                         continue
 
@@ -279,6 +288,7 @@ class BatchBackend:
                                 "error": str(exc),
                             },
                         )
+                        failed_ids.append(record_id)
                         skipped += 1
                         continue
 
@@ -289,6 +299,16 @@ class BatchBackend:
                 "job_id": job_id,
                 "records": len(results),
                 "skipped": skipped,
+                "failed_ids_count": len(failed_ids),
+                "failed_ids_sample": failed_ids[:10],
+                "input_tokens": total_input,
+                "output_tokens": total_output,
             },
         )
-        return results
+        return BatchCollectResult(
+            results=results,
+            failed_ids=failed_ids,
+            skipped=skipped,
+            input_tokens=total_input,
+            output_tokens=total_output,
+        )

@@ -3,6 +3,49 @@
 
 Games released within the last 2 years (2024–2026). Covers a range of sentiments and genres.
 
+* Launch Seed — First 20 for Soft Launch
+
+Strategic criteria: genre diversity, sentiment range (not all positive), high search
+traffic potential, good coverage of controversial/discussed games (those drive Google
+queries like "is X worth it?"). Black Myth: Wukong already analyzed (#1 below).
+
+| Priority | Game                             |   AppId | Sentiment               | Why Include                                        |
+|----------+----------------------------------+---------+-------------------------+----------------------------------------------------|
+|        1 | Black Myth: Wukong ✅ DONE       | 2358720 | Very Positive (94%)     | #1 search traffic, anchor report                   |
+|        2 | Elden Ring                       | 1245620 | Overwhelmingly Positive | Massive SEO, timeless, high review volume          |
+|        3 | Baldur's Gate 3                  | 1086940 | Overwhelmingly Positive | GOTY benchmark, devs study it obsessively          |
+|        4 | Cyberpunk 2077                   | 1091500 | Very Positive (89%)     | Redemption arc story = high dev interest           |
+|        5 | Monster Hunter Wilds             | 2246340 | Mixed (67%)             | Recent, controversial, "is it worth it?" searches  |
+|        6 | Hades II                         | 1145350 | Overwhelmingly Positive | Best Early Access example, roguelite benchmark     |
+|        7 | Stardew Valley                   |  413150 | Overwhelmingly Positive | Indie success story, every dev studies this        |
+|        8 | Hollow Knight                    |  367520 | Overwhelmingly Positive | Indie metroidvania benchmark, huge SEO             |
+|        9 | Kingdom Come: Deliverance II     | 1771300 | Very Positive (93%)     | Recent hit, niche RPG audience curious about data  |
+|       10 | Dragon's Dogma 2                 | 2054970 | Mixed (66%)             | Controversial launch, "what went wrong?" queries   |
+|       11 | Warhammer 40K: Space Marine 2    | 2183900 | Very Positive (86%)     | Co-op GotY candidate, big community                |
+|       12 | Satisfactory                     |  526870 | Overwhelmingly Positive | Factory game benchmark, devs love it               |
+|       13 | Path of Exile 2                  | 2694490 | Mostly Positive (74%)   | Divisive, high engagement, ARPG dev research       |
+|       14 | STALKER 2                        | 1643320 | Mostly Positive (77%)   | Buggy launch story, controversy = search traffic   |
+|       15 | Sid Meier's Civilization VII     | 1295660 | Mixed (50%)             | High-profile Mixed = "what went wrong?" magnet     |
+|       16 | Ghost of Tsushima DIRECTOR'S CUT | 2215430 | Very Positive (94%)     | Console port success story, action-adventure bench |
+|       17 | Split Fiction                    | 2001120 | Overwhelmingly Positive | Co-op GOTY 2025, short review cycle = clean data   |
+|       18 | Metaphor: ReFantazio             | 2679460 | Very Positive (93%)     | JRPG crossover hit, niche-to-mainstream case study |
+|       19 | Manor Lords                      | 1363080 | Very Positive (87%)     | Viral Early Access, strategy indie benchmark       |
+|       20 | EA SPORTS FC 25                  | 2669320 | Mixed (53%)             | Sports game pain points = very useful for devs     |
+
+** Rationale
+- 8 Overwhelmingly Positive :: show the platform at its best
+- 5 Mixed/Negative :: "is X worth it?" searches are high-intent, drive organic traffic
+- Spans: action, RPG, indie, sim, strategy, sports, co-op, soulslike, factory, JRPG
+- Several are dev research targets (BG3, Stardew, Hades II) — hits the premium funnel
+- All have 25k+ reviews → rich LLM signal, reliable sentiment scores
+
+** AppIds for batch dispatch
+#+BEGIN_SRC
+1245620 1086940 1091500 2246340 1145350 413150 367520 1771300 2054970 2183900 526870 2694490 1643320 1295660 2215430 2001120 2679460 1363080 2669320
+#+END_SRC
+
+* Full Test Set
+
 | Num | Game                                 |   AppId | Reviews | Sentiment               | Genres                           |
 |-----+--------------------------------------+---------+---------+-------------------------+----------------------------------|
 |   1 | Black Myth: Wukong                   | 2358720 | 1196220 | Very Positive (94%)     | Action, Adventure, RPG           |

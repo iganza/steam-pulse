@@ -101,6 +101,7 @@ def _install_fake_backend(pp: Any) -> MagicMock:
     backend.prepare.return_value = "s3://bucket/key"
     backend.submit.return_value = "arn:aws:bedrock:...:job/abc"
     pp._backend_for = MagicMock(return_value=backend)
+    pp._batch_exec_repo = MagicMock()
     return backend
 
 
@@ -179,6 +180,13 @@ def test_prepare_chunk_submits_when_pending_exist() -> None:
     # Sanity: every pending LLMRequest was a chunking task.
     pending_requests = backend.prepare.call_args.args[0]
     assert all(req.task == "chunking" for req in pending_requests)
+    # Tracking row inserted with correct fields.
+    pp._batch_exec_repo.insert.assert_called_once()
+    insert_kwargs = pp._batch_exec_repo.insert.call_args.kwargs
+    assert insert_kwargs["appid"] == 440
+    assert insert_kwargs["phase"] == "chunk"
+    assert insert_kwargs["batch_id"] == "arn:aws:bedrock:...:job/abc"
+    assert insert_kwargs["request_count"] == len(pending_requests)
 
 
 # ---------------------------------------------------------------------------
@@ -239,16 +247,12 @@ def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_synthesis_raises_when_no_merged_summary() -> None:
+def test_prepare_synthesis_raises_when_merged_summary_id_missing() -> None:
+    """Synthesis requires merged_summary_id threaded from the state machine."""
     pp = _get_module()
-    _install_fake_game(pp)
-    pp._report_repo = MagicMock()
-    pp._report_repo.has_current_report.return_value = False
-    pp._merge_repo = MagicMock()
-    pp._merge_repo.find_latest_by_appid.return_value = None
     _install_fake_backend(pp)
 
-    with pytest.raises(ValueError, match="No merged_summary"):
+    with pytest.raises(ValueError, match="Missing required synthesis event field"):
         pp.handler(
             {"appid": 440, "phase": "synthesis", "execution_id": "exec-5"},
             context=None,
@@ -275,7 +279,7 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
         source_chunk_ids=[1, 2, 3],
     )
     pp._merge_repo = MagicMock()
-    pp._merge_repo.find_latest_by_appid.return_value = {
+    pp._merge_repo.find_by_id.return_value = {
         "id": 7,
         "summary_json": merged.model_dump(mode="json"),
     }
@@ -293,7 +297,7 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     backend = _install_fake_backend(pp)
 
     result = pp.handler(
-        {"appid": 440, "phase": "synthesis", "execution_id": "exec-6"},
+        {"appid": 440, "phase": "synthesis", "execution_id": "exec-6", "merged_summary_id": 7},
         context=None,
     )
     assert result["skip"] is False
@@ -319,6 +323,12 @@ def test_prepare_synthesis_submits_when_merged_summary_exists() -> None:
     assert "FPS" in rendered_user  # tag from _install_fake_tag_repo
     pp._tag_repo.find_tags_for_game.assert_called_with(440)
     pp._tag_repo.find_genres_for_game.assert_called_with(440)
+    # Tracking row inserted for synthesis phase.
+    pp._batch_exec_repo.insert.assert_called_once()
+    insert_kwargs = pp._batch_exec_repo.insert.call_args.kwargs
+    assert insert_kwargs["appid"] == 440
+    assert insert_kwargs["phase"] == "synthesis"
+    assert insert_kwargs["request_count"] == 1
 
 
 def test_prepare_synthesis_uses_threaded_merged_summary_id() -> None:

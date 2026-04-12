@@ -1,17 +1,18 @@
-"""CollectPhase Lambda — collect Bedrock batch output and persist.
+"""CollectPhase Lambda — collect Anthropic batch output and persist.
 
-Runs after BatchBackend.status() reports "completed" for a phase. Reads the
-output JSONL via BatchBackend.collect(), parses responses into the typed
-pydantic models, and persists them through the SAME repositories the
-realtime path uses (chunk_repo, merge_repo, report_repo).
+Runs after the status poller reports "completed" for a phase. Iterates
+batch results via AnthropicBatchBackend.collect(), parses responses into
+typed pydantic models, and persists them through the SAME repositories
+the realtime path uses (chunk_repo, report_repo).
 
 Input:
     {
         "appid": 440,
-        "phase": "chunk" | "merge" | "synthesis",
+        "phase": "chunk" | "synthesis",
         "execution_id": "...",
-        "job_id": "arn:aws:bedrock:...:model-invocation-job/...",
-        "level": 1   # merge only
+        "job_id": "msgbatch_01abc...",
+        "merged_summary_id": 99,  # synthesis only
+        "chunk_count": 7           # synthesis only
     }
 
 Output:
@@ -24,6 +25,7 @@ Output:
 """
 
 import os
+from decimal import Decimal
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -38,8 +40,9 @@ from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
 from library_layer.llm import make_batch_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
-from library_layer.llm.batch import BatchBackend
+from library_layer.llm.backend import estimate_batch_cost_usd
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
@@ -63,10 +66,11 @@ _game_repo = GameRepository(get_conn)
 _chunk_repo = ChunkSummaryRepository(get_conn)
 _report_repo = ReportRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
+_batch_exec_repo = BatchExecutionRepository(get_conn)
 _sns = boto3.client("sns")
 
 
-def _backend_for(execution_id: str) -> BatchBackend | AnthropicBatchBackend:
+def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     return make_batch_backend(
         _config,
         execution_id=execution_id,
@@ -104,7 +108,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, job_id: str) -> dict:
+def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> dict:
     """Persist chunk_summaries rows from a completed chunking batch job.
 
     The prepare_phase Lambda encodes (chunk_index, chunk_size, chunk_hash)
@@ -114,41 +118,105 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
     for hours), which would shift chunk membership and corrupt chunk_hash
     cache keys.
     """
-    results = backend.collect(job_id, default_response_model=RichChunkSummary)
-    model_id = _config.model_for("chunking")
-    persisted = 0
+    try:
+        collect_result = backend.collect(job_id, default_response_model=RichChunkSummary)
+        model_id = _config.model_for("chunking")
+        persisted = 0
+        dropped_ids: list[str] = []
 
-    for record_id, summary in results:
-        if not isinstance(summary, RichChunkSummary):
-            logger.warning("unexpected_type", extra={"record_id": record_id})
-            continue
-        parsed = parse_chunk_record_id(record_id)
-        if parsed is None:
-            # parse_chunk_record_id already logged the failure.
-            continue
-        record_appid, chunk_index, review_count, chunk_hash = parsed
-        if record_appid != appid:
-            logger.warning(
-                "record_id_appid_mismatch",
-                extra={"record_id": record_id, "expected": appid, "got": record_appid},
+        for record_id, summary in collect_result.results:
+            if not isinstance(summary, RichChunkSummary):
+                logger.warning("unexpected_type", extra={"record_id": record_id})
+                dropped_ids.append(record_id)
+                continue
+            parsed = parse_chunk_record_id(record_id)
+            if parsed is None:
+                # parse_chunk_record_id already logged the failure.
+                dropped_ids.append(record_id)
+                continue
+            record_appid, chunk_index, review_count, chunk_hash = parsed
+            if record_appid != appid:
+                logger.warning(
+                    "record_id_appid_mismatch",
+                    extra={"record_id": record_id, "expected": appid, "got": record_appid},
+                )
+                dropped_ids.append(record_id)
+                continue
+            _chunk_repo.insert(
+                appid,
+                chunk_index,
+                chunk_hash,
+                review_count,
+                summary,
+                model_id=model_id,
+                prompt_version=CHUNK_PROMPT_VERSION,
             )
-            continue
-        _chunk_repo.insert(
-            appid,
-            chunk_index,
-            chunk_hash,
-            review_count,
-            summary,
-            model_id=model_id,
-            prompt_version=CHUNK_PROMPT_VERSION,
+            persisted += 1
+
+        all_failed_ids = collect_result.failed_ids + dropped_ids
+        # failed_count matches len(all_failed_ids) so the tracking table
+        # is internally consistent. The backend's skipped count can include
+        # unkeyed records (malformed JSON, missing recordId) not in
+        # failed_ids — log it for observability but don't inflate the count.
+        failed_count = len(all_failed_ids)
+        if failed_count or collect_result.skipped:
+            _sample = 10
+            logger.error(
+                "batch_chunk_records_failed",
+                extra={
+                    "appid": appid,
+                    "job_id": job_id,
+                    "api_failed_count": len(collect_result.failed_ids),
+                    "api_failed_ids_sample": collect_result.failed_ids[:_sample],
+                    "dropped_count": len(dropped_ids),
+                    "dropped_ids_sample": dropped_ids[:_sample],
+                    "skipped": collect_result.skipped,
+                },
+            )
+
+        cost = estimate_batch_cost_usd(
+            model_id=_config.model_for("chunking"),
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
         )
-        persisted += 1
+        try:
+            _batch_exec_repo.mark_completed(
+                job_id,
+                succeeded_count=persisted,
+                failed_count=failed_count,
+                failed_record_ids=all_failed_ids,
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
+                estimated_cost_usd=Decimal(str(round(cost, 4))),
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_completed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
+    except Exception as exc:
+        try:
+            _batch_exec_repo.mark_failed(
+                job_id,
+                failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_failed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
+        raise
+
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
 
 
 def _collect_synthesis(
     appid: int,
-    backend: BatchBackend | AnthropicBatchBackend,
+    backend: AnthropicBatchBackend,
     job_id: str,
     merged_summary_id: int,
     chunk_count: int,
@@ -180,34 +248,72 @@ def _collect_synthesis(
         if r.body
     ]
 
-    results = backend.collect(job_id, default_response_model=GameReport)
-    if not results:
-        raise RuntimeError(f"No synthesis output for appid={appid}")
-    _record_id, report = results[0]
-    if not isinstance(report, GameReport):
-        raise TypeError(f"Expected GameReport, got {type(report).__name__}")
+    try:
+        collect_result = backend.collect(job_id, default_response_model=GameReport)
+        if not collect_result.results:
+            raise RuntimeError(f"No synthesis output for appid={appid}")
+        _record_id, report = collect_result.results[0]
+        if not isinstance(report, GameReport):
+            raise TypeError(f"Expected GameReport, got {type(report).__name__}")
 
-    hidden_gem_score = compute_hidden_gem_score(
-        float(game.positive_pct) if game.positive_pct is not None else None,
-        game.review_count or None,
+        hidden_gem_score = compute_hidden_gem_score(
+            float(game.positive_pct) if game.positive_pct is not None else None,
+            game.review_count or None,
+        )
+        trend = compute_sentiment_trend(trend_reviews)
+        report.hidden_gem_score = hidden_gem_score
+        report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
+        report.sentiment_trend_note = trend["note"]
+        report.sentiment_trend_reliable = trend["reliable"]
+        report.sentiment_trend_sample_size = trend["sample_size"]
+        report.appid = appid
+
+        # Populate pipeline bookkeeping columns from the SFN-threaded state.
+        # Both merged_summary_id AND chunk_count were captured at prepare
+        # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
+        # between prepare and collect cannot mis-attribute either field.
+        payload = report.model_dump()
+        payload["pipeline_version"] = PIPELINE_VERSION
+        payload["merged_summary_id"] = merged_summary_id
+        payload["chunk_count"] = chunk_count
+        _report_repo.upsert(payload)
+    except Exception as exc:
+        try:
+            _batch_exec_repo.mark_failed(
+                job_id,
+                failure_reason=f"Synthesis collect failed for appid={appid}: {exc}",
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_failed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
+        raise
+
+    cost = estimate_batch_cost_usd(
+        model_id=_config.model_for("summarizer"),
+        input_tokens=collect_result.input_tokens,
+        output_tokens=collect_result.output_tokens,
+        cache_read_tokens=collect_result.cache_read_tokens,
+        cache_write_tokens=collect_result.cache_write_tokens,
     )
-    trend = compute_sentiment_trend(trend_reviews)
-    report.hidden_gem_score = hidden_gem_score
-    report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
-    report.sentiment_trend_note = trend["note"]
-    report.sentiment_trend_reliable = trend["reliable"]
-    report.sentiment_trend_sample_size = trend["sample_size"]
-    report.appid = appid
-
-    # Populate pipeline bookkeeping columns from the SFN-threaded state.
-    # Both merged_summary_id AND chunk_count were captured at prepare
-    # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
-    # between prepare and collect cannot mis-attribute either field.
-    payload = report.model_dump()
-    payload["pipeline_version"] = PIPELINE_VERSION
-    payload["merged_summary_id"] = merged_summary_id
-    payload["chunk_count"] = chunk_count
-    _report_repo.upsert(payload)
+    try:
+        _batch_exec_repo.mark_completed(
+            job_id,
+            succeeded_count=1,
+            failed_count=len(collect_result.failed_ids),
+            failed_record_ids=collect_result.failed_ids,
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
+            estimated_cost_usd=Decimal(str(round(cost, 4))),
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_mark_completed_failed",
+            extra={"appid": appid, "job_id": job_id},
+        )
 
     try:
         publish_event(

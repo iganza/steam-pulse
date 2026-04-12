@@ -306,7 +306,7 @@ TABLES: tuple[str, ...] = (
         status              TEXT NOT NULL DEFAULT 'submitted',
         submitted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         completed_at        TIMESTAMPTZ,
-        duration_ms         INTEGER,
+        duration_ms         BIGINT,
         request_count       INTEGER NOT NULL,
         succeeded_count     INTEGER,
         failed_count        INTEGER,

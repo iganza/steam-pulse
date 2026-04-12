@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS batch_executions (
     appid               INTEGER NOT NULL REFERENCES games(appid),
     phase               TEXT NOT NULL,          -- 'chunk' | 'synthesis'
     backend             TEXT NOT NULL,          -- 'anthropic' | 'bedrock'
-    batch_id            TEXT NOT NULL,          -- Anthropic batch ID or Bedrock job ARN
+    batch_id            TEXT NOT NULL UNIQUE,   -- Anthropic batch ID or Bedrock job ARN
     model_id            TEXT NOT NULL,
     status              TEXT NOT NULL DEFAULT 'submitted',
     submitted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

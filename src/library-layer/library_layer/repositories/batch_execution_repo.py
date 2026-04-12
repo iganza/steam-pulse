@@ -23,7 +23,12 @@ class BatchExecutionRepository(BaseRepository):
         pipeline_version: str | None,
         prompt_version: str | None,
     ) -> int:
-        """Record a new batch submission. Returns the row id."""
+        """Record a new batch submission. Returns the row id.
+
+        Idempotent on `batch_id` — Step Functions retries that re-submit the
+        same batch will return the existing row's id instead of creating a
+        duplicate.
+        """
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
@@ -32,6 +37,8 @@ class BatchExecutionRepository(BaseRepository):
                     request_count, pipeline_version, prompt_version
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (batch_id) DO UPDATE
+                SET batch_id = EXCLUDED.batch_id
                 RETURNING id
                 """,
                 (
@@ -83,7 +90,7 @@ class BatchExecutionRepository(BaseRepository):
                 UPDATE batch_executions
                 SET status = 'completed',
                     completed_at = NOW(),
-                    duration_ms = EXTRACT(EPOCH FROM (NOW() - submitted_at))::INTEGER * 1000,
+                    duration_ms = (EXTRACT(EPOCH FROM (NOW() - submitted_at)) * 1000)::BIGINT,
                     succeeded_count = %s,
                     failed_count = %s,
                     input_tokens = %s,
@@ -116,7 +123,7 @@ class BatchExecutionRepository(BaseRepository):
                 UPDATE batch_executions
                 SET status = 'failed',
                     completed_at = NOW(),
-                    duration_ms = EXTRACT(EPOCH FROM (NOW() - submitted_at))::INTEGER * 1000,
+                    duration_ms = (EXTRACT(EPOCH FROM (NOW() - submitted_at)) * 1000)::BIGINT,
                     failure_reason = %s
                 WHERE batch_id = %s
                 """,

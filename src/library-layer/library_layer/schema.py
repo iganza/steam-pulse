@@ -301,7 +301,7 @@ TABLES: tuple[str, ...] = (
         appid               INTEGER NOT NULL REFERENCES games(appid),
         phase               TEXT NOT NULL,
         backend             TEXT NOT NULL,
-        batch_id            TEXT NOT NULL,
+        batch_id            TEXT NOT NULL UNIQUE,
         model_id            TEXT NOT NULL,
         status              TEXT NOT NULL DEFAULT 'submitted',
         submitted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

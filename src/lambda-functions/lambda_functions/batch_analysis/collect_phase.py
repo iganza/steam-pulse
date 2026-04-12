@@ -119,14 +119,17 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
     collect_result = backend.collect(job_id, default_response_model=RichChunkSummary)
     model_id = _config.model_for("chunking")
     persisted = 0
+    dropped_ids: list[str] = []
 
     for record_id, summary in collect_result.results:
         if not isinstance(summary, RichChunkSummary):
             logger.warning("unexpected_type", extra={"record_id": record_id})
+            dropped_ids.append(record_id)
             continue
         parsed = parse_chunk_record_id(record_id)
         if parsed is None:
             # parse_chunk_record_id already logged the failure.
+            dropped_ids.append(record_id)
             continue
         record_appid, chunk_index, review_count, chunk_hash = parsed
         if record_appid != appid:
@@ -134,6 +137,7 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 "record_id_appid_mismatch",
                 extra={"record_id": record_id, "expected": appid, "got": record_appid},
             )
+            dropped_ids.append(record_id)
             continue
         _chunk_repo.insert(
             appid,
@@ -146,22 +150,27 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
         )
         persisted += 1
 
-    if collect_result.failed_ids:
+    all_failed_ids = collect_result.failed_ids + dropped_ids
+    if all_failed_ids:
         logger.error(
             "batch_chunk_records_failed",
-            extra={"appid": appid, "failed_ids": collect_result.failed_ids},
+            extra={
+                "appid": appid,
+                "api_failed_ids": collect_result.failed_ids,
+                "dropped_ids": dropped_ids,
+            },
         )
 
     _batch_exec_repo.mark_completed(
         job_id,
         succeeded_count=persisted,
-        failed_count=len(collect_result.failed_ids),
+        failed_count=len(all_failed_ids),
         input_tokens=None,
         output_tokens=None,
         cache_read_tokens=None,
         cache_write_tokens=None,
         estimated_cost_usd=None,
-        failed_record_ids=collect_result.failed_ids,
+        failed_record_ids=all_failed_ids,
     )
 
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}

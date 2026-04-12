@@ -37,6 +37,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     PIPELINE_VERSION,
+    SYNTHESIS_PROMPT_VERSION,
     AnalyzerSettings,
     build_chunk_requests,
     build_synthesis_request,
@@ -378,7 +379,7 @@ def _prepare_synthesis(
         model_id=_config.model_for("summarizer"),
         request_count=1,
         pipeline_version=PIPELINE_VERSION,
-        prompt_version=CHUNK_PROMPT_VERSION,
+        prompt_version=SYNTHESIS_PROMPT_VERSION,
     )
 
     return {

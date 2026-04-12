@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS batch_executions (
     phase               TEXT NOT NULL,
     backend             TEXT NOT NULL,
 
-    batch_id            TEXT NOT NULL,
+    batch_id            TEXT NOT NULL UNIQUE,
     model_id            TEXT NOT NULL,
 
     status              TEXT NOT NULL DEFAULT 'submitted',

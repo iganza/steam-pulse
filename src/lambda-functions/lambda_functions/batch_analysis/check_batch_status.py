@@ -77,12 +77,19 @@ def handler(event: dict, context: LambdaContext) -> dict:
         extra={"job_id": job_id, "raw": result["raw"], "mapped": result["status"]},
     )
 
-    # Update tracking table on status transitions
-    if result["status"] == "Running":
-        _batch_exec_repo.mark_running(job_id)
-    elif result["status"] == "Failed":
-        _batch_exec_repo.mark_failed(
-            job_id, failure_reason=result["message"] or result["raw"] or "unknown"
+    # Update tracking table on status transitions. Best-effort — must not
+    # fail the polling loop if Postgres is unavailable.
+    try:
+        if result["status"] == "Running":
+            _batch_exec_repo.mark_running(job_id)
+        elif result["status"] == "Failed":
+            _batch_exec_repo.mark_failed(
+                job_id, failure_reason=result["message"] or result["raw"] or "unknown"
+            )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_update_failed",
+            extra={"job_id": job_id, "raw": result["raw"], "mapped": result["status"]},
         )
 
     return {"status": result["status"], "message": result["message"]}

@@ -178,6 +178,13 @@ def test_collect_chunk_persists_rows_from_record_id_metadata() -> None:
     assert first_call.args[1] == 0  # chunk_index
     assert first_call.args[2] == "abc123def4567890"  # chunk_hash from record_id
     assert first_call.args[3] == 50  # chunk_size
+    # Tracking row finalized with correct counts.
+    cp._batch_exec_repo.mark_completed.assert_called_once()
+    mark_call = cp._batch_exec_repo.mark_completed.call_args
+    assert mark_call.args[0] == "arn:aws:bedrock:...:job/abc"
+    assert mark_call.kwargs["succeeded_count"] == 2
+    assert mark_call.kwargs["failed_count"] == 0
+    assert mark_call.kwargs["failed_record_ids"] == []
 
 
 @mock_aws
@@ -207,6 +214,11 @@ def test_collect_chunk_drops_malformed_record_ids() -> None:
     # Only the well-formed record was persisted.
     assert result["collected"] == 1
     assert cp._chunk_repo.insert.call_count == 1
+    # Dropped record counted in tracking.
+    mark_call = cp._batch_exec_repo.mark_completed.call_args
+    assert mark_call.kwargs["succeeded_count"] == 1
+    assert mark_call.kwargs["failed_count"] == 1
+    assert "garbage-record-id" in mark_call.kwargs["failed_record_ids"]
 
 
 @mock_aws
@@ -314,6 +326,11 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     assert payload["appid"] == 440
     assert "hidden_gem_score" in payload
     assert "sentiment_trend" in payload
+    # Tracking row finalized.
+    cp._batch_exec_repo.mark_completed.assert_called_once()
+    mark_call = cp._batch_exec_repo.mark_completed.call_args
+    assert mark_call.args[0] == "arn:aws:bedrock:...:job/abc"
+    assert mark_call.kwargs["succeeded_count"] == 1
 
 
 @mock_aws

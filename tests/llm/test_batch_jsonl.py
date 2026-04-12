@@ -145,6 +145,9 @@ def test_collect_skips_malformed_json_line() -> None:
     result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
     assert len(result.results) == 1
     assert result.results[0][0] == "440-chunk-0"
+    assert result.skipped == 1
+    # Malformed JSON has no recordId — can't appear in failed_ids.
+    assert result.failed_ids == []
 
 
 def test_collect_skips_record_missing_record_id() -> None:
@@ -154,6 +157,9 @@ def test_collect_skips_record_missing_record_id() -> None:
     result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
     assert len(result.results) == 1
     assert result.results[0][0] == "440-chunk-0"
+    assert result.skipped == 1
+    # No recordId — can't appear in failed_ids.
+    assert result.failed_ids == []
 
 
 def test_collect_skips_record_with_empty_content() -> None:
@@ -163,6 +169,8 @@ def test_collect_skips_record_with_empty_content() -> None:
     result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
     assert len(result.results) == 1
     assert result.results[0][0] == "440-chunk-0"
+    assert result.skipped == 1
+    assert "440-chunk-5" in result.failed_ids
 
 
 def test_collect_skips_record_that_fails_pydantic_validation() -> None:
@@ -181,6 +189,7 @@ def test_collect_skips_record_that_fails_pydantic_validation() -> None:
     result = backend.collect("arn:job/abc", default_response_model=RichChunkSummary)
     assert len(result.results) == 1
     assert result.results[0][0] == "440-chunk-0"
+    assert result.skipped == 1
     assert "440-chunk-1" in result.failed_ids
 
 

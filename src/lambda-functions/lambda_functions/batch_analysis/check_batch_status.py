@@ -81,6 +81,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if result["status"] == "Running":
         _batch_exec_repo.mark_running(job_id)
     elif result["status"] == "Failed":
-        _batch_exec_repo.mark_failed(job_id, failure_reason=result["message"])
+        _batch_exec_repo.mark_failed(
+            job_id, failure_reason=result["message"] or result["raw"] or "unknown"
+        )
 
     return {"status": result["status"], "message": result["message"]}

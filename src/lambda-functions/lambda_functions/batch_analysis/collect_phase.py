@@ -151,20 +151,28 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
         persisted += 1
 
     all_failed_ids = collect_result.failed_ids + dropped_ids
-    if all_failed_ids:
+    # skipped includes records without a usable record_id (malformed JSON,
+    # missing recordId) that can't appear in failed_ids. Count them in
+    # failed_count so the tracking row reflects the true failure total.
+    failed_count = collect_result.skipped + len(dropped_ids)
+    if failed_count:
+        _sample = 10
         logger.error(
             "batch_chunk_records_failed",
             extra={
                 "appid": appid,
-                "api_failed_ids": collect_result.failed_ids,
-                "dropped_ids": dropped_ids,
+                "api_failed_count": len(collect_result.failed_ids),
+                "api_failed_ids_sample": collect_result.failed_ids[:_sample],
+                "dropped_count": len(dropped_ids),
+                "dropped_ids_sample": dropped_ids[:_sample],
+                "skipped": collect_result.skipped,
             },
         )
 
     _batch_exec_repo.mark_completed(
         job_id,
         succeeded_count=persisted,
-        failed_count=len(all_failed_ids),
+        failed_count=failed_count,
         input_tokens=None,
         output_tokens=None,
         cache_read_tokens=None,
@@ -210,47 +218,51 @@ def _collect_synthesis(
         if r.body
     ]
 
-    collect_result = backend.collect(job_id, default_response_model=GameReport)
-    if not collect_result.results:
-        _batch_exec_repo.mark_failed(job_id, failure_reason="No synthesis output returned")
-        raise RuntimeError(f"No synthesis output for appid={appid}")
-    _record_id, report = collect_result.results[0]
-    if not isinstance(report, GameReport):
-        raise TypeError(f"Expected GameReport, got {type(report).__name__}")
+    try:
+        collect_result = backend.collect(job_id, default_response_model=GameReport)
+        if not collect_result.results:
+            _batch_exec_repo.mark_failed(job_id, failure_reason="No synthesis output returned")
+            raise RuntimeError(f"No synthesis output for appid={appid}")
+        _record_id, report = collect_result.results[0]
+        if not isinstance(report, GameReport):
+            raise TypeError(f"Expected GameReport, got {type(report).__name__}")
 
-    hidden_gem_score = compute_hidden_gem_score(
-        float(game.positive_pct) if game.positive_pct is not None else None,
-        game.review_count or None,
-    )
-    trend = compute_sentiment_trend(trend_reviews)
-    report.hidden_gem_score = hidden_gem_score
-    report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
-    report.sentiment_trend_note = trend["note"]
-    report.sentiment_trend_reliable = trend["reliable"]
-    report.sentiment_trend_sample_size = trend["sample_size"]
-    report.appid = appid
+        hidden_gem_score = compute_hidden_gem_score(
+            float(game.positive_pct) if game.positive_pct is not None else None,
+            game.review_count or None,
+        )
+        trend = compute_sentiment_trend(trend_reviews)
+        report.hidden_gem_score = hidden_gem_score
+        report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
+        report.sentiment_trend_note = trend["note"]
+        report.sentiment_trend_reliable = trend["reliable"]
+        report.sentiment_trend_sample_size = trend["sample_size"]
+        report.appid = appid
 
-    # Populate pipeline bookkeeping columns from the SFN-threaded state.
-    # Both merged_summary_id AND chunk_count were captured at prepare
-    # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
-    # between prepare and collect cannot mis-attribute either field.
-    payload = report.model_dump()
-    payload["pipeline_version"] = PIPELINE_VERSION
-    payload["merged_summary_id"] = merged_summary_id
-    payload["chunk_count"] = chunk_count
-    _report_repo.upsert(payload)
+        # Populate pipeline bookkeeping columns from the SFN-threaded state.
+        # Both merged_summary_id AND chunk_count were captured at prepare
+        # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
+        # between prepare and collect cannot mis-attribute either field.
+        payload = report.model_dump()
+        payload["pipeline_version"] = PIPELINE_VERSION
+        payload["merged_summary_id"] = merged_summary_id
+        payload["chunk_count"] = chunk_count
+        _report_repo.upsert(payload)
 
-    _batch_exec_repo.mark_completed(
-        job_id,
-        succeeded_count=1,
-        failed_count=len(collect_result.failed_ids),
-        input_tokens=None,
-        output_tokens=None,
-        cache_read_tokens=None,
-        cache_write_tokens=None,
-        estimated_cost_usd=None,
-        failed_record_ids=collect_result.failed_ids,
-    )
+        _batch_exec_repo.mark_completed(
+            job_id,
+            succeeded_count=1,
+            failed_count=collect_result.skipped,
+            input_tokens=None,
+            output_tokens=None,
+            cache_read_tokens=None,
+            cache_write_tokens=None,
+            estimated_cost_usd=None,
+            failed_record_ids=collect_result.failed_ids,
+        )
+    except Exception:
+        _batch_exec_repo.mark_failed(job_id, failure_reason=f"Synthesis collect failed for appid={appid}")
+        raise
 
     try:
         publish_event(

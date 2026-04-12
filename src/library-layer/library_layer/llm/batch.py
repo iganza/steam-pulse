@@ -267,6 +267,7 @@ class BatchBackend:
                             "batch_record_unknown",
                             extra={"record_id": record_id, "job_id": job_id},
                         )
+                        failed_ids.append(record_id)
                         skipped += 1
                         continue
 
@@ -292,7 +293,8 @@ class BatchBackend:
                 "job_id": job_id,
                 "records": len(results),
                 "skipped": skipped,
-                "failed_ids": failed_ids,
+                "failed_ids_count": len(failed_ids),
+                "failed_ids_sample": failed_ids[:10],
             },
         )
         return BatchCollectResult(results=results, failed_ids=failed_ids, skipped=skipped)

@@ -218,10 +218,12 @@ def _collect_synthesis(
         if r.body
     ]
 
+    _tracking_finalized = False
     try:
         collect_result = backend.collect(job_id, default_response_model=GameReport)
         if not collect_result.results:
             _batch_exec_repo.mark_failed(job_id, failure_reason="No synthesis output returned")
+            _tracking_finalized = True
             raise RuntimeError(f"No synthesis output for appid={appid}")
         _record_id, report = collect_result.results[0]
         if not isinstance(report, GameReport):
@@ -260,8 +262,13 @@ def _collect_synthesis(
             estimated_cost_usd=None,
             failed_record_ids=collect_result.failed_ids,
         )
-    except Exception:
-        _batch_exec_repo.mark_failed(job_id, failure_reason=f"Synthesis collect failed for appid={appid}")
+        _tracking_finalized = True
+    except Exception as exc:
+        if not _tracking_finalized:
+            _batch_exec_repo.mark_failed(
+                job_id,
+                failure_reason=f"Synthesis collect failed for appid={appid}: {exc}",
+            )
         raise
 
     try:

@@ -9,7 +9,7 @@ Python exceptions. This backend therefore does NOT implement
     prepare(requests) -> s3_uri         # writes JSONL to S3
     submit(s3_uri, task) -> job_id      # creates the Bedrock invocation job
     status(job_id) -> "running"|"completed"|"failed"
-    collect(job_id, response_models) -> list[BaseModel]
+    collect(job_id, response_models) -> BatchCollectResult
 
 The Step Functions state machine composes these across separate Lambda
 invocations and owns the Wait/Choice polling loop. The ONLY place the

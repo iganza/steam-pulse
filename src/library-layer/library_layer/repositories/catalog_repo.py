@@ -15,12 +15,10 @@ class CatalogRepository(BaseRepository):
     def bulk_upsert(self, entries: list[dict]) -> int:
         """INSERT ... ON CONFLICT DO UPDATE for GetAppList metadata.
 
-        Updates steam_last_modified and price_change_number on conflict
-        (these change over time). Only overwrites with newer/non-NULL values
-        (monotonic — never regresses).
-
-        Uses RETURNING with an xmax check to distinguish inserts from updates
-        without extra COUNT queries.
+        Updates steam_last_modified and price_change_number on conflict,
+        but only when the incoming value is newer (monotonic — never regresses).
+        The WHERE clause ensures Postgres skips rows where nothing changed,
+        avoiding unnecessary row-version churn on 160k+ existing rows.
 
         Returns:
             Number of new rows inserted (not updated).
@@ -34,20 +32,16 @@ class CatalogRepository(BaseRepository):
                 INSERT INTO app_catalog (appid, name, steam_last_modified, price_change_number)
                 VALUES %s
                 ON CONFLICT (appid) DO UPDATE SET
-                    steam_last_modified = CASE
-                        WHEN EXCLUDED.steam_last_modified IS NOT NULL
-                         AND (app_catalog.steam_last_modified IS NULL
-                              OR EXCLUDED.steam_last_modified > app_catalog.steam_last_modified)
-                        THEN EXCLUDED.steam_last_modified
-                        ELSE app_catalog.steam_last_modified
-                    END,
-                    price_change_number = CASE
-                        WHEN EXCLUDED.price_change_number IS NOT NULL
-                         AND (app_catalog.price_change_number IS NULL
-                              OR EXCLUDED.price_change_number > app_catalog.price_change_number)
-                        THEN EXCLUDED.price_change_number
-                        ELSE app_catalog.price_change_number
-                    END
+                    steam_last_modified = COALESCE(EXCLUDED.steam_last_modified, app_catalog.steam_last_modified),
+                    price_change_number = COALESCE(EXCLUDED.price_change_number, app_catalog.price_change_number)
+                WHERE
+                    (EXCLUDED.steam_last_modified IS NOT NULL
+                     AND (app_catalog.steam_last_modified IS NULL
+                          OR EXCLUDED.steam_last_modified > app_catalog.steam_last_modified))
+                    OR
+                    (EXCLUDED.price_change_number IS NOT NULL
+                     AND (app_catalog.price_change_number IS NULL
+                          OR EXCLUDED.price_change_number > app_catalog.price_change_number))
                 RETURNING (xmax = 0) AS inserted
                 """,
                 [
@@ -62,7 +56,7 @@ class CatalogRepository(BaseRepository):
                 page_size=1000,
                 fetch=True,
             )
-            new_rows = sum(1 for row in result if row["inserted"])
+            new_rows = sum(1 for row in result if row[0])
         self.conn.commit()
         return new_rows
 

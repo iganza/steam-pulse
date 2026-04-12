@@ -186,13 +186,16 @@ class NewReleasesRepository(BaseRepository):
         tag: str | None = None,
     ) -> list[NewReleaseEntry]:
         filt, fparams = _filter_clause(genre, tag)
+        # Fall back to discovered_at when steam_last_modified is NULL
+        # (some coming-soon apps have no last_modified from GetAppList).
+        added = "COALESCE(steam_last_modified, discovered_at)"
         if since is not None:
             sql = f"""
                 SELECT * FROM mv_new_releases
                 WHERE coming_soon = TRUE
-                  AND steam_last_modified >= %s
+                  AND {added} >= %s
                   {filt}
-                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
+                ORDER BY {added} DESC, appid DESC
                 LIMIT %s OFFSET %s
             """
             params: list = [since, *fparams, limit, offset]
@@ -200,9 +203,8 @@ class NewReleasesRepository(BaseRepository):
             sql = f"""
                 SELECT * FROM mv_new_releases
                 WHERE coming_soon = TRUE
-                  AND steam_last_modified IS NOT NULL
                   {filt}
-                ORDER BY steam_last_modified DESC NULLS LAST, appid DESC
+                ORDER BY {added} DESC, appid DESC
                 LIMIT %s OFFSET %s
             """
             params = [*fparams, limit, offset]
@@ -216,17 +218,17 @@ class NewReleasesRepository(BaseRepository):
         tag: str | None = None,
     ) -> int:
         filt, fparams = _filter_clause(genre, tag)
+        added = "COALESCE(steam_last_modified, discovered_at)"
         if since is not None:
             sql = f"""
                 SELECT COUNT(*) AS c FROM mv_new_releases
-                WHERE coming_soon = TRUE AND steam_last_modified >= %s {filt}
+                WHERE coming_soon = TRUE AND {added} >= %s {filt}
             """
             params: list = [since, *fparams]
         else:
             sql = f"""
                 SELECT COUNT(*) AS c FROM mv_new_releases
-                WHERE coming_soon = TRUE
-                  AND steam_last_modified IS NOT NULL {filt}
+                WHERE coming_soon = TRUE {filt}
             """
             params = list(fparams)
         row = self._fetchone(sql, tuple(params))

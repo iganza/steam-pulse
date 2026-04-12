@@ -5,6 +5,8 @@ Provides structured visibility into what's running, what completed,
 how long it took, and what it cost.
 """
 
+from decimal import Decimal
+
 import psycopg2.extras
 from library_layer.repositories.base import BaseRepository
 
@@ -87,8 +89,9 @@ class BatchExecutionRepository(BaseRepository):
         output_tokens: int,
         cache_read_tokens: int,
         cache_write_tokens: int,
+        estimated_cost_usd: Decimal,
     ) -> None:
-        """Finalize a batch as completed with outcome counts and token usage."""
+        """Finalize a batch as completed with outcome counts, token usage, and cost."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -102,7 +105,8 @@ class BatchExecutionRepository(BaseRepository):
                     input_tokens = %s,
                     output_tokens = %s,
                     cache_read_tokens = %s,
-                    cache_write_tokens = %s
+                    cache_write_tokens = %s,
+                    estimated_cost_usd = %s
                 WHERE batch_id = %s
                   AND status IN ('submitted', 'running')
                   AND completed_at IS NULL
@@ -115,6 +119,7 @@ class BatchExecutionRepository(BaseRepository):
                     output_tokens,
                     cache_read_tokens,
                     cache_write_tokens,
+                    estimated_cost_usd,
                     batch_id,
                 ),
             )

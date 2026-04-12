@@ -24,6 +24,7 @@ Output:
 """
 
 import os
+from decimal import Decimal
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -38,6 +39,7 @@ from library_layer.config import SteamPulseConfig
 from library_layer.events import ReportReadyEvent
 from library_layer.llm import make_batch_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
+from library_layer.llm.backend import estimate_batch_cost_usd
 from library_layer.llm.batch import BatchBackend
 from library_layer.models.analyzer_models import GameReport, RichChunkSummary
 from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
@@ -172,6 +174,13 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
             )
 
         try:
+            cost = estimate_batch_cost_usd(
+                model_id=_config.model_for("chunking"),
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
+            )
             _batch_exec_repo.mark_completed(
                 job_id,
                 succeeded_count=persisted,
@@ -181,6 +190,7 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 output_tokens=collect_result.output_tokens,
                 cache_read_tokens=collect_result.cache_read_tokens,
                 cache_write_tokens=collect_result.cache_write_tokens,
+                estimated_cost_usd=Decimal(str(round(cost, 4))),
             )
         except Exception:
             logger.exception(
@@ -280,6 +290,13 @@ def _collect_synthesis(
         raise
 
     try:
+        cost = estimate_batch_cost_usd(
+            model_id=_config.model_for("summarizer"),
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
+        )
         _batch_exec_repo.mark_completed(
             job_id,
             succeeded_count=1,
@@ -289,6 +306,7 @@ def _collect_synthesis(
             output_tokens=collect_result.output_tokens,
             cache_read_tokens=collect_result.cache_read_tokens,
             cache_write_tokens=collect_result.cache_write_tokens,
+            estimated_cost_usd=Decimal(str(round(cost, 4))),
         )
     except Exception:
         logger.exception(

@@ -128,7 +128,10 @@ def _good_record(record_id: str) -> str:
     return json.dumps(
         {
             "recordId": record_id,
-            "modelOutput": {"content": [{"text": _valid_chunk_summary_json()}]},
+            "modelOutput": {
+                "content": [{"text": _valid_chunk_summary_json()}],
+                "usage": {"inputTokens": 200, "outputTokens": 100},
+            },
         }
     )
 
@@ -148,6 +151,9 @@ def test_collect_skips_malformed_json_line() -> None:
     assert result.skipped == 1
     # Malformed JSON has no recordId — can't appear in failed_ids.
     assert result.failed_ids == []
+    # Token usage accumulated from the one good record.
+    assert result.input_tokens == 200
+    assert result.output_tokens == 100
 
 
 def test_collect_skips_record_missing_record_id() -> None:

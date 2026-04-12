@@ -45,6 +45,41 @@ class LLMUsage(BaseModel):
 LLMResultCallback = Callable[[int, BaseModel, LLMUsage], None]
 
 
+# Anthropic batch pricing per million tokens (as of 2025-05).
+# Batch pricing is 50% of standard; cache reads are 90% off standard input.
+_BATCH_PRICING: dict[str, dict[str, float]] = {
+    # Haiku 4.5
+    "claude-haiku-4-5-20251001": {"input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write": 0.625},
+    "anthropic.claude-3-haiku-20240307-v1:0": {"input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write": 0.625},
+    # Sonnet 4.6
+    "claude-sonnet-4-6-20250514": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_write": 1.875},
+    "anthropic.claude-sonnet-4-6-20250514-v1:0": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_write": 1.875},
+    # Opus 4.6
+    "claude-opus-4-6-20250610": {"input": 2.50, "output": 12.50, "cache_read": 0.25, "cache_write": 3.125},
+    "anthropic.claude-opus-4-6-20250610-v1:0": {"input": 2.50, "output": 12.50, "cache_read": 0.25, "cache_write": 3.125},
+}
+
+
+def estimate_batch_cost_usd(
+    *,
+    model_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+) -> float:
+    """Estimate USD cost from token counts and model ID using batch pricing."""
+    pricing = _BATCH_PRICING.get(model_id)
+    if pricing is None:
+        return 0.0
+    return (
+        input_tokens * pricing["input"]
+        + output_tokens * pricing["output"]
+        + cache_read_tokens * pricing["cache_read"]
+        + cache_write_tokens * pricing["cache_write"]
+    ) / 1_000_000
+
+
 class BatchCollectResult(BaseModel):
     """Structured return from batch collect() — successes + failures + usage."""
 

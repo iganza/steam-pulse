@@ -4,6 +4,7 @@ Covers the insert/mark_running/mark_completed/mark_failed lifecycle and
 the query methods (find_active, find_by_execution_id, find_by_appid).
 """
 
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -83,6 +84,7 @@ def test_mark_completed(
         output_tokens=2000,
         cache_read_tokens=3000,
         cache_write_tokens=500,
+        estimated_cost_usd=Decimal("0.0125"),
     )
 
     rows = batch_exec_repo.find_by_execution_id("exec-done-1")
@@ -92,6 +94,7 @@ def test_mark_completed(
     assert rows[0]["output_tokens"] == 2000
     assert rows[0]["cache_read_tokens"] == 3000
     assert rows[0]["cache_write_tokens"] == 500
+    assert rows[0]["estimated_cost_usd"] == Decimal("0.0125")
     assert rows[0]["failed_record_ids"] == []
     assert rows[0]["completed_at"] is not None
     assert rows[0]["duration_ms"] is not None
@@ -152,6 +155,7 @@ def test_find_active(game_repo: GameRepository, batch_exec_repo: BatchExecutionR
         output_tokens=500,
         cache_read_tokens=0,
         cache_write_tokens=0,
+        estimated_cost_usd=Decimal("0.005"),
     )
 
     active = batch_exec_repo.find_active()

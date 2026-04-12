@@ -170,22 +170,34 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 },
             )
 
-        _batch_exec_repo.mark_completed(
-            job_id,
-            succeeded_count=persisted,
-            failed_count=failed_count,
-            input_tokens=None,
-            output_tokens=None,
-            cache_read_tokens=None,
-            cache_write_tokens=None,
-            estimated_cost_usd=None,
-            failed_record_ids=all_failed_ids,
-        )
+        try:
+            _batch_exec_repo.mark_completed(
+                job_id,
+                succeeded_count=persisted,
+                failed_count=failed_count,
+                input_tokens=None,
+                output_tokens=None,
+                cache_read_tokens=None,
+                cache_write_tokens=None,
+                estimated_cost_usd=None,
+                failed_record_ids=all_failed_ids,
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_completed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
     except Exception as exc:
-        _batch_exec_repo.mark_failed(
-            job_id,
-            failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
-        )
+        try:
+            _batch_exec_repo.mark_failed(
+                job_id,
+                failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_failed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
         raise
 
     return {"appid": appid, "phase": "chunk", "collected": persisted, "done": False}
@@ -225,39 +237,43 @@ def _collect_synthesis(
         if r.body
     ]
 
-    _tracking_finalized = False
-    try:
-        collect_result = backend.collect(job_id, default_response_model=GameReport)
-        if not collect_result.results:
+    collect_result = backend.collect(job_id, default_response_model=GameReport)
+    if not collect_result.results:
+        try:
             _batch_exec_repo.mark_failed(job_id, failure_reason="No synthesis output returned")
-            _tracking_finalized = True
-            raise RuntimeError(f"No synthesis output for appid={appid}")
-        _record_id, report = collect_result.results[0]
-        if not isinstance(report, GameReport):
-            raise TypeError(f"Expected GameReport, got {type(report).__name__}")
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_failed_failed",
+                extra={"appid": appid, "job_id": job_id},
+            )
+        raise RuntimeError(f"No synthesis output for appid={appid}")
+    _record_id, report = collect_result.results[0]
+    if not isinstance(report, GameReport):
+        raise TypeError(f"Expected GameReport, got {type(report).__name__}")
 
-        hidden_gem_score = compute_hidden_gem_score(
-            float(game.positive_pct) if game.positive_pct is not None else None,
-            game.review_count or None,
-        )
-        trend = compute_sentiment_trend(trend_reviews)
-        report.hidden_gem_score = hidden_gem_score
-        report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
-        report.sentiment_trend_note = trend["note"]
-        report.sentiment_trend_reliable = trend["reliable"]
-        report.sentiment_trend_sample_size = trend["sample_size"]
-        report.appid = appid
+    hidden_gem_score = compute_hidden_gem_score(
+        float(game.positive_pct) if game.positive_pct is not None else None,
+        game.review_count or None,
+    )
+    trend = compute_sentiment_trend(trend_reviews)
+    report.hidden_gem_score = hidden_gem_score
+    report.sentiment_trend = trend["trend"]  # type: ignore[assignment]
+    report.sentiment_trend_note = trend["note"]
+    report.sentiment_trend_reliable = trend["reliable"]
+    report.sentiment_trend_sample_size = trend["sample_size"]
+    report.appid = appid
 
-        # Populate pipeline bookkeeping columns from the SFN-threaded state.
-        # Both merged_summary_id AND chunk_count were captured at prepare
-        # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
-        # between prepare and collect cannot mis-attribute either field.
-        payload = report.model_dump()
-        payload["pipeline_version"] = PIPELINE_VERSION
-        payload["merged_summary_id"] = merged_summary_id
-        payload["chunk_count"] = chunk_count
-        _report_repo.upsert(payload)
+    # Populate pipeline bookkeeping columns from the SFN-threaded state.
+    # Both merged_summary_id AND chunk_count were captured at prepare
+    # time so concurrent re-analysis / a CHUNK_PROMPT_VERSION bump
+    # between prepare and collect cannot mis-attribute either field.
+    payload = report.model_dump()
+    payload["pipeline_version"] = PIPELINE_VERSION
+    payload["merged_summary_id"] = merged_summary_id
+    payload["chunk_count"] = chunk_count
+    _report_repo.upsert(payload)
 
+    try:
         _batch_exec_repo.mark_completed(
             job_id,
             succeeded_count=1,
@@ -269,14 +285,11 @@ def _collect_synthesis(
             estimated_cost_usd=None,
             failed_record_ids=collect_result.failed_ids,
         )
-        _tracking_finalized = True
-    except Exception as exc:
-        if not _tracking_finalized:
-            _batch_exec_repo.mark_failed(
-                job_id,
-                failure_reason=f"Synthesis collect failed for appid={appid}: {exc}",
-            )
-        raise
+    except Exception:
+        logger.exception(
+            "batch_execution_mark_completed_failed",
+            extra={"appid": appid, "job_id": job_id},
+        )
 
     try:
         publish_event(

@@ -179,17 +179,23 @@ def _prepare_chunk(
     s3_uri = backend.prepare(pending, phase=f"chunk-{appid}")
     job_id = backend.submit(s3_uri, task="chunking", phase=f"chunk-{appid}")
 
-    _batch_exec_repo.insert(
-        execution_id=execution_id,
-        appid=appid,
-        phase="chunk",
-        backend=_config.LLM_BACKEND,
-        batch_id=job_id,
-        model_id=_config.model_for("chunking"),
-        request_count=len(pending),
-        pipeline_version=PIPELINE_VERSION,
-        prompt_version=CHUNK_PROMPT_VERSION,
-    )
+    try:
+        _batch_exec_repo.insert(
+            execution_id=execution_id,
+            appid=appid,
+            phase="chunk",
+            backend=_config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=_config.model_for("chunking"),
+            request_count=len(pending),
+            pipeline_version=PIPELINE_VERSION,
+            prompt_version=CHUNK_PROMPT_VERSION,
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_insert_failed",
+            extra={"appid": appid, "execution_id": execution_id, "phase": "chunk", "job_id": job_id},
+        )
 
     return {
         "appid": appid,
@@ -370,17 +376,23 @@ def _prepare_synthesis(
     s3_uri = backend.prepare([request], phase=f"synth-{appid}")
     job_id = backend.submit(s3_uri, task="summarizer", phase=f"synth-{appid}")
 
-    _batch_exec_repo.insert(
-        execution_id=execution_id,
-        appid=appid,
-        phase="synthesis",
-        backend=_config.LLM_BACKEND,
-        batch_id=job_id,
-        model_id=_config.model_for("summarizer"),
-        request_count=1,
-        pipeline_version=PIPELINE_VERSION,
-        prompt_version=SYNTHESIS_PROMPT_VERSION,
-    )
+    try:
+        _batch_exec_repo.insert(
+            execution_id=execution_id,
+            appid=appid,
+            phase="synthesis",
+            backend=_config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=_config.model_for("summarizer"),
+            request_count=1,
+            pipeline_version=PIPELINE_VERSION,
+            prompt_version=SYNTHESIS_PROMPT_VERSION,
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_insert_failed",
+            extra={"appid": appid, "execution_id": execution_id, "phase": "synthesis", "job_id": job_id},
+        )
 
     return {
         "appid": appid,

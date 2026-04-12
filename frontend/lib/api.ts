@@ -63,6 +63,7 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
   report?: GameReport;
   review_count?: number;
   game?: {
+    header_image?: string;
     short_desc?: string;
     developer?: string;
     developer_slug?: string;

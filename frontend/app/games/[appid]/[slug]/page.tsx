@@ -11,11 +11,12 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { appid, slug } = await params;
   const numericAppid = Number(appid);
-  const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
+  const fallbackImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
   const canonicalUrl = `https://steampulse.io/games/${appid}/${slug}`;
 
   try {
     const reportData = await getGameReport(numericAppid);
+    const headerImage = reportData.game?.header_image ?? fallbackImage;
     if (reportData.status === "available" && reportData.report) {
       const report = reportData.report;
       return {
@@ -78,9 +79,10 @@ export default async function GameReportPage({ params }: Props) {
 
   if (!numericAppid || isNaN(numericAppid)) notFound();
 
-  const headerImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
+  const fallbackImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
 
   let report = null;
+  let headerImage = fallbackImage;
   let gameData: {
     gameName?: string;
     releaseDate?: string;
@@ -121,6 +123,7 @@ export default async function GameReportPage({ params }: Props) {
     }
     if (reportData.game) {
       const g = reportData.game;
+      if (g.header_image) headerImage = g.header_image;
       if (g.short_desc) gameData.shortDesc = g.short_desc;
       if (g.developer) gameData.developer = g.developer;
       if (g.developer_slug) gameData.developerSlug = g.developer_slug;

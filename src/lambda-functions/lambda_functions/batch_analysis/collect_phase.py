@@ -174,14 +174,14 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
                 },
             )
 
+        cost = estimate_batch_cost_usd(
+            model_id=_config.model_for("chunking"),
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
+        )
         try:
-            cost = estimate_batch_cost_usd(
-                model_id=_config.model_for("chunking"),
-                input_tokens=collect_result.input_tokens,
-                output_tokens=collect_result.output_tokens,
-                cache_read_tokens=collect_result.cache_read_tokens,
-                cache_write_tokens=collect_result.cache_write_tokens,
-            )
             _batch_exec_repo.mark_completed(
                 job_id,
                 succeeded_count=persisted,
@@ -290,14 +290,14 @@ def _collect_synthesis(
             )
         raise
 
+    cost = estimate_batch_cost_usd(
+        model_id=_config.model_for("summarizer"),
+        input_tokens=collect_result.input_tokens,
+        output_tokens=collect_result.output_tokens,
+        cache_read_tokens=collect_result.cache_read_tokens,
+        cache_write_tokens=collect_result.cache_write_tokens,
+    )
     try:
-        cost = estimate_batch_cost_usd(
-            model_id=_config.model_for("summarizer"),
-            input_tokens=collect_result.input_tokens,
-            output_tokens=collect_result.output_tokens,
-            cache_read_tokens=collect_result.cache_read_tokens,
-            cache_write_tokens=collect_result.cache_write_tokens,
-        )
         _batch_exec_repo.mark_completed(
             job_id,
             succeeded_count=1,

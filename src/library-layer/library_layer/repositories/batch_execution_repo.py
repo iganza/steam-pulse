@@ -8,8 +8,11 @@ how long it took, and what it cost.
 from decimal import Decimal
 
 import psycopg2.extras
+from aws_lambda_powertools import Logger
 from library_layer.models.batch_execution import BatchExecution
 from library_layer.repositories.base import BaseRepository
+
+logger = Logger()
 
 
 class BatchExecutionRepository(BaseRepository):
@@ -77,6 +80,11 @@ class BatchExecutionRepository(BaseRepository):
                 """,
                 (batch_id,),
             )
+            if cur.rowcount == 0:
+                logger.warning(
+                    "batch_execution_mark_running_noop",
+                    extra={"batch_id": batch_id},
+                )
         self.conn.commit()
 
     def mark_completed(
@@ -124,6 +132,11 @@ class BatchExecutionRepository(BaseRepository):
                     batch_id,
                 ),
             )
+            if cur.rowcount == 0:
+                logger.warning(
+                    "batch_execution_mark_completed_noop",
+                    extra={"batch_id": batch_id},
+                )
         self.conn.commit()
 
     def mark_failed(self, batch_id: str, *, failure_reason: str) -> None:
@@ -141,6 +154,11 @@ class BatchExecutionRepository(BaseRepository):
                 """,
                 (failure_reason, batch_id),
             )
+            if cur.rowcount == 0:
+                logger.warning(
+                    "batch_execution_mark_failed_noop",
+                    extra={"batch_id": batch_id, "failure_reason": failure_reason},
+                )
         self.conn.commit()
 
     def _rows_to_models(self, rows: list[dict]) -> list[BatchExecution]:

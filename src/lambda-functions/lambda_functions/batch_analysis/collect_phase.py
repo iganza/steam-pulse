@@ -301,7 +301,7 @@ def _collect_synthesis(
         _batch_exec_repo.mark_completed(
             job_id,
             succeeded_count=1,
-            failed_count=collect_result.skipped,
+            failed_count=len(collect_result.failed_ids),
             failed_record_ids=collect_result.failed_ids,
             input_tokens=collect_result.input_tokens,
             output_tokens=collect_result.output_tokens,

@@ -29,25 +29,21 @@ class BatchExecutionRepository(BaseRepository):
         """Record a new batch submission. Returns the row id.
 
         Idempotent on `batch_id` — Step Functions retries that re-submit the
-        same batch will return the existing row's id without creating a
-        duplicate or generating unnecessary write amplification.
+        same batch will return the existing row's id. Uses a no-op UPDATE
+        on conflict so RETURNING works in a single statement (DO NOTHING
+        + separate SELECT is not concurrency-safe).
         """
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                WITH ins AS (
-                    INSERT INTO batch_executions (
-                        execution_id, appid, phase, backend, batch_id, model_id,
-                        request_count, pipeline_version, prompt_version
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (batch_id) DO NOTHING
-                    RETURNING id
+                INSERT INTO batch_executions (
+                    execution_id, appid, phase, backend, batch_id, model_id,
+                    request_count, pipeline_version, prompt_version
                 )
-                SELECT id FROM ins
-                UNION ALL
-                SELECT id FROM batch_executions WHERE batch_id = %s
-                LIMIT 1
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (batch_id) DO UPDATE
+                SET batch_id = EXCLUDED.batch_id
+                RETURNING id
                 """,
                 (
                     execution_id,
@@ -59,7 +55,6 @@ class BatchExecutionRepository(BaseRepository):
                     request_count,
                     pipeline_version,
                     prompt_version,
-                    batch_id,
                 ),
             )
             row_id = int(cur.fetchone()["id"])

@@ -55,7 +55,8 @@ _ANTHROPIC_STATUS_MAP = {
 
 
 def _check_bedrock(job_id: str) -> dict:
-    assert _bedrock_client is not None
+    if _bedrock_client is None:
+        raise RuntimeError("Bedrock client not initialized — LLM_BACKEND is not 'bedrock'")
     resp = _bedrock_client.get_model_invocation_job(jobIdentifier=job_id)
     raw_status: str = resp.get("status", "Unknown")
     mapped_status = _BEDROCK_STATUS_MAP.get(raw_status, "Failed")
@@ -64,7 +65,8 @@ def _check_bedrock(job_id: str) -> dict:
 
 
 def _check_anthropic(job_id: str) -> dict:
-    assert _anthropic_client is not None
+    if _anthropic_client is None:
+        raise RuntimeError("Anthropic client not initialized — LLM_BACKEND is not 'anthropic'")
     batch = _anthropic_client.messages.batches.retrieve(job_id)
     raw_status = batch.processing_status
     mapped_status = _ANTHROPIC_STATUS_MAP.get(raw_status, "Failed")

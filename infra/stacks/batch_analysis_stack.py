@@ -69,20 +69,13 @@ class BatchAnalysisStack(cdk.Stack):
         )
 
         # ── IAM role assumed by Bedrock to read/write batch bucket ────────────
+        # Kept as an inert construct (Lambda env vars reference the ARN at
+        # module level). S3 policy removed — even if invoked, Bedrock cannot
+        # read or write the batch bucket.
         batch_role = iam.Role(
             self,
             "BedrockBatchRole",
             assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
-            inline_policies={
-                "BatchS3Access": iam.PolicyDocument(
-                    statements=[
-                        iam.PolicyStatement(
-                            actions=["s3:GetObject", "s3:PutObject"],
-                            resources=[f"{batch_bucket.bucket_arn}/*"],
-                        )
-                    ]
-                )
-            },
         )
 
         # ── Lambda execution role ─────────────────────────────────────────────
@@ -107,29 +100,12 @@ class BatchAnalysisStack(cdk.Stack):
                 resources=[db_secret.secret_arn, anthropic_secret.secret_arn],
             )
         )
-        batch_lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=[
-                    "bedrock:CreateModelInvocationJob",
-                    "bedrock:GetModelInvocationJob",
-                    "bedrock:ListModelInvocationJobs",
-                    "bedrock:StopModelInvocationJob",
-                ],
-                resources=["*"],
-            )
-        )
-        batch_lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
-                resources=[batch_bucket.bucket_arn, f"{batch_bucket.bucket_arn}/*"],
-            )
-        )
-        batch_lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["iam:PassRole"],
-                resources=[batch_role.role_arn],
-            )
-        )
+        # Bedrock batch permissions REMOVED — Anthropic direct API is the
+        # sole batch backend. The Bedrock service role + S3 bucket are kept
+        # as inert infrastructure (Lambda env vars still reference them at
+        # module level) but the Lambda cannot invoke Bedrock batch or pass
+        # the role. To re-enable, restore bedrock:*, s3:*, and iam:PassRole
+        # grants here.
         batch_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],

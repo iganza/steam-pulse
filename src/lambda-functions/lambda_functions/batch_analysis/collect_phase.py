@@ -154,9 +154,11 @@ def _collect_chunk(appid: int, backend: BatchBackend | AnthropicBatchBackend, jo
             persisted += 1
 
         all_failed_ids = collect_result.failed_ids + dropped_ids
-        # skipped includes records without a usable record_id (malformed JSON,
-        # missing recordId) that can't appear in failed_ids. Count them in
-        # failed_count so the tracking row reflects the true failure total.
+        # skipped counts every record the backend skipped during collection
+        # (malformed output, missing fields, parse failures), including
+        # records that also appear in failed_ids. dropped_ids are separate
+        # records rejected by this function after successful collection,
+        # so add only dropped_ids to reflect the full failure total.
         failed_count = collect_result.skipped + len(dropped_ids)
         if failed_count:
             _sample = 10

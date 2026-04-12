@@ -67,7 +67,12 @@ class BatchExecutionRepository(BaseRepository):
         return row_id
 
     def mark_running(self, batch_id: str) -> None:
-        """Transition from submitted → running on first poll that confirms processing."""
+        """Transition from submitted → running on the first non-terminal poll.
+
+        The caller maps provider-specific lifecycle states into the coarse
+        ``running`` state, which may include queued or pre-processing
+        statuses in addition to true in-progress execution.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """

@@ -30,6 +30,94 @@ No existing tool in the space provides this depth of LLM-extracted intelligence.
 stop at surface-level metrics like scores, player counts, and revenue estimates.
 
 
+** Monetization Strategy — Free vs Pro Feature Decisions
+
+The guiding principle: *show enough to be genuinely useful, gate what drives developer action*.
+
+*** Core Philosophy
+- Free tier serves *gamers and SEO* — discovery, browsing, sharing, cross-linking
+- Pro tier serves *developers doing competitive research* — the paying customer
+- Every free feature should organically surface the value of going Pro
+- Never gate something that hurts SEO or discourages organic traffic
+- Pro is controlled globally via =NEXT_PUBLIC_PRO_ENABLED= env var and the =usePro()= hook
+
+*** Report Sections — Game Page
+| Section              | Tier | Implemented | Reasoning                                                         |
+|----------------------+------+-------------+-------------------------------------------------------------------|
+| one_liner            | Free | ✓           | SEO-friendly summary; appears in search snippets                  |
+| overall_sentiment    | Free | ✓           | Hook for the rest of the report; drives traffic and sharing       |
+| sentiment_score      | Free | ✓           | Single number — teaser, not the full story                        |
+| sentiment_trend      | Free | ✓           | Single trend indicator                                            |
+| design_strengths     | Free | ✓           | Positive signals; safe to share; not actionable for devs alone    |
+| gameplay_friction    | Free | ✓           | Useful to gamers; devs need =dev_priorities= to act on it         |
+| audience_profile     | Free | ✓           | Broad brushstrokes — ideal for gamers browsing                    |
+| competitive_context  | Free | ✓           | Cross-links to other game pages — huge SEO value                  |
+| genre_context        | Free | ✓           | Cross-linking and discoverability                                  |
+| dev_priorities       | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
+| churn_triggers       | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
+| player_wishlist      | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
+
+*NOTE:* =dev_priorities=, =churn_triggers=, =player_wishlist= are intended to be Pro-gated.
+The =/api/validate-key= endpoint is currently stubbed (always grants access). When payment
+integration ships, these three sections should be blurred for free users.
+
+*** Analytics Components — Game Page
+| Feature                             | Free         | Pro          | Gating Method         |
+|-------------------------------------+--------------+--------------+-----------------------|
+| Review velocity chart               | ✓ full       | ✓ full       | No gating             |
+| Playtime distribution chart         | ✓ chart      | ✓ + insight  | Blur insight text     |
+| Market Reach (revenue estimates)    | ✗ blurred    | ✓ full       | Blur + CTA overlay    |
+| Competitive Benchmark (percentiles) | ✗ blurred    | ✓ full       | Blur + CTA overlay    |
+| Promise Gap (store alignment)       | ✓ 2 rows     | ✓ all rows   | Blur rows 3+ + CTA    |
+| Audience alignment note             | ✗ generic    | ✓ detailed   | Blur + CTA overlay    |
+| Audience overlap                    | ✓ 5 games    | ✓ 50 games   | API data limit (slice)|
+
+*Audience overlap detail:* API fetches 50 items for Pro, 5 for Free.
+Show-but-blur pattern planned for full launch: top 3 free (named + %), full 20 Pro.
+Matview not yet built — live query times out in prod. See =scripts/prompts/audience-overlap-matview.md=.
+
+*** Toolkit Lenses
+| Lens          | Free Access               | Pro Access                    | Lock Method            |
+|---------------+---------------------------+-------------------------------+------------------------|
+| Sentiment     | ✓ Full                    | ✓ Full                        | No gating              |
+| Compare       | ✓ 2 games, 5 metrics      | ✓ 4 games, 14 metrics         | Data cap + blur rows   |
+| Builder       | ✓ 1 metric                | ✓ 6 metrics                   | Cap limit              |
+| Trends        | ✗ Fully locked            | ✓ Full                        | Tab lock + modal       |
+
+*Compare Lens detail:*
+- Free metrics: Positive %, Total Reviews, Price, Released, Sentiment Trend
+- Pro-only metrics (blurred): Hidden Gem Score, Promises Delivered/Broken,
+  Hidden Strengths, Content Depth, Community Health, Refund Risk,
+  Churn Triggers, Technical Issues, Ideal Player, Casual Friendliness,
+  Genre Sentiment Percentile
+- Pro-only UI: CompareRadar chart, PromiseGapDiff, CSV export button
+
+*Trends Lens detail:*
+- Entire tab locked for Free — clicking shows ProLockOverlay modal
+- Free users cannot select granularity (locked to month), game type, or items shown
+- Pro gets week/month/quarter/year, all game types, up to 15 genre items
+
+*** Gating Patterns Used in Code
+1. *Blur + overlay CTA* — content rendered but CSS blurred, overlay with "Upgrade to Pro →"
+   Used by: MarketReach, PlaytimeChart insight, CompetitiveBenchmark, PromiseGap, MetricsGrid
+2. *Data cap* — API fetches different amounts, frontend slices by tier
+   Used by: Audience overlap (50 vs 5), Compare games (4 vs 2), Builder metrics (6 vs 1)
+3. *Full lock + modal* — tab/feature entirely disabled, ProLockOverlay shown on click
+   Used by: Trends lens tab
+4. *Conditional render* — component simply not rendered for free users
+   Used by: CompareRadar, PromiseGapDiff, CSV export
+5. *UI disable* — controls exist but are disabled (dropdowns, toggles)
+   Used by: Trends lens filter controls
+
+All CTAs use consistent design: teal colour, "Upgrade to Pro →" copy, link to =/pro= page.
+Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only= fallback).
+
+*** Deferred / Not Yet Implemented
+- Payment integration (Lemon Squeezy) — =/api/validate-key= always returns full access
+- =/pro= page — linked from all CTAs but content TBD
+- Audience overlap free/pro split (top 3 / full 20) — pending matview implementation
+- NL chat over catalog (V2, =PRO_ENABLED=true=)
+
 ** High Level Front-End (Website experience)
 - Nice front-page where one can browse and search *ALL* games in Catalog
 *** Free Users
@@ -45,7 +133,8 @@ stop at surface-level metrics like scores, player counts, and revenue estimates.
 - Full-text search via postgres feature
 - RAG search over review summaries and generated review analysis/insights
 - layer analysis:  per-game --> per-genre --> per-tag --> cross-genre --> etc/etc
-  
+
+
 ** 7-Day Launch Plan
    Goal: 50+ game reports live on steampulse.io, indexed by Google, waitlist
    capturing emails. Ship ugly, iterate in public.

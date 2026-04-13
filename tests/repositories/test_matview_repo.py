@@ -97,25 +97,30 @@ def test_audience_overlap_basic(
     review_repo: ReviewRepository,
     refresh_matviews: Any,
 ) -> None:
-    """Shared reviewers counted correctly with correct overlap_pct math."""
+    """Shared reviewers counted correctly with correct overlap_pct math.
+
+    Both games need >= 100 unique reviewers to pass the matview's
+    games_with_reviews threshold.
+    """
     _seed_game(game_repo, 440)
     _seed_game(game_repo, 570)
 
-    # 3 shared reviewers + 2 unique to game 440
-    shared_authors = ["user1", "user2", "user3"]
+    # 10 shared reviewers + 90 unique to each game = 100 per game
+    shared_authors = [f"shared_{i}" for i in range(10)]
     reviews = [_make_review(440, a) for a in shared_authors]
-    reviews += [_make_review(440, "unique1", idx=1), _make_review(440, "unique2", idx=2)]
+    reviews += [_make_review(440, f"only440_{i}", idx=i) for i in range(90)]
     reviews += [_make_review(570, a) for a in shared_authors]
+    reviews += [_make_review(570, f"only570_{i}", idx=i) for i in range(90)]
     review_repo.bulk_upsert(reviews)
     refresh_matviews()
 
     result = matview_repo.get_audience_overlap(440, limit=10)
-    assert result["total_reviewers"] == 5
+    assert result["total_reviewers"] == 100
     assert len(result["overlaps"]) == 1
     overlap = result["overlaps"][0]
     assert overlap["appid"] == 570
-    assert overlap["overlap_count"] == 3
-    assert overlap["overlap_pct"] == pytest.approx(60.0, abs=0.2)
+    assert overlap["overlap_count"] == 10
+    assert overlap["overlap_pct"] == pytest.approx(10.0, abs=0.2)
     assert isinstance(overlap["shared_sentiment_pct"], float)
 
 
@@ -154,13 +159,17 @@ def test_audience_overlap_limit(
     review_repo: ReviewRepository,
     refresh_matviews: Any,
 ) -> None:
-    """Result is capped at the requested limit."""
+    """Result is capped at the requested limit.
+
+    Each game needs >= 100 unique reviewers to pass the matview threshold.
+    """
     for i in range(5):
         _seed_game(game_repo, 440 + i)
-    # User "shared" plays game 440 and all four others
-    reviews = [_make_review(440, "shared")]
-    for i in range(1, 5):
+    # 1 shared reviewer across all 5 games + 99 unique per game = 100 each
+    reviews: list[dict] = []
+    for i in range(5):
         reviews.append(_make_review(440 + i, "shared"))
+        reviews += [_make_review(440 + i, f"uniq{440 + i}_{j}", idx=j) for j in range(99)]
     review_repo.bulk_upsert(reviews)
     refresh_matviews()
 

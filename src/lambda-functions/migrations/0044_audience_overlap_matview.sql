@@ -5,16 +5,27 @@
 -- live self-join in AnalyticsRepository.find_audience_overlap().
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
-WITH reviewer_sample AS (
+WITH games_with_reviews AS (
+    -- Only include games with >= 10 reviewers. Below that threshold
+    -- overlap percentages are noisy, and excluding them dramatically
+    -- shrinks the self-join (the costliest part of this matview).
+    SELECT appid
+    FROM reviews
+    WHERE author_steamid IS NOT NULL
+    GROUP BY appid
+    HAVING COUNT(DISTINCT author_steamid) >= 100
+),
+reviewer_sample AS (
     -- Cap at 10k reviewers per game. Carries voted_up so overlap_raw
     -- computes shared_sentiment_pct without re-joining raw reviews.
     -- steam_review_id is UNIQUE so (appid, author_steamid) is 1:1.
     SELECT appid, author_steamid, voted_up
     FROM (
-        SELECT appid, author_steamid, voted_up,
-               ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-        FROM reviews
-        WHERE author_steamid IS NOT NULL
+        SELECT r.appid, r.author_steamid, r.voted_up,
+               ROW_NUMBER() OVER (PARTITION BY r.appid ORDER BY r.author_steamid) AS rn
+        FROM reviews r
+        JOIN games_with_reviews g ON r.appid = g.appid
+        WHERE r.author_steamid IS NOT NULL
     ) ranked
     WHERE rn <= 10000
 ),

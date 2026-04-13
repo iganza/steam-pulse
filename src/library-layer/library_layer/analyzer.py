@@ -1056,18 +1056,27 @@ def run_merge_phase(
         next_inputs: list[RichChunkSummary] = []
         next_source_sets: list[list[int]] = []
 
-        # Process cached groups.
-        for cg in plan.cached:
-            logger.info(
-                "merge_phase_group_cache_hit",
-                extra={"appid": appid, "level": level, "merge_id": cg.merge_id},
-            )
-            next_inputs.append(merged_as_chunk_like(cg.summary))
-            next_source_sets.append(cg.source_chunk_ids)
-            last_row_id = cg.merge_id
+        # Build a combined view sorted by group_index so next-level
+        # inputs preserve the original group order. Mixing cached-first
+        # then pending would reorder groups and change LLM output +
+        # reduce cache determinism at subsequent levels.
+        cached_by_idx = {cg.group_index: cg for cg in plan.cached}
+        pending_by_idx = {mg.group_index: mg for mg in plan.pending}
+        all_indices = sorted({*cached_by_idx, *pending_by_idx})
 
-        # Process pending groups via LLM.
-        for mg in plan.pending:
+        for idx in all_indices:
+            if idx in cached_by_idx:
+                cg = cached_by_idx[idx]
+                logger.info(
+                    "merge_phase_group_cache_hit",
+                    extra={"appid": appid, "level": level, "merge_id": cg.merge_id},
+                )
+                next_inputs.append(merged_as_chunk_like(cg.summary))
+                next_source_sets.append(cg.source_chunk_ids)
+                last_row_id = cg.merge_id
+                continue
+
+            mg = pending_by_idx[idx]
             request = build_merge_request(
                 appid=appid,
                 game_name=game_name,

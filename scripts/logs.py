@@ -51,6 +51,7 @@ sys.path.insert(0, REPO_ROOT)
 try:
     from rich import box
     from rich.console import Console
+    from rich.live import Live
     from rich.table import Table
     from rich.text import Text
 except ImportError:
@@ -407,14 +408,15 @@ def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
     return rows
 
 
-def render_batches(rows: list[dict], *, show_all: bool) -> None:
+def render_batches(rows: list[dict], *, show_all: bool) -> Table:
     now = datetime.now(UTC)
     label = "All Batch Executions" if show_all else "Active Batches"
 
     if not rows:
         msg = "No active batches." if not show_all else "No batch executions found."
-        console.print(f"[yellow]{msg}[/yellow]")
-        return
+        t = Table(box=box.ROUNDED, border_style="bright_black", expand=True)
+        t.add_column(msg, style="yellow")
+        return t
 
     table = Table(
         title=label,
@@ -500,16 +502,15 @@ def render_batches(rows: list[dict], *, show_all: bool) -> None:
 
         table.add_row(*row_cells)
 
-    console.print()
-    console.print(table)
-
-    # Summary footer
+    # Summary footer as table caption
     parts = []
     for s, n in totals.items():
         if n:
             parts.append(f"[{_STATUS_STYLE[s]}]{n} {s}[/{_STATUS_STYLE[s]}]")
     ts = now.astimezone().strftime("%H:%M:%S")
-    console.print(f"  {' · '.join(parts)}  [bright_black]{ts}[/bright_black]")
+    table.caption = f"{' · '.join(parts)}  [bright_black]{ts}[/bright_black]"
+
+    return table
 
 
 # ── Query Execution ────────────────────────────────────────────────────────────
@@ -735,32 +736,30 @@ def main() -> None:
             "DATABASE_URL",
             "postgresql://steampulse:dev@127.0.0.1:5432/steampulse",
         )
-
-        def run_batches() -> None:
-            ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
-            scope = "all executions" if args.all else "active batches"
-            console.rule(
-                f"[cyan]batch_executions — {scope}[/cyan]  [bright_black]{ts}[/bright_black]"
-            )
-            rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
-            render_batches(rows, show_all=args.all)
+        scope = "all executions" if args.all else "active batches"
 
         if args.tail:
+            SPINNERS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
             try:
-                while True:
-                    console.clear()
-                    run_batches()
-                    console.print(
-                        f"\n[bright_black]Refreshing every {args.tail}s — Ctrl-C to stop[/bright_black]"
-                    )
-                    time.sleep(args.tail)
+                with Live(console=console, refresh_per_second=4, screen=False) as live:
+                    spin_i = 0
+                    while True:
+                        rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
+                        table = render_batches(rows, show_all=args.all)
+                        spin = SPINNERS[spin_i % len(SPINNERS)]
+                        spin_i += 1
+                        table.title = (
+                            f"[cyan]batch_executions — {scope}[/cyan]  "
+                            f"[bright_black]{spin} every {args.tail}s · Ctrl-C to stop[/bright_black]"
+                        )
+                        live.update(table)
+                        time.sleep(args.tail)
             except KeyboardInterrupt:
                 console.print("\n[yellow]Stopped.[/yellow]")
         else:
-            run_batches()
+            rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
+            console.print(render_batches(rows, show_all=args.all))
         return
-
-    # ── CloudWatch mode ────────────────────────────────────────────────────────
     if not args.query and not args.raw:
         parser.error("Provide --query NAME, --raw 'query string', or --batches")
 

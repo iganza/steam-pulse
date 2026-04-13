@@ -5,18 +5,28 @@
 -- live self-join in AnalyticsRepository.find_audience_overlap().
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
-WITH reviewer_sample AS (
-    -- Cap at 10k unique reviewers per game to keep the self-join bounded
-    SELECT appid, author_steamid
+WITH unique_reviewers AS (
+    -- Deduplicate (appid, author_steamid) and carry voted_up so
+    -- overlap_raw never re-joins the raw reviews table.
+    SELECT appid, author_steamid, voted_up
     FROM (
-        SELECT appid, author_steamid,
+        SELECT appid, author_steamid, voted_up,
+               ROW_NUMBER() OVER (
+                   PARTITION BY appid, author_steamid ORDER BY id DESC
+               ) AS dedup_rn
+        FROM reviews
+        WHERE author_steamid IS NOT NULL
+    ) deduped
+    WHERE dedup_rn = 1
+),
+reviewer_sample AS (
+    -- Cap at 10k unique reviewers per game to keep the self-join bounded
+    SELECT appid, author_steamid, voted_up
+    FROM (
+        SELECT appid, author_steamid, voted_up,
                ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-        FROM (
-            SELECT DISTINCT appid, author_steamid
-            FROM reviews
-            WHERE author_steamid IS NOT NULL
-        ) deduped
-    ) ranked
+        FROM unique_reviewers
+    ) capped
     WHERE rn <= 10000
 ),
 reviewer_counts AS (
@@ -28,11 +38,10 @@ overlap_raw AS (
     SELECT a.appid,
            b.appid AS overlap_appid,
            COUNT(*) AS overlap_count,
-           ROUND(COUNT(*) FILTER (WHERE r_b.voted_up)::numeric
+           ROUND(COUNT(*) FILTER (WHERE b.voted_up)::numeric
                  / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
     FROM reviewer_sample a
     JOIN reviewer_sample b ON a.author_steamid = b.author_steamid AND a.appid != b.appid
-    JOIN reviews r_b ON r_b.appid = b.appid AND r_b.author_steamid = a.author_steamid
     GROUP BY a.appid, b.appid
 ),
 ranked AS (

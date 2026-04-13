@@ -847,17 +847,25 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_catalog_reports_tag_slugs_gin ON mv_catalog_reports USING GIN(tag_slugs)",
     # 0044_audience_overlap_matview — precomputed top-50 audience overlap per game
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
-    WITH reviewer_sample AS (
-        SELECT appid, author_steamid
+    WITH unique_reviewers AS (
+        SELECT appid, author_steamid, voted_up
         FROM (
-            SELECT appid, author_steamid,
+            SELECT appid, author_steamid, voted_up,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY appid, author_steamid ORDER BY id DESC
+                   ) AS dedup_rn
+            FROM reviews
+            WHERE author_steamid IS NOT NULL
+        ) deduped
+        WHERE dedup_rn = 1
+    ),
+    reviewer_sample AS (
+        SELECT appid, author_steamid, voted_up
+        FROM (
+            SELECT appid, author_steamid, voted_up,
                    ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-            FROM (
-                SELECT DISTINCT appid, author_steamid
-                FROM reviews
-                WHERE author_steamid IS NOT NULL
-            ) deduped
-        ) ranked
+            FROM unique_reviewers
+        ) capped
         WHERE rn <= 10000
     ),
     reviewer_counts AS (
@@ -869,11 +877,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         SELECT a.appid,
                b.appid AS overlap_appid,
                COUNT(*) AS overlap_count,
-               ROUND(COUNT(*) FILTER (WHERE r_b.voted_up)::numeric
+               ROUND(COUNT(*) FILTER (WHERE b.voted_up)::numeric
                      / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
         FROM reviewer_sample a
         JOIN reviewer_sample b ON a.author_steamid = b.author_steamid AND a.appid != b.appid
-        JOIN reviews r_b ON r_b.appid = b.appid AND r_b.author_steamid = a.author_steamid
         GROUP BY a.appid, b.appid
     ),
     ranked AS (

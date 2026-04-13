@@ -55,8 +55,9 @@ export function QuickStats({
   reviewsCompletedAt,
   metaCrawledAt,
 }: QuickStatsProps) {
-  const reviewsValue = totalReviewsAnalyzed ?? reviewCount;
-  const showEnSuffix = totalReviewsAnalyzed != null;
+  const reviewsValue = reviewCount ?? totalReviewsAnalyzed;
+  const showEnSuffix = reviewCount == null && totalReviewsAnalyzed != null;
+  const showAnalyzedSuffix = reviewCount != null && totalReviewsAnalyzed != null;
   const reviewsTs = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
   const metaTs = relativeTime(metaCrawledAt);
   // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.
@@ -87,6 +88,11 @@ export function QuickStats({
               </span>
             )}
           </p>
+          {showAnalyzedSuffix && (
+            <p className="text-xs font-mono text-muted-foreground mt-1">
+              {totalReviewsAnalyzed!.toLocaleString()} analyzed
+            </p>
+          )}
           {reviewsTs && (
             <p
               data-testid="reviews-tile-crawled"

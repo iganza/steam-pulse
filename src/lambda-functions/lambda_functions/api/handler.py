@@ -327,7 +327,7 @@ async def get_audience_overlap(appid: int, limit: int = 20) -> dict:
         raise HTTPException(
             status_code=404, detail={"error": "game_not_found", "code": "not_found"}
         )
-    return _analytics_repo.find_audience_overlap(appid, max(1, min(limit, 50)))
+    return _matview_repo.get_audience_overlap(appid, limit=max(1, min(limit, 50)))
 
 
 @app.get("/api/games/{appid}/playtime-sentiment")

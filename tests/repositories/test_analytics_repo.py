@@ -1,13 +1,11 @@
 """Tests for AnalyticsRepository."""
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.review_repo import ReviewRepository
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -115,97 +113,6 @@ def _link_tag(db_conn: Any, appid: int, tag_id: int) -> None:
             (appid, tag_id),
         )
     db_conn.commit()
-
-
-def _make_review(appid: int, author: str, voted_up: bool = True, idx: int = 0) -> dict:
-    return {
-        "appid": appid,
-        "steam_review_id": f"rev-{appid}-{author}-{idx}",
-        "author_steamid": author,
-        "voted_up": voted_up,
-        "playtime_hours": 10,
-        "body": "review",
-        "posted_at": datetime(2024, 1, 1, tzinfo=UTC),
-        "language": "english",
-        "votes_helpful": 0,
-        "votes_funny": 0,
-        "written_during_early_access": False,
-        "received_for_free": False,
-    }
-
-
-# ---------------------------------------------------------------------------
-# find_audience_overlap
-# ---------------------------------------------------------------------------
-
-
-def test_audience_overlap_basic(
-    db_conn: Any,
-    analytics_repo: AnalyticsRepository,
-    game_repo: GameRepository,
-    review_repo: ReviewRepository,
-) -> None:
-    """Shared reviewers counted correctly with correct overlap_pct math."""
-    _seed_game(game_repo, 440)
-    _seed_game(game_repo, 570)
-
-    # 3 shared reviewers + 2 unique to game 440
-    shared_authors = ["user1", "user2", "user3"]
-    reviews = [_make_review(440, a) for a in shared_authors]
-    reviews += [_make_review(440, "unique1", idx=1), _make_review(440, "unique2", idx=2)]
-    reviews += [_make_review(570, a) for a in shared_authors]
-    review_repo.bulk_upsert(reviews)
-
-    result = analytics_repo.find_audience_overlap(440, limit=10)
-    assert result["total_reviewers"] == 5
-    assert len(result["overlaps"]) == 1
-    overlap = result["overlaps"][0]
-    assert overlap["appid"] == 570
-    assert overlap["overlap_count"] == 3
-    assert overlap["overlap_pct"] == pytest.approx(60.0, abs=0.2)
-
-
-def test_audience_overlap_no_reviews(
-    analytics_repo: AnalyticsRepository,
-    game_repo: GameRepository,
-) -> None:
-    """Returns empty structure when appid has no reviews."""
-    _seed_game(game_repo, 440)
-    result = analytics_repo.find_audience_overlap(440)
-    assert result == {"total_reviewers": 0, "overlaps": []}
-
-
-def test_audience_overlap_excludes_self(
-    db_conn: Any,
-    analytics_repo: AnalyticsRepository,
-    game_repo: GameRepository,
-    review_repo: ReviewRepository,
-) -> None:
-    """Source game (appid=440) never appears in its own overlaps list."""
-    _seed_game(game_repo, 440)
-    review_repo.bulk_upsert([_make_review(440, "user1")])
-    result = analytics_repo.find_audience_overlap(440)
-    appids = [o["appid"] for o in result["overlaps"]]
-    assert 440 not in appids
-
-
-def test_audience_overlap_limit(
-    db_conn: Any,
-    analytics_repo: AnalyticsRepository,
-    game_repo: GameRepository,
-    review_repo: ReviewRepository,
-) -> None:
-    """Result is capped at the requested limit."""
-    for i in range(5):
-        _seed_game(game_repo, 440 + i)
-    # User "shared" plays game 440 and all four others
-    reviews = [_make_review(440, "shared")]
-    for i in range(1, 5):
-        reviews.append(_make_review(440 + i, "shared"))
-    review_repo.bulk_upsert(reviews)
-
-    result = analytics_repo.find_audience_overlap(440, limit=2)
-    assert len(result["overlaps"]) <= 2
 
 
 # ---------------------------------------------------------------------------

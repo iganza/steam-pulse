@@ -329,10 +329,12 @@ def _collect_merge(
             persisted_by_index[group_index] = row_id
 
         all_failed_ids = collect_result.failed_ids + dropped_ids
-        # Include skipped records (JSON decode errors, missing recordId)
-        # in the failure count — unlike chunks where partial progress is
-        # useful, a merge with missing groups produces an incorrect result.
-        failed_count = len(all_failed_ids) + collect_result.skipped
+        # skipped includes records already in failed_ids (both backends
+        # increment skipped when adding to failed_ids). Compute the count
+        # of unkeyed skipped records (malformed JSON, missing recordId)
+        # that aren't already in failed_ids to avoid double-counting.
+        unkeyed_skipped = max(0, collect_result.skipped - len(collect_result.failed_ids))
+        failed_count = len(all_failed_ids) + unkeyed_skipped
         if failed_count:
             _sample = 10
             logger.error(
@@ -347,6 +349,26 @@ def _collect_merge(
                     "skipped": collect_result.skipped,
                 },
             )
+
+        # Validate that every expected group from prepare produced a row
+        # BEFORE recording counts — so mark_completed reflects the true
+        # failed_count including silently dropped records.
+        expected_indices = set(meta_by_index.keys())
+        missing_indices = expected_indices - set(persisted_by_index.keys())
+        if missing_indices:
+            logger.error(
+                "merge_groups_missing_after_collect",
+                extra={
+                    "appid": appid,
+                    "missing_indices": sorted(missing_indices),
+                    "expected": sorted(expected_indices),
+                    "persisted": sorted(persisted_by_index.keys()),
+                },
+            )
+            # Add synthetic IDs so the tracking row records them.
+            for idx in sorted(missing_indices):
+                all_failed_ids.append(f"missing-group-{idx}")
+            failed_count += len(missing_indices)
 
         cost = estimate_batch_cost_usd(
             model_id=_config.model_for("merging"),

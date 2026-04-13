@@ -21,10 +21,12 @@ Schema:
 ```sql
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
 WITH reviewer_sample AS (
-    -- Cap at 10k reviewers per game to keep the self-join bounded
-    SELECT appid, author_steamid
+    -- Cap at 10k reviewers per game. Carries voted_up so overlap_raw
+    -- computes shared_sentiment_pct without re-joining raw reviews.
+    -- steam_review_id is UNIQUE so (appid, author_steamid) is 1:1.
+    SELECT appid, author_steamid, voted_up
     FROM (
-        SELECT appid, author_steamid,
+        SELECT appid, author_steamid, voted_up,
                ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
         FROM reviews
         WHERE author_steamid IS NOT NULL
@@ -39,20 +41,22 @@ reviewer_counts AS (
 overlap_raw AS (
     SELECT a.appid,
            b.appid AS overlap_appid,
-           COUNT(*) AS overlap_count
+           COUNT(*) AS overlap_count,
+           ROUND(COUNT(*) FILTER (WHERE b.voted_up)::numeric
+                 / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
     FROM reviewer_sample a
     JOIN reviewer_sample b ON a.author_steamid = b.author_steamid AND a.appid != b.appid
     GROUP BY a.appid, b.appid
 ),
 ranked AS (
-    SELECT o.appid, o.overlap_appid, o.overlap_count,
+    SELECT o.appid, o.overlap_appid, o.overlap_count, o.shared_sentiment_pct,
            rc.total_reviewers,
            ROUND(o.overlap_count::numeric / NULLIF(rc.total_reviewers, 0) * 100, 1) AS overlap_pct,
            ROW_NUMBER() OVER (PARTITION BY o.appid ORDER BY o.overlap_count DESC) AS rank
     FROM overlap_raw o
     JOIN reviewer_counts rc ON o.appid = rc.appid
 )
-SELECT appid, overlap_appid, overlap_count, total_reviewers, overlap_pct
+SELECT appid, overlap_appid, overlap_count, total_reviewers, overlap_pct, shared_sentiment_pct
 FROM ranked
 WHERE rank <= 50;
 ```
@@ -97,7 +101,7 @@ def get_audience_overlap(self, appid: int, limit: int = 20) -> dict:
         """
         SELECT o.overlap_appid AS appid, g.name, g.slug, g.header_image,
                g.positive_pct, g.review_count,
-               o.overlap_count, o.overlap_pct
+               o.overlap_count, o.overlap_pct, o.shared_sentiment_pct
         FROM mv_audience_overlap o
         JOIN games g ON o.overlap_appid = g.appid
         WHERE o.appid = %s
@@ -118,6 +122,7 @@ def get_audience_overlap(self, appid: int, limit: int = 20) -> dict:
                 "review_count": r["review_count"],
                 "overlap_count": int(r["overlap_count"]),
                 "overlap_pct": float(r["overlap_pct"]),
+                "shared_sentiment_pct": float(r["shared_sentiment_pct"]),
             }
             for r in rows
         ],

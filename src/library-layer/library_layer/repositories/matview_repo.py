@@ -24,6 +24,7 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_new_releases",
     "mv_analysis_candidates",
     "mv_catalog_reports",
+    "mv_audience_overlap",
 )
 
 
@@ -187,6 +188,63 @@ class MatviewRepository(BaseRepository):
             (tag_slug,),
         )
         return [dict(r) for r in rows]
+
+    def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
+        """Serve precomputed audience overlap from mv_audience_overlap.
+
+        total_reviewers is derived from reviews directly (with 10k cap) rather
+        than from the matview, so games with reviewers but no overlaps still
+        report the correct count.
+        """
+        total_row = self._fetchone(
+            """
+            SELECT COUNT(*) AS total_reviewers
+            FROM (
+                SELECT 1
+                FROM (
+                    SELECT DISTINCT author_steamid
+                    FROM reviews
+                    WHERE appid = %s AND author_steamid IS NOT NULL
+                ) deduped
+                LIMIT 10000
+            ) capped
+            """,
+            (appid,),
+        )
+        total = int(total_row["total_reviewers"]) if total_row else 0
+        if total == 0:
+            return {"total_reviewers": 0, "overlaps": []}
+
+        rows = self._fetchall(
+            """
+            SELECT o.overlap_appid AS appid, g.name, g.slug, g.header_image,
+                   g.positive_pct, g.review_count,
+                   o.overlap_count, o.overlap_pct, o.shared_sentiment_pct
+            FROM mv_audience_overlap o
+            JOIN games g ON o.overlap_appid = g.appid
+            WHERE o.appid = %s
+            ORDER BY o.overlap_count DESC
+            LIMIT %s
+            """,
+            (appid, limit),
+        )
+        return {
+            "total_reviewers": total,
+            "overlaps": [
+                {
+                    "appid": int(r["appid"]),
+                    "name": r["name"],
+                    "slug": r["slug"],
+                    "header_image": r["header_image"],
+                    "positive_pct": r["positive_pct"],
+                    "review_count": r["review_count"],
+                    "overlap_count": int(r["overlap_count"]),
+                    "overlap_pct": float(r["overlap_pct"]),
+                    "shared_sentiment_pct": float(r["shared_sentiment_pct"]),
+                }
+                for r in rows
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Refresh management

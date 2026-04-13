@@ -21,7 +21,7 @@ from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.chunk_summary_repo import ChunkSummaryRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.job_repo import JobRepository
-from library_layer.repositories.matview_repo import MATVIEW_NAMES
+from library_layer.repositories.matview_repo import MATVIEW_NAMES, MatviewRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
@@ -143,6 +143,11 @@ def refresh_matviews(db_conn: Any) -> Any:
             db_conn.autocommit = prev
 
     return _refresh
+
+
+@pytest.fixture
+def matview_repo(db_conn: Any) -> MatviewRepository:
+    return MatviewRepository(lambda: db_conn)
 
 
 @pytest.fixture

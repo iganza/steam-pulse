@@ -3,7 +3,7 @@
 Covers the contracts:
   1. chunk phase returns skip=true when all chunks are cache-hits
   2. chunk phase submits a batch job when pending chunks exist
-  3. merge phase single-chunk promotion returns skip=true
+  3. merge phase single-chunk promotion skips (no LLM call)
   4. merge phase multi-chunk submits a batch job with group_meta
   5. merge phase excludes cached groups from the batch
   6. merge phase rejects invalid merge_level
@@ -193,11 +193,11 @@ def test_prepare_chunk_submits_when_pending_exist() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Merge phase (inline via ConverseBackend)
+# Merge phase
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_merge_always_returns_skip_and_persists() -> None:
+def test_prepare_merge_single_chunk_promotion_skips() -> None:
     pp = _get_module()
     _install_fake_game(pp)
 

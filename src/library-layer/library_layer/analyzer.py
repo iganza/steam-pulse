@@ -709,6 +709,10 @@ def compute_merge_groups(
             f"chunk_summaries ({len(chunk_summaries)}) and source_id_sets "
             f"({len(source_id_sets)}) must have the same length"
         )
+    if max_chunks_per_merge_call <= 0:
+        raise ValueError(
+            f"max_chunks_per_merge_call must be positive, got {max_chunks_per_merge_call}"
+        )
 
     pending: list[MergeGroup] = []
     cached: list[CachedMergeGroup] = []
@@ -951,7 +955,7 @@ def run_merge_phase(
     max_chunks_per_merge_call: int,
     merge_max_tokens: int,
     merge_temperature: float | None,
-) -> tuple[MergedSummary, int | None]:
+) -> tuple[MergedSummary, int]:
     """Phase 2: hierarchical merge with correct source_chunk_ids tracking.
 
     Makes ZERO assumptions about the total review count. Any number of
@@ -1042,7 +1046,9 @@ def run_merge_phase(
     current_source_sets: list[list[int]] = [[cid] for cid in chunk_ids]
 
     level = 0
-    last_row_id: int | None = None
+    # last_row_id is always assigned by the loop below — the single-chunk
+    # and whole-set-cache guards above return early when len < 2.
+    last_row_id: int = 0
     while len(current_inputs) > 1:
         level += 1
         plan = compute_merge_groups(
@@ -1132,7 +1138,6 @@ def run_merge_phase(
     # them) and concurrent re-analysis for this appid cannot race the
     # lookup — find_latest_by_appid would return "the newest row" which
     # is not necessarily the one we just inserted.
-    assert last_row_id is not None  # at least one level must have run
     root_row = merge_repo.find_by_id(last_row_id)
     if root_row is None:
         raise RuntimeError(

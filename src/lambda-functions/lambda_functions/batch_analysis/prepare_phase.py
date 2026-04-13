@@ -14,27 +14,50 @@ Input:
         "merged_ids": [10, 20]    # merge L2 only, from L1 collect/skip
     }
 
-Output (phase == "chunk" | "synthesis"):
+Output (phase == "chunk" | "synthesis", skip=false):
     {
         "appid": 440,
         "phase": "<phase>",
         "execution_id": "...",
-        "job_id": "msgbatch_01abc...",  # Anthropic batch ID
+        "job_id": "msgbatch_01abc...",
         "skip": false
     }
 
-Output (phase == "merge"):
+Output (phase == "chunk" | "synthesis", skip=true — cache hit):
+    {
+        "appid": 440,
+        "phase": "<phase>",
+        "execution_id": "...",
+        "job_id": null,
+        "skip": true
+    }
+
+Output (phase == "merge", skip=true — single-chunk/cache/L2 single input):
     {
         "appid": 440,
         "phase": "merge",
         "execution_id": "...",
-        "job_id": "msgbatch_01abc...",  # null when skip=true
+        "job_id": null,
+        "skip": true,
+        "merge_level": 1,
+        "merged_summary_id": 42,        # set when single result
+        "merged_ids": [42]              # always present on skip
+    }
+
+Output (phase == "merge", skip=false — batch submitted):
+    {
+        "appid": 440,
+        "phase": "merge",
+        "execution_id": "...",
+        "job_id": "msgbatch_01abc...",
         "skip": false,
         "merge_level": 1,
-        "merged_ids": [42],             # final ID(s) for next level
         "group_meta": [...],            # threaded to collect
         "cached_group_meta": [...]      # groups already persisted
     }
+
+    Note: merged_ids and merged_summary_id are produced by collect on
+    the skip=false path, not by prepare.
 
 When `skip=true`, Step Functions should short-circuit the Wait/Check loop for
 this phase and proceed directly to the next phase.
@@ -120,9 +143,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if phase == "chunk":
         return _prepare_chunk(appid, backend, execution_id)
     if phase == "merge":
-        merge_level = int(event.get("merge_level", 1))
+        raw_level = event.get("merge_level")
+        if raw_level is None:
+            raise ValueError("Missing required merge event field: merge_level")
+        merge_level = int(raw_level)
         if merge_level not in (1, 2):
             raise ValueError(f"Unsupported merge_level={merge_level}, expected 1 or 2")
+        # merged_ids is only present for L2 (threaded from L1 output).
         merged_ids = [int(mid) for mid in event.get("merged_ids", [])]
         return _prepare_merge(appid, backend, execution_id, merge_level, merged_ids)
     if phase == "synthesis":
@@ -339,16 +366,16 @@ def _prepare_merge_l2(
             "merged_ids": [merged_summary_id],
         }
 
+    if not merged_ids:
+        raise ValueError("merge L2: no merged_ids from level 1")
+
     # If level 1 already converged to a single result, skip.
-    if len(merged_ids) <= 1:
-        mid = merged_ids[0] if merged_ids else None
-        if mid is None:
-            raise ValueError("merge L2: no merged_ids from level 1")
+    if len(merged_ids) == 1:
         logger.info(
             "merge_l2_prepare_single_input_skip",
-            extra={"appid": appid, "merged_summary_id": mid},
+            extra={"appid": appid, "merged_summary_id": merged_ids[0]},
         )
-        return _skip_result(mid)
+        return _skip_result(merged_ids[0])
 
     game = _game_repo.find_by_appid(appid)
     if game is None:

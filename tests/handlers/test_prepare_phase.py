@@ -214,7 +214,7 @@ def test_prepare_merge_always_returns_skip_and_persists() -> None:
     batch_backend = _install_fake_backend(pp)
 
     result = pp.handler(
-        {"appid": 440, "phase": "merge", "execution_id": "exec-3"},
+        {"appid": 440, "phase": "merge", "execution_id": "exec-3", "merge_level": 1},
         context=None,
     )
     assert result["skip"] is True
@@ -240,7 +240,7 @@ def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
 
     with pytest.raises(ValueError, match="no chunk_summaries"):
         pp.handler(
-            {"appid": 440, "phase": "merge", "execution_id": "exec-4"},
+            {"appid": 440, "phase": "merge", "execution_id": "exec-4", "merge_level": 1},
             context=None,
         )
 
@@ -262,7 +262,7 @@ def test_prepare_merge_submits_batch_for_multi_chunk_game() -> None:
     backend = _install_fake_backend(pp)
 
     result = pp.handler(
-        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-batch"},
+        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-batch", "merge_level": 1},
         context=None,
     )
     assert result["skip"] is False
@@ -327,7 +327,7 @@ def test_prepare_merge_excludes_cached_groups_from_batch() -> None:
     backend = _install_fake_backend(pp)
 
     result = pp.handler(
-        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-partial"},
+        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-partial", "merge_level": 1},
         context=None,
     )
     assert result["skip"] is False
@@ -351,6 +351,105 @@ def test_prepare_merge_rejects_invalid_merge_level() -> None:
             {"appid": 440, "phase": "merge", "execution_id": "exec-bad", "merge_level": 3},
             context=None,
         )
+
+
+def test_prepare_merge_rejects_missing_merge_level() -> None:
+    pp = _get_module()
+    _install_fake_backend(pp)
+
+    with pytest.raises(ValueError, match="Missing required merge event field: merge_level"):
+        pp.handler(
+            {"appid": 440, "phase": "merge", "execution_id": "exec-no-level"},
+            context=None,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Merge phase — level 2
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_merge_l2_skips_when_single_merged_id() -> None:
+    """L2 with a single merged_id means L1 already converged — skip."""
+    pp = _get_module()
+    _install_fake_game(pp)
+    pp._merge_repo = MagicMock()
+    backend = _install_fake_backend(pp)
+
+    result = pp.handler(
+        {
+            "appid": 440,
+            "phase": "merge",
+            "execution_id": "exec-l2-skip",
+            "merge_level": 2,
+            "merged_ids": [99],
+        },
+        context=None,
+    )
+    assert result["skip"] is True
+    assert result["merged_summary_id"] == 99
+    assert result["merged_ids"] == [99]
+    assert result["merge_level"] == 2
+    backend.prepare.assert_not_called()
+    backend.submit.assert_not_called()
+
+
+def test_prepare_merge_l2_raises_on_empty_merged_ids() -> None:
+    pp = _get_module()
+    _install_fake_backend(pp)
+
+    with pytest.raises(ValueError, match="merge L2: no merged_ids from level 1"):
+        pp.handler(
+            {
+                "appid": 440,
+                "phase": "merge",
+                "execution_id": "exec-l2-empty",
+                "merge_level": 2,
+                "merged_ids": [],
+            },
+            context=None,
+        )
+
+
+def test_prepare_merge_l2_whole_set_cache_hit_skips() -> None:
+    """L2 with a whole-set cache hit returns skip=true."""
+    pp = _get_module()
+    _install_fake_game(pp)
+
+    merged_a = MergedSummary(
+        topics=[], competitor_refs=[], notable_quotes=[],
+        total_stats=RichBatchStats(), merge_level=1,
+        chunks_merged=3, source_chunk_ids=[1, 2, 3],
+    )
+    merged_b = MergedSummary(
+        topics=[], competitor_refs=[], notable_quotes=[],
+        total_stats=RichBatchStats(), merge_level=1,
+        chunks_merged=3, source_chunk_ids=[4, 5, 6],
+    )
+
+    pp._merge_repo = MagicMock()
+    pp._merge_repo.find_by_id.side_effect = lambda mid: {
+        10: {"id": 10, "summary_json": merged_a.model_dump(mode="json"), "source_chunk_ids": [1, 2, 3]},
+        20: {"id": 20, "summary_json": merged_b.model_dump(mode="json"), "source_chunk_ids": [4, 5, 6]},
+    }[mid]
+    # Whole-set cache hit for all 6 leaf IDs.
+    pp._merge_repo.find_latest_by_source_ids.return_value = {"id": 777}
+
+    backend = _install_fake_backend(pp)
+
+    result = pp.handler(
+        {
+            "appid": 440,
+            "phase": "merge",
+            "execution_id": "exec-l2-cache",
+            "merge_level": 2,
+            "merged_ids": [10, 20],
+        },
+        context=None,
+    )
+    assert result["skip"] is True
+    assert result["merged_summary_id"] == 777
+    backend.prepare.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -389,6 +389,9 @@ class BatchAnalysisStack(cdk.Stack):
 
         # After all games complete, publish batch-analysis-complete event
         # so matview refresh fires immediately (bypassing debounce).
+        # Retry on transient failures; catch and continue to Succeed so a
+        # notification failure doesn't fail the orchestrator after all games
+        # completed. The 6h EventBridge fallback covers missed refreshes.
         publish_batch_complete = tasks.LambdaInvoke(
             self,
             "PublishBatchAnalysisComplete",
@@ -399,8 +402,16 @@ class BatchAnalysisStack(cdk.Stack):
                 "appids_count": sfn.JsonPath.number_at("$.appids_count"),
             }),
             payload_response_only=True,
+            retry_on_service_exceptions=True,
+        )
+        publish_batch_complete.add_retry(
+            errors=["States.ALL"],
+            interval=cdk.Duration.seconds(5),
+            max_attempts=2,
+            backoff_rate=2,
         )
         batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
+        publish_batch_complete.add_catch(batch_complete, result_path="$.publish_error")
         count_appids.next(fan_out).next(publish_batch_complete).next(batch_complete)
 
         orchestrator = sfn.StateMachine(

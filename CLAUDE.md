@@ -573,6 +573,7 @@ CDK rules (mandatory):
 - **Staging environment: CloudFront URL only — no custom domain, no ACM cert, no Route53 records. `steampulse.io` is production only.**
 - **Production environment: ACM cert (us-east-1) + CloudFront alias + Route53 A record for `steampulse.io`.**
 - **Monitoring: use `cdk-monitoring-constructs` (npm: `cdk-monitoring-constructs`) — never write raw CloudWatch alarms or dashboards by hand**
+- **Secrets Manager grants:** use `secret.grant_read(role)` — never manual `add_to_policy` with raw secret ARNs. CDK's `grant_read` handles the 6-char random suffix that Secrets Manager appends to ARNs; raw ARN references miss it and cause `AccessDeniedException` at runtime.
 
 ---
 

@@ -205,7 +205,14 @@ class AnthropicBatchBackend:
                     parsed_obj = response_cls.model_validate(block.input)
                 else:
                     # Fallback for text blocks — parse the JSON string.
-                    parsed_obj = response_cls.model_validate_json(block.text)
+                    # Strip markdown code fences if the model wrapped the
+                    # JSON in ```json ... ``` instead of returning raw JSON.
+                    text = block.text.strip()
+                    if text.startswith("```"):
+                        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                        if text.endswith("```"):
+                            text = text[:-3].strip()
+                    parsed_obj = response_cls.model_validate_json(text)
             except (ValidationError, AttributeError) as exc:
                 logger.warning(
                     "batch_record_validation_error",

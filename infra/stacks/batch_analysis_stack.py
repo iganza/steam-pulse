@@ -94,12 +94,8 @@ class BatchAnalysisStack(cdk.Stack):
             "BatchAnthropicApiKey",
             f"/steampulse/{env}/anthropic-api-key",
         )
-        batch_lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-                resources=[db_secret.secret_arn, anthropic_secret.secret_arn],
-            )
-        )
+        db_secret.grant_read(batch_lambda_role)
+        anthropic_secret.grant_read(batch_lambda_role)
         # Bedrock batch permissions REMOVED — Anthropic direct API is the
         # sole batch backend. The Bedrock service role + S3 bucket are kept
         # as inert infrastructure (Lambda env vars still reference them at

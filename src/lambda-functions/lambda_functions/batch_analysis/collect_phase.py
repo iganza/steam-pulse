@@ -181,6 +181,23 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
             cache_read_tokens=collect_result.cache_read_tokens,
             cache_write_tokens=collect_result.cache_write_tokens,
         )
+
+        # Total validation failure: nothing persisted, pipeline can't proceed.
+        # Mark as failed so operators see a clear signal + reason.
+        if persisted == 0 and failed_count > 0:
+            reason = (
+                f"All {failed_count} chunk records failed validation "
+                f"(0 persisted) for appid={appid}"
+            )
+            try:
+                _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
+            except Exception:
+                logger.exception(
+                    "batch_execution_mark_failed_failed",
+                    extra={"appid": appid, "job_id": job_id},
+                )
+            raise RuntimeError(reason)
+
         try:
             _batch_exec_repo.mark_completed(
                 job_id,

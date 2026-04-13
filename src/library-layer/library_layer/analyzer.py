@@ -623,17 +623,144 @@ def parse_chunk_record_id(record_id: str) -> tuple[int, int, int, str] | None:
         return None
 
 
+def build_merge_record_id(appid: int, level: int, group_index: int) -> str:
+    """Build a stable record_id for a merge batch request.
+
+    Format: ``"<appid>-merge-L<level>-G<group_index>"``
+
+    Parsed by `parse_merge_record_id` in the batch collect phase.
+    """
+    return f"{appid}-merge-L{level}-G{group_index}"
+
+
+def parse_merge_record_id(record_id: str) -> tuple[int, int, int] | None:
+    """Recover (appid, level, group_index) from a merge record_id.
+
+    Inverse of `build_merge_record_id`. Returns None on parse failure.
+    """
+    try:
+        parts = record_id.split("-")
+        # "<appid>-merge-L<level>-G<group_index>"
+        if len(parts) != 4 or parts[1] != "merge":
+            raise ValueError(f"unexpected format: {record_id}")
+        if not parts[2].startswith("L") or not parts[3].startswith("G"):
+            raise ValueError(f"missing L/G prefixes: {record_id}")
+        appid = int(parts[0])
+        level = int(parts[2][1:])
+        group_index = int(parts[3][1:])
+        return appid, level, group_index
+    except (AttributeError, ValueError):
+        logger.warning(
+            "bad_merge_record_id",
+            extra={
+                "record_id": record_id,
+                "expected_format": "<appid>-merge-L<level>-G<group_index>",
+            },
+        )
+        return None
+
+
+class MergeGroup(BaseModel):
+    """A group of chunk summaries to merge in one LLM call."""
+
+    group_index: int
+    summaries: list[RichChunkSummary]
+    source_chunk_ids: list[int]  # sorted leaf IDs
+
+
+class CachedMergeGroup(BaseModel):
+    """A merge group whose result is already persisted in the DB."""
+
+    group_index: int
+    source_chunk_ids: list[int]
+    merge_id: int  # row ID in merged_summaries
+    summary: MergedSummary
+
+
+class MergeGroupPlan(BaseModel):
+    """Result of compute_merge_groups: separates cached from pending."""
+
+    pending: list[MergeGroup]
+    cached: list[CachedMergeGroup]
+
+
+def compute_merge_groups(
+    *,
+    appid: int,
+    chunk_summaries: list[RichChunkSummary],
+    source_id_sets: list[list[int]],
+    merge_repo: MergedSummaryRepository,
+    max_chunks_per_merge_call: int,
+) -> MergeGroupPlan:
+    """Split chunk summaries into merge groups and check per-group cache.
+
+    ``source_id_sets`` is a parallel list to ``chunk_summaries``: each
+    entry is the set of **leaf** chunk row IDs that the corresponding
+    input transitively derives from. At level 1, each entry is a single
+    ID ``[chunk_id]``. At level 2+, each entry is the union of leaf IDs
+    from the previous level's merge results.
+
+    Returns a MergeGroupPlan with separate ``pending`` (need LLM calls)
+    and ``cached`` (already in DB) lists. Used by both ``run_merge_phase``
+    (realtime) and ``_prepare_merge`` (batch) paths.
+    """
+    if len(chunk_summaries) != len(source_id_sets):
+        raise ValueError(
+            f"chunk_summaries ({len(chunk_summaries)}) and source_id_sets "
+            f"({len(source_id_sets)}) must have the same length"
+        )
+    if max_chunks_per_merge_call <= 0:
+        raise ValueError(
+            f"max_chunks_per_merge_call must be positive, got {max_chunks_per_merge_call}"
+        )
+
+    pending: list[MergeGroup] = []
+    cached: list[CachedMergeGroup] = []
+
+    for group_idx, group_start in enumerate(
+        range(0, len(chunk_summaries), max_chunks_per_merge_call)
+    ):
+        group_end = group_start + max_chunks_per_merge_call
+        group = chunk_summaries[group_start:group_end]
+        group_source_sets = source_id_sets[group_start:group_end]
+        group_leaf_ids = sorted({lid for ids in group_source_sets for lid in ids})
+
+        cached_row = merge_repo.find_latest_by_source_ids(
+            appid, group_leaf_ids, MERGE_PROMPT_VERSION
+        )
+        if cached_row is not None:
+            cached.append(
+                CachedMergeGroup(
+                    group_index=group_idx,
+                    source_chunk_ids=group_leaf_ids,
+                    merge_id=int(cached_row["id"]),
+                    summary=MergedSummary.model_validate(cached_row["summary_json"]),
+                )
+            )
+        else:
+            pending.append(
+                MergeGroup(
+                    group_index=group_idx,
+                    summaries=group,
+                    source_chunk_ids=group_leaf_ids,
+                )
+            )
+
+    return MergeGroupPlan(pending=pending, cached=cached)
+
+
 def build_merge_request(
     *,
     appid: int,
     game_name: str,
     summaries: list[RichChunkSummary],
+    record_id: str,
     merge_max_tokens: int,
     merge_temperature: float | None,
 ) -> LLMRequest:
     """Build the single merge LLMRequest for a group of chunk summaries."""
     return LLMRequest(
-        record_id=f"{appid}-merge",
+        record_id=record_id,
         task="merging",
         system=MERGE_SYSTEM_PROMPT,
         user=_build_merge_user_message(summaries, game_name),
@@ -686,7 +813,7 @@ def build_synthesis_request(
 # ---------------------------------------------------------------------------
 
 
-def _promote_single_chunk(chunk: RichChunkSummary, *, source_chunk_id: int) -> MergedSummary:
+def promote_single_chunk(chunk: RichChunkSummary, *, source_chunk_id: int) -> MergedSummary:
     """Skip the merge LLM call when there's only one chunk."""
     return MergedSummary(
         topics=list(chunk.topics),
@@ -800,7 +927,7 @@ def run_chunk_phase(
     return ordered_summaries, ordered_ids
 
 
-def _merged_as_chunk_like(merged: MergedSummary) -> RichChunkSummary:
+def merged_as_chunk_like(merged: MergedSummary) -> RichChunkSummary:
     """Wrap a MergedSummary so it can be merged again at the next level.
 
     The merge prompt reads `topics + competitor_refs + notable_quotes +
@@ -828,7 +955,7 @@ def run_merge_phase(
     max_chunks_per_merge_call: int,
     merge_max_tokens: int,
     merge_temperature: float | None,
-) -> tuple[MergedSummary, int | None]:
+) -> tuple[MergedSummary, int]:
     """Phase 2: hierarchical merge with correct source_chunk_ids tracking.
 
     Makes ZERO assumptions about the total review count. Any number of
@@ -880,7 +1007,7 @@ def run_merge_phase(
                 MergedSummary.model_validate(cached_promotion["summary_json"]),
                 cached_id,
             )
-        merged = _promote_single_chunk(chunk_summaries[0], source_chunk_id=chunk_ids[0])
+        merged = promote_single_chunk(chunk_summaries[0], source_chunk_id=chunk_ids[0])
         row_id = merge_repo.insert(
             appid,
             0,  # merge_level=0 distinguishes promotion from LLM-produced merges
@@ -911,77 +1038,87 @@ def run_merge_phase(
 
     model_id = _config.model_for("merging")
 
-    # current_inputs: summaries feeding the current level, in RichChunkSummary
-    # shape so `_build_merge_user_message` can serialize them uniformly.
-    # current_source_sets: parallel list — each entry is the set of LEAF
-    # chunk row ids that the corresponding input transitively derives from.
+    # current_inputs / current_source_sets feed each level. At level 1
+    # these are the original chunks; at level 2+ they are wrapped
+    # MergedSummaries from the previous level. source_sets tracks the
+    # transitive leaf chunk IDs for each input.
     current_inputs: list[RichChunkSummary] = list(chunk_summaries)
     current_source_sets: list[list[int]] = [[cid] for cid in chunk_ids]
 
     level = 0
-    last_row_id: int | None = None
+    # last_row_id is always assigned by the loop below — the single-chunk
+    # and whole-set-cache guards above return early when len < 2.
+    last_row_id: int = 0
     while len(current_inputs) > 1:
         level += 1
+        plan = compute_merge_groups(
+            appid=appid,
+            chunk_summaries=current_inputs,
+            source_id_sets=current_source_sets,
+            merge_repo=merge_repo,
+            max_chunks_per_merge_call=max_chunks_per_merge_call,
+        )
+
         next_inputs: list[RichChunkSummary] = []
         next_source_sets: list[list[int]] = []
 
-        # Split into groups of <=max_chunks_per_merge_call.
-        for group_start in range(0, len(current_inputs), max_chunks_per_merge_call):
-            group_end = group_start + max_chunks_per_merge_call
-            group = current_inputs[group_start:group_end]
-            group_source_sets = current_source_sets[group_start:group_end]
-            group_leaf_ids = sorted({lid for ids in group_source_sets for lid in ids})
+        # Build a combined view sorted by group_index so next-level
+        # inputs preserve the original group order. Mixing cached-first
+        # then pending would reorder groups and change LLM output +
+        # reduce cache determinism at subsequent levels.
+        cached_by_idx = {cg.group_index: cg for cg in plan.cached}
+        pending_by_idx = {mg.group_index: mg for mg in plan.pending}
+        all_indices = sorted({*cached_by_idx, *pending_by_idx})
 
-            # Per-group cache check: have we already merged exactly these
-            # leaf chunks at the current prompt version? If so, reuse.
-            cached_group = merge_repo.find_latest_by_source_ids(
-                appid, group_leaf_ids, MERGE_PROMPT_VERSION
-            )
-            if cached_group is not None:
-                merged_group = MergedSummary.model_validate(cached_group["summary_json"])
-                row_id = int(cached_group["id"])
+        for idx in all_indices:
+            if idx in cached_by_idx:
+                cg = cached_by_idx[idx]
                 logger.info(
                     "merge_phase_group_cache_hit",
-                    extra={"appid": appid, "level": level, "merge_id": row_id},
+                    extra={"appid": appid, "level": level, "merge_id": cg.merge_id},
                 )
-            else:
-                request = build_merge_request(
-                    appid=appid,
-                    game_name=game_name,
-                    summaries=group,
-                    merge_max_tokens=merge_max_tokens,
-                    merge_temperature=merge_temperature,
-                )
-                merge_usage: list[LLMUsage] = []
-                [response] = backend.run(
-                    [request],
-                    on_result=lambda _i, _r, u, _acc=merge_usage: _acc.append(u),
-                )
-                if not isinstance(response, MergedSummary):
-                    raise TypeError(
-                        f"backend returned {type(response).__name__} for a merging request"
-                    )
-                # Server-computed bookkeeping — never trust the LLM.
-                response.merge_level = level
-                response.chunks_merged = len(group_leaf_ids)
-                response.source_chunk_ids = group_leaf_ids
-                u = merge_usage[0]
-                row_id = merge_repo.insert(
-                    appid,
-                    level,
-                    response,
-                    group_leaf_ids,
-                    len(group_leaf_ids),
-                    model_id=model_id,
-                    prompt_version=MERGE_PROMPT_VERSION,
-                    input_tokens=u.input_tokens + u.cache_write_tokens + u.cache_read_tokens,
-                    output_tokens=u.output_tokens,
-                    latency_ms=u.latency_ms,
-                )
-                merged_group = response
+                next_inputs.append(merged_as_chunk_like(cg.summary))
+                next_source_sets.append(cg.source_chunk_ids)
+                last_row_id = cg.merge_id
+                continue
 
-            next_inputs.append(_merged_as_chunk_like(merged_group))
-            next_source_sets.append(group_leaf_ids)
+            mg = pending_by_idx[idx]
+            request = build_merge_request(
+                appid=appid,
+                game_name=game_name,
+                summaries=mg.summaries,
+                record_id=build_merge_record_id(appid, level, mg.group_index),
+                merge_max_tokens=merge_max_tokens,
+                merge_temperature=merge_temperature,
+            )
+            merge_usage: list[LLMUsage] = []
+            [response] = backend.run(
+                [request],
+                on_result=lambda _i, _r, u, _acc=merge_usage: _acc.append(u),
+            )
+            if not isinstance(response, MergedSummary):
+                raise TypeError(
+                    f"backend returned {type(response).__name__} for a merging request"
+                )
+            # Server-computed bookkeeping — never trust the LLM.
+            response.merge_level = level
+            response.chunks_merged = len(mg.source_chunk_ids)
+            response.source_chunk_ids = mg.source_chunk_ids
+            u = merge_usage[0]
+            row_id = merge_repo.insert(
+                appid,
+                level,
+                response,
+                mg.source_chunk_ids,
+                len(mg.source_chunk_ids),
+                model_id=model_id,
+                prompt_version=MERGE_PROMPT_VERSION,
+                input_tokens=u.input_tokens + u.cache_write_tokens + u.cache_read_tokens,
+                output_tokens=u.output_tokens,
+                latency_ms=u.latency_ms,
+            )
+            next_inputs.append(merged_as_chunk_like(response))
+            next_source_sets.append(mg.source_chunk_ids)
             last_row_id = row_id
 
         logger.info(
@@ -1001,7 +1138,6 @@ def run_merge_phase(
     # them) and concurrent re-analysis for this appid cannot race the
     # lookup — find_latest_by_appid would return "the newest row" which
     # is not necessarily the one we just inserted.
-    assert last_row_id is not None  # at least one level must have run
     root_row = merge_repo.find_by_id(last_row_id)
     if root_row is None:
         raise RuntimeError(

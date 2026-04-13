@@ -278,10 +278,122 @@ class BatchAnalysisStack(cdk.Stack):
             collect.next(next_step)
             return prepare
 
+        def _merge_level_chain(
+            suffix: str, merge_level: int, next_step: sfn.IChainable
+        ) -> sfn.IChainable:
+            """Build one merge level: prepare → skip? → wait → check → done? → collect → next.
+
+            Both merge levels share ``$.merge`` as their state key (via
+            ``result_path``). Collect writes directly to ``$.merge``
+            (overwriting prepare output) so that ``merged_summary_id``
+            always lives at ``$.merge.merged_summary_id`` regardless of
+            whether the phase was skipped or collected.
+            """
+            name = f"Merge{suffix}"
+            prepare_payload: dict[str, object] = {
+                "appid": sfn.JsonPath.number_at("$.appid"),
+                "phase": "merge",
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                "merge_level": merge_level,
+            }
+            if merge_level == 2:
+                # L2 reads intermediate IDs produced by L1.
+                prepare_payload["merged_ids"] = sfn.JsonPath.list_at("$.merge.merged_ids")
+            prepare = tasks.LambdaInvoke(
+                self,
+                f"Prepare{name}",
+                lambda_function=prepare_fn,
+                payload=sfn.TaskInput.from_object(prepare_payload),
+                payload_response_only=True,
+                result_path="$.merge",
+            )
+            skip_check = sfn.Choice(self, f"{name}Skipped?")
+            wait = sfn.Wait(
+                self,
+                f"Wait{name}",
+                time=sfn.WaitTime.duration(cdk.Duration.seconds(300)),
+            )
+            check = tasks.LambdaInvoke(
+                self,
+                f"Check{name}Status",
+                lambda_function=check_status_fn,
+                payload=sfn.TaskInput.from_object(
+                    {"job_id": sfn.JsonPath.string_at("$.merge.job_id")}
+                ),
+                payload_response_only=True,
+                result_path="$.merge.status_result",
+            )
+            done_choice = sfn.Choice(self, f"{name}Complete?")
+            collect_payload: dict[str, object] = {
+                "appid": sfn.JsonPath.number_at("$.appid"),
+                "phase": "merge",
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                "job_id": sfn.JsonPath.string_at("$.merge.job_id"),
+                "merge_level": merge_level,
+                "group_meta": sfn.JsonPath.list_at("$.merge.group_meta"),
+                "cached_group_meta": sfn.JsonPath.list_at("$.merge.cached_group_meta"),
+            }
+            # Collect writes to $.merge (not $.merge.collected) so
+            # merged_summary_id / merged_ids are at $.merge.* for the
+            # next level and synthesis to consume.
+            collect = tasks.LambdaInvoke(
+                self,
+                f"Collect{name}",
+                lambda_function=collect_fn,
+                payload=sfn.TaskInput.from_object(collect_payload),
+                payload_response_only=True,
+                result_path="$.merge",
+            )
+
+            prepare.next(skip_check)
+            skip_check.when(
+                sfn.Condition.boolean_equals("$.merge.skip", True), next_step
+            ).otherwise(wait)
+            wait.next(check).next(done_choice)
+            done_choice.when(
+                sfn.Condition.string_equals("$.merge.status_result.status", "Completed"),
+                collect,
+            ).when(
+                sfn.Condition.string_equals("$.merge.status_result.status", "Failed"),
+                fail_state,
+            ).otherwise(wait)
+            collect.next(next_step)
+            return prepare
+
         done = sfn.Succeed(self, "AnalysisComplete")
         synthesis_chain = _phase_chain("synthesis", done)
-        merge_chain = _phase_chain("merge", synthesis_chain)
-        chunk_chain = _phase_chain("chunk", merge_chain)
+
+        # Safety gate: after L2 completes, verify merged_summary_id is
+        # set. If L2 somehow produced multiple intermediates (requires
+        # >1600 chunks — guarded in prepare, but defense-in-depth),
+        # fail with a clear message rather than crashing synthesis on
+        # a null JSONPath reference.
+        merge_l2_converged = sfn.Choice(self, "MergeL2Converged?")
+        merge_l2_converged.when(
+            sfn.Condition.is_not_null("$.merge.merged_summary_id"),
+            synthesis_chain,
+        ).otherwise(
+            sfn.Fail(
+                self,
+                "MergeNotConverged",
+                error="MergeNotConverged",
+                cause="Merge did not converge to a single merged_summary_id after L2",
+            )
+        )
+
+        merge_l2_chain = _merge_level_chain("L2", 2, merge_l2_converged)
+
+        # After L1 (skip or collect), check if L2 is needed: when
+        # merged_summary_id is set (single result), jump straight to
+        # synthesis. Only route to L2 when multiple intermediates remain.
+        merge_needs_l2 = sfn.Choice(self, "MergeNeedsL2?")
+        merge_needs_l2.when(
+            sfn.Condition.is_not_null("$.merge.merged_summary_id"),
+            synthesis_chain,
+        ).otherwise(merge_l2_chain)
+
+        merge_l1_chain = _merge_level_chain("", 1, merge_needs_l2)
+        chunk_chain = _phase_chain("chunk", merge_l1_chain)
 
         state_machine = sfn.StateMachine(
             self,

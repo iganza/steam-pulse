@@ -446,6 +446,19 @@ def _submit_merge_batch(
             "merged_ids": [cg.merge_id for cg in plan.cached],
         }
 
+    # At L2, the total group count (pending + cached) must be 1 after
+    # the batch completes — otherwise we'd need a third merge level.
+    # Fail fast here rather than producing a null merged_summary_id that
+    # crashes the state machine at synthesis.
+    total_groups = len(plan.pending) + len(plan.cached)
+    if merge_level >= 2 and total_groups > 1:
+        raise RuntimeError(
+            f"Merge L{merge_level}: {total_groups} groups "
+            f"({len(plan.pending)} pending, {len(plan.cached)} cached) — "
+            f"would need level {merge_level + 1} which exceeds the 2-level "
+            f"limit. appid={appid}"
+        )
+
     # Build LLMRequests for pending groups.
     pending_requests = []
     group_meta = []

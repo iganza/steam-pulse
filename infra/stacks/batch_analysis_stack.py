@@ -362,7 +362,26 @@ class BatchAnalysisStack(cdk.Stack):
 
         done = sfn.Succeed(self, "AnalysisComplete")
         synthesis_chain = _phase_chain("synthesis", done)
-        merge_l2_chain = _merge_level_chain("L2", 2, synthesis_chain)
+
+        # Safety gate: after L2 completes, verify merged_summary_id is
+        # set. If L2 somehow produced multiple intermediates (requires
+        # >1600 chunks — guarded in prepare, but defense-in-depth),
+        # fail with a clear message rather than crashing synthesis on
+        # a null JSONPath reference.
+        merge_l2_converged = sfn.Choice(self, "MergeL2Converged?")
+        merge_l2_converged.when(
+            sfn.Condition.is_not_null("$.merge.merged_summary_id"),
+            synthesis_chain,
+        ).otherwise(
+            sfn.Fail(
+                self,
+                "MergeNotConverged",
+                error="MergeNotConverged",
+                cause="Merge did not converge to a single merged_summary_id after L2",
+            )
+        )
+
+        merge_l2_chain = _merge_level_chain("L2", 2, merge_l2_converged)
 
         # After L1 (skip or collect), check if L2 is needed: when
         # merged_summary_id is set (single result), jump straight to

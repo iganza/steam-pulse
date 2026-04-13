@@ -329,8 +329,11 @@ def _collect_merge(
             persisted_by_index[group_index] = row_id
 
         all_failed_ids = collect_result.failed_ids + dropped_ids
-        failed_count = len(all_failed_ids)
-        if failed_count or collect_result.skipped:
+        # Include skipped records (JSON decode errors, missing recordId)
+        # in the failure count — unlike chunks where partial progress is
+        # useful, a merge with missing groups produces an incorrect result.
+        failed_count = len(all_failed_ids) + collect_result.skipped
+        if failed_count:
             _sample = 10
             logger.error(
                 "batch_merge_records_failed",

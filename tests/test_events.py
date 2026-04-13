@@ -5,7 +5,7 @@ import json
 import pytest
 from library_layer.events import (
     BaseEvent,
-    BatchCompleteEvent,
+    BatchAnalysisCompleteEvent,
     CatalogRefreshCompleteEvent,
     GameDelistedEvent,
     GameDiscoveredEvent,
@@ -29,7 +29,7 @@ ALL_EVENT_CLASSES = [
     ReviewMilestoneEvent,
     ReviewsReadyEvent,
     ReportReadyEvent,
-    BatchCompleteEvent,
+    BatchAnalysisCompleteEvent,
     CatalogRefreshCompleteEvent,
 ]
 
@@ -105,12 +105,21 @@ def test_report_ready_event_valid() -> None:
     assert data["review_score_desc"] == "Very Positive"
 
 
-# 9. BatchCompleteEvent round-trip
-def test_batch_complete_event_valid() -> None:
-    e = BatchCompleteEvent(batch_job_id="job-123", games_processed=50, status="completed")
-    assert e.event_type == "batch-complete"
+# 9. BatchAnalysisCompleteEvent round-trip
+def test_batch_analysis_complete_event_valid() -> None:
+    e = BatchAnalysisCompleteEvent(execution_id="exec-123", appids_total=50)
+    assert e.event_type == "batch-analysis-complete"
     data = json.loads(e.model_dump_json())
-    assert data["games_processed"] == 50
+    assert data["appids_total"] == 50
+
+
+# 9b. BatchAnalysisCompleteEvent rejects wrong event_type
+def test_batch_analysis_complete_event_rejects_wrong_event_type() -> None:
+    with pytest.raises(ValidationError):
+        BatchAnalysisCompleteEvent(
+            event_type="wrong",
+            execution_id="exec-123",
+        )
 
 
 # 10. CatalogRefreshCompleteEvent round-trip

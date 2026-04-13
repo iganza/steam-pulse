@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""CloudWatch Log Insights query runner for SteamPulse.
+"""CloudWatch Log Insights query runner + batch status monitor for SteamPulse.
 
 Runs named or raw queries against CloudWatch Log Insights and displays results
 in a Rich-formatted table. Supports periodic tail mode.
+
+Also supports --batches mode to query batch_executions directly from the DB.
 
 Usage:
     poetry run python scripts/logs.py --env production --query errors
@@ -11,6 +13,13 @@ Usage:
     poetry run python scripts/logs.py --env production --query all --log-group ingest --since 1h
     poetry run python scripts/logs.py --env production --list
     poetry run python scripts/logs.py --env production --raw "fields @timestamp, message | limit 20" --log-group crawler
+
+    # Batch status (reads from DB — set DATABASE_URL for prod tunnel):
+    poetry run python scripts/logs.py --batches
+    poetry run python scripts/logs.py --batches --all
+    poetry run python scripts/logs.py --batches --tail 30
+    DATABASE_URL="host=localhost port=5433 dbname=production_steampulse user=postgres sslmode=verify-ca sslrootcert=./global-bundle.pem" \\
+        poetry run python scripts/logs.py --batches --all --tail 15
 
 Log groups (--log-group shorthand):
     crawler     /steampulse/{env}/crawler
@@ -23,22 +32,27 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+
+try:
+    import psycopg2
+    import psycopg2.extras
+
+    _PSYCOPG2_AVAILABLE = True
+except ImportError:
+    _PSYCOPG2_AVAILABLE = False
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
 try:
-    from rich import print as rprint
+    from rich import box
     from rich.console import Console
     from rich.table import Table
     from rich.text import Text
-    from rich.panel import Panel
-    from rich.columns import Columns
-    from rich import box
 except ImportError:
     print("ERROR: rich not installed. Run: poetry install")
     sys.exit(1)
@@ -49,13 +63,14 @@ REGION = os.getenv("AWS_DEFAULT_REGION", "us-west-2")
 
 # ── Log Group Shorthands ───────────────────────────────────────────────────────
 
+
 def log_group(name: str, env: str) -> str:
     groups = {
         "crawler": f"/steampulse/{env}/crawler",
-        "ingest":  f"/steampulse/{env}/ingest",
-        "api":     f"/steampulse/{env}/api",
-        "spoke":   f"/steampulse/{env}/spoke",
-        "admin":   f"/steampulse/{env}/admin",
+        "ingest": f"/steampulse/{env}/ingest",
+        "api": f"/steampulse/{env}/api",
+        "spoke": f"/steampulse/{env}/spoke",
+        "admin": f"/steampulse/{env}/admin",
         "analysis": f"/steampulse/{env}/analysis",
     }
     if name in groups:
@@ -67,9 +82,7 @@ def log_group(name: str, env: str) -> str:
 # ── Prepared Queries ───────────────────────────────────────────────────────────
 
 QUERIES: dict[str, dict[str, Any]] = {
-
     # ── Errors & Health ───────────────────────────────────────────────────────
-
     "errors": {
         "description": "All ERROR and WARNING log lines across all services",
         "log_group": "crawler",
@@ -84,7 +97,6 @@ fields @timestamp, level, message, appid, error, @message
 """,
         "columns": ["@timestamp", "level", "message", "appid", "error"],
     },
-
     "errors-summary": {
         "description": "Error counts grouped by message type",
         "log_group": "crawler",
@@ -97,7 +109,6 @@ fields level, message, error
 """,
         "columns": ["level", "message", "error", "occurrences"],
     },
-
     "runtime-errors": {
         "description": "Raw Lambda runtime errors (unhandled exceptions, 403s, timeouts)",
         "log_group": "crawler",
@@ -110,9 +121,7 @@ fields @timestamp, @message
 """,
         "columns": ["@timestamp", "@message"],
     },
-
     # ── Catalog Refresh ───────────────────────────────────────────────────────
-
     "catalog-refresh": {
         "description": "Catalog refresh runs — success/failure timeline",
         "log_group": "crawler",
@@ -124,7 +133,6 @@ fields @timestamp, message, new_games, queued, skipped, error
 """,
         "columns": ["@timestamp", "message", "new_games", "queued", "skipped"],
     },
-
     "catalog-refresh-stats": {
         "description": "Catalog refresh hourly success rate",
         "log_group": "crawler",
@@ -138,7 +146,6 @@ fields @timestamp, message
 """,
         "columns": ["bin(1h)", "message", "count"],
     },
-
     "new-games": {
         "description": "Newly discovered games being queued for crawl",
         "log_group": "crawler",
@@ -150,9 +157,7 @@ fields @timestamp, message, appid, new_games, queued
 """,
         "columns": ["@timestamp", "message", "new_games", "queued", "appid"],
     },
-
     # ── App Crawl (Metadata) ──────────────────────────────────────────────────
-
     "metadata-crawl": {
         "description": "App metadata crawl completions and failures",
         "log_group": "crawler",
@@ -167,7 +172,6 @@ fields @timestamp, message, appid, game_name, error
 """,
         "columns": ["@timestamp", "message", "appid", "game_name", "error"],
     },
-
     "stale-refresh": {
         "description": "Stale metadata re-crawl runs",
         "log_group": "crawler",
@@ -179,9 +183,7 @@ fields @timestamp, message, appids
 """,
         "columns": ["@timestamp", "message", "appids"],
     },
-
     # ── Review Crawl ──────────────────────────────────────────────────────────
-
     "review-dispatch": {
         "description": "Review crawl tasks dispatched to spokes",
         "log_group": "crawler",
@@ -195,7 +197,6 @@ fields @timestamp, message, appid, queue_url
 """,
         "columns": ["@timestamp", "message", "appid", "queue_url"],
     },
-
     "review-completions": {
         "description": "Review crawl completions (exhausted / target_hit / early_stop)",
         "log_group": "ingest",
@@ -207,7 +208,6 @@ fields @timestamp, message, appid, reason, total, batch_count, target
 """,
         "columns": ["@timestamp", "appid", "reason", "total", "batch_count", "target"],
     },
-
     "review-throughput": {
         "description": "Reviews ingested per minute",
         "log_group": "ingest",
@@ -219,7 +219,6 @@ fields @timestamp, upserted
 """,
         "columns": ["bin(5m)", "reviews_ingested", "batches"],
     },
-
     "review-failures": {
         "description": "Review crawl failures reported by spokes",
         "log_group": "ingest",
@@ -232,9 +231,7 @@ fields @timestamp, message, appid, error
 """,
         "columns": ["@timestamp", "message", "appid", "error"],
     },
-
     # ── Ingest (Spoke Results) ────────────────────────────────────────────────
-
     "ingest-throughput": {
         "description": "Ingest handler: records processed per minute",
         "log_group": "ingest",
@@ -249,7 +246,6 @@ fields @timestamp, task, success
 """,
         "columns": ["bin(5m)", "processed", "succeeded", "failed"],
     },
-
     "ingest-errors": {
         "description": "Ingest handler errors and spoke failures",
         "log_group": "ingest",
@@ -261,7 +257,6 @@ fields @timestamp, level, message, appid, task, error
 """,
         "columns": ["@timestamp", "level", "message", "appid", "task", "error"],
     },
-
     "metadata-ingest": {
         "description": "Metadata records ingested from spokes",
         "log_group": "ingest",
@@ -276,9 +271,7 @@ fields @timestamp, message, appid
 """,
         "columns": ["@timestamp", "message", "appid"],
     },
-
     # ── Spoke Lambdas ─────────────────────────────────────────────────────────
-
     "spoke-activity": {
         "description": "Spoke Lambda activity (START/DONE per task type)",
         "log_group": "spoke",
@@ -290,7 +283,6 @@ fields @timestamp, message, appid, game_name, count, s3_key, spoke_region
 """,
         "columns": ["@timestamp", "message", "appid", "game_name", "count"],
     },
-
     "spoke-errors": {
         "description": "Spoke Lambda warnings and errors",
         "log_group": "spoke",
@@ -302,9 +294,7 @@ fields @timestamp, level, message, appid, error
 """,
         "columns": ["@timestamp", "level", "message", "appid", "error"],
     },
-
     # ── API ───────────────────────────────────────────────────────────────────
-
     "api-errors": {
         "description": "API 4xx/5xx errors",
         "log_group": "api",
@@ -316,7 +306,6 @@ fields @timestamp, level, message, appid, error
 """,
         "columns": ["@timestamp", "level", "message", "appid", "error"],
     },
-
     "api-requests": {
         "description": "API request volume per endpoint per 5 minutes",
         "log_group": "api",
@@ -328,9 +317,7 @@ fields @timestamp, path, status_code
 """,
         "columns": ["bin(5m)", "path", "requests"],
     },
-
     # ── All ───────────────────────────────────────────────────────────────────
-
     "all": {
         "description": "All log lines from a single log group (use with --log-group)",
         "log_group": "crawler",
@@ -344,7 +331,189 @@ fields @timestamp, level, message, appid, @logStream
 }
 
 
+# ── Batch Status (DB) ─────────────────────────────────────────────────────────
+
+_STATUS_STYLE: dict[str, str] = {
+    "submitted": "bold blue",
+    "running": "bold cyan",
+    "completed": "bold green",
+    "failed": "bold red",
+}
+
+_STATUS_ICON: dict[str, str] = {
+    "submitted": "⏳",
+    "running": "🔄",
+    "completed": "✅",
+    "failed": "❌",
+}
+
+
+def _elapsed(submitted_at: datetime, completed_at: datetime | None = None) -> str:
+    end = completed_at or datetime.now(UTC)
+    if submitted_at.tzinfo is None:
+        submitted_at = submitted_at.replace(tzinfo=UTC)
+    secs = int((end - submitted_at).total_seconds())
+    if secs < 60:
+        return f"{secs}s"
+    elif secs < 3600:
+        return f"{secs // 60}m {secs % 60}s"
+    else:
+        h, rem = divmod(secs, 3600)
+        return f"{h}h {rem // 60}m"
+
+
+def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
+    if not _PSYCOPG2_AVAILABLE:
+        console.print("[red]psycopg2 not available. Run: poetry install[/red]")
+        sys.exit(1)
+
+    if "host=" in db_url or db_url.startswith("postgresql"):
+        conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    else:
+        conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
+
+    status_filter = "" if show_all else "WHERE be.status IN ('submitted', 'running')"
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                be.id,
+                be.appid,
+                g.name          AS game_name,
+                be.phase,
+                be.backend,
+                be.status,
+                be.request_count,
+                be.succeeded_count,
+                be.failed_count,
+                be.estimated_cost_usd,
+                be.input_tokens,
+                be.output_tokens,
+                be.submitted_at,
+                be.completed_at,
+                be.failure_reason,
+                be.batch_id,
+                be.execution_id
+            FROM batch_executions be
+            LEFT JOIN games g ON g.appid = be.appid
+            {status_filter}
+            ORDER BY be.submitted_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def render_batches(rows: list[dict], *, show_all: bool) -> None:
+    now = datetime.now(UTC)
+    label = "All Batch Executions" if show_all else "Active Batches"
+
+    if not rows:
+        msg = "No active batches." if not show_all else "No batch executions found."
+        console.print(f"[yellow]{msg}[/yellow]")
+        return
+
+    table = Table(
+        title=label,
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        border_style="bright_black",
+        expand=True,
+    )
+
+    table.add_column("appid", width=8, no_wrap=True)
+    table.add_column("game", min_width=22)
+    table.add_column("phase", width=10, no_wrap=True)
+    table.add_column("status", width=12, no_wrap=True)
+    table.add_column("reqs", width=5, justify="right", no_wrap=True)
+    table.add_column("ok/fail", width=8, justify="right", no_wrap=True)
+    table.add_column("elapsed", width=9, justify="right", no_wrap=True)
+    table.add_column("cost $", width=7, justify="right", no_wrap=True)
+    table.add_column("tokens", width=12, justify="right", no_wrap=True)
+    if show_all:
+        table.add_column("submitted", width=14, no_wrap=True)
+    table.add_column("reason / batch_id", min_width=20)
+
+    # Summary counters
+    totals: dict[str, int] = {"submitted": 0, "running": 0, "completed": 0, "failed": 0}
+
+    for r in rows:
+        status = r["status"]
+        totals[status] = totals.get(status, 0) + 1
+        style = _STATUS_STYLE.get(status, "white")
+        icon = _STATUS_ICON.get(status, "")
+
+        game = (r["game_name"] or f"appid {r['appid']}")[:30]
+        phase = r["phase"] or ""
+
+        ok_fail = ""
+        if r["succeeded_count"] is not None or r["failed_count"] is not None:
+            ok = r["succeeded_count"] or 0
+            fail = r["failed_count"] or 0
+            ok_fail = f"[green]{ok}[/green]/[red]{fail}[/red]"
+
+        submitted_at = r["submitted_at"]
+        if submitted_at and submitted_at.tzinfo is None:
+            submitted_at = submitted_at.replace(tzinfo=UTC)
+        completed_at = r["completed_at"]
+        if completed_at and completed_at.tzinfo is None:
+            completed_at = completed_at.replace(tzinfo=UTC)
+
+        elapsed = _elapsed(submitted_at, completed_at) if submitted_at else ""
+        # Dim elapsed for completed rows
+        elapsed_text = Text(elapsed, style="bright_black" if status == "completed" else "white")
+
+        cost = f"{r['estimated_cost_usd']:.4f}" if r["estimated_cost_usd"] else "—"
+
+        tok_in = r["input_tokens"] or 0
+        tok_out = r["output_tokens"] or 0
+        tokens = f"{tok_in // 1000}k/{tok_out // 1000}k" if (tok_in or tok_out) else "—"
+
+        reason_or_batch = r["failure_reason"] or r["batch_id"] or ""
+        if r["failure_reason"]:
+            reason_cell = Text(r["failure_reason"][:50], style="red")
+        else:
+            reason_cell = Text(reason_or_batch[:40], style="bright_black")
+
+        submitted_str = ""
+        if submitted_at:
+            submitted_str = submitted_at.astimezone().strftime("%m-%d %H:%M")
+
+        row_cells: list[Any] = [
+            Text(str(r["appid"]), style="bright_black"),
+            Text(game),
+            Text(phase, style="magenta"),
+            Text(f"{icon} {status}", style=style),
+            str(r["request_count"] or ""),
+            ok_fail,
+            elapsed_text,
+            Text(cost, style="yellow" if cost != "—" else "bright_black"),
+            Text(tokens, style="bright_black"),
+        ]
+        if show_all:
+            row_cells.append(Text(submitted_str, style="bright_black"))
+        row_cells.append(reason_cell)
+
+        table.add_row(*row_cells)
+
+    console.print()
+    console.print(table)
+
+    # Summary footer
+    parts = []
+    for s, n in totals.items():
+        if n:
+            parts.append(f"[{_STATUS_STYLE[s]}]{n} {s}[/{_STATUS_STYLE[s]}]")
+    ts = now.astimezone().strftime("%H:%M:%S")
+    console.print(f"  {' · '.join(parts)}  [bright_black]{ts}[/bright_black]")
+
+
 # ── Query Execution ────────────────────────────────────────────────────────────
+
 
 def _since_seconds(since: str) -> int:
     units = {"m": 60, "h": 3600, "d": 86400}
@@ -360,7 +529,7 @@ def run_query(
     query_str: str,
     since_seconds: int,
 ) -> list[dict[str, str]]:
-    end_time = int(datetime.now(timezone.utc).timestamp())
+    end_time = int(datetime.now(UTC).timestamp())
     start_time = end_time - since_seconds
 
     response = client.start_query(
@@ -392,6 +561,7 @@ def run_query(
 
 # ── Display ────────────────────────────────────────────────────────────────────
 
+
 def _level_style(level: str) -> str:
     return {
         "ERROR": "bold red",
@@ -406,7 +576,7 @@ def _format_ts(ts: str) -> str:
         # Explicitly mark as UTC before converting to local for display.
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt.astimezone().strftime("%m-%d %H:%M:%S")
     except Exception:
         return ts[:19] if len(ts) >= 19 else ts
@@ -436,12 +606,25 @@ def render_table(
 
     for col in visible:
         if col in ("@timestamp", "bin(1h)", "bin(5m)", "bin(1m)"):
-            table.add_column(col.replace("@", "").replace("bin(", "").replace(")", ""), min_width=14, no_wrap=True)
+            table.add_column(
+                col.replace("@", "").replace("bin(", "").replace(")", ""),
+                min_width=14,
+                no_wrap=True,
+            )
         elif col == "level":
             table.add_column("level", width=8, no_wrap=True)
         elif col in ("appid",):
             table.add_column(col, width=8, no_wrap=True)
-        elif col in ("occurrences", "count", "reviews_ingested", "batches", "processed", "succeeded", "failed", "requests"):
+        elif col in (
+            "occurrences",
+            "count",
+            "reviews_ingested",
+            "batches",
+            "processed",
+            "succeeded",
+            "failed",
+            "requests",
+        ):
             table.add_column(col, justify="right", width=10)
         else:
             table.add_column(col)
@@ -459,7 +642,9 @@ def render_table(
                 truncated = val[:80] + "…" if len(val) > 80 else val
                 cells.append(Text(truncated))
             elif col == "error":
-                cells.append(Text(val[:60] + "…" if len(val) > 60 else val, style="red" if val else ""))
+                cells.append(
+                    Text(val[:60] + "…" if len(val) > 60 else val, style="red" if val else "")
+                )
             else:
                 cells.append(val)
         table.add_row(*cells)
@@ -471,6 +656,7 @@ def render_table(
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+
 
 def list_queries() -> None:
     table = Table(
@@ -491,25 +677,51 @@ def list_queries() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="CloudWatch Log Insights query runner for SteamPulse"
+        description="CloudWatch Log Insights query runner + batch status monitor for SteamPulse"
     )
     parser.add_argument("--env", choices=["staging", "production"], default="production")
     parser.add_argument("--query", "-q", help="Named query to run (see --list)")
     parser.add_argument("--raw", help="Raw CloudWatch Insights query string")
     parser.add_argument(
-        "--log-group", "-g",
+        "--log-group",
+        "-g",
         help="Log group shorthand or full path (overrides query default)",
     )
     parser.add_argument(
-        "--since", "-s", default="1h",
+        "--since",
+        "-s",
+        default="1h",
         help="Lookback window: e.g. 30m, 6h, 1d (default: 1h)",
     )
     parser.add_argument(
-        "--tail", "-t", type=int, metavar="SECONDS",
+        "--tail",
+        "-t",
+        type=int,
+        metavar="SECONDS",
         help="Re-run query every N seconds (Ctrl-C to stop)",
     )
     parser.add_argument("--list", "-l", action="store_true", help="List available prepared queries")
     parser.add_argument("--region", default=REGION)
+
+    # Batch status mode
+    parser.add_argument(
+        "--batches",
+        "-b",
+        action="store_true",
+        help="Show batch_executions status from DB (uses DATABASE_URL env var)",
+    )
+    parser.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        help="With --batches: show completed and failed batches too (default: active only)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="With --batches: max rows to show (default: 50)",
+    )
 
     args = parser.parse_args()
 
@@ -517,8 +729,40 @@ def main() -> None:
         list_queries()
         return
 
+    # ── Batch mode ─────────────────────────────────────────────────────────────
+    if args.batches:
+        db_url = os.getenv(
+            "DATABASE_URL",
+            "postgresql://steampulse:dev@127.0.0.1:5432/steampulse",
+        )
+
+        def run_batches() -> None:
+            ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+            scope = "all executions" if args.all else "active batches"
+            console.rule(
+                f"[cyan]batch_executions — {scope}[/cyan]  [bright_black]{ts}[/bright_black]"
+            )
+            rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
+            render_batches(rows, show_all=args.all)
+
+        if args.tail:
+            try:
+                while True:
+                    console.clear()
+                    run_batches()
+                    console.print(
+                        f"\n[bright_black]Refreshing every {args.tail}s — Ctrl-C to stop[/bright_black]"
+                    )
+                    time.sleep(args.tail)
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped.[/yellow]")
+        else:
+            run_batches()
+        return
+
+    # ── CloudWatch mode ────────────────────────────────────────────────────────
     if not args.query and not args.raw:
-        parser.error("Provide --query NAME or --raw 'query string'")
+        parser.error("Provide --query NAME, --raw 'query string', or --batches")
 
     client = boto3.client("logs", region_name=args.region)
 
@@ -546,7 +790,7 @@ def main() -> None:
     since_sec = _since_seconds(args.since)
 
     def run_once() -> None:
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
         console.rule(f"[cyan]{title}[/cyan]  [bright_black]{ts}[/bright_black]")
         rows = run_query(client, all_groups, query_str, since_sec)
         if not rows:
@@ -559,7 +803,9 @@ def main() -> None:
             while True:
                 console.clear()
                 run_once()
-                console.print(f"\n[bright_black]Refreshing every {args.tail}s — Ctrl-C to stop[/bright_black]")
+                console.print(
+                    f"\n[bright_black]Refreshing every {args.tail}s — Ctrl-C to stop[/bright_black]"
+                )
                 time.sleep(args.tail)
         except KeyboardInterrupt:
             console.print("\n[yellow]Stopped.[/yellow]")

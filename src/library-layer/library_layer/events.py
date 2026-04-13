@@ -26,7 +26,7 @@ EventType = Literal[
     "reviews-ready",
     "report-ready",
     # System (system-events topic)
-    "batch-complete",
+    "batch-analysis-complete",
     "catalog-refresh-complete",
 ]
 
@@ -113,15 +113,14 @@ class ReportReadyEvent(BaseEvent):
 # --- System Events (published to system-events topic) ---
 
 
-class BatchCompleteEvent(BaseEvent):
-    event_type: Literal["batch-complete"] = "batch-complete"
-    batch_job_id: str
-    games_processed: int
-    status: str
+class BatchAnalysisCompleteEvent(BaseEvent):
+    event_type: EventType = "batch-analysis-complete"
+    execution_id: str
+    appids_total: int = 0
 
 
 class CatalogRefreshCompleteEvent(BaseEvent):
-    event_type: Literal["catalog-refresh-complete"] = "catalog-refresh-complete"
+    event_type: EventType = "catalog-refresh-complete"
     new_games: int
     total_games: int
 

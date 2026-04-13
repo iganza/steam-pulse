@@ -1,20 +1,33 @@
-"""DispatchBatch Lambda — read top-priority candidates and start a fan-out execution.
+"""DispatchBatch Lambda — dispatch analysis batches and publish completion events.
 
-Reads from mv_analysis_candidates (games needing analysis, ordered by review_count
-DESC) and starts the batch orchestrator with the top N appids.
+Two modes, selected by ``action`` in the event payload:
 
-Input (all optional):
-    {
-        "batch_size": 100,     # override default from config
-        "dry_run": true        # return candidates without starting
-    }
+**Default (no action)** — read top-priority candidates and start a fan-out execution.
 
-Output:
-    {
-        "dispatched": 100,
-        "execution_arn": "arn:aws:states:...",  # omitted on dry_run
-        "appids": [440, 730, ...]
-    }
+    Input (all optional):
+        {
+            "batch_size": 100,     # override default from config
+            "dry_run": true        # return candidates without starting
+        }
+
+    Output:
+        {
+            "dispatched": 100,
+            "execution_arn": "arn:aws:states:...",  # omitted on dry_run
+            "appids": [440, 730, ...]
+        }
+
+**action="post_batch"** — publish BatchAnalysisCompleteEvent after orchestrator fan-out.
+
+    Input (from Step Functions):
+        {
+            "action": "post_batch",
+            "execution_id": "<sfn execution name>",
+            "appids_count": 100
+        }
+
+    Output:
+        {"status": "published", "execution_id": "..."}
 """
 
 import json
@@ -23,13 +36,16 @@ import boto3
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
+from library_layer.events import BatchAnalysisCompleteEvent
 from library_layer.utils.db import get_conn
+from library_layer.utils.events import publish_event
 
 logger = Logger(service="batch-dispatch")
 tracer = Tracer(service="batch-dispatch")
 
 _config = SteamPulseConfig()
 _sfn = boto3.client("stepfunctions")
+_sns = boto3.client("sns")
 
 
 def _get_orchestrator_arn() -> str:
@@ -61,8 +77,8 @@ def _fetch_candidates(*, batch_size: int) -> list[int]:
         return [row["appid"] for row in cur.fetchall()]
 
 
-@tracer.capture_lambda_handler
-def handler(event: dict, context: LambdaContext) -> dict:
+def _handle_dispatch(event: dict) -> dict:
+    """Read top-priority candidates and start a fan-out execution."""
     batch_size = _normalize_batch_size(
         event.get("batch_size"), default=_config.BATCH_DISPATCH_SIZE
     )
@@ -99,3 +115,44 @@ def handler(event: dict, context: LambdaContext) -> dict:
         "execution_arn": execution_arn,
         "appids": appids,
     }
+
+
+def _get_system_events_topic_arn() -> str:
+    ssm = boto3.client("ssm")
+    return ssm.get_parameter(
+        Name=_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME
+    )["Parameter"]["Value"]
+
+
+def _handle_post_batch(event: dict) -> dict:
+    """Publish BatchAnalysisCompleteEvent after all games in a batch complete.
+
+    appids_count comes from a Pass state before the DistributedMap (which
+    discards per-item results to stay under the 256KB state limit).
+    """
+    execution_id: str = event["execution_id"]
+    appids_count: int = event.get("appids_count", 0)
+    topic_arn = _get_system_events_topic_arn()
+
+    evt = BatchAnalysisCompleteEvent(
+        execution_id=execution_id,
+        appids_total=appids_count,
+    )
+
+    publish_event(_sns, topic_arn, evt)
+
+    logger.info(
+        "Published batch-analysis-complete",
+        extra={"execution_id": execution_id, "appids_count": appids_count},
+    )
+
+    return {"status": "published", "execution_id": execution_id}
+
+
+@tracer.capture_lambda_handler
+def handler(event: dict, context: LambdaContext) -> dict:
+    match event.get("action"):
+        case "post_batch":
+            return _handle_post_batch(event)
+        case _:
+            return _handle_dispatch(event)

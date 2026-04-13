@@ -845,6 +845,47 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_catalog_reports_positive_pct_idx ON mv_catalog_reports(positive_pct DESC NULLS LAST)",
     "CREATE INDEX IF NOT EXISTS mv_catalog_reports_genre_slugs_gin ON mv_catalog_reports USING GIN(genre_slugs)",
     "CREATE INDEX IF NOT EXISTS mv_catalog_reports_tag_slugs_gin ON mv_catalog_reports USING GIN(tag_slugs)",
+    # 0044_audience_overlap_matview — precomputed top-50 audience overlap per game
+    """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
+    WITH reviewer_sample AS (
+        SELECT appid, author_steamid
+        FROM (
+            SELECT appid, author_steamid,
+                   ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
+            FROM reviews
+            WHERE author_steamid IS NOT NULL
+        ) ranked
+        WHERE rn <= 10000
+    ),
+    reviewer_counts AS (
+        SELECT appid, COUNT(*) AS total_reviewers
+        FROM reviewer_sample
+        GROUP BY appid
+    ),
+    overlap_raw AS (
+        SELECT a.appid,
+               b.appid AS overlap_appid,
+               COUNT(*) AS overlap_count,
+               ROUND(COUNT(*) FILTER (WHERE r_b.voted_up)::numeric
+                     / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
+        FROM reviewer_sample a
+        JOIN reviewer_sample b ON a.author_steamid = b.author_steamid AND a.appid != b.appid
+        JOIN reviews r_b ON r_b.appid = b.appid AND r_b.author_steamid = a.author_steamid
+        GROUP BY a.appid, b.appid
+    ),
+    ranked AS (
+        SELECT o.appid, o.overlap_appid, o.overlap_count, o.shared_sentiment_pct,
+               rc.total_reviewers,
+               ROUND(o.overlap_count::numeric / NULLIF(rc.total_reviewers, 0) * 100, 1) AS overlap_pct,
+               ROW_NUMBER() OVER (PARTITION BY o.appid ORDER BY o.overlap_count DESC) AS rank
+        FROM overlap_raw o
+        JOIN reviewer_counts rc ON o.appid = rc.appid
+    )
+    SELECT appid, overlap_appid, overlap_count, total_reviewers, overlap_pct, shared_sentiment_pct
+    FROM ranked
+    WHERE rank <= 50""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS mv_audience_overlap_pk ON mv_audience_overlap(appid, overlap_appid)",
+    "CREATE INDEX IF NOT EXISTS mv_audience_overlap_appid_rank ON mv_audience_overlap(appid, overlap_count DESC)",
 )
 
 
@@ -902,6 +943,7 @@ def create_matviews(conn: object) -> None:
             "mv_new_releases",
             "mv_analysis_candidates",
             "mv_catalog_reports",
+            "mv_audience_overlap",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

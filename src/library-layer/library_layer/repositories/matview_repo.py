@@ -24,6 +24,7 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_new_releases",
     "mv_analysis_candidates",
     "mv_catalog_reports",
+    "mv_audience_overlap",
 )
 
 
@@ -187,6 +188,47 @@ class MatviewRepository(BaseRepository):
             (tag_slug,),
         )
         return [dict(r) for r in rows]
+
+    def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
+        """Serve precomputed audience overlap from mv_audience_overlap."""
+        total_row = self._fetchone(
+            "SELECT total_reviewers FROM mv_audience_overlap WHERE appid = %s LIMIT 1",
+            (appid,),
+        )
+        total = int(total_row["total_reviewers"]) if total_row else 0
+        if total == 0:
+            return {"total_reviewers": 0, "overlaps": []}
+
+        rows = self._fetchall(
+            """
+            SELECT o.overlap_appid AS appid, g.name, g.slug, g.header_image,
+                   g.positive_pct, g.review_count,
+                   o.overlap_count, o.overlap_pct, o.shared_sentiment_pct
+            FROM mv_audience_overlap o
+            JOIN games g ON o.overlap_appid = g.appid
+            WHERE o.appid = %s
+            ORDER BY o.overlap_count DESC
+            LIMIT %s
+            """,
+            (appid, limit),
+        )
+        return {
+            "total_reviewers": total,
+            "overlaps": [
+                {
+                    "appid": int(r["appid"]),
+                    "name": r["name"],
+                    "slug": r["slug"],
+                    "header_image": r["header_image"],
+                    "positive_pct": r["positive_pct"],
+                    "review_count": r["review_count"],
+                    "overlap_count": int(r["overlap_count"]),
+                    "overlap_pct": float(r["overlap_pct"]),
+                    "shared_sentiment_pct": float(r["shared_sentiment_pct"]),
+                }
+                for r in rows
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Refresh management

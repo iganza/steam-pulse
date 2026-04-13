@@ -852,8 +852,11 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         FROM (
             SELECT appid, author_steamid,
                    ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-            FROM reviews
-            WHERE author_steamid IS NOT NULL
+            FROM (
+                SELECT DISTINCT appid, author_steamid
+                FROM reviews
+                WHERE author_steamid IS NOT NULL
+            ) deduped
         ) ranked
         WHERE rn <= 10000
     ),

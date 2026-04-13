@@ -190,9 +190,25 @@ class MatviewRepository(BaseRepository):
         return [dict(r) for r in rows]
 
     def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
-        """Serve precomputed audience overlap from mv_audience_overlap."""
+        """Serve precomputed audience overlap from mv_audience_overlap.
+
+        total_reviewers is derived from reviews directly (with 10k cap) rather
+        than from the matview, so games with reviewers but no overlaps still
+        report the correct count.
+        """
         total_row = self._fetchone(
-            "SELECT total_reviewers FROM mv_audience_overlap WHERE appid = %s LIMIT 1",
+            """
+            SELECT COUNT(*) AS total_reviewers
+            FROM (
+                SELECT 1
+                FROM (
+                    SELECT DISTINCT author_steamid
+                    FROM reviews
+                    WHERE appid = %s AND author_steamid IS NOT NULL
+                ) deduped
+                LIMIT 10000
+            ) capped
+            """,
             (appid,),
         )
         total = int(total_row["total_reviewers"]) if total_row else 0

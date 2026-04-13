@@ -138,13 +138,13 @@ def test_audience_overlap_excludes_self(
     review_repo: ReviewRepository,
     refresh_matviews: Any,
 ) -> None:
-    """Source game (appid=440) never appears in its own overlaps list."""
+    """Game with reviewers but no overlaps returns correct total_reviewers."""
     _seed_game(game_repo, 440)
     review_repo.bulk_upsert([_make_review(440, "user1")])
     refresh_matviews()
     result = matview_repo.get_audience_overlap(440, limit=20)
-    appids = [o["appid"] for o in result["overlaps"]]
-    assert 440 not in appids
+    assert result["total_reviewers"] == 1
+    assert result["overlaps"] == []
 
 
 def test_audience_overlap_limit(

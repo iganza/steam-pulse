@@ -6,13 +6,16 @@
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
 WITH reviewer_sample AS (
-    -- Cap at 10k reviewers per game to keep the self-join bounded
+    -- Cap at 10k unique reviewers per game to keep the self-join bounded
     SELECT appid, author_steamid
     FROM (
         SELECT appid, author_steamid,
                ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-        FROM reviews
-        WHERE author_steamid IS NOT NULL
+        FROM (
+            SELECT DISTINCT appid, author_steamid
+            FROM reviews
+            WHERE author_steamid IS NOT NULL
+        ) deduped
     ) ranked
     WHERE rn <= 10000
 ),

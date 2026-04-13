@@ -36,8 +36,7 @@ Rename `"batch-complete"` → `"batch-analysis-complete"` in the `EventType` lit
 class BatchAnalysisCompleteEvent(BaseEvent):
     event_type: EventType = "batch-analysis-complete"
     execution_id: str
-    appids_completed: int = 0
-    appids_failed: int = 0
+    appids_total: int = 0
 ```
 
 ### 2. Publish from orchestrator completion

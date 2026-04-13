@@ -25,7 +25,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.events import BatchAnalysisCompleteEvent
 from library_layer.utils.db import get_conn
-from library_layer.utils.events import EventPublishError, publish_event
+from library_layer.utils.events import publish_event
 
 logger = Logger(service="batch-dispatch")
 tracer = Tracer(service="batch-dispatch")
@@ -115,9 +115,7 @@ def _handle_post_batch(event: dict) -> dict:
     """Publish BatchAnalysisCompleteEvent after all games in a batch complete.
 
     appids_count comes from a Pass state before the DistributedMap (which
-    discards per-item results to stay under the 256KB state limit). Exact
-    succeeded/failed split is not available — appids_completed is set to
-    appids_count as a best-effort total.
+    discards per-item results to stay under the 256KB state limit).
     """
     execution_id: str = event["execution_id"]
     appids_count: int = event.get("appids_count", 0)
@@ -125,17 +123,10 @@ def _handle_post_batch(event: dict) -> dict:
 
     evt = BatchAnalysisCompleteEvent(
         execution_id=execution_id,
-        appids_completed=appids_count,
+        appids_total=appids_count,
     )
 
-    try:
-        publish_event(_sns, topic_arn, evt)
-    except EventPublishError:
-        logger.error(
-            "Failed to publish batch-analysis-complete",
-            extra={"execution_id": execution_id, "appids_count": appids_count},
-        )
-        return {"status": "publish_failed", "execution_id": execution_id}
+    publish_event(_sns, topic_arn, evt)
 
     logger.info(
         "Published batch-analysis-complete",

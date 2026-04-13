@@ -107,11 +107,10 @@ def test_report_ready_event_valid() -> None:
 
 # 9. BatchAnalysisCompleteEvent round-trip
 def test_batch_analysis_complete_event_valid() -> None:
-    e = BatchAnalysisCompleteEvent(execution_id="exec-123", appids_completed=50, appids_failed=2)
+    e = BatchAnalysisCompleteEvent(execution_id="exec-123", appids_total=50)
     assert e.event_type == "batch-analysis-complete"
     data = json.loads(e.model_dump_json())
-    assert data["appids_completed"] == 50
-    assert data["appids_failed"] == 2
+    assert data["appids_total"] == 50
 
 
 # 9b. BatchAnalysisCompleteEvent rejects wrong event_type
@@ -120,8 +119,6 @@ def test_batch_analysis_complete_event_rejects_wrong_event_type() -> None:
         BatchAnalysisCompleteEvent(
             event_type="wrong",
             execution_id="exec-123",
-            appids_completed=50,
-            appids_failed=2,
         )
 
 

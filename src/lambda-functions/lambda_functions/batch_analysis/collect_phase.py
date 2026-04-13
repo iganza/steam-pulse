@@ -350,6 +350,26 @@ def _collect_merge(
                 },
             )
 
+        # Validate that every expected group from prepare produced a row
+        # BEFORE recording counts — so mark_completed reflects the true
+        # failed_count including silently dropped records.
+        expected_indices = set(meta_by_index.keys())
+        missing_indices = expected_indices - set(persisted_by_index.keys())
+        if missing_indices:
+            logger.error(
+                "merge_groups_missing_after_collect",
+                extra={
+                    "appid": appid,
+                    "missing_indices": sorted(missing_indices),
+                    "expected": sorted(expected_indices),
+                    "persisted": sorted(persisted_by_index.keys()),
+                },
+            )
+            # Add synthetic IDs so the tracking row records them.
+            for idx in sorted(missing_indices):
+                all_failed_ids.append(f"missing-group-{idx}")
+            failed_count += len(missing_indices)
+
         cost = estimate_batch_cost_usd(
             model_id=_config.model_for("merging"),
             input_tokens=collect_result.input_tokens,
@@ -374,23 +394,6 @@ def _collect_merge(
                 "batch_execution_mark_completed_failed",
                 extra={"appid": appid, "job_id": job_id},
             )
-
-        # Validate that every expected group from prepare produced a row.
-        # If Anthropic silently dropped a record (not in failed_ids/skipped),
-        # proceeding would produce an incomplete merge set at the next level.
-        expected_indices = set(meta_by_index.keys())
-        missing_indices = expected_indices - set(persisted_by_index.keys())
-        if missing_indices:
-            logger.error(
-                "merge_groups_missing_after_collect",
-                extra={
-                    "appid": appid,
-                    "missing_indices": sorted(missing_indices),
-                    "expected": sorted(expected_indices),
-                    "persisted": sorted(persisted_by_index.keys()),
-                },
-            )
-            failed_count += len(missing_indices)
 
         if failed_count > 0:
             reason = (

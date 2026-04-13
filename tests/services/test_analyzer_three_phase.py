@@ -13,9 +13,9 @@ import pytest
 from library_layer.analyzer import (
     AnalyzerSettings,
     _build_synthesis_user_message,
-    _promote_single_chunk,
     build_chunk_requests,
     parse_chunk_record_id,
+    promote_single_chunk,
     run_chunk_phase,
     run_merge_phase,
 )
@@ -227,9 +227,7 @@ def test_build_chunk_requests_encodes_hash_in_record_id() -> None:
         chunk_temperature=None,
     )
     assert len(pending) == len(meta)
-    for request, (expected_index, expected_hash, expected_size) in zip(
-        pending, meta, strict=True
-    ):
+    for request, (expected_index, expected_hash, expected_size) in zip(pending, meta, strict=True):
         parsed = parse_chunk_record_id(request.record_id)
         assert parsed is not None, f"parse failed for {request.record_id}"
         appid, chunk_index, chunk_size, chunk_hash = parsed
@@ -264,7 +262,7 @@ def test_build_chunk_requests_uses_explicit_max_tokens() -> None:
 
 def test_promote_single_chunk_carries_source_id() -> None:
     s = _empty_summary("x")
-    promoted = _promote_single_chunk(s, source_chunk_id=77)
+    promoted = promote_single_chunk(s, source_chunk_id=77)
     assert isinstance(promoted, MergedSummary)
     assert promoted.merge_level == 0
     assert promoted.chunks_merged == 1
@@ -345,9 +343,7 @@ def test_run_chunk_phase_persists_incrementally_on_partial_failure() -> None:
     backend = _FailingBackend()
 
     with pytest.raises(RuntimeError, match="simulated llm failure"):
-        _call_run_chunk_phase(
-            appid=440, reviews=reviews, backend=backend, chunk_repo=chunk_repo
-        )
+        _call_run_chunk_phase(appid=440, reviews=reviews, backend=backend, chunk_repo=chunk_repo)
 
     # Chunks 0 and 1 persisted BEFORE the exception — the whole point of
     # the streaming callback is that their work isn't thrown away.

@@ -9,22 +9,35 @@ Input:
         "appid": 440,
         "phase": "chunk" | "merge" | "synthesis",
         "execution_id": "sp-batch-20260409-abcd",
-        "merged_summary_id": 99  # synthesis only, threaded from merge phase
+        "merged_summary_id": 99,  # synthesis only, threaded from merge phase
+        "merge_level": 1,         # merge only, 1 or 2
+        "merged_ids": [10, 20]    # merge L2 only, from L1 collect/skip
     }
 
-Output (phase == "chunk" | "merge" | "synthesis"):
+Output (phase == "chunk" | "synthesis"):
     {
         "appid": 440,
         "phase": "<phase>",
         "execution_id": "...",
         "job_id": "msgbatch_01abc...",  # Anthropic batch ID
-        "skip": false  # true if cache hit — no batch job needed, state
-                       # machine short-circuits directly to the next phase
+        "skip": false
+    }
+
+Output (phase == "merge"):
+    {
+        "appid": 440,
+        "phase": "merge",
+        "execution_id": "...",
+        "job_id": "msgbatch_01abc...",  # null when skip=true
+        "skip": false,
+        "merge_level": 1,
+        "merged_ids": [42],             # final ID(s) for next level
+        "group_meta": [...],            # threaded to collect
+        "cached_group_meta": [...]      # groups already persisted
     }
 
 When `skip=true`, Step Functions should short-circuit the Wait/Check loop for
-this phase and proceed directly to the next phase. The downstream state reads
-the persisted artifacts (chunk_summaries / merged_summaries) from Postgres.
+this phase and proceed directly to the next phase.
 
 "Job still pending" is Step Functions state, NEVER an exception. This Lambda
 returns immediately after submit; the polling loop lives in the state machine
@@ -37,15 +50,20 @@ from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
+    MERGE_PROMPT_VERSION,
     PIPELINE_VERSION,
     SYNTHESIS_PROMPT_VERSION,
     AnalyzerSettings,
     build_chunk_requests,
+    build_merge_record_id,
+    build_merge_request,
     build_synthesis_request,
-    run_merge_phase,
+    compute_merge_groups,
+    merged_as_chunk_like,
+    promote_single_chunk,
 )
 from library_layer.config import SteamPulseConfig
-from library_layer.llm import make_batch_backend, make_converse_backend
+from library_layer.llm import make_batch_backend
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.models.analyzer_models import MergedSummary, RichChunkSummary
 from library_layer.models.metadata import build_metadata_context
@@ -80,15 +98,6 @@ _batch_exec_repo = BatchExecutionRepository(get_conn)
 # SteamPulseConfig. No hardcoded module constants here.
 _analyzer_settings = AnalyzerSettings.from_config(_config)
 
-# Module-level ConverseBackend singleton — used by _prepare_merge which
-# runs the merge phase inline. Building instructor/AnthropicBedrock on
-# every invocation would defeat Lambda warm-start reuse.
-_converse_backend = make_converse_backend(
-    _config,
-    max_workers=_config.ANALYSIS_CONVERSE_MAX_WORKERS,
-    max_retries=_config.ANALYSIS_CONVERSE_MAX_RETRIES,
-)
-
 
 def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     return make_batch_backend(
@@ -111,10 +120,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
     if phase == "chunk":
         return _prepare_chunk(appid, backend, execution_id)
     if phase == "merge":
-        return _prepare_merge(appid, backend, execution_id)
+        merge_level = int(event.get("merge_level", 1))
+        merged_ids = [int(mid) for mid in event.get("merged_ids", [])]
+        return _prepare_merge(appid, backend, execution_id, merge_level, merged_ids)
     if phase == "synthesis":
         # `merged_summary_id` is threaded in from the state machine —
-        # it's the id `_prepare_merge` returned for THIS execution, so
+        # it's the id the merge phase returned for THIS execution, so
         # synthesis does not race on find_latest_by_appid under
         # concurrent re-analysis for the same appid.
         raw = event.get("merged_summary_id")
@@ -125,9 +136,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     raise ValueError(f"Unknown phase: {phase!r}")
 
 
-def _prepare_chunk(
-    appid: int, backend: AnthropicBatchBackend, execution_id: str
-) -> dict:
+def _prepare_chunk(appid: int, backend: AnthropicBatchBackend, execution_id: str) -> dict:
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -195,7 +204,12 @@ def _prepare_chunk(
     except Exception:
         logger.exception(
             "batch_execution_tracking_insert_failed",
-            extra={"appid": appid, "execution_id": execution_id, "phase": "chunk", "job_id": job_id},
+            extra={
+                "appid": appid,
+                "execution_id": execution_id,
+                "phase": "chunk",
+                "job_id": job_id,
+            },
         )
 
     return {
@@ -208,31 +222,27 @@ def _prepare_chunk(
 
 
 def _prepare_merge(
-    appid: int, backend: AnthropicBatchBackend, execution_id: str
+    appid: int,
+    backend: AnthropicBatchBackend,
+    execution_id: str,
+    merge_level: int,
+    merged_ids: list[int],
 ) -> dict:
-    """Run the merge phase INLINE via ConverseBackend and short-circuit the
-    Step Functions wait loop.
+    """Submit merge groups as a batch job via AnthropicBatchBackend.
 
-    Merge is bounded by `MAX_CHUNKS_PER_MERGE_CALL * number_of_levels`
-    LLM calls, each of which runs in seconds via sync Converse. Even for
-    very large games (hundreds of chunks, 2 merge levels) this completes
-    well within a Lambda timeout. Running merge inline — instead of
-    spinning up a Bedrock Batch Inference job — means:
+    Called for both merge levels. Level 1 loads chunk summaries from DB;
+    level 2 loads intermediate MergedSummary rows produced by level 1.
 
-      * We share ONE `run_merge_phase` implementation with the realtime
-        path, so hierarchical merge behavior and source_chunk_ids
-        tracking cannot drift between paths.
-      * The Step Functions state machine does not need a per-level loop;
-        batch merge is always a single "skip=true" transition from the
-        state machine's perspective.
-      * We avoid the overhead of writing merge inputs to S3, submitting a
-        batch job, and polling for completion — Bedrock Batch Inference
-        is designed to amortize fixed per-job cost across many records,
-        and merge has at most a handful.
-
-    Bedrock Batch Inference is still used for the CHUNK phase (which has
-    tens of records per game) and the SYNTHESIS phase.
+    Returns ``skip=true`` when:
+    - single chunk (Python promotion, no LLM needed)
+    - whole-set cache hit
+    - all groups cached at this level and only 1 result
+    - level 2 receives a single merged_id (level 1 already converged)
     """
+    if merge_level == 2:
+        return _prepare_merge_l2(appid, backend, execution_id, merged_ids)
+
+    # ── Level 1: load chunk summaries from DB ──
     game = _game_repo.find_by_appid(appid)
     if game is None:
         raise ValueError(f"appid={appid} not in games table")
@@ -246,33 +256,254 @@ def _prepare_merge(
     summaries = [RichChunkSummary.model_validate(r["summary_json"]) for r in rows]
     chunk_ids = [int(r["id"]) for r in rows]
 
-    _merged, merged_summary_id = run_merge_phase(
+    def _skip_result(merged_summary_id: int) -> dict:
+        return {
+            "appid": appid,
+            "phase": "merge",
+            "execution_id": execution_id,
+            "job_id": None,
+            "skip": True,
+            "merge_level": merge_level,
+            "merged_summary_id": merged_summary_id,
+            "merged_ids": [merged_summary_id],
+        }
+
+    # Single-chunk: Python promotion, no LLM call.
+    if len(summaries) == 1:
+        cached_promotion = _merge_repo.find_latest_by_source_ids(
+            appid, [chunk_ids[0]], MERGE_PROMPT_VERSION
+        )
+        if cached_promotion is not None:
+            logger.info(
+                "merge_prepare_single_chunk_cache_hit",
+                extra={"appid": appid, "merge_id": int(cached_promotion["id"])},
+            )
+            return _skip_result(int(cached_promotion["id"]))
+
+        merged = promote_single_chunk(summaries[0], source_chunk_id=chunk_ids[0])
+        row_id = _merge_repo.insert(
+            appid,
+            0,
+            merged,
+            [chunk_ids[0]],
+            1,
+            model_id="python-promotion",
+            prompt_version=MERGE_PROMPT_VERSION,
+        )
+        logger.info(
+            "merge_prepare_single_chunk_promoted",
+            extra={"appid": appid, "merge_id": row_id},
+        )
+        return _skip_result(row_id)
+
+    # Whole-set cache hit.
+    cached = _merge_repo.find_latest_by_source_ids(appid, chunk_ids, MERGE_PROMPT_VERSION)
+    if cached is not None:
+        logger.info(
+            "merge_prepare_whole_set_cache_hit",
+            extra={"appid": appid, "merge_id": int(cached["id"])},
+        )
+        return _skip_result(int(cached["id"]))
+
+    # Compute groups + per-group cache.
+    return _submit_merge_batch(
         appid=appid,
         game_name=game.name,
+        summaries=summaries,
+        source_id_sets=[[cid] for cid in chunk_ids],
+        backend=backend,
+        execution_id=execution_id,
+        merge_level=1,
+    )
+
+
+def _prepare_merge_l2(
+    appid: int,
+    backend: AnthropicBatchBackend,
+    execution_id: str,
+    merged_ids: list[int],
+) -> dict:
+    """Prepare merge level 2: load level-1 intermediates and merge them."""
+
+    def _skip_result(merged_summary_id: int) -> dict:
+        return {
+            "appid": appid,
+            "phase": "merge",
+            "execution_id": execution_id,
+            "job_id": None,
+            "skip": True,
+            "merge_level": 2,
+            "merged_summary_id": merged_summary_id,
+            "merged_ids": [merged_summary_id],
+        }
+
+    # If level 1 already converged to a single result, skip.
+    if len(merged_ids) <= 1:
+        mid = merged_ids[0] if merged_ids else None
+        if mid is None:
+            raise ValueError("merge L2: no merged_ids from level 1")
+        logger.info(
+            "merge_l2_prepare_single_input_skip",
+            extra={"appid": appid, "merged_summary_id": mid},
+        )
+        return _skip_result(mid)
+
+    game = _game_repo.find_by_appid(appid)
+    if game is None:
+        raise ValueError(f"appid={appid} not in games table")
+
+    # Load level-1 intermediates by their row IDs (race-free).
+    intermediates: list[RichChunkSummary] = []
+    source_id_sets: list[list[int]] = []
+    for mid in merged_ids:
+        row = _merge_repo.find_by_id(mid)
+        if row is None:
+            raise ValueError(f"merge L2: intermediate row {mid} not found")
+        ms = MergedSummary.model_validate(row["summary_json"])
+        intermediates.append(merged_as_chunk_like(ms))
+        # Transitive leaf IDs from the intermediate's source_chunk_ids.
+        source_id_sets.append(sorted(row["source_chunk_ids"]))
+
+    # Whole-set cache check (all leaf IDs across all intermediates).
+    all_leaf_ids = sorted({lid for ids in source_id_sets for lid in ids})
+    cached = _merge_repo.find_latest_by_source_ids(appid, all_leaf_ids, MERGE_PROMPT_VERSION)
+    if cached is not None:
+        logger.info(
+            "merge_l2_prepare_whole_set_cache_hit",
+            extra={"appid": appid, "merge_id": int(cached["id"])},
+        )
+        return _skip_result(int(cached["id"]))
+
+    return _submit_merge_batch(
+        appid=appid,
+        game_name=game.name,
+        summaries=intermediates,
+        source_id_sets=source_id_sets,
+        backend=backend,
+        execution_id=execution_id,
+        merge_level=2,
+    )
+
+
+def _submit_merge_batch(
+    *,
+    appid: int,
+    game_name: str,
+    summaries: list[RichChunkSummary],
+    source_id_sets: list[list[int]],
+    backend: AnthropicBatchBackend,
+    execution_id: str,
+    merge_level: int,
+) -> dict:
+    """Shared logic for level 1 and level 2 merge batch submission."""
+    plan = compute_merge_groups(
+        appid=appid,
         chunk_summaries=summaries,
-        chunk_ids=chunk_ids,
-        backend=_converse_backend,
+        source_id_sets=source_id_sets,
         merge_repo=_merge_repo,
         max_chunks_per_merge_call=_analyzer_settings.max_chunks_per_merge_call,
-        merge_max_tokens=_analyzer_settings.merge_max_tokens,
-        merge_temperature=_analyzer_settings.merge_temperature,
     )
+
+    # If all groups are cached, short-circuit.
+    if not plan.pending:
+        if len(plan.cached) == 1:
+            cg = plan.cached[0]
+            logger.info(
+                "merge_prepare_all_cached_single",
+                extra={"appid": appid, "merge_id": cg.merge_id, "level": merge_level},
+            )
+            return {
+                "appid": appid,
+                "phase": "merge",
+                "execution_id": execution_id,
+                "job_id": None,
+                "skip": True,
+                "merge_level": merge_level,
+                "merged_summary_id": cg.merge_id,
+                "merged_ids": [cg.merge_id],
+            }
+        # Multiple cached groups: still need another level to converge.
+        # Return the cached IDs so the next merge level processes them.
+        return {
+            "appid": appid,
+            "phase": "merge",
+            "execution_id": execution_id,
+            "job_id": None,
+            "skip": True,
+            "merge_level": merge_level,
+            "merged_summary_id": None,
+            "merged_ids": [cg.merge_id for cg in plan.cached],
+        }
+
+    # Build LLMRequests for pending groups.
+    pending_requests = []
+    group_meta = []
+    for mg in plan.pending:
+        request = build_merge_request(
+            appid=appid,
+            game_name=game_name,
+            summaries=mg.summaries,
+            record_id=build_merge_record_id(appid, merge_level, mg.group_index),
+            merge_max_tokens=_analyzer_settings.merge_max_tokens,
+            merge_temperature=_analyzer_settings.merge_temperature,
+        )
+        pending_requests.append(request)
+        group_meta.append(
+            {
+                "group_index": mg.group_index,
+                "source_chunk_ids": mg.source_chunk_ids,
+            }
+        )
+
+    cached_group_meta = [
+        {"group_index": cg.group_index, "merge_id": cg.merge_id} for cg in plan.cached
+    ]
+
+    prepared = backend.prepare(pending_requests, phase=f"merge-{appid}-L{merge_level}")
+    job_id = backend.submit(prepared, task="merging", phase=f"merge-{appid}-L{merge_level}")
+
+    try:
+        _batch_exec_repo.insert(
+            execution_id=execution_id,
+            appid=appid,
+            phase=f"merge-L{merge_level}",
+            backend=_config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=_config.model_for("merging"),
+            request_count=len(pending_requests),
+            pipeline_version=PIPELINE_VERSION,
+            prompt_version=MERGE_PROMPT_VERSION,
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_tracking_insert_failed",
+            extra={
+                "appid": appid,
+                "execution_id": execution_id,
+                "phase": f"merge-L{merge_level}",
+                "job_id": job_id,
+            },
+        )
+
     logger.info(
-        "merge_prepare_inline_complete",
-        extra={"chunks": len(summaries), "merged_summary_id": merged_summary_id},
+        "merge_prepare_batch_submitted",
+        extra={
+            "appid": appid,
+            "merge_level": merge_level,
+            "pending_groups": len(plan.pending),
+            "cached_groups": len(plan.cached),
+            "job_id": job_id,
+        },
     )
     return {
         "appid": appid,
         "phase": "merge",
         "execution_id": execution_id,
-        "job_id": None,
-        "skip": True,
-        # Threaded forward to PrepareSynthesis via the state machine so
-        # synthesis reads the exact merge row THIS execution produced,
-        # not whatever `find_latest_by_appid` returns under a concurrent
-        # re-analysis. Same bookkeeping pattern as the synthesis →
-        # collect `merged_summary_id` / `chunk_count` threading.
-        "merged_summary_id": merged_summary_id,
+        "job_id": job_id,
+        "skip": False,
+        "merge_level": merge_level,
+        "group_meta": group_meta,
+        "cached_group_meta": cached_group_meta,
     }
 
 
@@ -383,7 +614,12 @@ def _prepare_synthesis(
     except Exception:
         logger.exception(
             "batch_execution_tracking_insert_failed",
-            extra={"appid": appid, "execution_id": execution_id, "phase": "synthesis", "job_id": job_id},
+            extra={
+                "appid": appid,
+                "execution_id": execution_id,
+                "phase": "synthesis",
+                "job_id": job_id,
+            },
         )
 
     return {

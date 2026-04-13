@@ -25,6 +25,7 @@ from library_layer.models.analyzer_models import (
     ContentDepth,
     DevPriority,
     GameReport,
+    MergedSummary,
     MonetizationSentiment,
     RefundSignals,
     RichBatchStats,
@@ -67,6 +68,28 @@ def _empty_chunk_summary(label: str = "t") -> RichChunkSummary:
         competitor_refs=[],
         notable_quotes=[],
         batch_stats=RichBatchStats(positive_count=1, negative_count=0),
+    )
+
+
+def _minimal_merged_summary() -> MergedSummary:
+    """The smallest valid MergedSummary for merge collect tests."""
+    return MergedSummary(
+        topics=[
+            TopicSignal(
+                topic="test",
+                category="design_praise",
+                sentiment="positive",
+                mention_count=1,
+                confidence="low",
+                summary="ok",
+            )
+        ],
+        competitor_refs=[],
+        notable_quotes=[],
+        total_stats=RichBatchStats(positive_count=1, negative_count=0),
+        merge_level=0,
+        chunks_merged=1,
+        source_chunk_ids=[1],
     )
 
 
@@ -294,14 +317,7 @@ def test_collect_synthesis_upserts_report_with_pipeline_bookkeeping() -> None:
     cp._chunk_repo.find_by_appid.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
     cp._sns = MagicMock()
 
-    # collect_phase does NOT own a MergedSummaryRepository — it reads
-    # merged_summary_id directly from the SFN event payload. This test
-    # verifies that contract by asserting the module has no such
-    # attribute AND that the payload value flows through to upsert.
-    assert not hasattr(cp, "_merge_repo"), (
-        "collect_phase must not carry a MergedSummaryRepository singleton — "
-        "merged_summary_id flows in via the SFN event payload"
-    )
+    cp._merge_repo = MagicMock()
 
     backend = _stub_backend(cp)
     backend.collect.return_value = BatchCollectResult(
@@ -399,21 +415,30 @@ def test_collect_synthesis_tolerates_event_publish_failure() -> None:
 
 
 @mock_aws
-def test_handler_rejects_merge_phase() -> None:
-    """Merge is handled inline by prepare_phase; collect_phase must
-    never route a merge event."""
+def test_handler_routes_merge_phase() -> None:
+    """Merge events are dispatched to _collect_merge with the correct
+    event fields."""
     cp = _get_module()
-    _stub_backend(cp)
-    try:
-        cp.handler(
-            {
-                "appid": 440,
-                "phase": "merge",
-                "execution_id": "exec-6",
-                "job_id": "arn:aws:bedrock:...:job/abc",
-            },
-            context=None,
-        )
-        raise AssertionError("expected ValueError")
-    except ValueError as exc:
-        assert "Unknown phase" in str(exc)
+    cp._merge_repo = MagicMock()
+    cp._merge_repo.insert.return_value = 42
+    backend = _stub_backend(cp)
+    backend.collect.return_value = BatchCollectResult(
+        results=[("440-merge-L1-G0", _minimal_merged_summary())],
+        failed_ids=[],
+        skipped=0,
+    )
+
+    result = cp.handler(
+        {
+            "appid": 440,
+            "phase": "merge",
+            "execution_id": "exec-6",
+            "job_id": "msgbatch_01abc",
+            "merge_level": 1,
+            "group_meta": [{"group_index": 0, "source_chunk_ids": [1, 2, 3]}],
+            "cached_group_meta": [],
+        },
+        context=None,
+    )
+    assert result["merged_ids"] == [42]
+    assert result["merged_summary_id"] == 42

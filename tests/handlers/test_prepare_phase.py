@@ -216,13 +216,13 @@ def test_prepare_merge_always_returns_skip_and_persists() -> None:
     )
     assert result["skip"] is True
     assert result["job_id"] is None
-    # merged_summary_id from run_merge_phase is threaded forward to
-    # PrepareSynthesis via the state machine so the next phase does
-    # not race on find_latest_by_appid under concurrent re-analysis.
+    # merged_summary_id is threaded forward to the next merge level
+    # and ultimately to PrepareSynthesis via the state machine.
     assert result["merged_summary_id"] == 99
+    assert result["merged_ids"] == [99]
     batch_backend.prepare.assert_not_called()
     batch_backend.submit.assert_not_called()
-    # Promotion row was persisted via the inline Converse path.
+    # Promotion row was persisted.
     pp._merge_repo.insert.assert_called_once()
     insert_call = pp._merge_repo.insert.call_args
     assert insert_call.kwargs["model_id"] == "python-promotion"

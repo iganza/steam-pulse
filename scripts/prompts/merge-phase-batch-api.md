@@ -61,21 +61,21 @@ This is the common path. Treat it exactly like synthesis:
 
 ### Multi-Level Case (> max_chunks_per_merge_call)
 
-When chunks exceed the per-call limit, we need multiple batches at level 1, then merge
-those results at level 2, etc. The state machine already has a wait/poll/collect loop
-per phase — we can reuse it with a "needs another level" signal:
+When chunks exceed the per-call limit, we need multiple groups at level 1, then merge
+those results at level 2. The state machine uses two fixed merge level chains (L1 → L2)
+with a Choice gate between them:
 
-- `_prepare_merge`: submit level-1 batch (N requests, one per group). Encode
-  `(appid, level, group_index, source_chunk_ids_hash)` in each `record_id`.
-- `_collect_merge`: collect results, persist each `MergedSummary`. If >1 result remains,
-  return `{"skip": false, "needs_next_level": true, "merge_level": 2}` — the state machine
-  loops back to prepare merge with the next level's inputs.
-- When only 1 result remains, return `{"skip": true, "merged_summary_id": N}` and the
-  state machine proceeds to synthesis.
+- `_prepare_merge(merge_level=1)`: submit level-1 batch (N requests, one per group).
+  Encode `record_id` as `"{appid}-merge-L{level}-G{group_index}"`.
+- `_collect_merge`: collect results, persist each `MergedSummary`. Return
+  `{"merged_summary_id": ID, "merged_ids": [ID]}` when 1 result, or
+  `{"merged_summary_id": null, "merged_ids": [id1, id2, ...]}` when multiple remain.
+- After L1 (skip or collect), a `MergeNeedsL2?` Choice checks
+  `$.merge.merged_summary_id`: if non-null → synthesis; if null → L2.
+- `_prepare_merge(merge_level=2)`: reads `merged_ids` from L1, loads intermediates by
+  row ID, groups and submits.
 
-The state machine's existing phase chain can handle this if we add a loop-back condition
-in the merge Choice state: if collect returns `needs_next_level=true`, route back to
-PrepareMerge instead of forward to synthesis.
+Two levels covers up to 1600 chunks (40²), which exceeds any realistic game.
 
 ### Single-Chunk Short-Circuit
 
@@ -99,31 +99,36 @@ Replace inline ConverseBackend call with batch submission:
 - Load chunk summaries + IDs from DB (unchanged)
 - Single-chunk: Python promotion, return `skip=true` (unchanged)
 - Whole-set cached: return `skip=true` with cached `merged_summary_id` (unchanged)
-- Otherwise: compute groups, check per-group cache, submit uncached groups as batch
-- Encode `record_id` as `"{appid}-merge-L{level}-G{group_idx}-{leaf_ids_hash}"`
+- Otherwise: compute groups via `compute_merge_groups()`, check per-group cache, submit
+  uncached groups as batch
+- Encode `record_id` as `"{appid}-merge-L{level}-G{group_idx}"`
 - Store group metadata (source_chunk_ids per group) in the event output so collect can
   reconstruct without re-querying
-- Return `{"skip": false, "job_id": "...", "merge_level": 1, "group_meta": [...]}`
+- Return `{"skip": false, "job_id": "...", "merge_level": 1, "group_meta": [...],
+  "cached_group_meta": [...]}`
 
 ### 2. `collect_phase.py` — add `_collect_merge`
 
 New function to collect merge batch results:
 - Iterate batch results, parse `record_id` to identify group
+- Validate `level` from record_id matches `merge_level` from the event
 - Persist each `MergedSummary` with correct `source_chunk_ids`, `merge_level`, `model_id`
 - Record tokens/cost via `batch_exec_repo.mark_completed()`
-- If >1 result: return `{"needs_next_level": true, "merge_level": N+1}`
-- If 1 result: return `{"merged_summary_id": ID}`
+- Build `merged_ids` sorted by group_index (deterministic ordering for cache consistency)
+- Merge freshly persisted IDs with cached group IDs from prepare
+- If 1 total result: return `{"merged_summary_id": ID, "merged_ids": [ID]}`
+- If >1 results: return `{"merged_summary_id": null, "merged_ids": [...]}`
 - Fail pipeline on any validation failures (same pattern as chunks)
 
-### 3. `batch_analysis_stack.py` — add merge loop in state machine
+### 3. `batch_analysis_stack.py` — two-level merge chain
 
-The merge phase chain needs a loop-back path:
-- After CollectMerge, check if `needs_next_level` is true
-- If true: route back to PrepareMerge (which reads the level-N results from DB and
-  submits level N+1)
-- If false: thread `merged_summary_id` forward to synthesis
-- The existing `_phase_chain` pattern doesn't support loops — merge will need a custom
-  chain or a small refactor of the phase wiring
+Replace `_phase_chain("merge", synthesis_chain)` with:
+- `_merge_level_chain("", 1, merge_needs_l2)` — level 1
+- `MergeNeedsL2?` Choice: `is_not_null($.merge.merged_summary_id)` → synthesis, else → L2
+- `_merge_level_chain("L2", 2, synthesis_chain)` — level 2
+- Both levels share `$.merge` as result_path; collect writes to `$.merge` (not
+  `$.merge.collected`) so `merged_summary_id` is always at `$.merge.merged_summary_id`
+- Synthesis payload unchanged: still reads `$.merge.merged_summary_id`
 
 ### 4. Remove ConverseBackend from prepare_phase
 
@@ -134,9 +139,14 @@ The merge phase chain needs a loop-back path:
 ### 5. `analyzer.py` — extract batch-friendly helpers
 
 `run_merge_phase()` currently owns the full loop + LLM calls. Extract:
-- `compute_merge_groups()` — given chunks + max_per_call, return groups with leaf IDs
-- `build_merge_request()` already exists — reuse as-is
-- Keep `run_merge_phase()` intact for the realtime path (used by `analysis/handler.py`)
+- `compute_merge_groups()` — given chunks + source_id_sets + max_per_call, return
+  `MergeGroupPlan` with separate `pending` and `cached` lists (no `| None` fields)
+- `build_merge_record_id()` / `parse_merge_record_id()` — encode/decode
+  `"{appid}-merge-L{level}-G{group_index}"`
+- `build_merge_request()` updated to accept explicit `record_id` parameter
+- `promote_single_chunk()` and `merged_as_chunk_like()` made public (cross-module use)
+- Keep `run_merge_phase()` intact for the realtime path (used by `analysis/handler.py`),
+  refactored to call `compute_merge_groups()` internally
 
 ## Files Touched
 

@@ -264,10 +264,15 @@ def _collect_merge(
     """
     meta_by_index = {int(gm["group_index"]): gm for gm in group_meta}
     model_id = _config.model_for("merging")
+    # Track persisted IDs keyed by group_index so the output list is
+    # deterministic (matches the original group order from prepare).
+    # Non-deterministic ordering would change grouping at the next merge
+    # level and reduce cache hit rates.
+    persisted_by_index: dict[int, int] = {}
+    already_failed = False
 
     try:
         collect_result = backend.collect(job_id, default_response_model=MergedSummary)
-        persisted_ids: list[int] = []
         dropped_ids: list[str] = []
 
         for record_id, summary in collect_result.results:
@@ -287,6 +292,17 @@ def _collect_merge(
                 )
                 dropped_ids.append(record_id)
                 continue
+            if level != merge_level:
+                logger.warning(
+                    "record_id_level_mismatch",
+                    extra={
+                        "record_id": record_id,
+                        "expected_level": merge_level,
+                        "got_level": level,
+                    },
+                )
+                dropped_ids.append(record_id)
+                continue
             gm = meta_by_index.get(group_index)
             if gm is None:
                 logger.warning(
@@ -298,19 +314,19 @@ def _collect_merge(
 
             source_chunk_ids = sorted(int(x) for x in gm["source_chunk_ids"])
             # Server-computed bookkeeping — never trust the LLM.
-            summary.merge_level = level
+            summary.merge_level = merge_level
             summary.chunks_merged = len(source_chunk_ids)
             summary.source_chunk_ids = source_chunk_ids
             row_id = _merge_repo.insert(
                 appid,
-                level,
+                merge_level,
                 summary,
                 source_chunk_ids,
                 len(source_chunk_ids),
                 model_id=model_id,
                 prompt_version=MERGE_PROMPT_VERSION,
             )
-            persisted_ids.append(row_id)
+            persisted_by_index[group_index] = row_id
 
         all_failed_ids = collect_result.failed_ids + dropped_ids
         failed_count = len(all_failed_ids)
@@ -339,7 +355,7 @@ def _collect_merge(
         try:
             _batch_exec_repo.mark_completed(
                 job_id,
-                succeeded_count=len(persisted_ids),
+                succeeded_count=len(persisted_by_index),
                 failed_count=failed_count,
                 failed_record_ids=all_failed_ids,
                 input_tokens=collect_result.input_tokens,
@@ -356,8 +372,8 @@ def _collect_merge(
 
         if failed_count > 0:
             reason = (
-                f"{failed_count}/{len(persisted_ids) + failed_count} merge records "
-                f"failed ({len(persisted_ids)} persisted) for appid={appid}"
+                f"{failed_count}/{len(persisted_by_index) + failed_count} merge records "
+                f"failed ({len(persisted_by_index)} persisted) for appid={appid}"
             )
             try:
                 _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
@@ -366,23 +382,28 @@ def _collect_merge(
                     "batch_execution_mark_failed_failed",
                     extra={"appid": appid, "job_id": job_id},
                 )
+            already_failed = True
             raise RuntimeError(reason)
 
     except Exception as exc:
-        try:
-            _batch_exec_repo.mark_failed(
-                job_id,
-                failure_reason=f"Merge collect failed for appid={appid}: {exc}",
-            )
-        except Exception:
-            logger.exception(
-                "batch_execution_mark_failed_failed",
-                extra={"appid": appid, "job_id": job_id},
-            )
+        if not already_failed:
+            try:
+                _batch_exec_repo.mark_failed(
+                    job_id,
+                    failure_reason=f"Merge collect failed for appid={appid}: {exc}",
+                )
+            except Exception:
+                logger.exception(
+                    "batch_execution_mark_failed_failed",
+                    extra={"appid": appid, "job_id": job_id},
+                )
         raise
 
-    # Merge persisted IDs with cached group IDs from prepare.
-    all_merged_ids = persisted_ids + [int(cg["merge_id"]) for cg in cached_group_meta]
+    # Build merged_ids in group_index order (persisted + cached) so the
+    # next merge level groups them deterministically and maximises cache hits.
+    cached_by_index = {int(cg["group_index"]): int(cg["merge_id"]) for cg in cached_group_meta}
+    id_by_index = {**cached_by_index, **persisted_by_index}
+    all_merged_ids = [id_by_index[k] for k in sorted(id_by_index)]
 
     if len(all_merged_ids) == 1:
         merged_summary_id = all_merged_ids[0]
@@ -394,7 +415,7 @@ def _collect_merge(
         extra={
             "appid": appid,
             "merge_level": merge_level,
-            "persisted": len(persisted_ids),
+            "persisted": len(persisted_by_index),
             "cached": len(cached_group_meta),
             "total_merged": len(all_merged_ids),
             "merged_summary_id": merged_summary_id,

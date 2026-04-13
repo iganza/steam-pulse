@@ -363,7 +363,17 @@ class BatchAnalysisStack(cdk.Stack):
         done = sfn.Succeed(self, "AnalysisComplete")
         synthesis_chain = _phase_chain("synthesis", done)
         merge_l2_chain = _merge_level_chain("L2", 2, synthesis_chain)
-        merge_l1_chain = _merge_level_chain("", 1, merge_l2_chain)
+
+        # After L1 (skip or collect), check if L2 is needed: when
+        # merged_summary_id is set (single result), jump straight to
+        # synthesis. Only route to L2 when multiple intermediates remain.
+        merge_needs_l2 = sfn.Choice(self, "MergeNeedsL2?")
+        merge_needs_l2.when(
+            sfn.Condition.is_not_null("$.merge.merged_summary_id"),
+            synthesis_chain,
+        ).otherwise(merge_l2_chain)
+
+        merge_l1_chain = _merge_level_chain("", 1, merge_needs_l2)
         chunk_chain = _phase_chain("chunk", merge_l1_chain)
 
         state_machine = sfn.StateMachine(

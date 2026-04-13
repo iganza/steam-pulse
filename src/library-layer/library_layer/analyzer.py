@@ -643,9 +643,11 @@ def parse_merge_record_id(record_id: str) -> tuple[int, int, int] | None:
         # "<appid>-merge-L<level>-G<group_index>"
         if len(parts) != 4 or parts[1] != "merge":
             raise ValueError(f"unexpected format: {record_id}")
+        if not parts[2].startswith("L") or not parts[3].startswith("G"):
+            raise ValueError(f"missing L/G prefixes: {record_id}")
         appid = int(parts[0])
-        level = int(parts[2].removeprefix("L"))
-        group_index = int(parts[3].removeprefix("G"))
+        level = int(parts[2][1:])
+        group_index = int(parts[3][1:])
         return appid, level, group_index
     except (AttributeError, ValueError):
         logger.warning(

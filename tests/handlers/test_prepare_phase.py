@@ -1,13 +1,16 @@
 """Tests for batch_analysis/prepare_phase.py — the parametrized prepare Lambda.
 
-Covers the four contracts called out in PR review:
+Covers the contracts:
   1. chunk phase returns skip=true when all chunks are cache-hits
-  2. chunk phase submits a Bedrock batch job when pending chunks exist
-  3. merge phase always runs inline via ConverseBackend and returns skip=true
-  4. synthesis phase raises cleanly when no merged summary exists
+  2. chunk phase submits a batch job when pending chunks exist
+  3. merge phase single-chunk promotion returns skip=true
+  4. merge phase multi-chunk submits a batch job with group_meta
+  5. merge phase excludes cached groups from the batch
+  6. merge phase rejects invalid merge_level
+  7. synthesis phase raises cleanly when no merged summary exists
 
-Tests stub the repos + ConverseBackend / BatchBackend at module level (the
-same pattern the ingest_handler tests use) so no real AWS/DB calls happen.
+Tests stub the repos + BatchBackend at module level (the same pattern the
+ingest_handler tests use) so no real AWS/DB calls happen.
 """
 
 from datetime import datetime
@@ -238,6 +241,114 @@ def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
     with pytest.raises(ValueError, match="no chunk_summaries"):
         pp.handler(
             {"appid": 440, "phase": "merge", "execution_id": "exec-4"},
+            context=None,
+        )
+
+
+def test_prepare_merge_submits_batch_for_multi_chunk_game() -> None:
+    """When multiple chunks exist and no cache hit, merge submits a batch job."""
+    pp = _get_module()
+    _install_fake_game(pp)
+
+    # 3 chunk summaries → one merge group (< max_chunks_per_merge_call).
+    pp._chunk_repo = MagicMock()
+    pp._chunk_repo.find_by_appid.return_value = [
+        {"id": i, "summary_json": _empty_summary(f"c{i}").model_dump(mode="json")}
+        for i in range(1, 4)
+    ]
+    pp._merge_repo = MagicMock()
+    pp._merge_repo.find_latest_by_source_ids.return_value = None  # no cache hits
+
+    backend = _install_fake_backend(pp)
+
+    result = pp.handler(
+        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-batch"},
+        context=None,
+    )
+    assert result["skip"] is False
+    assert result["job_id"] == "arn:aws:bedrock:...:job/abc"
+    assert result["merge_level"] == 1
+
+    # Batch was submitted with 1 pending group.
+    backend.prepare.assert_called_once()
+    backend.submit.assert_called_once()
+    pending_requests = backend.prepare.call_args.args[0]
+    assert len(pending_requests) == 1
+    assert pending_requests[0].task == "merging"
+    assert pending_requests[0].record_id == "440-merge-L1-G0"
+
+    # group_meta threaded for collect.
+    assert len(result["group_meta"]) == 1
+    assert result["group_meta"][0]["group_index"] == 0
+    assert sorted(result["group_meta"][0]["source_chunk_ids"]) == [1, 2, 3]
+    assert result["cached_group_meta"] == []
+
+    # Tracking row inserted.
+    pp._batch_exec_repo.insert.assert_called_once()
+    insert_kwargs = pp._batch_exec_repo.insert.call_args.kwargs
+    assert insert_kwargs["phase"] == "merge-L1"
+    assert insert_kwargs["request_count"] == 1
+
+
+def test_prepare_merge_excludes_cached_groups_from_batch() -> None:
+    """Per-group cache hits are excluded from the batch; their IDs flow
+    through cached_group_meta for collect to merge with fresh results."""
+    pp = _get_module()
+    _install_fake_game(pp)
+
+    # 80 chunks → 2 groups of 40 at max_chunks_per_merge_call=40.
+    pp._chunk_repo = MagicMock()
+    pp._chunk_repo.find_by_appid.return_value = [
+        {"id": i, "summary_json": _empty_summary(f"c{i}").model_dump(mode="json")}
+        for i in range(1, 81)
+    ]
+    pp._merge_repo = MagicMock()
+    # First group (IDs 1-40) is cached; second (IDs 41-80) is not.
+    cached_row = {
+        "id": 500,
+        "summary_json": MergedSummary(
+            topics=[],
+            competitor_refs=[],
+            notable_quotes=[],
+            total_stats=RichBatchStats(),
+            merge_level=1,
+            chunks_merged=40,
+            source_chunk_ids=list(range(1, 41)),
+        ).model_dump(mode="json"),
+    }
+
+    def _find_latest_by_source_ids(appid: int, ids: list[int], pv: str) -> dict | None:
+        if sorted(ids) == list(range(1, 41)):
+            return cached_row
+        return None
+
+    pp._merge_repo.find_latest_by_source_ids.side_effect = _find_latest_by_source_ids
+
+    backend = _install_fake_backend(pp)
+
+    result = pp.handler(
+        {"appid": 440, "phase": "merge", "execution_id": "exec-merge-partial"},
+        context=None,
+    )
+    assert result["skip"] is False
+    # Only 1 pending group submitted (the uncached one).
+    pending_requests = backend.prepare.call_args.args[0]
+    assert len(pending_requests) == 1
+    assert pending_requests[0].record_id == "440-merge-L1-G1"
+
+    # Cached group flows through cached_group_meta.
+    assert len(result["cached_group_meta"]) == 1
+    assert result["cached_group_meta"][0]["merge_id"] == 500
+    assert result["cached_group_meta"][0]["group_index"] == 0
+
+
+def test_prepare_merge_rejects_invalid_merge_level() -> None:
+    pp = _get_module()
+    _install_fake_backend(pp)
+
+    with pytest.raises(ValueError, match="Unsupported merge_level=3"):
+        pp.handler(
+            {"appid": 440, "phase": "merge", "execution_id": "exec-bad", "merge_level": 3},
             context=None,
         )
 

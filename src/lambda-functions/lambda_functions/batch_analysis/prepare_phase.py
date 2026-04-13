@@ -121,6 +121,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
         return _prepare_chunk(appid, backend, execution_id)
     if phase == "merge":
         merge_level = int(event.get("merge_level", 1))
+        if merge_level not in (1, 2):
+            raise ValueError(f"Unsupported merge_level={merge_level}, expected 1 or 2")
         merged_ids = [int(mid) for mid in event.get("merged_ids", [])]
         return _prepare_merge(appid, backend, execution_id, merge_level, merged_ids)
     if phase == "synthesis":
@@ -422,8 +424,17 @@ def _submit_merge_batch(
                 "merged_summary_id": cg.merge_id,
                 "merged_ids": [cg.merge_id],
             }
-        # Multiple cached groups: still need another level to converge.
-        # Return the cached IDs so the next merge level processes them.
+        # Multiple cached groups: need another level to converge.
+        # At L1 this is fine — L2 will process them. At L2 this would
+        # require a third level, which means >1600 chunks (>80k reviews).
+        # No Steam game reaches this; fail fast rather than silently
+        # passing null merged_summary_id to synthesis.
+        if merge_level >= 2:
+            raise RuntimeError(
+                f"Merge L{merge_level}: {len(plan.cached)} cached groups remain "
+                f"after all groups resolved — would need level {merge_level + 1} "
+                f"which exceeds the 2-level limit. appid={appid}"
+            )
         return {
             "appid": appid,
             "phase": "merge",

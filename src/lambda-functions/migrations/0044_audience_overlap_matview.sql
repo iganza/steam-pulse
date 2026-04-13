@@ -5,28 +5,17 @@
 -- live self-join in AnalyticsRepository.find_audience_overlap().
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
-WITH unique_reviewers AS (
-    -- Deduplicate (appid, author_steamid) and carry voted_up so
-    -- overlap_raw never re-joins the raw reviews table.
-    SELECT appid, author_steamid, voted_up
-    FROM (
-        SELECT appid, author_steamid, voted_up,
-               ROW_NUMBER() OVER (
-                   PARTITION BY appid, author_steamid ORDER BY id DESC
-               ) AS dedup_rn
-        FROM reviews
-        WHERE author_steamid IS NOT NULL
-    ) deduped
-    WHERE dedup_rn = 1
-),
-reviewer_sample AS (
-    -- Cap at 10k unique reviewers per game to keep the self-join bounded
+WITH reviewer_sample AS (
+    -- Cap at 10k reviewers per game. Carries voted_up so overlap_raw
+    -- computes shared_sentiment_pct without re-joining raw reviews.
+    -- steam_review_id is UNIQUE so (appid, author_steamid) is 1:1.
     SELECT appid, author_steamid, voted_up
     FROM (
         SELECT appid, author_steamid, voted_up,
                ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-        FROM unique_reviewers
-    ) capped
+        FROM reviews
+        WHERE author_steamid IS NOT NULL
+    ) ranked
     WHERE rn <= 10000
 ),
 reviewer_counts AS (

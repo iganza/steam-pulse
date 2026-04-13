@@ -847,25 +847,14 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS mv_catalog_reports_tag_slugs_gin ON mv_catalog_reports USING GIN(tag_slugs)",
     # 0044_audience_overlap_matview — precomputed top-50 audience overlap per game
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
-    WITH unique_reviewers AS (
-        SELECT appid, author_steamid, voted_up
-        FROM (
-            SELECT appid, author_steamid, voted_up,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY appid, author_steamid ORDER BY id DESC
-                   ) AS dedup_rn
-            FROM reviews
-            WHERE author_steamid IS NOT NULL
-        ) deduped
-        WHERE dedup_rn = 1
-    ),
-    reviewer_sample AS (
+    WITH reviewer_sample AS (
         SELECT appid, author_steamid, voted_up
         FROM (
             SELECT appid, author_steamid, voted_up,
                    ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
-            FROM unique_reviewers
-        ) capped
+            FROM reviews
+            WHERE author_steamid IS NOT NULL
+        ) ranked
         WHERE rn <= 10000
     ),
     reviewer_counts AS (

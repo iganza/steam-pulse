@@ -21,10 +21,12 @@ Schema:
 ```sql
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_audience_overlap AS
 WITH reviewer_sample AS (
-    -- Cap at 10k reviewers per game to keep the self-join bounded
-    SELECT appid, author_steamid
+    -- Cap at 10k reviewers per game. Carries voted_up so overlap_raw
+    -- computes shared_sentiment_pct without re-joining raw reviews.
+    -- steam_review_id is UNIQUE so (appid, author_steamid) is 1:1.
+    SELECT appid, author_steamid, voted_up
     FROM (
-        SELECT appid, author_steamid,
+        SELECT appid, author_steamid, voted_up,
                ROW_NUMBER() OVER (PARTITION BY appid ORDER BY author_steamid) AS rn
         FROM reviews
         WHERE author_steamid IS NOT NULL
@@ -40,11 +42,10 @@ overlap_raw AS (
     SELECT a.appid,
            b.appid AS overlap_appid,
            COUNT(*) AS overlap_count,
-           ROUND(COUNT(*) FILTER (WHERE r_b.voted_up)::numeric
+           ROUND(COUNT(*) FILTER (WHERE b.voted_up)::numeric
                  / NULLIF(COUNT(*), 0) * 100, 1) AS shared_sentiment_pct
     FROM reviewer_sample a
     JOIN reviewer_sample b ON a.author_steamid = b.author_steamid AND a.appid != b.appid
-    JOIN reviews r_b ON r_b.appid = b.appid AND r_b.author_steamid = a.author_steamid
     GROUP BY a.appid, b.appid
 ),
 ranked AS (

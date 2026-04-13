@@ -442,3 +442,37 @@ def test_handler_routes_merge_phase() -> None:
     )
     assert result["merged_ids"] == [42]
     assert result["merged_summary_id"] == 42
+
+
+@mock_aws
+def test_handler_merge_combines_cached_and_fresh_groups() -> None:
+    """When some groups are cached, merged_ids contains both cached and
+    freshly persisted IDs in group_index order, and merged_summary_id
+    is None when multiple results remain (needs another merge level)."""
+    cp = _get_module()
+    cp._merge_repo = MagicMock()
+    cp._merge_repo.insert.return_value = 50
+    backend = _stub_backend(cp)
+    # Only group 1 goes through the batch — group 0 was cached in prepare.
+    backend.collect.return_value = BatchCollectResult(
+        results=[("440-merge-L1-G1", _minimal_merged_summary())],
+        failed_ids=[],
+        skipped=0,
+    )
+
+    result = cp.handler(
+        {
+            "appid": 440,
+            "phase": "merge",
+            "execution_id": "exec-7",
+            "job_id": "msgbatch_02xyz",
+            "merge_level": 1,
+            "group_meta": [{"group_index": 1, "source_chunk_ids": [4, 5, 6]}],
+            "cached_group_meta": [{"group_index": 0, "merge_id": 40}],
+        },
+        context=None,
+    )
+    # group_index order: 0 (cached=40), 1 (fresh=50)
+    assert result["merged_ids"] == [40, 50]
+    # Two results → not converged → merged_summary_id is None
+    assert result["merged_summary_id"] is None

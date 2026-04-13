@@ -182,22 +182,8 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
             cache_write_tokens=collect_result.cache_write_tokens,
         )
 
-        # Total validation failure: nothing persisted, pipeline can't proceed.
-        # Mark as failed so operators see a clear signal + reason.
-        if persisted == 0 and failed_count > 0:
-            reason = (
-                f"All {failed_count} chunk records failed validation "
-                f"(0 persisted) for appid={appid}"
-            )
-            try:
-                _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
-            except Exception:
-                logger.exception(
-                    "batch_execution_mark_failed_failed",
-                    extra={"appid": appid, "job_id": job_id},
-                )
-            raise RuntimeError(reason)
-
+        # Always record token usage and cost first — even if every record
+        # failed validation, the API consumed tokens and we need the cost.
         try:
             _batch_exec_repo.mark_completed(
                 job_id,
@@ -215,6 +201,23 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
                 "batch_execution_mark_completed_failed",
                 extra={"appid": appid, "job_id": job_id},
             )
+
+        # Any chunk failures mean the merge/synthesis phases would operate
+        # on an incomplete review set — fail the pipeline so it retries
+        # cleanly. Tokens/cost are already recorded above.
+        if failed_count > 0:
+            reason = (
+                f"{failed_count}/{persisted + failed_count} chunk records failed "
+                f"({persisted} persisted) for appid={appid}"
+            )
+            try:
+                _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
+            except Exception:
+                logger.exception(
+                    "batch_execution_mark_failed_failed",
+                    extra={"appid": appid, "job_id": job_id},
+                )
+            raise RuntimeError(reason)
     except Exception as exc:
         try:
             _batch_exec_repo.mark_failed(
@@ -265,8 +268,36 @@ def _collect_synthesis(
         if r.body
     ]
 
+    collect_result = backend.collect(job_id, default_response_model=GameReport)
+
+    # Always record token usage and cost first — even on failure, the API
+    # consumed tokens and we need the cost tracked.
+    cost = estimate_batch_cost_usd(
+        model_id=_config.model_for("summarizer"),
+        input_tokens=collect_result.input_tokens,
+        output_tokens=collect_result.output_tokens,
+        cache_read_tokens=collect_result.cache_read_tokens,
+        cache_write_tokens=collect_result.cache_write_tokens,
+    )
     try:
-        collect_result = backend.collect(job_id, default_response_model=GameReport)
+        _batch_exec_repo.mark_completed(
+            job_id,
+            succeeded_count=len(collect_result.results),
+            failed_count=len(collect_result.failed_ids),
+            failed_record_ids=collect_result.failed_ids,
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
+            estimated_cost_usd=Decimal(str(round(cost, 4))),
+        )
+    except Exception:
+        logger.exception(
+            "batch_execution_mark_completed_failed",
+            extra={"appid": appid, "job_id": job_id},
+        )
+
+    try:
         if not collect_result.results:
             raise RuntimeError(f"No synthesis output for appid={appid}")
         _record_id, report = collect_result.results[0]
@@ -306,31 +337,6 @@ def _collect_synthesis(
                 extra={"appid": appid, "job_id": job_id},
             )
         raise
-
-    cost = estimate_batch_cost_usd(
-        model_id=_config.model_for("summarizer"),
-        input_tokens=collect_result.input_tokens,
-        output_tokens=collect_result.output_tokens,
-        cache_read_tokens=collect_result.cache_read_tokens,
-        cache_write_tokens=collect_result.cache_write_tokens,
-    )
-    try:
-        _batch_exec_repo.mark_completed(
-            job_id,
-            succeeded_count=1,
-            failed_count=len(collect_result.failed_ids),
-            failed_record_ids=collect_result.failed_ids,
-            input_tokens=collect_result.input_tokens,
-            output_tokens=collect_result.output_tokens,
-            cache_read_tokens=collect_result.cache_read_tokens,
-            cache_write_tokens=collect_result.cache_write_tokens,
-            estimated_cost_usd=Decimal(str(round(cost, 4))),
-        )
-    except Exception:
-        logger.exception(
-            "batch_execution_mark_completed_failed",
-            extra={"appid": appid, "job_id": job_id},
-        )
 
     try:
         publish_event(

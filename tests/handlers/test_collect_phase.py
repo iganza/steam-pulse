@@ -207,17 +207,18 @@ def test_collect_chunk_drops_malformed_record_ids() -> None:
         skipped=0,
     )
 
-    result = cp.handler(
-        {
-            "appid": 440,
-            "phase": "chunk",
-            "execution_id": "exec-2",
-            "job_id": "arn:aws:bedrock:...:job/abc",
-        },
-        context=None,
-    )
-    # Only the well-formed record was persisted.
-    assert result["collected"] == 1
+    # 1 good + 1 malformed → partial failure → pipeline aborts
+    with pytest.raises(RuntimeError, match="1/2 chunk records failed"):
+        cp.handler(
+            {
+                "appid": 440,
+                "phase": "chunk",
+                "execution_id": "exec-2",
+                "job_id": "arn:aws:bedrock:...:job/abc",
+            },
+            context=None,
+        )
+    # The good record was persisted before the failure check
     assert cp._chunk_repo.insert.call_count == 1
     # Dropped record counted in tracking.
     mark_call = cp._batch_exec_repo.mark_completed.call_args
@@ -239,7 +240,7 @@ def test_collect_chunk_drops_record_id_with_wrong_appid() -> None:
         skipped=0,
     )
     # All records dropped → total failure → raises RuntimeError and marks failed
-    with pytest.raises(RuntimeError, match="All 1 chunk records failed validation"):
+    with pytest.raises(RuntimeError, match="1/1 chunk records failed"):
         cp.handler(
             {
                 "appid": 440,
@@ -254,7 +255,7 @@ def test_collect_chunk_drops_record_id_with_wrong_appid() -> None:
     # except re-wraps and calls it again (no-op on the DB since row is
     # already failed). Assert the first call carries the reason.
     first_call = cp._batch_exec_repo.mark_failed.call_args_list[0]
-    assert "All 1 chunk records failed validation" in first_call.kwargs["failure_reason"]
+    assert "1/1 chunk records failed" in first_call.kwargs["failure_reason"]
 
 
 # ---------------------------------------------------------------------------

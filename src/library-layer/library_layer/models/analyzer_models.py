@@ -75,6 +75,12 @@ class ReviewQuote(BaseModel):
     playtime_hours: int = 0
     votes_helpful: int = 0
 
+    @field_validator("steam_review_id", mode="before")
+    @classmethod
+    def _coerce_review_id(cls, v: object) -> str:
+        """LLM often returns numeric IDs as int — coerce to str."""
+        return str(v)
+
     @field_validator("text", mode="before")
     @classmethod
     def _truncate_text(cls, v: object) -> object:

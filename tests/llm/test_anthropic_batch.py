@@ -70,18 +70,50 @@ def test_prepare_sets_custom_id_from_record_id() -> None:
     assert prepared[0]["custom_id"] == "my-id-123"
 
 
+def test_prepare_includes_tools_and_tool_choice_from_response_model() -> None:
+    backend = _make_backend()
+    prepared = backend.prepare([_make_request()], phase="chunk-440")
+    params = prepared[0]["params"]
+    assert len(params["tools"]) == 1
+    tool = params["tools"][0]
+    assert tool["name"] == "_StubModel"
+    assert "properties" in tool["input_schema"]
+    assert "value" in tool["input_schema"]["properties"]
+    assert params["tool_choice"] == {"type": "tool", "name": "_StubModel"}
+
+
 # ---------------------------------------------------------------------------
 # collect()
 # ---------------------------------------------------------------------------
 
 
 def _succeeded_entry(record_id: str, value: str) -> SimpleNamespace:
+    """Simulate a text-block response (legacy/fallback path)."""
     return SimpleNamespace(
         custom_id=record_id,
         result=SimpleNamespace(
             type="succeeded",
             message=SimpleNamespace(
                 content=[SimpleNamespace(type="text", text=f'{{"value": "{value}"}}')],
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=50,
+                    cache_read_input_tokens=80,
+                    cache_creation_input_tokens=20,
+                ),
+            ),
+        ),
+    )
+
+
+def _tool_use_entry(record_id: str, value: str) -> SimpleNamespace:
+    """Simulate a tool_use block response (expected path with tools/tool_choice)."""
+    return SimpleNamespace(
+        custom_id=record_id,
+        result=SimpleNamespace(
+            type="succeeded",
+            message=SimpleNamespace(
+                content=[SimpleNamespace(type="tool_use", id="tool_1", name="_StubModel", input={"value": value})],
                 usage=SimpleNamespace(
                     input_tokens=100,
                     output_tokens=50,
@@ -125,6 +157,19 @@ def test_collect_returns_succeeded_results() -> None:
     assert result.output_tokens == 50
     assert result.cache_read_tokens == 80
     assert result.cache_write_tokens == 20
+
+
+def test_collect_parses_tool_use_blocks() -> None:
+    backend = _make_backend()
+    backend._client.messages.batches.results.return_value = [
+        _tool_use_entry("r1", "hello"),
+    ]
+    result = backend.collect("batch-1", default_response_model=_StubModel)
+    assert len(result.results) == 1
+    assert result.results[0][0] == "r1"
+    assert result.results[0][1].value == "hello"
+    assert result.failed_ids == []
+    assert result.skipped == 0
 
 
 def test_collect_tracks_errored_records_in_failed_ids() -> None:

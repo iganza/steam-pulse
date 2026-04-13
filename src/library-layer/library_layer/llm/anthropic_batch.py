@@ -49,6 +49,8 @@ class AnthropicBatchBackend:
             raise ValueError("AnthropicBatchBackend.prepare called with no requests")
         prepared = []
         for req in requests:
+            tool_name = req.response_model.__name__
+            tool_schema = req.response_model.model_json_schema()
             params: dict[str, object] = {
                 "model": self._config.model_for(req.task),
                 "max_tokens": req.max_tokens,
@@ -60,6 +62,14 @@ class AnthropicBatchBackend:
                     }
                 ],
                 "messages": [{"role": "user", "content": req.user}],
+                "tools": [
+                    {
+                        "name": tool_name,
+                        "description": f"Structured output for {tool_name}",
+                        "input_schema": tool_schema,
+                    }
+                ],
+                "tool_choice": {"type": "tool", "name": tool_name},
             }
             if req.temperature is not None:
                 params["temperature"] = req.temperature

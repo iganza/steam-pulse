@@ -140,7 +140,12 @@ class BatchExecutionRepository(BaseRepository):
         self.conn.commit()
 
     def mark_failed(self, batch_id: str, *, failure_reason: str) -> None:
-        """Mark a batch as failed with a reason."""
+        """Mark a batch as failed with a reason.
+
+        Accepts status 'completed' too — a completed batch can be flipped to
+        failed when all records fail validation (tokens/cost already recorded
+        by mark_completed, then this overwrites status + adds failure_reason).
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -150,7 +155,7 @@ class BatchExecutionRepository(BaseRepository):
                     duration_ms = (EXTRACT(EPOCH FROM (NOW() - submitted_at)) * 1000)::BIGINT,
                     failure_reason = %s
                 WHERE batch_id = %s
-                  AND status IN ('submitted', 'running')
+                  AND status IN ('submitted', 'running', 'completed')
                 """,
                 (failure_reason, batch_id),
             )

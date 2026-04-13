@@ -32,7 +32,7 @@ Output (phase == "chunk" | "synthesis", skip=true — cache hit):
         "skip": true
     }
 
-Output (phase == "merge", skip=true — single-chunk/cache/L2 single input):
+Output (phase == "merge", skip=true — single result, converged):
     {
         "appid": 440,
         "phase": "merge",
@@ -42,6 +42,18 @@ Output (phase == "merge", skip=true — single-chunk/cache/L2 single input):
         "merge_level": 1,
         "merged_summary_id": 42,        # set when single result
         "merged_ids": [42]              # always present on skip
+    }
+
+Output (phase == "merge", skip=true — all groups cached, not yet converged):
+    {
+        "appid": 440,
+        "phase": "merge",
+        "execution_id": "...",
+        "job_id": null,
+        "skip": true,
+        "merge_level": 1,
+        "merged_summary_id": null,       # null — needs another level
+        "merged_ids": [42, 43, ...]      # cached merge IDs to drive L2
     }
 
 Output (phase == "merge", skip=false — batch submitted):

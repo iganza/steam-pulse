@@ -114,6 +114,17 @@ def test_batch_analysis_complete_event_valid() -> None:
     assert data["appids_failed"] == 2
 
 
+# 9b. BatchAnalysisCompleteEvent rejects wrong event_type
+def test_batch_analysis_complete_event_rejects_wrong_event_type() -> None:
+    with pytest.raises(ValidationError):
+        BatchAnalysisCompleteEvent(
+            event_type="wrong",
+            execution_id="exec-123",
+            appids_completed=50,
+            appids_failed=2,
+        )
+
+
 # 10. CatalogRefreshCompleteEvent round-trip
 def test_catalog_refresh_complete_event_valid() -> None:
     e = CatalogRefreshCompleteEvent(new_games=100, total_games=5000)

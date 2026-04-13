@@ -354,12 +354,28 @@ class BatchAnalysisStack(cdk.Stack):
         # read from the input payload at runtime (max_concurrency_path) so
         # the CLI can throttle without redeploying.
 
+        # Compute appids_count before the map — the count is threaded to
+        # the post-batch Lambda so the event carries meaningful totals.
+        count_appids = sfn.Pass(
+            self,
+            "CountAppids",
+            parameters={
+                "appids": sfn.JsonPath.list_at("$.appids"),
+                "max_concurrency": sfn.JsonPath.number_at("$.max_concurrency"),
+                "appids_count": sfn.JsonPath.number_at("States.ArrayLength($.appids)"),
+            },
+        )
+
         fan_out = sfn.DistributedMap(
             self,
             "FanOut",
             items_path="$.appids",
             max_concurrency_path="$.max_concurrency",
             tolerated_failure_percentage=10,
+            # Discard per-item results to stay under the 256KB state limit.
+            # The post-batch Lambda only needs the execution ID and total
+            # appids count (preserved via result_path).
+            result_path=sfn.JsonPath.DISCARD,
         )
         fan_out.item_processor(
             tasks.StepFunctionsStartExecution(
@@ -373,8 +389,6 @@ class BatchAnalysisStack(cdk.Stack):
 
         # After all games complete, publish batch-analysis-complete event
         # so matview refresh fires immediately (bypassing debounce).
-        # Use result_selector to extract only succeeded/failed counts from
-        # the DistributedMap output — avoids hitting the 256KB state limit.
         publish_batch_complete = tasks.LambdaInvoke(
             self,
             "PublishBatchAnalysisComplete",
@@ -382,20 +396,18 @@ class BatchAnalysisStack(cdk.Stack):
             payload=sfn.TaskInput.from_object({
                 "action": "post_batch",
                 "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                "appids_count": sfn.JsonPath.number_at("$.appids_count"),
             }),
             payload_response_only=True,
-            result_selector={
-                "status": sfn.JsonPath.string_at("$.status"),
-            },
         )
         batch_complete = sfn.Succeed(self, "BatchOrchestrationComplete")
-        fan_out.next(publish_batch_complete).next(batch_complete)
+        count_appids.next(fan_out).next(publish_batch_complete).next(batch_complete)
 
         orchestrator = sfn.StateMachine(
             self,
             "BatchOrchestrator",
             state_machine_name=f"steampulse-batch-orchestrator-{env}",
-            definition_body=sfn.DefinitionBody.from_chainable(fan_out),
+            definition_body=sfn.DefinitionBody.from_chainable(count_appids),
             state_machine_type=sfn.StateMachineType.STANDARD,
             logs=sfn.LogOptions(
                 destination=logs.LogGroup(

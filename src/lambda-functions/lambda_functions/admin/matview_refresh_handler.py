@@ -28,13 +28,20 @@ _repo = MatviewRepository(get_conn)
 def _is_force_refresh(event: dict) -> bool:
     """Check if any SQS record contains a batch-analysis-complete event."""
     for record in event.get("Records", []):
-        body = json.loads(record.get("body", "{}"))
-        # SNS wraps the message in a Message field
-        message = body.get("Message", body)
-        if isinstance(message, str):
-            message = json.loads(message)
-        if message.get("event_type") == "batch-analysis-complete":
-            return True
+        try:
+            body = json.loads(record.get("body", "{}"))
+            # SNS wraps the message in a Message field
+            message = body.get("Message", body)
+            if isinstance(message, str):
+                message = json.loads(message)
+            if isinstance(message, dict) and message.get("event_type") == "batch-analysis-complete":
+                return True
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            logger.warning(
+                "Skipping malformed refresh event record",
+                extra={"messageId": record.get("messageId") if isinstance(record, dict) else None},
+            )
+            continue
     return False
 
 

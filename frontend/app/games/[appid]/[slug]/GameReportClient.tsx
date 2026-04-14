@@ -74,7 +74,8 @@ interface GameReportClientProps {
   revenueEstimateReason?: string | null;
 }
 
-function formatMonth(iso: string): string {
+function formatMonth(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
   return parseLocalDate(iso).toLocaleDateString("en-US", {
     month: "short",
     year: "numeric",
@@ -639,6 +640,7 @@ export function GameReportClient({
                   if (!report.review_date_range_start || !report.review_date_range_end) return null;
                   const startMonth = formatMonth(report.review_date_range_start);
                   const endMonth = formatMonth(report.review_date_range_end);
+                  if (!startMonth || !endMonth) return null;
                   return (
                     <span>
                       {" "}({startMonth === endMonth ? startMonth : `${startMonth} \u2013 ${endMonth}`})

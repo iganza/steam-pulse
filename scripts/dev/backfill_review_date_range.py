@@ -43,6 +43,7 @@ WHERE r.merged_summary_id = ms.id
   AND ms.summary_json -> 'total_stats' ->> 'date_range_start' IS NOT NULL
   AND ms.summary_json -> 'total_stats' ->> 'date_range_end' IS NOT NULL
   AND r.report_json ->> 'review_date_range_start' IS NULL
+  AND r.report_json ->> 'review_date_range_end' IS NULL
 """
 
 _COUNT_SQL = """
@@ -52,6 +53,7 @@ JOIN merged_summaries ms ON r.merged_summary_id = ms.id
 WHERE ms.summary_json -> 'total_stats' ->> 'date_range_start' IS NOT NULL
   AND ms.summary_json -> 'total_stats' ->> 'date_range_end' IS NOT NULL
   AND r.report_json ->> 'review_date_range_start' IS NULL
+  AND r.report_json ->> 'review_date_range_end' IS NULL
 """
 
 

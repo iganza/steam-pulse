@@ -410,15 +410,6 @@ async def get_publisher_analytics(slug: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _validate_game_type(game_type: str) -> None:
-    """Trend endpoints only support type='game'. Fail fast on anything else."""
-    if game_type != "game":
-        raise HTTPException(
-            status_code=400,
-            detail=f"unsupported type={game_type!r}; only 'game' is supported",
-        )
-
-
 @app.get("/api/analytics/trends/release-volume")
 async def get_trend_release_volume(
     granularity: str = "month",
@@ -427,10 +418,10 @@ async def get_trend_release_volume(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_release_volume(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -447,10 +438,10 @@ async def get_trend_sentiment(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_sentiment_distribution(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -466,11 +457,11 @@ async def get_trend_genre_share(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_genre_share(
             granularity=granularity,
             top_n=max(1, min(top_n, 15)),
+            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -485,10 +476,10 @@ async def get_trend_velocity(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_velocity_distribution(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -505,10 +496,10 @@ async def get_trend_pricing(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_price_trend(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -525,10 +516,10 @@ async def get_trend_early_access(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_ea_trend(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -545,10 +536,10 @@ async def get_trend_platforms(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_platform_trend(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),
@@ -580,11 +571,11 @@ async def get_trend_categories(
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
-    _validate_game_type(game_type)
     try:
         return _analytics_service.get_category_trend(
             granularity=granularity,
             top_n=max(1, min(top_n, 8)),
+            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:

@@ -1,10 +1,11 @@
 -- depends: 0044_audience_overlap_matview
 
--- Extend the three trend matviews with two new columns:
---   avg_reviews         — ROUND(AVG(review_count), 0)   (for release-volume endpoint)
---   avg_price_incl_free — ROUND(AVG(price_usd), 2)      (for pricing endpoint)
+-- Extend the three trend matviews:
+--   1. Add avg_reviews and avg_price_incl_free columns.
+--   2. Add game_type dimension ('game', 'dlc', 'all') so the UI can filter
+--      by type without live queries. Each game appears in its type-specific
+--      rows AND in the 'all' rows.
 --
--- Also adds review_count to the base CTE so avg_reviews can be computed.
 -- Drop + recreate is required because ALTER MATERIALIZED VIEW cannot add columns.
 -- Unique indexes are recreated inline (not CONCURRENTLY — matview is freshly created).
 
@@ -23,6 +24,7 @@ WITH ea_flags AS (
 base AS (
     SELECT
         g.appid,
+        g.type AS src_type,
         g.release_date,
         g.is_free,
         g.price_usd,
@@ -37,7 +39,7 @@ base AS (
     LEFT JOIN ea_flags ef ON ef.appid = g.appid
     WHERE g.release_date IS NOT NULL
       AND g.coming_soon = FALSE
-      AND g.type = 'game'
+      AND g.type IN ('game', 'dlc')
       AND g.review_count >= 10
 ),
 grains AS (
@@ -45,8 +47,14 @@ grains AS (
     SELECT 'month' UNION ALL
     SELECT 'quarter' UNION ALL
     SELECT 'year'
+),
+game_types AS (
+    SELECT 'game'::text AS game_type UNION ALL
+    SELECT 'dlc' UNION ALL
+    SELECT 'all'
 )
 SELECT
+    gt.game_type,
     gr.granularity,
     DATE_TRUNC(gr.granularity, b.release_date) AS period,
     COUNT(*) AS releases,
@@ -100,9 +108,11 @@ SELECT
     ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
 FROM base b
 CROSS JOIN grains gr
-GROUP BY 1, 2;
+CROSS JOIN game_types gt
+WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+GROUP BY 1, 2, 3;
 
-CREATE UNIQUE INDEX idx_mv_trend_catalog_pk ON mv_trend_catalog(granularity, period);
+CREATE UNIQUE INDEX idx_mv_trend_catalog_pk ON mv_trend_catalog(game_type, granularity, period);
 
 -- ---------------------------------------------------------------------------
 -- mv_trend_by_genre
@@ -119,6 +129,7 @@ WITH ea_flags AS (
 base AS (
     SELECT
         g.appid,
+        g.type AS src_type,
         g.release_date,
         g.is_free,
         g.price_usd,
@@ -136,7 +147,7 @@ base AS (
     LEFT JOIN ea_flags ef ON ef.appid = g.appid
     WHERE g.release_date IS NOT NULL
       AND g.coming_soon = FALSE
-      AND g.type = 'game'
+      AND g.type IN ('game', 'dlc')
       AND g.review_count >= 10
 ),
 grains AS (
@@ -144,8 +155,14 @@ grains AS (
     SELECT 'month' UNION ALL
     SELECT 'quarter' UNION ALL
     SELECT 'year'
+),
+game_types AS (
+    SELECT 'game'::text AS game_type UNION ALL
+    SELECT 'dlc' UNION ALL
+    SELECT 'all'
 )
 SELECT
+    gt.game_type,
     gr.granularity,
     DATE_TRUNC(gr.granularity, b.release_date) AS period,
     b.genre_slug,
@@ -200,9 +217,11 @@ SELECT
     ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
 FROM base b
 CROSS JOIN grains gr
-GROUP BY 1, 2, 3;
+CROSS JOIN game_types gt
+WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+GROUP BY 1, 2, 3, 4;
 
-CREATE UNIQUE INDEX idx_mv_trend_by_genre_pk ON mv_trend_by_genre(granularity, genre_slug, period);
+CREATE UNIQUE INDEX idx_mv_trend_by_genre_pk ON mv_trend_by_genre(game_type, granularity, genre_slug, period);
 
 -- ---------------------------------------------------------------------------
 -- mv_trend_by_tag
@@ -219,6 +238,7 @@ WITH ea_flags AS (
 base AS (
     SELECT
         g.appid,
+        g.type AS src_type,
         g.release_date,
         g.is_free,
         g.price_usd,
@@ -236,7 +256,7 @@ base AS (
     LEFT JOIN ea_flags ef ON ef.appid = g.appid
     WHERE g.release_date IS NOT NULL
       AND g.coming_soon = FALSE
-      AND g.type = 'game'
+      AND g.type IN ('game', 'dlc')
       AND g.review_count >= 10
 ),
 grains AS (
@@ -244,8 +264,14 @@ grains AS (
     SELECT 'month' UNION ALL
     SELECT 'quarter' UNION ALL
     SELECT 'year'
+),
+game_types AS (
+    SELECT 'game'::text AS game_type UNION ALL
+    SELECT 'dlc' UNION ALL
+    SELECT 'all'
 )
 SELECT
+    gt.game_type,
     gr.granularity,
     DATE_TRUNC(gr.granularity, b.release_date) AS period,
     b.tag_slug,
@@ -300,6 +326,8 @@ SELECT
     ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
 FROM base b
 CROSS JOIN grains gr
-GROUP BY 1, 2, 3;
+CROSS JOIN game_types gt
+WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+GROUP BY 1, 2, 3, 4;
 
-CREATE UNIQUE INDEX idx_mv_trend_by_tag_pk ON mv_trend_by_tag(granularity, tag_slug, period);
+CREATE UNIQUE INDEX idx_mv_trend_by_tag_pk ON mv_trend_by_tag(game_type, granularity, tag_slug, period);

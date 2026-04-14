@@ -403,19 +403,22 @@ class AnalyticsRepository(BaseRepository):
         }
 
     # -----------------------------------------------------------------------
-    # Game trend methods (analytics dashboard)
+    # Trend methods (analytics dashboard)
     #
-    # All methods are scoped to type='game' only (no DLC, no 'all').
-    # Matview-backed methods read from mv_trend_catalog / mv_trend_by_genre /
-    # mv_trend_by_tag which are built with g.type = 'game' hardcoded.
-    # find_game_category_trend_rows() is a live query but applies the same filter.
+    # All methods support game_type='game', 'dlc', or 'all' via the
+    # game_type dimension baked into the mv_trend_* matviews.
+    # find_trend_category_trend_rows() is a live query but applies the
+    # same game_type filter.
     # -----------------------------------------------------------------------
+
+    _VALID_GAME_TYPES: frozenset[str] = frozenset({"game", "dlc", "all"})
 
     def _trend_matview_query(
         self,
         *,
         columns: list[str],
         granularity: str,
+        game_type: str,
         genre_slug: str | None,
         tag_slug: str | None,
         limit: int,
@@ -427,8 +430,11 @@ class AnalyticsRepository(BaseRepository):
           - genre_slug set         → mv_trend_by_genre
           - tag_slug set           → mv_trend_by_tag
 
+        game_type must be 'game', 'dlc', or 'all'.
         Combining genre_slug + tag_slug raises ValueError.
         """
+        if game_type not in self._VALID_GAME_TYPES:
+            raise ValueError(f"unsupported game_type={game_type!r}")
         genre_slug = genre_slug or None
         tag_slug = tag_slug or None
         if genre_slug is not None and tag_slug is not None:
@@ -454,6 +460,7 @@ class AnalyticsRepository(BaseRepository):
                 SELECT period, {cols}
                 FROM {table}
                 WHERE granularity = %s
+                  AND game_type = %s
                   {filter_clause}
                 ORDER BY period DESC
                 LIMIT %s
@@ -465,15 +472,16 @@ class AnalyticsRepository(BaseRepository):
             filter_clause=filter_clause,
         )
 
-        params: tuple = (granularity, *filter_params, limit)
+        params: tuple = (granularity, game_type, *filter_params, limit)
         rows = self._fetchall(query, params)
         return [dict(r) for r in rows]
 
     # -- release volume -------------------------------------------------------
 
-    def find_game_release_volume_rows(
+    def find_trend_release_volume_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -481,6 +489,7 @@ class AnalyticsRepository(BaseRepository):
         return self._trend_matview_query(
             columns=["releases", "avg_steam_pct", "avg_reviews", "free_count"],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -488,9 +497,10 @@ class AnalyticsRepository(BaseRepository):
 
     # -- sentiment distribution -----------------------------------------------
 
-    def find_game_sentiment_distribution_rows(
+    def find_trend_sentiment_distribution_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -505,6 +515,7 @@ class AnalyticsRepository(BaseRepository):
                 "avg_metacritic",
             ],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -515,9 +526,10 @@ class AnalyticsRepository(BaseRepository):
 
     # -- genre share ----------------------------------------------------------
 
-    def find_game_genre_share_rows(
+    def find_trend_genre_share_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         limit: int = 100,
     ) -> list[dict]:
         rows = self._fetchall(
@@ -526,24 +538,27 @@ class AnalyticsRepository(BaseRepository):
             FROM mv_trend_by_genre mv
             JOIN genres gn ON gn.slug = mv.genre_slug
             WHERE mv.granularity = %s
+              AND mv.game_type = %s
               AND mv.period IN (
                   SELECT DISTINCT period
                   FROM mv_trend_by_genre
                   WHERE granularity = %s
+                    AND game_type = %s
                   ORDER BY period DESC
                   LIMIT %s
               )
             ORDER BY mv.period, mv.releases DESC
             """,
-            (granularity, granularity, limit),
+            (granularity, game_type, granularity, game_type, limit),
         )
         return [dict(r) for r in rows]
 
     # -- velocity distribution ------------------------------------------------
 
-    def find_game_velocity_distribution_rows(
+    def find_trend_velocity_distribution_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -557,6 +572,7 @@ class AnalyticsRepository(BaseRepository):
                 "velocity_50_plus",
             ],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -567,9 +583,10 @@ class AnalyticsRepository(BaseRepository):
 
     # -- price trend ----------------------------------------------------------
 
-    def find_game_price_trend_rows(
+    def find_trend_price_trend_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -577,6 +594,7 @@ class AnalyticsRepository(BaseRepository):
         rows = self._trend_matview_query(
             columns=["releases", "avg_paid_price", "avg_price_incl_free", "free_count"],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -587,9 +605,10 @@ class AnalyticsRepository(BaseRepository):
 
     # -- EA trend -------------------------------------------------------------
 
-    def find_game_ea_trend_rows(
+    def find_trend_ea_trend_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -597,6 +616,7 @@ class AnalyticsRepository(BaseRepository):
         rows = self._trend_matview_query(
             columns=["releases", "ea_count", "ea_avg_steam_pct", "non_ea_avg_steam_pct"],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -607,9 +627,10 @@ class AnalyticsRepository(BaseRepository):
 
     # -- platform trend -------------------------------------------------------
 
-    def find_game_platform_trend_rows(
+    def find_trend_platform_trend_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
@@ -624,6 +645,7 @@ class AnalyticsRepository(BaseRepository):
                 "deck_unsupported_pct",
             ],
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -667,6 +689,7 @@ class AnalyticsRepository(BaseRepository):
         self,
         metric_ids: list[str],
         granularity: str,
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 24,
@@ -695,6 +718,7 @@ class AnalyticsRepository(BaseRepository):
         rows = self._trend_matview_query(
             columns=columns,
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,
@@ -710,26 +734,33 @@ class AnalyticsRepository(BaseRepository):
             out.append(row)
         return out
 
-    def find_game_category_trend_rows(
+    def find_trend_category_trend_rows(
         self,
         granularity: str,
+        game_type: str = "game",
         limit: int = 100,
     ) -> list[dict]:
         """Category adoption trend — remains a live query.
 
         No mv_trend_by_category matview exists. The hard-coded 8-category
         filter and low traffic make a dedicated matview unwarranted.
-        Hardcodes g.type = 'game' to match the trend matviews.
+        Supports game_type='game', 'dlc', or 'all'.
         """
+        if game_type not in self._VALID_GAME_TYPES:
+            raise ValueError(f"unsupported game_type={game_type!r}")
+        if game_type == "all":
+            type_clause = "AND g.type IN ('game', 'dlc')"
+        else:
+            type_clause = f"AND g.type = '{game_type}'"
         # limit controls periods returned, not rows. Collect N periods first.
         rows = self._fetchall(
-            """
+            f"""
             WITH periods AS (
                 SELECT DISTINCT DATE_TRUNC(%s, g.release_date) AS period
                 FROM games g
                 WHERE g.release_date IS NOT NULL
                   AND g.coming_soon = FALSE
-                  AND g.type = 'game'
+                  {type_clause}
                   AND g.review_count >= 10
                 ORDER BY 1 DESC
                 LIMIT %s
@@ -743,7 +774,7 @@ class AnalyticsRepository(BaseRepository):
             JOIN periods p ON p.period = DATE_TRUNC(%s, g.release_date)
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
-              AND g.type = 'game'
+              {type_clause}
               AND g.review_count >= 10
               AND gc.category_name IN (
                 'Single-player', 'Multi-player', 'Co-op', 'Steam Workshop',

@@ -57,12 +57,13 @@ class AnalyticsService:
     def get_release_volume(
         self,
         granularity: str = "month",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_release_volume_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_release_volume_rows(g, game_type, genre_slug, tag_slug, limit)
         periods = []
         for r in rows:
             periods.append(
@@ -98,12 +99,15 @@ class AnalyticsService:
     def get_sentiment_distribution(
         self,
         granularity: str = "month",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_sentiment_distribution_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_sentiment_distribution_rows(
+            g, game_type, genre_slug, tag_slug, limit
+        )
         periods = []
         for r in rows:
             total = int(r["total"])
@@ -129,10 +133,11 @@ class AnalyticsService:
         self,
         granularity: str = "year",
         top_n: int = 5,
+        game_type: str = "game",
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_genre_share_rows(g, limit)
+        rows = self._repo.find_trend_genre_share_rows(g, game_type, limit)
 
         # Rank genres by total volume across all periods
         genre_totals: dict[str, int] = defaultdict(int)
@@ -170,12 +175,15 @@ class AnalyticsService:
     def get_velocity_distribution(
         self,
         granularity: str = "month",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_velocity_distribution_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_velocity_distribution_rows(
+            g, game_type, genre_slug, tag_slug, limit
+        )
         periods = []
         for r in rows:
             periods.append(
@@ -193,12 +201,13 @@ class AnalyticsService:
     def get_price_trend(
         self,
         granularity: str = "year",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_price_trend_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_price_trend_rows(g, game_type, genre_slug, tag_slug, limit)
         periods = []
         for r in rows:
             total = int(r["total"])
@@ -222,12 +231,13 @@ class AnalyticsService:
     def get_ea_trend(
         self,
         granularity: str = "year",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_ea_trend_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_ea_trend_rows(g, game_type, genre_slug, tag_slug, limit)
         periods = []
         for r in rows:
             total = int(r["total_releases"])
@@ -251,12 +261,13 @@ class AnalyticsService:
     def get_platform_trend(
         self,
         granularity: str = "year",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        rows = self._repo.find_game_platform_trend_rows(g, genre_slug, tag_slug, limit)
+        rows = self._repo.find_trend_platform_trend_rows(g, game_type, genre_slug, tag_slug, limit)
         periods = []
         for r in rows:
             periods.append(
@@ -397,11 +408,12 @@ class AnalyticsService:
         self,
         granularity: str = "year",
         top_n: int = 4,
+        game_type: str = "game",
         limit: int = 100,
     ) -> dict:
         g = self._validate_granularity(granularity)
-        cat_rows = self._repo.find_game_category_trend_rows(g, limit)
-        vol_rows = self._repo.find_game_release_volume_rows(g, limit=limit)
+        cat_rows = self._repo.find_trend_category_trend_rows(g, game_type, limit)
+        vol_rows = self._repo.find_trend_release_volume_rows(g, game_type, limit=limit)
 
         # Build period totals from release volume
         period_totals: dict[str, int] = {}

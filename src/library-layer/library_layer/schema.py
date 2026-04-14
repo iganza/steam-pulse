@@ -571,19 +571,23 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         COUNT(*) AS releases,
@@ -611,16 +615,17 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_catalog_pk ON mv_trend_catalog(granularity, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_catalog_pk ON mv_trend_catalog(game_type, granularity, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_genre AS
     WITH ea_flags AS (
         SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
@@ -629,13 +634,17 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         JOIN genres gn ON gg.genre_id = gn.id
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         b.genre_slug,
@@ -664,16 +673,17 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2, 3""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_genre_pk ON mv_trend_by_genre(granularity, genre_slug, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3, 4""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_genre_pk ON mv_trend_by_genre(game_type, granularity, genre_slug, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_tag AS
     WITH ea_flags AS (
         SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
@@ -682,13 +692,17 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         JOIN tags t ON gt.tag_id = t.id
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         b.tag_slug,
@@ -717,9 +731,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2, 3""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(granularity, tag_slug, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3, 4""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(game_type, granularity, tag_slug, period)",
     # 0042_mv_new_releases_v2 — three-lens feed for /new-releases
     # Just Added lens uses steam_last_modified + coming_soon=TRUE (not discovered_at)
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new_releases AS

@@ -84,7 +84,7 @@ def test_trend_too_few(svc: AnalyticsService) -> None:
 
 
 def test_get_release_volume(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_release_volume_rows.return_value = [
+    mock_repo.find_trend_release_volume_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "releases": 100,
@@ -114,7 +114,7 @@ def test_get_release_volume(svc: AnalyticsService, mock_repo: MagicMock) -> None
 
 
 def test_get_sentiment_distribution(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_sentiment_distribution_rows.return_value = [
+    mock_repo.find_trend_sentiment_distribution_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "total": 100,
@@ -137,7 +137,7 @@ def test_get_sentiment_distribution(svc: AnalyticsService, mock_repo: MagicMock)
 
 
 def test_get_genre_share_buckets_other(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_genre_share_rows.return_value = [
+    mock_repo.find_trend_genre_share_rows.return_value = [
         {"period": datetime(2024, 1, 1), "genre": "Action", "genre_slug": "action", "releases": 50},
         {"period": datetime(2024, 1, 1), "genre": "Indie", "genre_slug": "indie", "releases": 30},
         {"period": datetime(2024, 1, 1), "genre": "RPG", "genre_slug": "rpg", "releases": 20},
@@ -156,7 +156,7 @@ def test_get_genre_share_buckets_other(svc: AnalyticsService, mock_repo: MagicMo
 
 
 def test_get_price_trend_free_pct(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_price_trend_rows.return_value = [
+    mock_repo.find_trend_price_trend_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "total": 200,
@@ -175,7 +175,7 @@ def test_get_price_trend_free_pct(svc: AnalyticsService, mock_repo: MagicMock) -
 
 
 def test_get_ea_trend_ea_pct(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_ea_trend_rows.return_value = [
+    mock_repo.find_trend_ea_trend_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "total_releases": 100,
@@ -194,7 +194,7 @@ def test_get_ea_trend_ea_pct(svc: AnalyticsService, mock_repo: MagicMock) -> Non
 
 
 def test_get_platform_trend_pcts(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_platform_trend_rows.return_value = [
+    mock_repo.find_trend_platform_trend_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "total": 200,
@@ -249,7 +249,7 @@ def test_get_engagement_depth_with_data(svc: AnalyticsService, mock_repo: MagicM
 
 
 def test_get_category_trend_adoption(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_category_trend_rows.return_value = [
+    mock_repo.find_trend_category_trend_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "category_name": "Single-player",
@@ -261,7 +261,7 @@ def test_get_category_trend_adoption(svc: AnalyticsService, mock_repo: MagicMock
             "games_with_category": 60,
         },
     ]
-    mock_repo.find_game_release_volume_rows.return_value = [
+    mock_repo.find_trend_release_volume_rows.return_value = [
         {
             "period": datetime(2024, 1, 1),
             "releases": 200,
@@ -282,31 +282,31 @@ def test_get_category_trend_adoption(svc: AnalyticsService, mock_repo: MagicMock
 
 
 def test_empty_rows_no_crash(svc: AnalyticsService, mock_repo: MagicMock) -> None:
-    mock_repo.find_game_release_volume_rows.return_value = []
+    mock_repo.find_trend_release_volume_rows.return_value = []
     result = svc.get_release_volume(granularity="month")
     assert result["periods"] == []
     assert result["summary"]["total_releases"] == 0
 
-    mock_repo.find_game_sentiment_distribution_rows.return_value = []
+    mock_repo.find_trend_sentiment_distribution_rows.return_value = []
     assert svc.get_sentiment_distribution()["periods"] == []
 
-    mock_repo.find_game_genre_share_rows.return_value = []
+    mock_repo.find_trend_genre_share_rows.return_value = []
     assert svc.get_genre_share()["periods"] == []
 
-    mock_repo.find_game_velocity_distribution_rows.return_value = []
+    mock_repo.find_trend_velocity_distribution_rows.return_value = []
     assert svc.get_velocity_distribution()["periods"] == []
 
-    mock_repo.find_game_price_trend_rows.return_value = []
+    mock_repo.find_trend_price_trend_rows.return_value = []
     assert svc.get_price_trend()["periods"] == []
 
-    mock_repo.find_game_ea_trend_rows.return_value = []
+    mock_repo.find_trend_ea_trend_rows.return_value = []
     assert svc.get_ea_trend()["periods"] == []
 
-    mock_repo.find_game_platform_trend_rows.return_value = []
+    mock_repo.find_trend_platform_trend_rows.return_value = []
     assert svc.get_platform_trend()["periods"] == []
 
-    mock_repo.find_game_category_trend_rows.return_value = []
-    mock_repo.find_game_release_volume_rows.return_value = []
+    mock_repo.find_trend_category_trend_rows.return_value = []
+    mock_repo.find_trend_release_volume_rows.return_value = []
     assert svc.get_category_trend()["periods"] == []
 
 

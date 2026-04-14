@@ -593,7 +593,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
         ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
-        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
+        ROUND(AVG(COALESCE(b.price_usd, 0))::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -651,7 +651,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
         ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
-        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
+        ROUND(AVG(COALESCE(b.price_usd, 0))::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -709,7 +709,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
         ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
-        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
+        ROUND(AVG(COALESCE(b.price_usd, 0))::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -972,8 +972,9 @@ def create_matviews(conn: object) -> None:
             "mv_analysis_candidates",
             "mv_catalog_reports",
             "mv_audience_overlap",
-            # Dropped so persistent test DBs pick up avg_reviews + avg_price_incl_free
-            # columns added to trend matviews (migration 0045).
+            # Dropped so persistent test DBs pick up trend matview schema changes:
+            # added avg_reviews + avg_price_incl_free columns, plus the new
+            # game_type dimension and updated unique-index/key shape.
             "mv_trend_catalog",
             "mv_trend_by_genre",
             "mv_trend_by_tag",

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { BarChart3, Calendar, Clock, DollarSign, Zap } from "lucide-react";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { relativeTime } from "@/lib/format";
@@ -109,13 +108,13 @@ export function QuickStats({
             <span className="text-sm uppercase tracking-widest font-mono">Released</span>
           </div>
           {releaseDate ? (
-            <Link
-              href={`/search?year_from=${new Date(releaseDate).getFullYear()}&year_to=${new Date(releaseDate).getFullYear()}`}
-              className="font-mono text-base font-medium hover:underline"
-              style={{ color: "var(--teal)" }}
-            >
-              {new Date(releaseDate).getFullYear()}
-            </Link>
+            <p className="font-mono text-base font-medium">
+              {new Date(releaseDate).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </p>
           ) : (
             <p className="font-mono text-base font-medium">—</p>
           )}

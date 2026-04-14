@@ -429,7 +429,9 @@ class AnalyticsRepository(BaseRepository):
 
         Combining genre_slug + tag_slug raises ValueError.
         """
-        if genre_slug and tag_slug:
+        genre_slug = genre_slug or None
+        tag_slug = tag_slug or None
+        if genre_slug is not None and tag_slug is not None:
             raise ValueError("combining genre and tag filters is not supported")
 
         if genre_slug is not None:

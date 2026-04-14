@@ -37,7 +37,7 @@ import { SteamFactsCard } from "@/components/game/SteamFactsCard";
 import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 import { RequestAnalysis } from "@/components/game/RequestAnalysis";
-import { slugify, relativeTime } from "@/lib/format";
+import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -75,7 +75,7 @@ interface GameReportClientProps {
 }
 
 function formatMonth(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
+  return parseLocalDate(iso).toLocaleDateString("en-US", {
     month: "short",
     year: "numeric",
   });

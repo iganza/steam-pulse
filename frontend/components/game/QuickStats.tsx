@@ -2,7 +2,7 @@
 
 import { BarChart3, Calendar, Clock, DollarSign, Zap } from "lucide-react";
 import { SectionLabel } from "@/components/game/SectionLabel";
-import { relativeTime } from "@/lib/format";
+import { parseLocalDate, relativeTime } from "@/lib/format";
 import type { ReviewStats } from "@/lib/types";
 
 interface QuickStatsProps {
@@ -54,8 +54,8 @@ export function QuickStats({
   reviewsCompletedAt,
   metaCrawledAt,
 }: QuickStatsProps) {
-  const reviewsValue = reviewCount ?? totalReviewsAnalyzed;
-  const showEnSuffix = reviewsValue != null;
+  const reviewsValue = totalReviewsAnalyzed ?? reviewCount;
+  const showEnSuffix = totalReviewsAnalyzed != null;
   const showAnalyzedSuffix = reviewCount != null && totalReviewsAnalyzed != null;
   const reviewsTs = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
   const metaTs = relativeTime(metaCrawledAt);
@@ -109,7 +109,7 @@ export function QuickStats({
           </div>
           {releaseDate ? (
             <p className="font-mono text-base font-medium">
-              {new Date(releaseDate).toLocaleDateString("en-US", {
+              {parseLocalDate(releaseDate).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
                 year: "numeric",

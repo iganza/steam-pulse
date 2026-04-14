@@ -995,3 +995,37 @@ Key takeaways folded into the prompt: smart defaults (never empty canvas),
 strict chart-type compatibility rules (dual-axis only when units differ),
 progressive disclosure, perf budgets (<2s render, ≤1000 points), colorblind-safe
 palette, full empty/loading/error states, click-to-inspect, URL as source of truth.
+
+
+** TODO Prompts Directory Cleanup [0/17]
+*** Move to completed/ (already implemented or nearly so)
+- [X] quick-stats-freshness.md — ~90% wired, props exist in GameReportClient.tsx
+- [X] precompute-detail-and-dashboard-queries.md — moved to completed/, broken into 3 focused prompts:
+  - [ ] precompute-wire-trend-matviews.md — rewrite 8 trend methods to read from existing matviews
+  - [ ] precompute-denormalize-ea-reviews.md — add has_early_access_reviews to games, remove reviews scan
+  - [ ] precompute-game-metrics-cache.md — cache detail-page review metrics (low priority)
+- [ ] revenue-estimator-v2.md — partially done, fields exist, algorithm refinement remains
+
+*** Move to notes/ or doc/ (not implementation specs)
+- [ ] product-ideas.md — running brainstorm, explicitly "NOT a roadmap"
+- [ ] data-intelligence-features.md — feature roadmap brainstorm
+- [ ] landing-page-positioning.md — messaging/positioning strategy doc
+- [ ] value-assessment.md — Claude Code analysis prompt, not a feature
+
+*** Revise or rewrite
+- [ ] prompt-eval-pipeline.md — stale, assumes pre-data-source-clarity GameReport shape
+
+*** Still relevant, not started — low effort
+- [ ] fix-just-added-steam-page-date.md — migration + small code change
+- [ ] game-details-metadata-card.md — fields already in DB, need API + component
+- [ ] k6-perf-smoke-tests.md — straightforward setup
+- [ ] review-crawl-backfill.md — index + repo method + handler action + EventBridge rule
+
+*** Still relevant, not started — medium effort
+- [ ] full-text-search-reviews.md — tsvector/tsquery + GIN index + endpoint
+- [ ] explore-market-map-lens.md — grid explorer, 8 panels
+- [ ] explore-table-lens.md — filterable data grid
+- [ ] report-export-premium.md — depends on auth
+
+*** Still relevant, not started — high effort
+- [ ] auth0-authentication.md — TODO in code references it

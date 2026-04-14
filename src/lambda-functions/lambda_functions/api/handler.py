@@ -421,9 +421,9 @@ async def get_trend_release_volume(
     try:
         return _analytics_service.get_release_volume(
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -434,14 +434,16 @@ async def get_trend_release_volume(
 async def get_trend_sentiment(
     granularity: str = "month",
     genre: str | None = None,
+    tag: str | None = None,
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_sentiment_distribution(
             granularity=granularity,
-            genre_slug=genre,
             game_type=game_type,
+            genre_slug=genre,
+            tag_slug=tag,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -470,14 +472,16 @@ async def get_trend_genre_share(
 async def get_trend_velocity(
     granularity: str = "month",
     genre: str | None = None,
+    tag: str | None = None,
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_velocity_distribution(
             granularity=granularity,
-            genre_slug=genre,
             game_type=game_type,
+            genre_slug=genre,
+            tag_slug=tag,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -488,14 +492,16 @@ async def get_trend_velocity(
 async def get_trend_pricing(
     granularity: str = "year",
     genre: str | None = None,
+    tag: str | None = None,
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_price_trend(
             granularity=granularity,
-            genre_slug=genre,
             game_type=game_type,
+            genre_slug=genre,
+            tag_slug=tag,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -505,6 +511,8 @@ async def get_trend_pricing(
 @app.get("/api/analytics/trends/early-access")
 async def get_trend_early_access(
     granularity: str = "year",
+    genre: str | None = None,
+    tag: str | None = None,
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
@@ -512,6 +520,8 @@ async def get_trend_early_access(
         return _analytics_service.get_ea_trend(
             granularity=granularity,
             game_type=game_type,
+            genre_slug=genre,
+            tag_slug=tag,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -522,14 +532,16 @@ async def get_trend_early_access(
 async def get_trend_platforms(
     granularity: str = "year",
     genre: str | None = None,
+    tag: str | None = None,
     game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_platform_trend(
             granularity=granularity,
-            genre_slug=genre,
             game_type=game_type,
+            genre_slug=genre,
+            tag_slug=tag,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -582,6 +594,7 @@ async def get_analytics_trend_query(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 24,
 ) -> dict:
     """Generic trend query — pick any combination of metrics from the catalog."""
@@ -600,6 +613,7 @@ async def get_analytics_trend_query(
         return _analytics_service.trend_query(
             metric_ids=metric_ids,
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),

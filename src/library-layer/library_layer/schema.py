@@ -571,23 +571,29 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(CASE WHEN b.is_free THEN 0 ELSE b.price_usd END)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -596,10 +602,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,
@@ -609,17 +615,18 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_catalog_pk ON mv_trend_catalog(granularity, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_catalog_pk ON mv_trend_catalog(game_type, granularity, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_genre AS
     WITH ea_flags AS (
         SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -627,18 +634,24 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         JOIN genres gn ON gg.genre_id = gn.id
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         b.genre_slug,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(CASE WHEN b.is_free THEN 0 ELSE b.price_usd END)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -647,10 +660,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,
@@ -660,17 +673,18 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2, 3""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_genre_pk ON mv_trend_by_genre(granularity, genre_slug, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3, 4""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_genre_pk ON mv_trend_by_genre(game_type, granularity, genre_slug, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_tag AS
     WITH ea_flags AS (
         SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
         FROM reviews GROUP BY appid
     ),
     base AS (
-        SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+        SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -678,18 +692,24 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         JOIN tags t ON gt.tag_id = t.id
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
-          AND g.type = 'game' AND g.review_count >= 10
+          AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
     grains AS (
         SELECT 'week'::text AS granularity UNION ALL SELECT 'month'
         UNION ALL SELECT 'quarter' UNION ALL SELECT 'year'
+    ),
+    game_types AS (
+        SELECT 'game'::text AS game_type UNION ALL SELECT 'dlc' UNION ALL SELECT 'all'
     )
     SELECT
+        gt.game_type,
         gr.granularity,
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         b.tag_slug,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(CASE WHEN b.is_free THEN 0 ELSE b.price_usd END)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -698,10 +718,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,
@@ -711,9 +731,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(COUNT(*) FILTER (WHERE b.has_ea)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ea_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE b.has_ea)::numeric, 1) AS ea_avg_steam_pct,
         ROUND(AVG(b.positive_pct) FILTER (WHERE NOT b.has_ea)::numeric, 1) AS non_ea_avg_steam_pct
-    FROM base b CROSS JOIN grains gr
-    GROUP BY 1, 2, 3""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(granularity, tag_slug, period)",
+    FROM base b CROSS JOIN grains gr CROSS JOIN game_types gt
+    WHERE gt.game_type = 'all' OR b.src_type = gt.game_type
+    GROUP BY 1, 2, 3, 4""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_tag_pk ON mv_trend_by_tag(game_type, granularity, tag_slug, period)",
     # 0042_mv_new_releases_v2 — three-lens feed for /new-releases
     # Just Added lens uses steam_last_modified + coming_soon=TRUE (not discovered_at)
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new_releases AS
@@ -951,6 +972,12 @@ def create_matviews(conn: object) -> None:
             "mv_analysis_candidates",
             "mv_catalog_reports",
             "mv_audience_overlap",
+            # Dropped so persistent test DBs pick up trend matview schema changes:
+            # added avg_reviews + avg_price_incl_free columns, plus the new
+            # game_type dimension and updated unique-index/key shape.
+            "mv_trend_catalog",
+            "mv_trend_by_genre",
+            "mv_trend_by_tag",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

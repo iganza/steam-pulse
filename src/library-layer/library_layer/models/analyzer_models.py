@@ -267,3 +267,5 @@ class GameReport(BaseModel):
     hidden_gem_score: float = Field(ge=0.0, le=1.0, default=0.0)
     appid: int | None = None
     store_page_alignment: StorePageAlignment | None = None
+    review_date_range_start: str | None = None
+    review_date_range_end: str | None = None

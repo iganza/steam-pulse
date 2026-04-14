@@ -37,7 +37,7 @@ import { SteamFactsCard } from "@/components/game/SteamFactsCard";
 import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 import { RequestAnalysis } from "@/components/game/RequestAnalysis";
-import { slugify, relativeTime } from "@/lib/format";
+import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -72,6 +72,14 @@ interface GameReportClientProps {
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
   revenueEstimateReason?: string | null;
+}
+
+function formatMonth(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  return parseLocalDate(iso).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function TrendIcon({ trend }: { trend: string }) {
@@ -628,6 +636,17 @@ export function GameReportClient({
               <span>
                 Analysis based on{" "}
                 {report.total_reviews_analyzed?.toLocaleString() ?? "\u2014"} reviews
+                {(() => {
+                  if (!report.review_date_range_start || !report.review_date_range_end) return null;
+                  const startMonth = formatMonth(report.review_date_range_start);
+                  const endMonth = formatMonth(report.review_date_range_end);
+                  if (!startMonth || !endMonth) return null;
+                  return (
+                    <span>
+                      {" "}({startMonth === endMonth ? startMonth : `${startMonth} \u2013 ${endMonth}`})
+                    </span>
+                  );
+                })()}
               </span>
               {report.last_analyzed && (
                 <span className="ml-auto">

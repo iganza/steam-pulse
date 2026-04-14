@@ -469,3 +469,83 @@ test.describe('Early Access badge', () => {
     await expect(page.getByTestId('early-access-badge')).not.toBeAttached()
   })
 })
+
+test.describe('Review date range in footer', () => {
+  test('renders date range when both dates are present', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.goto('/games/440/team-fortress-2')
+    // MOCK_REPORT has review_date_range_start: "2021-03-15", end: "2025-01-20"
+    await expect(page.getByText(/Mar 2021\s*[–\u2013]\s*Jan 2025/)).toBeVisible()
+  })
+
+  test('collapses to single month when start and end are same month', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: {
+            ...MOCK_REPORT,
+            review_date_range_start: '2024-03-01',
+            review_date_range_end: '2024-03-28',
+          },
+          game: {
+            short_desc: MOCK_GAME_ANALYZED.short_desc,
+            developer: MOCK_GAME_ANALYZED.developer,
+            release_date: MOCK_GAME_ANALYZED.release_date,
+            price_usd: null,
+            is_free: true,
+            genres: MOCK_GAME_ANALYZED.genres,
+            tags: MOCK_GAME_ANALYZED.tags,
+            deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
+            deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+            positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+            review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+            review_count: MOCK_GAME_ANALYZED.review_count,
+            meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+            review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+            last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
+          },
+        },
+      }),
+    )
+    await page.goto('/games/440/team-fortress-2')
+    // Same month — should show "Mar 2024" once, not "Mar 2024 – Mar 2024"
+    await expect(page.getByText(/\(Mar 2024\)/)).toBeVisible()
+    await expect(page.getByText(/Mar 2024\s*[–\u2013]\s*Mar 2024/)).not.toBeVisible()
+  })
+
+  test('omits date range when fields are null (legacy report)', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    const { review_date_range_start: _s, review_date_range_end: _e, ...legacyReport } = MOCK_REPORT
+    await page.route('**/api/games/440/report', route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          report: legacyReport,
+          game: {
+            short_desc: MOCK_GAME_ANALYZED.short_desc,
+            developer: MOCK_GAME_ANALYZED.developer,
+            release_date: MOCK_GAME_ANALYZED.release_date,
+            price_usd: null,
+            is_free: true,
+            genres: MOCK_GAME_ANALYZED.genres,
+            tags: MOCK_GAME_ANALYZED.tags,
+            deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
+            deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+            positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+            review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+            review_count: MOCK_GAME_ANALYZED.review_count,
+            meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+            review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+            last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
+          },
+        },
+      }),
+    )
+    await page.goto('/games/440/team-fortress-2')
+    await expect(page.getByText(/Analysis based on/)).toBeVisible()
+    // No date range parenthetical
+    await expect(page.getByText(/\(.*20[12]\d\)/)).not.toBeVisible()
+  })
+})

@@ -837,6 +837,57 @@ def test_trend_matview_game_type_dimension(
     assert int(jul_all["releases"]) >= int(jul_game["releases"]) + int(jul_dlc["releases"])
 
 
+def test_find_trend_ea_trend_rows(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Returns total_releases, ea_count, ea/non-ea avg_steam_pct from matview."""
+    # Seed a game with an EA review so the ea_flags CTE marks it as has_ea
+    _seed_game(game_repo, 20800, release_date="2024-08-01", positive_pct=70)
+    _seed_game(game_repo, 20801, release_date="2024-08-15", positive_pct=85)
+    # Mark one game as having EA reviews
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO reviews (appid, steam_review_id, language, body, voted_up, "
+            "written_during_early_access) "
+            "VALUES (%s, %s, 'english', 'great', TRUE, TRUE)",
+            (20800, "ea-review-99900"),
+        )
+    db_conn.commit()
+    refresh_matviews()
+
+    rows = analytics_repo.find_trend_ea_trend_rows("month", limit=12)
+    aug = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-08")
+    assert int(aug["total_releases"]) == 2
+    assert int(aug["ea_count"]) >= 1
+    assert aug["ea_avg_steam_pct"] is not None
+    assert aug["non_ea_avg_steam_pct"] is not None
+
+
+def test_find_trend_platform_trend_rows(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Returns total and pct columns from matview."""
+    plat_mac = json.dumps({"windows": True, "mac": True, "linux": False})
+    plat_win = json.dumps({"windows": True, "mac": False, "linux": False})
+    _seed_game(game_repo, 20900, release_date="2024-09-01", platforms=plat_mac)
+    _seed_game(game_repo, 20901, release_date="2024-09-15", platforms=plat_win)
+    refresh_matviews()
+
+    rows = analytics_repo.find_trend_platform_trend_rows("month", limit=12)
+    sep = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-09")
+    assert int(sep["total"]) == 2
+    assert float(sep["mac_pct"]) == pytest.approx(50.0, abs=0.1)
+    assert float(sep["linux_pct"]) == pytest.approx(0.0, abs=0.1)
+    assert sep["deck_verified_pct"] is not None
+    assert sep["deck_playable_pct"] is not None
+    assert sep["deck_unsupported_pct"] is not None
+
+
 def test_trend_matview_invalid_game_type_raises(
     analytics_repo: AnalyticsRepository,
 ) -> None:

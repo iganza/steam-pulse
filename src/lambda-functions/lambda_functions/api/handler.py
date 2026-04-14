@@ -594,6 +594,7 @@ async def get_analytics_trend_query(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
+    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 24,
 ) -> dict:
     """Generic trend query — pick any combination of metrics from the catalog."""
@@ -612,6 +613,7 @@ async def get_analytics_trend_query(
         return _analytics_service.trend_query(
             metric_ids=metric_ids,
             granularity=granularity,
+            game_type=game_type,
             genre_slug=genre,
             tag_slug=tag,
             limit=max(1, min(limit, 200)),

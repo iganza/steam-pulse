@@ -32,7 +32,7 @@ base AS (
         g.metacritic_score,
         g.review_count,
         COALESCE(g.review_velocity_lifetime,
-            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+            g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)
         ) AS velocity,
         g.platforms,
         g.deck_compatibility,
@@ -139,7 +139,7 @@ base AS (
         g.metacritic_score,
         g.review_count,
         COALESCE(g.review_velocity_lifetime,
-            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+            g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)
         ) AS velocity,
         g.platforms,
         g.deck_compatibility,
@@ -250,7 +250,7 @@ base AS (
         g.metacritic_score,
         g.review_count,
         COALESCE(g.review_velocity_lifetime,
-            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+            g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)
         ) AS velocity,
         g.platforms,
         g.deck_compatibility,

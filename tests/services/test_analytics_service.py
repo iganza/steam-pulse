@@ -345,6 +345,7 @@ def test_trend_query_single_metric(svc: AnalyticsService, mock_repo: MagicMock) 
     mock_repo.query_metrics.assert_called_once_with(
         metric_ids=["releases"],
         granularity="month",
+        game_type="game",
         genre_slug=None,
         tag_slug=None,
         limit=24,

@@ -572,7 +572,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
@@ -626,7 +626,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -684,7 +684,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g

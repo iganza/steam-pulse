@@ -344,6 +344,7 @@ class AnalyticsService:
         self,
         metric_ids: list[str],
         granularity: str = "month",
+        game_type: str = "game",
         genre_slug: str | None = None,
         tag_slug: str | None = None,
         limit: int = 24,
@@ -370,6 +371,7 @@ class AnalyticsService:
         rows = self._repo.query_metrics(
             metric_ids=metric_ids,
             granularity=g,
+            game_type=game_type,
             genre_slug=genre_slug,
             tag_slug=tag_slug,
             limit=limit,

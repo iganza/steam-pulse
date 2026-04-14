@@ -1205,6 +1205,9 @@ def run_synthesis_phase(
     response.sentiment_trend_reliable = trend["reliable"]
     response.sentiment_trend_sample_size = trend["sample_size"]
     response.appid = appid
+    if merged.total_stats:
+        response.review_date_range_start = merged.total_stats.date_range_start
+        response.review_date_range_end = merged.total_stats.date_range_end
     return response
 
 

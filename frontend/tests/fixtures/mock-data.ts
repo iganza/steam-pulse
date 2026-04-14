@@ -106,6 +106,8 @@ export const MOCK_REPORT = {
       'Store page targets new players but the current playerbase skews heavily toward veterans. Matchmaking issues mean new players face a steep onboarding curve not mentioned in the description.',
   },
   last_analyzed: _DAYS_AGO(3),
+  review_date_range_start: "2021-03-15",
+  review_date_range_end: "2025-01-20",
 }
 
 // Second game + report for the Compare lens. Intentionally has different metric

@@ -51,6 +51,8 @@ export interface GameReport {
   content_depth?: ContentDepth | null;
   store_page_alignment?: StorePageAlignment | null;
   last_analyzed?: string; // ISO timestamp
+  review_date_range_start?: string | null;
+  review_date_range_end?: string | null;
 }
 
 export interface RefundSignals {

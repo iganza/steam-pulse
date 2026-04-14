@@ -74,6 +74,13 @@ interface GameReportClientProps {
   revenueEstimateReason?: string | null;
 }
 
+function formatMonth(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function TrendIcon({ trend }: { trend: string }) {
   const lower = trend?.toLowerCase() ?? "";
   if (lower.includes("improv") || lower.includes("up") || lower.includes("positive"))
@@ -628,6 +635,18 @@ export function GameReportClient({
               <span>
                 Analysis based on{" "}
                 {report.total_reviews_analyzed?.toLocaleString() ?? "\u2014"} reviews
+                {report.review_date_range_start &&
+                  report.review_date_range_end && (
+                    <span>
+                      {" "}
+                      (
+                      {formatMonth(report.review_date_range_start) ===
+                      formatMonth(report.review_date_range_end)
+                        ? formatMonth(report.review_date_range_start)
+                        : `${formatMonth(report.review_date_range_start)} \u2013 ${formatMonth(report.review_date_range_end)}`}
+                      )
+                    </span>
+                  )}
               </span>
               {report.last_analyzed && (
                 <span className="ml-auto">

@@ -686,3 +686,129 @@ def test_query_metrics_unknown_metric_raises(
 ) -> None:
     with pytest.raises(ValueError, match="unknown metric"):
         analytics_repo.query_metrics(metric_ids=["not_a_metric"], granularity="month")
+
+
+# ---------------------------------------------------------------------------
+# find_game_*_rows — matview-backed trend methods
+# ---------------------------------------------------------------------------
+
+
+def test_find_game_release_volume_rows(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Returns releases, avg_steam_pct, avg_reviews, free_count from matview."""
+    _seed_game(game_repo, 20000, release_date="2024-01-10", positive_pct=80, review_count=200)
+    _seed_game(
+        game_repo, 20001, release_date="2024-01-20", positive_pct=60,
+        review_count=100, is_free=True, price_usd=None,
+    )
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_release_volume_rows("month", limit=12)
+    jan = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-01")
+    assert int(jan["releases"]) == 2
+    assert int(jan["free_count"]) == 1
+    assert jan["avg_steam_pct"] is not None
+    assert jan["avg_reviews"] is not None
+
+
+def test_find_game_release_volume_rows_genre_filter(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """genre_slug routes to mv_trend_by_genre."""
+    genre_id = _seed_genre(db_conn, "Sim", "sim-rv")
+    _seed_game(game_repo, 20100, release_date="2024-02-01")
+    _link_genre(db_conn, 20100, genre_id)
+    _seed_game(game_repo, 20101, release_date="2024-02-15")  # no genre
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_release_volume_rows("month", genre_slug="sim-rv", limit=12)
+    feb = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-02")
+    assert int(feb["releases"]) == 1
+
+
+def test_find_game_release_volume_rows_tag_filter(
+    db_conn: Any,
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """tag_slug routes to mv_trend_by_tag."""
+    tag_id = _seed_tag(db_conn, "Survival", "survival-rv")
+    _seed_game(game_repo, 20200, release_date="2024-03-01")
+    _link_tag(db_conn, 20200, tag_id)
+    _seed_game(game_repo, 20201, release_date="2024-03-15")  # no tag
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_release_volume_rows("month", tag_slug="survival-rv", limit=12)
+    mar = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-03")
+    assert int(mar["releases"]) == 1
+
+
+def test_find_game_price_trend_rows(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Returns total, avg_paid_price, avg_price_incl_free, free_count."""
+    _seed_game(game_repo, 20300, release_date="2024-04-01", price_usd=19.99)
+    _seed_game(game_repo, 20301, release_date="2024-04-10", price_usd=9.99)
+    _seed_game(
+        game_repo, 20302, release_date="2024-04-20", is_free=True, price_usd=None,
+    )
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_price_trend_rows("month", limit=12)
+    apr = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-04")
+    assert int(apr["total"]) == 3
+    assert int(apr["free_count"]) == 1
+    assert float(apr["avg_paid_price"]) == pytest.approx(14.99, abs=0.01)
+    assert apr["avg_price_incl_free"] is not None
+
+
+def test_find_game_sentiment_distribution_rows(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Returns total, positive/mixed/negative counts."""
+    _seed_game(game_repo, 20400, release_date="2024-05-01", positive_pct=80)
+    _seed_game(game_repo, 20401, release_date="2024-05-10", positive_pct=55)
+    _seed_game(game_repo, 20402, release_date="2024-05-20", positive_pct=30)
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_sentiment_distribution_rows("month", limit=12)
+    may = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-05")
+    assert int(may["total"]) == 3
+    assert int(may["positive_count"]) == 1
+    assert int(may["mixed_count"]) == 1
+    assert int(may["negative_count"]) == 1
+
+
+def test_trend_matview_combined_filter_raises(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    """Combining genre_slug + tag_slug raises ValueError."""
+    with pytest.raises(ValueError, match="combining"):
+        analytics_repo.find_game_release_volume_rows(
+            "month", genre_slug="action", tag_slug="indie"
+        )
+
+
+def test_trend_matview_empty_string_treated_as_no_filter(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Empty-string slugs are normalized to None (catalog-wide query)."""
+    _seed_game(game_repo, 20500, release_date="2024-06-01")
+    refresh_matviews()
+
+    rows = analytics_repo.find_game_release_volume_rows("month", genre_slug="", tag_slug="")
+    jun = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-06")
+    assert int(jun["releases"]) >= 1

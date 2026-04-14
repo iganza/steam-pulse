@@ -957,6 +957,11 @@ def create_matviews(conn: object) -> None:
             "mv_analysis_candidates",
             "mv_catalog_reports",
             "mv_audience_overlap",
+            # Dropped so persistent test DBs pick up avg_reviews + avg_price_incl_free
+            # columns added to trend matviews (migration 0045).
+            "mv_trend_catalog",
+            "mv_trend_by_genre",
+            "mv_trend_by_tag",
         ):
             cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
         # Now that all dependent matviews are gone, drop the legacy

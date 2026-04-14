@@ -1,7 +1,6 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
 import os
-from typing import Annotated
 
 import boto3  # type: ignore[import-untyped]
 from aws_lambda_powertools import Logger, Tracer
@@ -415,7 +414,6 @@ async def get_trend_release_volume(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -423,7 +421,6 @@ async def get_trend_release_volume(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -435,7 +432,6 @@ async def get_trend_sentiment(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -443,7 +439,6 @@ async def get_trend_sentiment(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -454,14 +449,12 @@ async def get_trend_sentiment(
 async def get_trend_genre_share(
     granularity: str = "year",
     top_n: int = 5,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_genre_share(
             granularity=granularity,
             top_n=max(1, min(top_n, 15)),
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -473,7 +466,6 @@ async def get_trend_velocity(
     granularity: str = "month",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -481,7 +473,6 @@ async def get_trend_velocity(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -493,7 +484,6 @@ async def get_trend_pricing(
     granularity: str = "year",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -501,7 +491,6 @@ async def get_trend_pricing(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -513,7 +502,6 @@ async def get_trend_early_access(
     granularity: str = "year",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -521,7 +509,6 @@ async def get_trend_early_access(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -533,7 +520,6 @@ async def get_trend_platforms(
     granularity: str = "year",
     genre: str | None = None,
     tag: str | None = None,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
@@ -541,7 +527,6 @@ async def get_trend_platforms(
             granularity=granularity,
             genre_slug=genre,
             tag_slug=tag,
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:
@@ -568,14 +553,12 @@ async def get_trend_engagement(
 async def get_trend_categories(
     granularity: str = "year",
     top_n: int = 4,
-    game_type: Annotated[str, Query(alias="type")] = "game",
     limit: int = 100,
 ) -> dict:
     try:
         return _analytics_service.get_category_trend(
             granularity=granularity,
             top_n=max(1, min(top_n, 8)),
-            game_type=game_type,
             limit=max(1, min(limit, 200)),
         )
     except ValueError as exc:

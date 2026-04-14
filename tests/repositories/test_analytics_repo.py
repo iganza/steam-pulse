@@ -854,6 +854,7 @@ def test_trend_genre_share_invalid_game_type_raises(
 
 
 def test_trend_velocity_null_review_velocity_lifetime(
+    db_conn: Any,
     analytics_repo: AnalyticsRepository,
     game_repo: GameRepository,
     refresh_matviews: Any,
@@ -864,14 +865,12 @@ def test_trend_velocity_null_review_velocity_lifetime(
     # from review_count / days_since_release.
     _seed_game(game_repo, 20700, release_date="2023-01-01", review_count=50)
     # Ensure review_velocity_lifetime is NULL
-    from library_layer.utils.db import get_conn
-
-    with get_conn().cursor() as cur:
+    with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE games SET review_velocity_lifetime = NULL WHERE appid = %s",
             (20700,),
         )
-    get_conn().commit()
+    db_conn.commit()
     refresh_matviews()
 
     rows = analytics_repo.find_trend_velocity_distribution_rows("year", limit=12)

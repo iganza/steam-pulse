@@ -572,7 +572,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
@@ -588,6 +588,8 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         DATE_TRUNC(gr.granularity, b.release_date) AS period,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -619,7 +621,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -639,6 +641,8 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         b.genre_slug,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,
@@ -670,7 +674,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -690,6 +694,8 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         b.tag_slug,
         COUNT(*) AS releases,
         COUNT(*) FILTER (WHERE b.is_free) AS free_count,
+        ROUND(AVG(b.review_count)::numeric, 0) AS avg_reviews,
+        ROUND(AVG(b.price_usd)::numeric, 2) AS avg_price_incl_free,
         COUNT(*) FILTER (WHERE b.positive_pct >= 70) AS positive_count,
         COUNT(*) FILTER (WHERE b.positive_pct >= 40 AND b.positive_pct < 70) AS mixed_count,
         COUNT(*) FILTER (WHERE b.positive_pct < 40) AS negative_count,

@@ -750,19 +750,16 @@ class AnalyticsRepository(BaseRepository):
         """
         if game_type not in self._VALID_GAME_TYPES:
             raise ValueError(f"unsupported game_type={game_type!r}")
-        if game_type == "all":
-            type_clause = "AND g.type IN ('game', 'dlc')"
-        else:
-            type_clause = f"AND g.type = '{game_type}'"
+        type_list = ("game", "dlc") if game_type == "all" else (game_type,)
         # limit controls periods returned, not rows. Collect N periods first.
         rows = self._fetchall(
-            f"""
+            """
             WITH periods AS (
                 SELECT DISTINCT DATE_TRUNC(%s, g.release_date) AS period
                 FROM games g
                 WHERE g.release_date IS NOT NULL
                   AND g.coming_soon = FALSE
-                  {type_clause}
+                  AND g.type = ANY(%s)
                   AND g.review_count >= 10
                 ORDER BY 1 DESC
                 LIMIT %s
@@ -776,7 +773,7 @@ class AnalyticsRepository(BaseRepository):
             JOIN periods p ON p.period = DATE_TRUNC(%s, g.release_date)
             WHERE g.release_date IS NOT NULL
               AND g.coming_soon = FALSE
-              {type_clause}
+              AND g.type = ANY(%s)
               AND g.review_count >= 10
               AND gc.category_name IN (
                 'Single-player', 'Multi-player', 'Co-op', 'Steam Workshop',
@@ -785,6 +782,6 @@ class AnalyticsRepository(BaseRepository):
             GROUP BY 1, 2
             ORDER BY 1, 3 DESC
             """,
-            (granularity, limit, granularity),
+            (granularity, list(type_list), limit, granularity, list(type_list)),
         )
         return [dict(r) for r in rows]

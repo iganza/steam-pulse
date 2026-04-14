@@ -408,9 +408,86 @@ def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
     return rows
 
 
+_PHASE_SHORT: dict[str, str] = {
+    "chunk": "chunk",
+    "merge-L1": "merge",
+    "merge-L2": "mergeL2",
+    "synthesis": "syn",
+}
+
+_OVERALL_PRIORITY = ["failed", "running", "submitted", "completed"]
+
+
+def _overall_status(phase_statuses: list[str]) -> str:
+    """Derive overall execution status from individual phase statuses."""
+    for s in _OVERALL_PRIORITY:
+        if s in phase_statuses:
+            return s
+    return phase_statuses[0] if phase_statuses else "submitted"
+
+
+def _phase_badge(phase: str, status: str) -> str:
+    short = _PHASE_SHORT.get(phase, phase)
+    icon = _STATUS_ICON.get(status, "?")
+    return f"{short} {icon}"
+
+
+def _group_by_execution(rows: list[dict]) -> list[dict]:
+    """
+    Collapse per-phase rows into one summary dict per execution_id.
+    Rows without an execution_id get their own singleton group keyed by row id.
+    Groups are sorted by earliest submitted_at DESC (newest first).
+    """
+    groups: dict[str | int, dict] = {}
+    for r in rows:
+        key = r["execution_id"] or r["id"]
+        if key not in groups:
+            groups[key] = {
+                "appid": r["appid"],
+                "game_name": r["game_name"],
+                "execution_id": r["execution_id"],
+                "phases": [],
+                "submitted_at": None,
+                "completed_at": None,
+                "total_cost": 0.0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "failure_reason": None,
+            }
+        g = groups[key]
+        g["phases"].append({"phase": r["phase"], "status": r["status"]})
+
+        sa = r["submitted_at"]
+        if sa and sa.tzinfo is None:
+            sa = sa.replace(tzinfo=UTC)
+        ca = r["completed_at"]
+        if ca and ca.tzinfo is None:
+            ca = ca.replace(tzinfo=UTC)
+
+        if sa and (g["submitted_at"] is None or sa < g["submitted_at"]):
+            g["submitted_at"] = sa
+        if ca and (g["completed_at"] is None or ca > g["completed_at"]):
+            g["completed_at"] = ca
+
+        g["total_cost"] += float(r["estimated_cost_usd"] or 0.0)
+        g["total_input_tokens"] += r["input_tokens"] or 0
+        g["total_output_tokens"] += r["output_tokens"] or 0
+
+        if r["failure_reason"] and not g["failure_reason"]:
+            g["failure_reason"] = r["failure_reason"]
+
+    # Sort groups newest first
+    sorted_groups = sorted(
+        groups.values(),
+        key=lambda g: g["submitted_at"] or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+    return sorted_groups
+
+
 def render_batches(rows: list[dict], *, show_all: bool) -> Table:
     now = datetime.now(UTC)
-    label = "All Batch Executions" if show_all else "Active Batches"
+    label = "all executions" if show_all else "active executions"
 
     if not rows:
         msg = "No active batches." if not show_all else "No batch executions found."
@@ -418,8 +495,10 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
         t.add_column(msg, style="yellow")
         return t
 
+    groups = _group_by_execution(rows)
+
     table = Table(
-        title=label,
+        title=f"batch_executions — {label}",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
@@ -428,81 +507,69 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
     )
 
     table.add_column("appid", width=8, no_wrap=True)
-    table.add_column("game", min_width=22)
-    table.add_column("phase", width=10, no_wrap=True)
-    table.add_column("status", width=12, no_wrap=True)
-    table.add_column("reqs", width=5, justify="right", no_wrap=True)
-    table.add_column("ok/fail", width=8, justify="right", no_wrap=True)
+    table.add_column("game", min_width=20)
+    table.add_column("phases", min_width=30)
+    table.add_column("status", width=14, no_wrap=True)
     table.add_column("elapsed", width=9, justify="right", no_wrap=True)
     table.add_column("cost $", width=7, justify="right", no_wrap=True)
     table.add_column("tokens", width=12, justify="right", no_wrap=True)
     if show_all:
         table.add_column("submitted", width=14, no_wrap=True)
-    table.add_column("reason / batch_id", min_width=20)
+    table.add_column("failure", min_width=20)
 
-    # Summary counters
     totals: dict[str, int] = {"submitted": 0, "running": 0, "completed": 0, "failed": 0}
 
-    for r in rows:
-        status = r["status"]
-        totals[status] = totals.get(status, 0) + 1
-        style = _STATUS_STYLE.get(status, "white")
-        icon = _STATUS_ICON.get(status, "")
+    for g in groups:
+        phase_statuses = [p["status"] for p in g["phases"]]
+        overall = _overall_status(phase_statuses)
+        totals[overall] = totals.get(overall, 0) + 1
 
-        game = (r["game_name"] or f"appid {r['appid']}")[:30]
-        phase = r["phase"] or ""
+        style = _STATUS_STYLE.get(overall, "white")
+        icon = _STATUS_ICON.get(overall, "")
 
-        ok_fail = ""
-        if r["succeeded_count"] is not None or r["failed_count"] is not None:
-            ok = r["succeeded_count"] or 0
-            fail = r["failed_count"] or 0
-            ok_fail = f"[green]{ok}[/green]/[red]{fail}[/red]"
+        game = (g["game_name"] or f"appid {g['appid']}")[:28]
 
-        submitted_at = r["submitted_at"]
-        if submitted_at and submitted_at.tzinfo is None:
-            submitted_at = submitted_at.replace(tzinfo=UTC)
-        completed_at = r["completed_at"]
-        if completed_at and completed_at.tzinfo is None:
-            completed_at = completed_at.replace(tzinfo=UTC)
+        # Phase badges in canonical order
+        order = list(_PHASE_SHORT.keys())
+        sorted_phases = sorted(g["phases"], key=lambda p: order.index(p["phase"]) if p["phase"] in order else 99)
+        badges = "  ·  ".join(_phase_badge(p["phase"], p["status"]) for p in sorted_phases)
 
+        submitted_at = g["submitted_at"]
+        completed_at = g["completed_at"]
         elapsed = _elapsed(submitted_at, completed_at) if submitted_at else ""
-        # Dim elapsed for completed rows
-        elapsed_text = Text(elapsed, style="bright_black" if status == "completed" else "white")
+        elapsed_text = Text(elapsed, style="bright_black" if overall == "completed" else "white")
 
-        cost = f"{r['estimated_cost_usd']:.4f}" if r["estimated_cost_usd"] else "—"
+        cost_val = g["total_cost"]
+        cost = f"{cost_val:.4f}" if cost_val else "—"
 
-        tok_in = r["input_tokens"] or 0
-        tok_out = r["output_tokens"] or 0
+        tok_in = g["total_input_tokens"]
+        tok_out = g["total_output_tokens"]
         tokens = f"{tok_in // 1000}k/{tok_out // 1000}k" if (tok_in or tok_out) else "—"
 
-        reason_or_batch = r["failure_reason"] or r["batch_id"] or ""
-        if r["failure_reason"]:
-            reason_cell = Text(r["failure_reason"][:50], style="red")
-        else:
-            reason_cell = Text(reason_or_batch[:40], style="bright_black")
+        failure_cell = Text(
+            (g["failure_reason"] or "")[:50],
+            style="red" if g["failure_reason"] else "bright_black",
+        )
 
         submitted_str = ""
         if submitted_at:
             submitted_str = submitted_at.astimezone().strftime("%m-%d %H:%M")
 
         row_cells: list[Any] = [
-            Text(str(r["appid"]), style="bright_black"),
+            Text(str(g["appid"]), style="bright_black"),
             Text(game),
-            Text(phase, style="magenta"),
-            Text(f"{icon} {status}", style=style),
-            str(r["request_count"] or ""),
-            ok_fail,
+            Text(badges, style="magenta"),
+            Text(f"{icon} {overall}", style=style),
             elapsed_text,
             Text(cost, style="yellow" if cost != "—" else "bright_black"),
             Text(tokens, style="bright_black"),
         ]
         if show_all:
             row_cells.append(Text(submitted_str, style="bright_black"))
-        row_cells.append(reason_cell)
+        row_cells.append(failure_cell)
 
         table.add_row(*row_cells)
 
-    # Summary footer as table caption
     parts = []
     for s, n in totals.items():
         if n:

@@ -851,3 +851,40 @@ def test_trend_genre_share_invalid_game_type_raises(
     """find_trend_genre_share_rows also validates game_type."""
     with pytest.raises(ValueError, match="unsupported game_type"):
         analytics_repo.find_trend_genre_share_rows("month", game_type="mod")
+
+
+def test_trend_velocity_null_review_velocity_lifetime(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """Games with NULL review_velocity_lifetime use the COALESCE fallback
+    (review_count / days_since_release) and still land in a velocity bucket."""
+    # Seed a game with no cached velocity — the fallback should compute one
+    # from review_count / days_since_release.
+    _seed_game(game_repo, 20700, release_date="2023-01-01", review_count=50)
+    # Ensure review_velocity_lifetime is NULL
+    from library_layer.utils.db import get_conn
+
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "UPDATE games SET review_velocity_lifetime = NULL WHERE appid = %s",
+            (20700,),
+        )
+    get_conn().commit()
+    refresh_matviews()
+
+    rows = analytics_repo.find_trend_velocity_distribution_rows("year", limit=12)
+    row_2023 = next(
+        (r for r in rows if r["period"].strftime("%Y") == "2023"),
+        None,
+    )
+    assert row_2023 is not None
+    bucket_total = (
+        int(row_2023["velocity_under_1"])
+        + int(row_2023["velocity_1_10"])
+        + int(row_2023["velocity_10_50"])
+        + int(row_2023["velocity_50_plus"])
+    )
+    # The game must appear in exactly one bucket (not zero)
+    assert bucket_total >= 1

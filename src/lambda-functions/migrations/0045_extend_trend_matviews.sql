@@ -31,7 +31,9 @@ base AS (
         g.positive_pct,
         g.metacritic_score,
         g.review_count,
-        g.review_velocity_lifetime,
+        COALESCE(g.review_velocity_lifetime,
+            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+        ) AS velocity,
         g.platforms,
         g.deck_compatibility,
         COALESCE(ef.has_ea, FALSE) AS has_ea
@@ -75,10 +77,10 @@ SELECT
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+    COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+    COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+    COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+    COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
     ROUND(
         COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
@@ -136,7 +138,9 @@ base AS (
         g.positive_pct,
         g.metacritic_score,
         g.review_count,
-        g.review_velocity_lifetime,
+        COALESCE(g.review_velocity_lifetime,
+            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+        ) AS velocity,
         g.platforms,
         g.deck_compatibility,
         gn.slug AS genre_slug,
@@ -184,10 +188,10 @@ SELECT
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+    COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+    COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+    COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+    COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
     ROUND(
         COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
@@ -245,7 +249,9 @@ base AS (
         g.positive_pct,
         g.metacritic_score,
         g.review_count,
-        g.review_velocity_lifetime,
+        COALESCE(g.review_velocity_lifetime,
+            g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)
+        ) AS velocity,
         g.platforms,
         g.deck_compatibility,
         t.slug AS tag_slug,
@@ -293,10 +299,10 @@ SELECT
         COUNT(*) FILTER (WHERE b.is_free)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1
     ) AS free_pct,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-    COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+    COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+    COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+    COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+    COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
     ROUND(
         COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric
         / NULLIF(COUNT(*), 0) * 100, 1

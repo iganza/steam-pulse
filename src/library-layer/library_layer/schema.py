@@ -572,7 +572,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
                g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
         LEFT JOIN ea_flags ef ON ef.appid = g.appid
@@ -602,10 +602,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,
@@ -626,7 +626,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -660,10 +660,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,
@@ -684,7 +684,7 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     ),
     base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
-               g.metacritic_score, g.review_count, g.review_velocity_lifetime, g.platforms,
+               g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / NULLIF(CURRENT_DATE - g.release_date, 0)) AS velocity, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
                COALESCE(ef.has_ea, FALSE) AS has_ea
         FROM games g
@@ -718,10 +718,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         ROUND(AVG(b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS avg_paid_price,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY b.price_usd) FILTER (WHERE NOT b.is_free)::numeric, 2) AS median_price,
         ROUND(COUNT(*) FILTER (WHERE b.is_free)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS free_pct,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime < 1) AS velocity_under_1,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 1 AND b.review_velocity_lifetime < 10) AS velocity_1_10,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 10 AND b.review_velocity_lifetime < 50) AS velocity_10_50,
-        COUNT(*) FILTER (WHERE b.review_velocity_lifetime >= 50) AS velocity_50_plus,
+        COUNT(*) FILTER (WHERE b.velocity < 1) AS velocity_under_1,
+        COUNT(*) FILTER (WHERE b.velocity >= 1 AND b.velocity < 10) AS velocity_1_10,
+        COUNT(*) FILTER (WHERE b.velocity >= 10 AND b.velocity < 50) AS velocity_10_50,
+        COUNT(*) FILTER (WHERE b.velocity >= 50) AS velocity_50_plus,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'mac')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS mac_pct,
         ROUND(COUNT(*) FILTER (WHERE (b.platforms->>'linux')::boolean)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS linux_pct,
         ROUND(COUNT(*) FILTER (WHERE b.deck_compatibility = 3)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS deck_verified_pct,

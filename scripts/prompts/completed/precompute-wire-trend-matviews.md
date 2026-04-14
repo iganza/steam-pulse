@@ -18,7 +18,7 @@ methods ran live `GROUP BY` + `JOIN` against `games` on every request.
 Dropped and recreated all three matviews with:
 
 1. **`avg_reviews`** — `ROUND(AVG(review_count), 0)` added to serve the release-volume endpoint.
-2. **`avg_price_incl_free`** — `ROUND(AVG(price_usd), 2)` added to serve the pricing endpoint.
+2. **`avg_price_incl_free`** — `ROUND(AVG(CASE WHEN is_free THEN 0 ELSE price_usd END), 2)` added to serve the pricing endpoint (free games count as $0; paid games with unknown price are excluded).
 3. **`game_type` dimension** — `'game'`, `'dlc'`, and `'all'` are pre-computed as rows via a
    `game_types` CTE cross-joined with the base data. The base CTE now includes both `game`
    and `dlc` types (`g.type IN ('game', 'dlc')`), and the `WHERE` clause
@@ -39,7 +39,7 @@ normalised to `None` so `?genre=` doesn't silently route to `mv_trend_by_genre`.
 | `find_trend_release_volume_rows()` | matview | `releases`, `avg_steam_pct`, `avg_reviews`, `free_count` |
 | `find_trend_sentiment_distribution_rows()` | matview | Renames `releases` → `total` for service compat |
 | `find_trend_genre_share_rows()` | `mv_trend_by_genre` | JOINs `genres` for display name; custom query (not via helper) |
-| `find_trend_velocity_distribution_rows()` | matview | Uses `review_velocity_lifetime` (matview), not COALESCE fallback |
+| `find_trend_velocity_distribution_rows()` | matview | Uses `review_velocity_lifetime` with COALESCE fallback to `review_count / days_since_release` |
 | `find_trend_price_trend_rows()` | matview | `avg_paid_price`, `avg_price_incl_free`, `free_count` |
 | `find_trend_ea_trend_rows()` | matview | Biggest win — eliminates full `reviews` scan via `ea_flags` CTE |
 | `find_trend_platform_trend_rows()` | matview | Returns pct columns directly (service reads them as-is) |

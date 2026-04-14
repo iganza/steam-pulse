@@ -532,6 +532,8 @@ class AnalyticsRepository(BaseRepository):
         game_type: str = "game",
         limit: int = 100,
     ) -> list[dict]:
+        if game_type not in self._VALID_GAME_TYPES:
+            raise ValueError(f"unsupported game_type={game_type!r}")
         rows = self._fetchall(
             """
             SELECT mv.period, gn.name AS genre, mv.genre_slug, mv.releases

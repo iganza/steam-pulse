@@ -18,7 +18,7 @@ def _seed_game(game_repo: GameRepository, appid: int = 440, **kw: Any) -> None:
             "appid": appid,
             "name": kw.get("name", f"Game {appid}"),
             "slug": kw.get("slug", f"game-{appid}"),
-            "type": "game",
+            "type": kw.get("type", "game"),
             "developer": kw.get("developer", "Test Dev"),
             "developer_slug": kw.get("developer_slug", "test-dev"),
             "publisher": kw.get("publisher"),
@@ -812,3 +812,42 @@ def test_trend_matview_empty_string_treated_as_no_filter(
     rows = analytics_repo.find_trend_release_volume_rows("month", genre_slug="", tag_slug="")
     jun = next(r for r in rows if r["period"].strftime("%Y-%m") == "2024-06")
     assert int(jun["releases"]) >= 1
+
+
+def test_trend_matview_game_type_dimension(
+    analytics_repo: AnalyticsRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """game_type='game' excludes DLC; 'dlc' excludes games; 'all' includes both."""
+    _seed_game(game_repo, 20600, release_date="2024-07-01", type="game")
+    _seed_game(game_repo, 20601, release_date="2024-07-15", type="dlc")
+    refresh_matviews()
+
+    game_rows = analytics_repo.find_trend_release_volume_rows("month", game_type="game")
+    dlc_rows = analytics_repo.find_trend_release_volume_rows("month", game_type="dlc")
+    all_rows = analytics_repo.find_trend_release_volume_rows("month", game_type="all")
+
+    jul_game = next(r for r in game_rows if r["period"].strftime("%Y-%m") == "2024-07")
+    jul_dlc = next(r for r in dlc_rows if r["period"].strftime("%Y-%m") == "2024-07")
+    jul_all = next(r for r in all_rows if r["period"].strftime("%Y-%m") == "2024-07")
+
+    assert int(jul_game["releases"]) >= 1
+    assert int(jul_dlc["releases"]) >= 1
+    assert int(jul_all["releases"]) >= int(jul_game["releases"]) + int(jul_dlc["releases"])
+
+
+def test_trend_matview_invalid_game_type_raises(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    """Unsupported game_type raises ValueError."""
+    with pytest.raises(ValueError, match="unsupported game_type"):
+        analytics_repo.find_trend_release_volume_rows("month", game_type="mod")
+
+
+def test_trend_genre_share_invalid_game_type_raises(
+    analytics_repo: AnalyticsRepository,
+) -> None:
+    """find_trend_genre_share_rows also validates game_type."""
+    with pytest.raises(ValueError, match="unsupported game_type"):
+        analytics_repo.find_trend_genre_share_rows("month", game_type="mod")

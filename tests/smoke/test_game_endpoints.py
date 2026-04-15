@@ -59,4 +59,7 @@ def test_game_top_reviews(api: httpx.Client, well_known_appid: int) -> None:
 
 def test_nonexistent_appid(api: httpx.Client) -> None:
     r = api.get("/api/games/999999999/report")
-    assert r.status_code in (404, 200)  # 404 or empty response
+    assert r.status_code == 200
+    data = r.json()
+    assert "status" in data
+    assert data["status"] == "not_available"

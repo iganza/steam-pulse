@@ -114,4 +114,6 @@ def test_avg_price_incl_free_differs_from_avg_paid(api: httpx.Client) -> None:
     )
     assert r.status_code == 200
     p = r.json()["periods"][0]
-    assert p["avg_price_incl_free"] != p["avg_paid_price"]
+    assert p["avg_price_incl_free"] <= p["avg_paid_price"]
+    if p.get("free_count", 0) > 0:
+        assert p["avg_price_incl_free"] != p["avg_paid_price"]

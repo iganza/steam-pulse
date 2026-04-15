@@ -737,7 +737,9 @@ class GameRepository(BaseRepository):
                 "WHERE appid = %s AND has_early_access_reviews = FALSE",
                 (appid,),
             )
-        self.conn.commit()
+            updated = cur.rowcount > 0
+        if updated:
+            self.conn.commit()
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""

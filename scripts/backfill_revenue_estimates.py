@@ -19,6 +19,7 @@ Flags:
     --all             Recompute every game. Default is --only-stale: skip
                       games whose `revenue_estimate_method` already matches
                       the current METHOD_VERSION.
+    --start-after N   Resume after appid N (skip all appids <= N).
     --batch N         Number of appids per bulk genre/tag lookup (default 500).
     --limit N         Stop after processing N candidates (debugging aid).
 
@@ -52,6 +53,7 @@ def _iter_candidate_appids(
     *,
     only_stale: bool,
     batch_size: int,
+    start_after: int | None,
 ) -> Iterator[list[int]]:
     """Stream candidate appids from a named server-side cursor.
 
@@ -64,16 +66,20 @@ def _iter_candidate_appids(
     its connection — and the repository bulk update commits per batch. If
     we shared one connection we'd lose the cursor after the first write.
     """
+    clauses = []
+    params_list: list = []
+
     if only_stale:
-        sql = (
-            "SELECT appid FROM games "
-            "WHERE revenue_estimate_method IS DISTINCT FROM %s "
-            "ORDER BY appid"
-        )
-        params: tuple = (METHOD_VERSION,)
-    else:
-        sql = "SELECT appid FROM games ORDER BY appid"
-        params = ()
+        clauses.append("revenue_estimate_method IS DISTINCT FROM %s")
+        params_list.append(METHOD_VERSION)
+
+    if start_after is not None:
+        clauses.append("appid > %s")
+        params_list.append(start_after)
+
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = f"SELECT appid FROM games{where} ORDER BY appid"
+    params: tuple = tuple(params_list)
 
     db_url = os.environ["DATABASE_URL"]
     reader_conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -113,6 +119,9 @@ def main() -> None:
         default=True,
         help="Recompute every game. Default: --only-stale.",
     )
+    parser.add_argument(
+        "--start-after", type=int, default=None, help="Resume after this appid (skip appids <= N)."
+    )
     parser.add_argument("--batch", type=int, default=500, help="Batch size (default 500).")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N candidates.")
     args = parser.parse_args()
@@ -128,7 +137,14 @@ def main() -> None:
     updated = 0
     reasons: Counter[str] = Counter()
 
-    for appids in _iter_candidate_appids(only_stale=args.only_stale, batch_size=args.batch):
+    last_appid = args.start_after or 0
+
+    if args.start_after is not None:
+        print(f"Resuming after appid {args.start_after}", flush=True)
+
+    for appids in _iter_candidate_appids(
+        only_stale=args.only_stale, batch_size=args.batch, start_after=args.start_after
+    ):
         if args.limit is not None and total >= args.limit:
             break
         if args.limit is not None:
@@ -190,8 +206,10 @@ def main() -> None:
                             flush=True,
                         )
 
+        last_appid = appids[-1] if appids else last_appid
         print(
-            f"  processed batch of {len(appids)} (running total: {total}, updated: {updated})",
+            f"  processed batch of {len(appids)} "
+            f"(running total: {total}, updated: {updated}, last appid: {last_appid})",
             flush=True,
         )
 

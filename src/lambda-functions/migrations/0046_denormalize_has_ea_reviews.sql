@@ -6,14 +6,16 @@
 -- 1. Add column
 ALTER TABLE games ADD COLUMN IF NOT EXISTS has_early_access_reviews BOOLEAN DEFAULT FALSE;
 
--- 2. Backfill from reviews
+-- 2. Backfill from reviews (join against precomputed distinct set for efficiency)
 UPDATE games g
 SET has_early_access_reviews = TRUE
-WHERE has_early_access_reviews = FALSE
-  AND EXISTS (
-    SELECT 1 FROM reviews r
-    WHERE r.appid = g.appid AND r.written_during_early_access = TRUE
-);
+FROM (
+    SELECT DISTINCT r.appid
+    FROM reviews r
+    WHERE r.written_during_early_access = TRUE
+) ea_reviews
+WHERE g.has_early_access_reviews = FALSE
+  AND ea_reviews.appid = g.appid;
 
 -- 3. Recreate trend matviews with ea_flags CTE removed
 

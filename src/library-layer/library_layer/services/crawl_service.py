@@ -207,7 +207,8 @@ class CrawlService:
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
 
-        if any(r.get("written_during_early_access") for r in reviews_to_upsert):
+        has_ea_review = any(r.get("written_during_early_access") for r in reviews_to_upsert)
+        if has_ea_review and not getattr(game, "has_early_access_reviews", False):
             self._game_repo.set_has_early_access_reviews(appid)
 
         self._trigger_analysis(appid, game_name)

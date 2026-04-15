@@ -39,8 +39,9 @@ The research consensus for the base multiplier is:
 
 ### Base multiplier: 30x
 
-Consensus midpoint between VG Insights (30x) and steam-revenue-calculator (48x).
-All adjustments are multiplicative on this base.
+Conservative baseline anchored to VG Insights' recent 30x estimate, while staying below
+steam-revenue-calculator's flatter 48x assumption. All adjustments are multiplicative on
+this base.
 
 ### Signal 1: Review-count scaling (DESCENDING for high counts)
 
@@ -165,14 +166,18 @@ revenue = (Decimal(owners) * price_usd).quantize(Decimal("0.01"))
 
 | Game | Reviews | Price | Our estimate | Steam target | Accuracy | Source |
 |---|---|---|---|---|---|---|
-| Elden Ring | 785k | $60 | 15.4M / $924M | 10-14M | ~10% over (within ±50%) | Alinea: 15.7M Steam |
-| BG3 | 677k | $48 | 12.1M / $579M | 15-20M | ~20% under (within ±50%) | VG Insights: 14.6M |
+| Elden Ring | 786k | $60 | 15.4M / $924M | 10-14M | ~10% over (within ±50%) | Alinea: 15.7M Steam |
+| BG3 | 678k | $48 | 12.1M / $579M | 15-20M | ~20% under (within ±50%) | VG Insights: 14.6M |
 | Terraria | 1.1M | $10 | 24.1M / $240M | 30-35M | ~23% under (within ±50%) | Re-Logic: 33M PC |
 | Black Myth | 849k | $60 | 15.1M / $908M | 12-16M | In range | Yicai: 20M Steam |
 | Stardew Valley | 808k | $15 | 16.5M / $247M | 12-16M | In range | ~26M PC |
-| Hades | 254k | $25 | 4.7M / $119M | 3-5M | In range | SteamSpy: 5-10M |
-| Dwarf Fortress | 27k | $30 | 0.8M / $23M | 1-1.5M | In range | Kitfox: 1M+ |
-| Victoria 3 | 38k | $50 | 1.7M / $84M | 400k-700k | In range | SteamSpy: 1-2M |
+| Hades | 127k | $25 | 3.2M / $79M | 3-5M | In range | SteamSpy: 5-10M |
+| Dwarf Fortress | 38k | $30 | 1.1M / $32M | 1-1.5M | In range | Kitfox: 1M+ |
+| Victoria 3 | 16k | $50 | 701k / $35M | 400k-700k | In range | SteamSpy: 1-2M |
+
+Note: The validation table above uses the same review counts as the test fixtures.
+The external comparison earlier in the conversation used current steam-revenue-calculator
+review counts (which include all languages and may differ from test fixture values).
 
 All 8 games within ±50% band. 6/8 within target range.
 

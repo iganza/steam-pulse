@@ -31,7 +31,7 @@ def _game(**overrides: object) -> Game:
 
 
 def test_baseline_default() -> None:
-    """1000 reviews, $19.99, recent, 80% positive, no genre/tag → pure 30x."""
+    """1000 reviews, $19.99, recent, 80% positive, no genre/tag → 30x base * 1.05 price factor."""
     game = _game()
     result = compute_estimate(game, genres=[], tags=[])
     assert result.reason is None

@@ -844,16 +844,17 @@ def test_find_trend_ea_trend_rows(
     refresh_matviews: Any,
 ) -> None:
     """Returns total_releases, ea_count, ea/non-ea avg_steam_pct from matview."""
-    # Seed a game with an EA review so the ea_flags CTE marks it as has_ea
     _seed_game(game_repo, 20800, release_date="2024-08-01", positive_pct=70)
     _seed_game(game_repo, 20801, release_date="2024-08-15", positive_pct=85)
-    # Mark one game as having EA reviews
+    # Mark one game as Early Access via genre 70 (matview uses game_genres, not reviews)
     with db_conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO reviews (appid, steam_review_id, language, body, voted_up, "
-            "written_during_early_access) "
-            "VALUES (%s, %s, 'english', 'great', TRUE, TRUE)",
-            (20800, "ea-review-99900"),
+            "INSERT INTO genres (id, name, slug) VALUES (70, 'Early Access', 'early-access') "
+            "ON CONFLICT DO NOTHING",
+        )
+        cur.execute(
+            "INSERT INTO game_genres (appid, genre_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (20800, 70),
         )
     db_conn.commit()
     refresh_matviews()

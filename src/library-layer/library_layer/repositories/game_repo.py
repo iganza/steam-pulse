@@ -5,9 +5,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import ClassVar
 
+import psycopg2
+from aws_lambda_powertools import Logger
+
 from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
 from library_layer.repositories.tag_repo import TAG_CATEGORY_ORDER
+
+logger = Logger()
 
 EARLY_ACCESS_GENRE_ID = 70
 
@@ -730,16 +735,25 @@ class GameRepository(BaseRepository):
         self.conn.commit()
 
     def set_has_early_access_reviews(self, appid: int) -> None:
-        """One-way latch: mark that this game has EA reviews. No-op if already TRUE."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "UPDATE games SET has_early_access_reviews = TRUE "
-                "WHERE appid = %s AND has_early_access_reviews = FALSE",
-                (appid,),
-            )
-            updated = cur.rowcount > 0
-        if updated:
+        """One-way latch: mark that this game has EA reviews. No-op if already TRUE.
+
+        Best-effort: gracefully handles missing column during the
+        post-deploy/pre-migration window before migration 0046 is applied.
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE games SET has_early_access_reviews = TRUE "
+                    "WHERE appid = %s AND has_early_access_reviews = FALSE",
+                    (appid,),
+                )
             self.conn.commit()
+        except psycopg2.errors.UndefinedColumn:
+            self.conn.rollback()
+            logger.warning(
+                "has_early_access_reviews column not yet available",
+                extra={"appid": appid},
+            )
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""

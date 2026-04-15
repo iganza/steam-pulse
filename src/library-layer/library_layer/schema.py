@@ -562,9 +562,9 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_review_counts AS
     SELECT appid, COUNT(*) AS stored_count FROM reviews GROUP BY appid""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_review_counts_appid ON mv_review_counts(appid)",
-    # 0024: trend matviews powering the Builder lens / /api/analytics/trend-query.
-    # Test schema mirrors migration 0024; columns must stay in sync with the
-    # AnalyticsRepository.query_metrics + METRIC_REGISTRY column list.
+    # Trend matviews powering the Builder lens / /api/analytics/trend-query.
+    # Test schema mirrors migrations 0024 → 0045 → 0046; columns must stay in sync
+    # with the AnalyticsRepository.query_metrics + METRIC_REGISTRY column list.
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_catalog AS
     WITH base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,

@@ -254,6 +254,48 @@ def test_revenue_is_owners_times_price() -> None:
 # --- Validation targets (Steam-only, ±50%) ---
 
 
+def test_validation_elden_ring() -> None:
+    """Elden Ring: 785k reviews, $60, 2022, ~93% positive. Steam ~15.7M (Alinea)."""
+    game = _game(
+        review_count=785_663,
+        price_usd=Decimal("59.99"),
+        release_date="2022-02-25",
+        positive_pct=Decimal("93"),
+    )
+    result = compute_estimate(game, genres=[], tags=[])
+    assert result.estimated_owners is not None
+    # Steam-only target ~10-20M; ±50% band = 5M-30M
+    assert 5_000_000 <= result.estimated_owners <= 30_000_000
+
+
+def test_validation_terraria() -> None:
+    """Terraria: 1.1M reviews, $10, 2011, ~97% positive. Steam ~33M PC (confirmed)."""
+    game = _game(
+        review_count=1_142_929,
+        price_usd=Decimal("9.99"),
+        release_date="2011-05-16",
+        positive_pct=Decimal("97"),
+    )
+    result = compute_estimate(game, genres=[], tags=[])
+    assert result.estimated_owners is not None
+    # Steam-only target ~23-33M; ±50% band = 12M-50M
+    assert 12_000_000 <= result.estimated_owners <= 50_000_000
+
+
+def test_validation_black_myth() -> None:
+    """Black Myth Wukong: 849k reviews, $60, 2024, ~97% positive. Steam ~20M (Yicai)."""
+    game = _game(
+        review_count=848_978,
+        price_usd=Decimal("59.99"),
+        release_date="2024-08-20",
+        positive_pct=Decimal("97"),
+    )
+    result = compute_estimate(game, genres=[], tags=[])
+    assert result.estimated_owners is not None
+    # Steam-only target ~15-20M; ±50% band = 7.5M-30M
+    assert 7_500_000 <= result.estimated_owners <= 30_000_000
+
+
 def test_validation_hades() -> None:
     """Hades: 127k reviews, $25, 2020, ~97% positive. Steam target: 3-5M."""
     game = _game(

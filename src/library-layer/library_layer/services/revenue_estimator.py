@@ -76,8 +76,6 @@ def _review_count_factor(review_count: int) -> Decimal:
     """
     if review_count < 500:
         return Decimal("1.15")
-    if review_count < 5_000:
-        return Decimal("1.0")
     if review_count < 50_000:
         return Decimal("1.0")
     if review_count < 200_000:

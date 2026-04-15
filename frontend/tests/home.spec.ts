@@ -39,6 +39,19 @@ test.describe('Home page', () => {
     await expect(page.getByRole('heading', { name: /free to explore/i })).toBeVisible()
   })
 
+  test('showcase tabs switch content', async ({ page }) => {
+    const tablist = page.getByRole('tablist', { name: /showcase/i })
+    // Skip if showcase section didn't render (data-dependent)
+    if (!(await tablist.isVisible().catch(() => false))) return
+    const tabs = tablist.getByRole('tab')
+    const count = await tabs.count()
+    if (count < 2) return
+    // Click second tab and verify it becomes selected
+    await tabs.nth(1).click()
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'false')
+  })
+
   test('navbar Browse dropdown opens and shows genres', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Browse dropdown is desktop-only — mobile uses hamburger menu')
     await page.getByRole('button', { name: /browse/i }).click()

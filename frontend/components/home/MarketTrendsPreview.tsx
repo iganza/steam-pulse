@@ -12,17 +12,12 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { formatPeriodLabel } from "@/components/trends/periodLabel";
 import type { SentimentDistPeriod, ReleaseVolumePeriod } from "@/lib/types";
 
 interface MarketTrendsPreviewProps {
   sentimentData: SentimentDistPeriod[];
   releaseData: ReleaseVolumePeriod[];
-}
-
-function formatPeriod(period: string): string {
-  const [year, month] = period.split("-");
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${months[Number(month) - 1]} '${year.slice(2)}`;
 }
 
 export function MarketTrendsPreview({
@@ -69,7 +64,7 @@ export function MarketTrendsPreview({
                 </defs>
                 <XAxis
                   dataKey="period"
-                  tickFormatter={formatPeriod}
+                  tickFormatter={(p) => formatPeriodLabel(p, "month")}
                   tick={{ fontSize: 10, fontFamily: "var(--font-mono)", fill: "var(--muted-foreground)" }}
                   axisLine={false}
                   tickLine={false}
@@ -84,7 +79,7 @@ export function MarketTrendsPreview({
                 />
                 <Tooltip
                   formatter={(value) => [`${Number(value).toFixed(1)}%`, "Positive"]}
-                  labelFormatter={(label) => formatPeriod(String(label))}
+                  labelFormatter={(label) => formatPeriodLabel(String(label), "month")}
                   contentStyle={{
                     background: "var(--card)",
                     border: "1px solid var(--border)",
@@ -125,7 +120,7 @@ export function MarketTrendsPreview({
               >
                 <XAxis
                   dataKey="period"
-                  tickFormatter={formatPeriod}
+                  tickFormatter={(p) => formatPeriodLabel(p, "month")}
                   tick={{ fontSize: 10, fontFamily: "var(--font-mono)", fill: "var(--muted-foreground)" }}
                   axisLine={false}
                   tickLine={false}
@@ -138,7 +133,7 @@ export function MarketTrendsPreview({
                 />
                 <Tooltip
                   formatter={(value) => [Number(value).toLocaleString(), "Releases"]}
-                  labelFormatter={(label) => formatPeriod(String(label))}
+                  labelFormatter={(label) => formatPeriodLabel(String(label), "month")}
                   contentStyle={{
                     background: "var(--card)",
                     border: "1px solid var(--border)",

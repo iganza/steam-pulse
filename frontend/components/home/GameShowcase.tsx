@@ -143,12 +143,18 @@ export function GameShowcase({ games }: GameShowcaseProps) {
         {/* Tab bar */}
         {games.length > 1 && (
           <div
+            role="tablist"
+            aria-label="Showcase games"
             className="flex border-b"
             style={{ borderColor: "var(--border)" }}
           >
             {games.map((game, i) => (
               <button
                 key={game.appid}
+                role="tab"
+                id={`showcase-tab-${game.appid}`}
+                aria-selected={i === activeIndex}
+                aria-controls={`showcase-panel-${game.appid}`}
                 onClick={() => setActiveIndex(i)}
                 className="relative px-5 py-3 text-sm font-medium transition-colors"
                 style={{
@@ -167,7 +173,13 @@ export function GameShowcase({ games }: GameShowcaseProps) {
           </div>
         )}
 
-        <ShowcaseContent game={activeGame} />
+        <div
+          role="tabpanel"
+          id={`showcase-panel-${activeGame.appid}`}
+          aria-labelledby={`showcase-tab-${activeGame.appid}`}
+        >
+          <ShowcaseContent game={activeGame} />
+        </div>
       </div>
     </section>
   );

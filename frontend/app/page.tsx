@@ -21,6 +21,7 @@ import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { ForDevelopers } from "@/components/home/ForDevelopers";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
+import { slugify } from "@/lib/format";
 import type { Game, TagGroup } from "@/lib/types";
 
 const SHOWCASE_GAMES = [
@@ -116,10 +117,6 @@ export default async function HomePage() {
     { report: sc2Report, stats: sc2Stats, overlap: sc2Overlap, appid: SHOWCASE_GAMES[2].appid },
   ];
 
-  function slugify(name: string): string {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  }
-
   const showcaseGames: ShowcaseGame[] = scResults
     .filter(
       (sc) =>
@@ -139,7 +136,7 @@ export default async function HomePage() {
         appid: sc.appid,
         slug: slugify(r.report!.game_name),
         gameName: r.report!.game_name,
-        headerImage: r.game?.header_image ?? "",
+        headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
         report: r.report!,
         timeline: s.timeline,
         overlaps: o.overlaps,
@@ -216,7 +213,7 @@ export default async function HomePage() {
             What they hate. What they want next.
           </p>
           <HeroSearch />
-          {totalGames > 0 && (
+          {totalGames > 0 && genreList.length > 0 && (
             <ProofBar totalGames={totalGames} genreCount={genreList.length} />
           )}
         </div>

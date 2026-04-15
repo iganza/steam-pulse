@@ -100,8 +100,8 @@ export function IntelligenceCards({
             <p className="text-xs text-foreground/80 italic line-clamp-2">
               &ldquo;{report.one_liner}&rdquo;
             </p>
-            {report.design_strengths.slice(0, 2).map((s) => (
-              <p key={s} className="text-xs text-muted-foreground line-clamp-1">
+            {report.design_strengths.slice(0, 2).map((s, i) => (
+              <p key={`${s}-${i}`} className="text-xs text-muted-foreground line-clamp-1">
                 <span style={{ color: "var(--positive)" }}>+</span> {s}
               </p>
             ))}

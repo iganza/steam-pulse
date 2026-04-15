@@ -54,8 +54,8 @@ function ShowcaseContent({ game }: { game: ShowcaseGame }) {
           <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
             Design strengths
           </p>
-          {game.report.design_strengths.slice(0, 3).map((s) => (
-            <p key={s} className="text-sm text-foreground/70 line-clamp-1">
+          {game.report.design_strengths.slice(0, 3).map((s, i) => (
+            <p key={`s-${i}`} className="text-sm text-foreground/70 line-clamp-1">
               <span style={{ color: "var(--positive)" }}>+</span> {s}
             </p>
           ))}
@@ -64,8 +64,8 @@ function ShowcaseContent({ game }: { game: ShowcaseGame }) {
               <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mt-3">
                 Gameplay friction
               </p>
-              {game.report.gameplay_friction.slice(0, 2).map((f) => (
-                <p key={f} className="text-sm text-foreground/70 line-clamp-1">
+              {game.report.gameplay_friction.slice(0, 2).map((f, i) => (
+                <p key={`f-${i}`} className="text-sm text-foreground/70 line-clamp-1">
                   <span style={{ color: "var(--negative)" }}>−</span> {f}
                 </p>
               ))}

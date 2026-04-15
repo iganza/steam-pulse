@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import {
@@ -24,6 +25,8 @@ export function MarketTrendsPreview({
   sentimentData,
   releaseData,
 }: MarketTrendsPreviewProps) {
+  const gradientId = useId();
+
   if (sentimentData.length < 2 && releaseData.length < 2) return null;
 
   return (
@@ -57,7 +60,7 @@ export function MarketTrendsPreview({
                 margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="posGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--positive)" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="var(--positive)" stopOpacity={0} />
                   </linearGradient>
@@ -93,7 +96,7 @@ export function MarketTrendsPreview({
                   dataKey="positive_pct"
                   stroke="var(--positive)"
                   strokeWidth={1.5}
-                  fill="url(#posGrad)"
+                  fill={`url(#${gradientId})`}
                   dot={false}
                 />
               </AreaChart>

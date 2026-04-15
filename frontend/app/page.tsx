@@ -62,7 +62,6 @@ export default async function HomePage() {
     justAnalyzed,
     genres,
     tags,
-    totalCount,
     // Showcase game 1: Baldur's Gate 3
     sc0Report, sc0Stats, sc0Overlap,
     // Showcase game 2: Stardew Valley
@@ -79,7 +78,6 @@ export default async function HomePage() {
     getGames({ sort: "last_analyzed", limit: 6 }),
     getGenres(),
     getTagsGrouped(200),
-    getGames({ limit: 1 }),
     // Per-game showcase fetches (3 games × 3 endpoints = 9 calls)
     getGameReport(SHOWCASE_GAMES[0].appid),
     getReviewStats(SHOWCASE_GAMES[0].appid),
@@ -108,7 +106,7 @@ export default async function HomePage() {
   const tagGroups: TagGroup[] = tags.status === "fulfilled" ? tags.value : [];
 
   const totalGames =
-    totalCount.status === "fulfilled" ? totalCount.value.total : 0;
+    popular.status === "fulfilled" ? popular.value.total : 0;
 
   // Showcase data — assemble per-game, skip any that failed
   const scResults = [

@@ -201,13 +201,17 @@ export function GameShowcase({ games }: GameShowcaseProps) {
           </div>
         )}
 
-        <div
-          role="tabpanel"
-          id={`showcase-panel-${activeGame.appid}`}
-          aria-labelledby={`showcase-tab-${activeGame.appid}`}
-        >
-          <ShowcaseContent game={activeGame} />
-        </div>
+        {games.map((game, i) => (
+          <div
+            key={game.appid}
+            role="tabpanel"
+            id={`showcase-panel-${game.appid}`}
+            aria-labelledby={`showcase-tab-${game.appid}`}
+            hidden={i !== activeIndex}
+          >
+            {i === activeIndex && <ShowcaseContent game={game} />}
+          </div>
+        ))}
       </div>
     </section>
   );

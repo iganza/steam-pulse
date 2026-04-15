@@ -729,6 +729,16 @@ class GameRepository(BaseRepository):
             )
         self.conn.commit()
 
+    def set_has_early_access_reviews(self, appid: int) -> None:
+        """One-way latch: mark that this game has EA reviews. No-op if already TRUE."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE games SET has_early_access_reviews = TRUE "
+                "WHERE appid = %s AND has_early_access_reviews = FALSE",
+                (appid,),
+            )
+        self.conn.commit()
+
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""
         with self.conn.cursor() as cur:

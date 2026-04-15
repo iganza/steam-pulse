@@ -85,7 +85,9 @@ TABLES: tuple[str, ...] = (
         revenue_estimate_computed_at TIMESTAMPTZ,
         -- (0030) reason code when no numeric estimate is available
         -- (e.g. free_to_play, insufficient_reviews, excluded_type, missing_price)
-        revenue_estimate_reason TEXT
+        revenue_estimate_reason TEXT,
+        -- (0046) one-way latch: TRUE once any review has written_during_early_access
+        has_early_access_reviews BOOLEAN DEFAULT FALSE
     )
     """,
     """
@@ -397,6 +399,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_windows TEXT",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_mac TEXT",
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_linux TEXT",
+    # 0046_denormalize_has_ea_reviews
+    "ALTER TABLE games ADD COLUMN IF NOT EXISTS has_early_access_reviews BOOLEAN DEFAULT FALSE",
 )
 
 # Indexes — kept for test suite use only.
@@ -566,16 +570,11 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     # Test schema mirrors migration 0024; columns must stay in sync with the
     # AnalyticsRepository.query_metrics + METRIC_REGISTRY column list.
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_catalog AS
-    WITH ea_flags AS (
-        SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
-        FROM reviews GROUP BY appid
-    ),
-    base AS (
+    WITH base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
-               g.deck_compatibility, COALESCE(ef.has_ea, FALSE) AS has_ea
+               g.deck_compatibility, COALESCE(g.has_early_access_reviews, FALSE) AS has_ea
         FROM games g
-        LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
           AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
@@ -620,19 +619,14 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     GROUP BY 1, 2, 3""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_catalog_pk ON mv_trend_catalog(game_type, granularity, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_genre AS
-    WITH ea_flags AS (
-        SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
-        FROM reviews GROUP BY appid
-    ),
-    base AS (
+    WITH base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, gn.slug AS genre_slug,
-               COALESCE(ef.has_ea, FALSE) AS has_ea
+               COALESCE(g.has_early_access_reviews, FALSE) AS has_ea
         FROM games g
         JOIN game_genres gg ON gg.appid = g.appid
         JOIN genres gn ON gg.genre_id = gn.id
-        LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
           AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),
@@ -678,19 +672,14 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     GROUP BY 1, 2, 3, 4""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_trend_by_genre_pk ON mv_trend_by_genre(game_type, granularity, genre_slug, period)",
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_trend_by_tag AS
-    WITH ea_flags AS (
-        SELECT appid, BOOL_OR(written_during_early_access) AS has_ea
-        FROM reviews GROUP BY appid
-    ),
-    base AS (
+    WITH base AS (
         SELECT g.appid, g.type AS src_type, g.release_date, g.is_free, g.price_usd, g.positive_pct,
                g.metacritic_score, g.review_count, COALESCE(g.review_velocity_lifetime, g.review_count::numeric / GREATEST(CURRENT_DATE - g.release_date, 1)) AS velocity, g.platforms,
                g.deck_compatibility, t.slug AS tag_slug,
-               COALESCE(ef.has_ea, FALSE) AS has_ea
+               COALESCE(g.has_early_access_reviews, FALSE) AS has_ea
         FROM games g
         JOIN game_tags gt ON gt.appid = g.appid
         JOIN tags t ON gt.tag_id = t.id
-        LEFT JOIN ea_flags ef ON ef.appid = g.appid
         WHERE g.release_date IS NOT NULL AND g.coming_soon = FALSE
           AND g.type IN ('game', 'dlc') AND g.review_count >= 10
     ),

@@ -207,6 +207,9 @@ class CrawlService:
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
 
+        if any(r.get("written_during_early_access") for r in reviews_to_upsert):
+            self._game_repo.set_has_early_access_reviews(appid)
+
         self._trigger_analysis(appid, game_name)
 
         # Publish reviews-ready event
@@ -269,6 +272,10 @@ class CrawlService:
         reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
         upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
         logger.info("Spoke reviews ingested", extra={"appid": appid, "upserted": upserted})
+
+        if any(r.get("written_during_early_access") for r in reviews_to_upsert):
+            self._game_repo.set_has_early_access_reviews(appid)
+
         return upserted
 
     # ------------------------------------------------------------------

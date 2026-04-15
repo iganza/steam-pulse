@@ -1,22 +1,27 @@
-"""Revenue estimator — Boxleiter v1.
+"""Revenue estimator — Boxleiter v1 (multi-signal).
 
-Estimates owners and gross revenue for a Steam game using the
-review-count x multiplier heuristic (a.k.a. "Boxleiter ratio").
+Estimates Steam-only owners and gross revenue for a Steam game using a
+multi-signal review-count x multiplier heuristic (a.k.a. "Boxleiter ratio").
 
-Sources for the base multipliers:
-  - Boxleiter GDC talk — the original review-count-to-sales ratio heuristic
-  - VG Insights public methodology writeups
-  - Gamalytic methodology posts
+The base multiplier (30x) is adjusted by five signals: review count,
+review score, release age, genre/audience, and price tier. All adjustments
+are multiplicative.
 
-These numbers are **rough cuts for v1**. Every output should be treated as
-±50%. The method is versioned (`boxleiter_v1`) so refinements ship as a
-backfill, not a schema change.
+Sources for calibration:
+  - VG Insights public methodology writeups (~30x recent)
+  - Gamalytic methodology posts (dynamic 20-60x, 4 signals)
+  - GameDiscoverCo NB 2025 (63x average, 36-59x by sales tier)
+  - steam-revenue-calculator.com (~48x flat)
+  - SteamRev (~35x flat, "~3% of players leave reviews")
 
-Every output is **gross revenue, pre-Steam-cut**. It's a ceiling, not what
-the developer took home. User-facing surfaces MUST say so.
+These numbers are **rough cuts**. Every output should be treated as ±50%.
+The method is versioned (`boxleiter_v1`) so refinements ship as a backfill,
+not a schema change.
+
+Every output is **gross revenue, pre-Steam-cut** for **Steam-only** sales.
+It's a ceiling, not what the developer took home, and does not include
+console/Epic/other-store sales. User-facing surfaces MUST say so.
 """
-
-from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -26,22 +31,11 @@ from pydantic import BaseModel
 
 METHOD_VERSION = "boxleiter_v1"
 
-# Base multipliers (review_count → owners) per rough genre bucket.
-# See module docstring for sources. Numbers are intentionally round — the
-# noise in the underlying heuristic swamps any pretense of precision.
-GENRE_MULTIPLIERS: dict[str, int] = {
-    "mainstream": 10,  # AAA / high-profile — unused in v1 (no reliable classifier yet)
-    "indie": 15,  # default bucket
-    "strategy_sim": 25,  # Strategy / Simulation genres review at low rates per sale
-    "niche": 35,  # Visual novels, hardcore sims, etc.
-}
+BASE_MULTIPLIER = Decimal("30")
 
-# Genre-name → bucket. Matched case-insensitively against Steam genre names.
-_STRATEGY_SIM_GENRES = frozenset({"strategy", "simulation"})
-
-# Tag-name (lowercase) → niche bucket. These are the tag labels whose audiences
-# are believed to review at lower rates per purchase, so they map to the most
-# expansive owners-per-review multiplier (70x).
+# Tag names (lowercase) whose audiences are engaged and review at higher
+# rates per sale — they get a LOWER multiplier (0.9x) because fewer
+# unseen buyers exist per review.
 _NICHE_TAG_NAMES = frozenset(
     {
         "visual novel",
@@ -54,9 +48,13 @@ _NICHE_TAG_NAMES = frozenset(
     }
 )
 
-_AGE_DECAY_YEARS = 3
-_AGE_DECAY_FACTOR = Decimal("0.85")
-_SUB_5_FACTOR = Decimal("0.80")
+_STRATEGY_SIM_GENRES = frozenset({"strategy", "simulation"})
+_CASUAL_GENRES = frozenset({"casual"})
+
+_AGE_BOUNDARY_RECENT = 3
+_AGE_BOUNDARY_MID = 7
+_AGE_BOUNDARY_OLD = 12
+
 _REVIEW_FLOOR = 50
 _EXCLUDED_TYPES = frozenset({"dlc", "demo", "music", "tool", "video", "mod"})
 
@@ -68,22 +66,96 @@ class RevenueEstimate(BaseModel):
     reason: str | None = None  # populated when the estimate is None
 
 
-def _select_bucket(genres: list[dict], tags: list[dict]) -> str:
-    """Choose the boxleiter bucket for this game.
+def _review_count_factor(review_count: int) -> Decimal:
+    """Scale multiplier by review volume.
 
-    v1 is deliberately simple: niche tags win over strategy/sim genres win
-    over the indie default. Mainstream bucket is reserved for a future
-    AAA-publisher classifier — never returned in v1.
+    Mega-popular games have proportionally MORE reviewers per Steam buyer
+    (cultural events drive review engagement), and their non-Steam sales
+    are invisible to us. Both effects mean fewer Steam owners per review
+    than the base assumes — so the factor decreases for high review counts.
+    """
+    if review_count < 500:
+        return Decimal("1.15")
+    if review_count < 5_000:
+        return Decimal("1.0")
+    if review_count < 50_000:
+        return Decimal("1.0")
+    if review_count < 200_000:
+        return Decimal("0.8")
+    return Decimal("0.6")
+
+
+def _review_score_factor(positive_pct: Decimal | None) -> Decimal:
+    """Adjust for review-score-driven review propensity.
+
+    Highly-rated games (>90%) attract more reviews per sale (fans are
+    motivated to recommend), so the multiplier is lower. Mixed/negative
+    games get fewer reviews per sale (only vocal minority reviews).
+    """
+    if positive_pct is None:
+        return Decimal("1.0")
+    if positive_pct >= 90:
+        return Decimal("0.9")
+    if positive_pct >= 75:
+        return Decimal("1.0")
+    if positive_pct >= 60:
+        return Decimal("1.15")
+    return Decimal("1.3")
+
+
+def _age_factor(release_year: int | None) -> Decimal:
+    """Adjust for release age.
+
+    Older games have accumulated reviews over many years while early
+    buyers who never reviewed dilute the ratio. Review culture was also
+    weaker in Steam's early years. Both effects mean older games have
+    more owners per review — a higher multiplier.
+    """
+    if release_year is None:
+        return Decimal("1.0")
+    age = date.today().year - release_year
+    if age <= _AGE_BOUNDARY_RECENT:
+        return Decimal("1.0")
+    if age <= _AGE_BOUNDARY_MID:
+        return Decimal("1.1")
+    if age <= _AGE_BOUNDARY_OLD:
+        return Decimal("1.2")
+    return Decimal("1.3")
+
+
+def _genre_factor(genres: list[dict], tags: list[dict]) -> Decimal:
+    """Genre/audience-driven adjustment.
+
+    Niche audiences (visual novels, wargames, etc.) are engaged communities
+    that review at higher rates per sale — lower multiplier needed. Casual
+    audiences review less — higher multiplier.
     """
     tag_names = {(t.get("name") or "").strip().lower() for t in tags}
     if tag_names & _NICHE_TAG_NAMES:
-        return "niche"
+        return Decimal("0.9")
 
     genre_names = {(g.get("name") or "").strip().lower() for g in genres}
+    if genre_names & _CASUAL_GENRES:
+        return Decimal("1.1")
     if genre_names & _STRATEGY_SIM_GENRES:
-        return "strategy_sim"
+        return Decimal("1.05")
 
-    return "indie"
+    return Decimal("1.0")
+
+
+def _price_factor(price_usd: Decimal) -> Decimal:
+    """Adjust for price tier.
+
+    Cheap games have higher review rates per sale (low-commitment purchases
+    attract more casual feedback). Premium games have lower rates.
+    """
+    if price_usd < Decimal("5"):
+        return Decimal("0.85")
+    if price_usd < Decimal("15"):
+        return Decimal("1.0")
+    if price_usd < Decimal("40"):
+        return Decimal("1.05")
+    return Decimal("1.1")
 
 
 def _parse_release_year(release_date: str | None) -> int | None:
@@ -119,20 +191,16 @@ def compute_estimate(
     if review_count < _REVIEW_FLOOR:
         return RevenueEstimate(reason="insufficient_reviews")
 
-    bucket = _select_bucket(genres, tags)
-    multiplier = Decimal(GENRE_MULTIPLIERS[bucket])
-
-    # Age decay: older games accumulate reviews slowly relative to sales,
-    # so the raw ratio overshoots. Knock 15% off for anything > 3y old.
     release_year = _parse_release_year(game.release_date)
-    if release_year is not None:
-        current_year = date.today().year
-        if current_year - release_year > _AGE_DECAY_YEARS:
-            multiplier = multiplier * _AGE_DECAY_FACTOR
 
-    # Price tier: sub-$5 games review at higher rates per sale.
-    if game.price_usd < Decimal("5"):
-        multiplier = multiplier * _SUB_5_FACTOR
+    multiplier = (
+        BASE_MULTIPLIER
+        * _review_count_factor(review_count)
+        * _review_score_factor(game.positive_pct)
+        * _age_factor(release_year)
+        * _genre_factor(genres, tags)
+        * _price_factor(game.price_usd)
+    )
 
     owners = int(Decimal(review_count) * multiplier)
     revenue = (Decimal(owners) * game.price_usd).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -145,7 +213,7 @@ def compute_estimate(
 
 
 __all__ = [
-    "GENRE_MULTIPLIERS",
+    "BASE_MULTIPLIER",
     "METHOD_VERSION",
     "RevenueEstimate",
     "compute_estimate",

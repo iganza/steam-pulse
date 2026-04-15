@@ -130,7 +130,7 @@ export default async function HomePage() {
       const o = sc.overlap.status === "fulfilled" ? sc.overlap.value : null;
       return {
         appid: sc.appid,
-        slug: slugify(r.report!.game_name),
+        slug: `${slugify(r.report!.game_name)}-${sc.appid}`,
         gameName: r.report!.game_name,
         headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
         report: r.report!,

@@ -1,0 +1,151 @@
+#+TITLE: Top 100 Prompt Questions for SteamPulse + Coverage Breakdown
+#+DESCRIPTION: Example natural-language questions the platform should answer, organized by persona and category. Includes architectural coverage map.
+
+* Coverage of the Top 100 (rough breakdown)
+
+| Bucket                                  | Approx count | Status                           |
+|-----------------------------------------+--------------+----------------------------------|
+| Tier 1+2 (existing matviews + reports)  | ~50          | Today, with thin matview adds    |
+| Tier 3 (cross-report synthesis matview) | ~30          | Build the Phase-4 synthesizers   |
+| Recency-corpus limited                  | ~10          | Mitigations in =ARCHITECTURE.org=|
+| Missing data fields (DLC, engine, etc.) | ~10          | Crawl-side gaps — separate work  |
+
+For the architectural shape that answers these, see =ARCHITECTURE.org= →
+"Synthesize, don't retrieve-raw" and "Review corpus shape: rolling-recent
+window."
+
+* The 100 questions
+
+These are example natural-language questions the platform should be able to
+answer. Organized by persona and category. Each maps to structured queries
+over our games, reviews, tags, genres, and reports data.
+
+** Market Sizing & Trends (Developer / Analyst)
+1. How many games were released on Steam in 2025 with more than 100 reviews?
+2. What percentage of games released this year are tagged "Roguelike"?
+3. Which genre had the highest growth in new releases year-over-year?
+4. How many Early Access games graduated to 1.0 in the last 12 months?
+5. What's the median review count for indie RPGs released in 2024?
+6. How many free-to-play games crossed 1,000 reviews in their first year?
+7. Which tags are gaining popularity fastest (most new games using them)?
+8. What's the average time an Early Access game spends before 1.0 launch?
+9. How many games priced above $30 achieved "Very Positive" or better?
+10. What fraction of all Steam games have fewer than 10 reviews?
+
+** Genre & Tag Intelligence
+11. What are the top 10 most common tag combinations for games with 500+ reviews?
+12. Which genres have the highest average sentiment scores?
+13. What tags correlate most strongly with "Overwhelmingly Positive" sentiment?
+14. Are "Souls-like" games trending up or down in review volume year-over-year?
+15. Which genre has the widest spread between best and worst sentiment?
+16. What's the average price point for "City Builder" games with 1000+ reviews?
+17. How do survival games compare to crafting games in average playtime at review?
+18. Which tags appear together most often in hidden gem games (high sentiment, low reviews)?
+19. What genres have the highest ratio of negative to positive reviews?
+20. Are incremental/idle games growing or shrinking as a category?
+
+** Competitive & Audience Analysis
+21. What games share the most reviewer overlap with Stardew Valley?
+22. Which games are reviewed by the same players who review Factorio?
+23. What's the audience overlap between "Vampire Survivors" and other action roguelikes?
+24. For players who reviewed both Terraria and Starbound, which did they rate higher?
+25. What are the top 5 games most frequently mentioned in Cyberpunk 2077 reviews?
+26. Which competitors do reviewers of Hades mention most often?
+27. What's the sentiment breakdown when players compare my game to a specific competitor?
+28. Which developers have the most cross-game reviewer overlap with my studio?
+29. For the "Metroidvania" tag, which 3 games share the most audience?
+30. What game has the most unique audience (least overlap with other games)?
+
+** Sentiment & Review Quality
+31. What aspects are players most frustrated with in the RPG genre?
+32. What are the most common complaints across all "Mostly Negative" games?
+33. Which design elements are praised most often in "Overwhelmingly Positive" games?
+34. What percentage of reviews for my game mention performance/crash issues?
+35. Is the sentiment for No Man's Sky improving, stable, or declining over the last year?
+36. Which games had the biggest sentiment reversal (negative to positive) after updates?
+37. What are the top 5 most-requested features across all survival games?
+38. Do games with controller support have higher average sentiment than those without?
+39. What's the average sentiment difference between Early Access and post-launch reviews?
+40. Which games have the highest proportion of "helpful" reviews (votes_helpful > 10)?
+
+** Pricing & Revenue Intelligence
+41. What's the sweet spot price point for indie roguelikes with 500+ reviews?
+42. Do games priced at $19.99 perform better in sentiment than those at $29.99?
+43. For the "Strategy" genre, what price range has the best review-to-price ratio?
+44. Which free-to-play games have the worst monetization sentiment?
+45. How does DLC sentiment compare to base game sentiment for games with DLC?
+46. What's the average price of games tagged "Short" vs "Long" that are rated positively?
+47. Are there games priced above $50 with "Very Positive" reviews? Which ones?
+48. What percentage of negative reviews mention "not worth the price"?
+49. Which price tier ($5, $10, $15, $20, $25, $30+) has the highest average sentiment?
+50. Do games that launch at a discount have better or worse long-term sentiment?
+
+** Developer Portfolio & Studio Analysis
+51. Which indie studios have consistently "Very Positive" games across their catalog?
+52. What's the average sentiment trajectory across a developer's second and third releases?
+53. Which developers improved their review scores the most between their first and latest game?
+54. For studios with 3+ games, what's their average sentiment variance?
+55. Which publishers have the best track record for indie games (top 10 by avg sentiment)?
+56. Do solo developers have higher or lower average sentiment than small studios?
+57. Which developer has the most total reviews across all their games?
+58. What percentage of a developer's audience carries over between sequels?
+59. Which studios have the fastest review velocity in their first launch week?
+60. Are there developers whose games consistently appear in "hidden gem" lists?
+
+** Launch & Timing Strategy
+61. What's the best month to launch an indie game based on historical review velocity?
+62. Do games launched in January perform differently from games launched in September?
+63. How many games launched in the same week as Elden Ring got fewer than 50 reviews?
+64. What's the average first-week review count for games that eventually reach 1,000 reviews?
+65. Is there a day-of-week effect on launch review velocity?
+66. How do Steam Next Fest demo games perform in reviews compared to non-demo games?
+67. What's the typical review velocity curve for a "successful" indie game in the first 30 days?
+68. Do holiday releases (Nov-Dec) have higher or lower average sentiment?
+69. What percentage of games that got fewer than 50 reviews in month one ever recovered to 500+?
+70. Which release windows have the least competition for the "Roguelike" tag?
+
+** Player Behavior & Engagement
+71. What's the average playtime at review for "Overwhelmingly Positive" games vs "Mixed"?
+72. At what playtime do most negative reviews get written for open-world games?
+73. Is there a churn wall (common dropout point) for survival games?
+74. Do players with 100+ hours write more positive reviews than those with <10 hours?
+75. What's the median playtime difference between positive and negative reviewers for RPGs?
+76. Which games have the longest average playtime at review?
+77. What percentage of reviewers have fewer than 2 hours of playtime (potential refunders)?
+78. For multiplayer games, how does playtime at review correlate with sentiment?
+79. What's the average number of games a reviewer who reviewed my game also reviewed?
+80. Do "funny" reviews (high votes_funny) skew positive or negative?
+
+** Technical & Platform Analysis
+81. Which games have the most crash/performance complaints as a percentage of reviews?
+82. Do games with Linux support have different sentiment profiles than Windows-only?
+83. What are the most common technical complaints across VR games?
+84. Which game engines correlate with the most technical issue reports?
+85. How does controller support affect sentiment for platformer games?
+86. What percentage of negative reviews for AAA games mention DRM?
+87. Which games have the biggest gap between Steam Deck verified and actual review sentiment?
+88. Do games with workshop/mod support have higher sentiment than those without?
+89. What are the most common save-related complaints across all games?
+90. Which categories (multiplayer, co-op, cloud saves) correlate with higher sentiment?
+
+** Content & Replayability
+91. What games are most praised for replayability across all genres?
+92. Which single-player games have the highest average playtime at review?
+93. Do games with achievements have higher engagement (playtime) than those without?
+94. What's the sentiment difference between "short but sweet" games (<5h) and 100+ hour games?
+95. Which game has the best value-for-money perception based on review signals?
+
+** Cross-Cutting & Big Picture
+96. What are the top 10 hidden gems on Steam right now (high sentiment, low visibility)?
+97. If I'm making a roguelike deck-builder, what are the top 5 complaints I should avoid?
+98. What would a "State of Steam 2025" report look like — key stats and trends?
+99. Which game released this year is most likely to become a long-tail evergreen seller?
+100. Across all 6,000 analyzed games, what is the single most common player complaint?
+
+* Data gaps (crawl-side, not architecture-side)
+- No DLC↔base game relationship
+- No game engine data
+- No discount / price history
+- No concurrent player counts
+- No Steam Deck verified status (easy add — Steam API has it)
+- No Steam Next Fest demo metadata

@@ -1,0 +1,10 @@
+#+TITLE: Frontendless Testing — Runbook
+#+DESCRIPTION: Playwright-driven smoke tests against staging without local frontend.
+
+* Pattern
+Make a frontend change prompt → Claude Code updates tests alongside the code.
+
+- CI runs =npx playwright test= on the PR → catches regressions before merge
+- Against staging:
+  =PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npx playwright test=
+  smoke tests real infrastructure with no mocks needed for structural checks

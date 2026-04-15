@@ -1,0 +1,24 @@
+#+TITLE: Analytics Builder Lens — UX & charting research (2026-04-07)
+#+DESCRIPTION: Sources consulted while finalizing scripts/prompts/analytics-builder-lens.md.
+
+Consulted while finalizing =scripts/prompts/analytics-builder-lens.md=.
+
+* Sources
+- Dashboard Design Best Practices: The Complete 2025 Guide — 5of10
+  https://5of10.com/articles/dashboard-design-best-practices/
+- Visualizing data — Metabase Learn
+  https://www.metabase.com/learn/metabase-basics/querying-and-dashboards/visualization
+- Line, bar, and area charts — Metabase Documentation
+  https://www.metabase.com/docs/latest/questions/visualizations/line-bar-and-area-charts
+- Stacked Bar Charts: A Detailed Breakdown — Atlassian
+  https://www.atlassian.com/data/charts/stacked-bar-chart-complete-guide
+- Dual axis charts: why they spark debate, and how to get them right — Flourish
+  https://flourish.studio/blog/dual-axis-charts/
+- Stacked area charts: When to use them and when to avoid them — Inforiver
+  https://inforiver.com/insights/stacked-area-charts-when-to-use-and-avoid/
+
+* Key takeaways folded into the prompt
+Smart defaults (never empty canvas), strict chart-type compatibility rules
+(dual-axis only when units differ), progressive disclosure, perf budgets
+(<2s render, ≤1000 points), colorblind-safe palette, full empty/loading/error
+states, click-to-inspect, URL as source of truth.

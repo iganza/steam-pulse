@@ -1,0 +1,47 @@
+#+TITLE: Analytics & Charts — Navigation Reference
+#+DESCRIPTION: Quick reference for where each chart lives in the UI.
+
+* /analytics — Catalog-Wide Dashboard
+
+Main nav → "Analytics" link (BarChart3 icon). Shows 9 time-series charts across
+the entire Steam catalog. Control bar (granularity + genre filter) is Pro-gated.
+
+- Release Volume — bar + moving average, sentiment overlay
+- Sentiment Distribution — stacked area (positive / mixed / negative), Metacritic line
+- Genre Share — stacked area of top genres over time
+- Review Velocity — stacked bars by velocity band (<1/day, 1–10, 10–50, 50+)
+- Pricing Trends — free % bars + avg paid price line
+- Early Access Trends — EA count/% bars + EA vs non-EA sentiment lines
+- Platform & Steam Deck — Mac %, Linux %, Deck Verified/Playable/Unsupported %
+- Engagement Depth — stacked area by playtime bucket (<2h, 2–10h, 10–50h, 50–200h, 200h+)
+- Feature Adoption — multi-line Steam feature adoption (Workshop, VR, Co-op, etc.)
+
+* /games/[appid]/[slug] — Individual Game Report
+
+Scroll below the report text. Charts are in the =GameAnalyticsSection= block.
+
+- Playtime vs Sentiment — correlation chart
+- Review Velocity — area chart, 24-month trend
+- Early Access Impact — EA vs post-launch sentiment/playtime comparison
+- Top Reviews — most helpful/funny review cards
+- Audience Overlap — similar games by shared reviewers (5 free, all on Pro)
+
+* /genre/[slug] — Genre Pages
+
+e.g. =/genre/action=, =/genre/rpg=. Charts appear below the game list.
+
+- Price Positioning — price distribution + sentiment by price range
+- Release Timing — release density by month-of-year
+- Platform Gaps — Windows / Mac / Linux support percentages
+
+* /tag/[slug] — Tag Pages
+
+e.g. =/tag/multiplayer=, =/tag/roguelike=. Chart appears below the game list.
+
+- Tag Trend — yearly game count + avg sentiment for the tag
+
+* /developer/[slug] — Developer Profile Pages
+
+e.g. =/developer/valve=. Chart appears alongside the game list.
+
+- Developer Portfolio — sentiment and review trends across all games by that developer

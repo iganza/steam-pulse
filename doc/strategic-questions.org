@@ -1,0 +1,76 @@
+#+TITLE: High-Value Strategic Questions SteamPulse Will Answer
+#+DESCRIPTION: The questions that make SteamPulse useful to indie developers — not just a review aggregator, but a market intelligence tool.
+
+These are the questions that make SteamPulse genuinely useful to indie
+developers — not just a review aggregator, but a market intelligence tool.
+
+* "What genre should I concentrate on right now?"
+Multi-signal answer combining data we already collect:
+
+- *Supply gap:* Genres with growing review velocity but few new releases = underserved
+- *Sentiment quality:* Genres where even mid-tier games score "Very Positive" = forgiving audience
+- *Wishlist density:* =player_wishlist= items repeating across many reports = unmet demand
+- *Hidden gem ratio:* High % of hidden gems = good games getting buried = opportunity
+- *Review velocity trend:* Is the genre growing, peaking, or declining?
+
+Surfaced as an *Opportunity Score per genre* once we have 500+ analyzed games.
+
+Example output:
+#+begin_example
+Roguelike Deckbuilders: 🔥 High opportunity
+— 40 games analyzed, avg "Very Positive"
+— Top wishlist: "endless run mode", "more card synergies", "co-op"
+— 3 hidden gems under 1k reviews
+— Review velocity: growing +18% YoY
+#+end_example
+
+* "What features are players looking for in genre X?"
+Cross-report synthesis — aggregated from all reports tagged with that genre:
+
+- =player_wishlist= ranked by frequency across all genre games → what doesn't exist yet
+- =gameplay_friction= → what to avoid building
+- =churn_triggers= → what kills retention in this genre
+- =design_strengths= → what the genre's best games do right
+- =competitive_context= → the benchmark games players compare everything to
+
+Example output for "Survival":
+#+begin_example
+Players want: base-building automation, narrative depth, co-op story mode
+They hate: hunger/thirst micromanagement, punishing early death loops, empty worlds
+They churn at: 5-hour mark when base feels "solved"
+Benchmark: they compare everything to Valheim
+#+end_example
+
+This is what Chris Zukowski (howtomarketagame.com) does manually — reads
+hundreds of reviews to write genre analysis posts. We generate it automatically.
+
+* What's needed to answer these well
+
+/Note: the wedge launch (roguelike-deckbuilder) requires only 141 analysed
+games to ship. The 500+ prerequisite applies to broader-catalog Q&A
+coverage, not to the first wedge./
+
+| Requirement                        | Status                                       |
+|------------------------------------|----------------------------------------------|
+| 500+ analyzed games with reports   | After crawl + analysis run                   |
+| Reports tagged by genre            | ✅ genres table joined to reports            |
+| Per-genre / per-tag rollup matviews| =mv_genre_*=, =mv_tag_*= already in place    |
+| Cross-report synthesis matviews    | Phase-4 synthesizer — to build               |
+| NL chat over catalog               | =/api/chat= V2 — NL → SQL over above artifacts |
+
+* V1 delivery (pre-chat)
+Pre-built genre insight pages: =/genre/survival= shows aggregated wishlist,
+top friction points, opportunity score, hidden gems. No chat interface needed.
+These pages are also high-value SEO targets (developers Google "survival game
+player complaints" and land on us).
+
+* V2 delivery (chat interface)
+User types the question in natural language. The chat layer translates NL → SQL
+against pre-computed artifacts (matviews + cross-report synthesis matviews +
+=reports.report_json=) and answers from the result set. No vector RAG over raw
+reviews. Same answer architecture as the V1 pages, just with a different front
+door.
+
+See =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw" for the load-bearing
+architectural principle and =doc/top-100-questions.org= for the 100 example
+questions plus a coverage breakdown.

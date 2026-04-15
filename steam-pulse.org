@@ -11,16 +11,15 @@ that doesn't scale and misses the deeper patterns buried across thousands of rev
 
 The project proposes a batch LLM-powered pipeline that ingests the Steam game catalog, game
 descriptions, reviews, and other relevant data, the processes them through Amazon Bedrock foundation
-models to extract, structured, query-able insights.  A two-pass approach extracts summary
-information first, which is then processed by collected and saved, and provided to a further LLM
-processing step responsible for identifying relevant information such as recurring complaints,
-praised features, and competitive comparison across the entire catalog.
+models to extract, structured, query-able insights.  A three-phase approach (chunk → merge →
+synthesise) extracts summary information first, which is then processed by collected and saved, and
+provided to a further LLM processing step responsible for identifying relevant information such as
+recurring complaints, praised features, and competitive comparison across the entire catalog.
 
-The result is a structured intelligence layer on top of raw data, query-able via simple SQL or
-optionally enhanced with semantic search.  This enabled questions that were previously impossible at
-scale:  "What do players consistently criticize about survival games released in the last two
-years?" or "How does this studio's latest title compare to competitors across various sentiment
-dimensions".
+The result is a structured intelligence layer on top of raw data, query-able via simple SQL.
+This enabled questions that were previously impossible at scale:  "What do players consistently
+criticize about survival games released in the last two years?" or "How does this studio's latest
+title compare to competitors across various sentiment dimensions".
 
 The target market includes:  indie and AA game studios seeking actionable feedback, publishers
 evaluating acquisitions or portfolio health, gaming-focused investors performing due diligence, and
@@ -133,7 +132,7 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
 - Can dig into review analysis in more details and allow additional information that cross-cuts across
   various concerns over more than a single game
 - Full-text search via postgres feature
-- RAG search over review summaries and generated review analysis/insights
+- Cross-cutting NL chat over synthesised matview artifacts (NL → SQL, no vector RAG — see =ARCHITECTURE.org=)
 - layer analysis:  per-game --> per-genre --> per-tag --> cross-genre --> etc/etc
 
 
@@ -260,928 +259,222 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
     - Smoke test for =GET /api/genres/roguelike-deckbuilder/insights=
       passes against staging
 
-** 7-Day Launch Plan
-   Goal: 50+ game reports live on steampulse.io, indexed by Google, waitlist
-   capturing emails. Ship ugly, iterate in public.
+** Active Launch Plan
+   *Single source of truth for launch. Do these in order. The day-by-day
+   plan that used to live here was reorganised 2026-04-14 around the
+   wedge strategy: prompts ship first (Phase A), then operational steps
+   run on the working infrastructure (Phase B), then promotion (Phase C),
+   then measure + decide (Phase D).*
 
-*** Day 1 — Finish the metadata crawl + generate seed reports
-**** TODO Verify metadata crawl completion: =poetry run python scripts/sp.py catalog status=
-**** TODO Select 500 candidate games using the smart selection query below, crawl their reviews
-**** TODO Run analyzer on the TOP 50 of those 500 first, spot-check quality, then scale
-**** TODO Spot-check 5 reports for quality (read them, are they useful?)
+   Goal: =/genre/roguelike-deckbuilder/insights= live as the
+   differentiating demo, top-200-by-review-count games have rich
+   indexable per-game pages, waitlist capturing emails, GoogleBot + AI
+   crawlers (GPTBot, ClaudeBot, PerplexityBot) indexing.
 
-*** Smart Game Selection — 500 Candidates
-    Do NOT just pick by review count — TF2 has 800k reviews but is stale/irrelevant.
-    Goal: games people are actively searching for and buying TODAY.
+*** Phase A — Build (prompts to ship, in order)
+1. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich analytical content even when no LLM report exists; enrich template if thin. *Gates Phase B SEO discipline — don't index thin pages.*
+2. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot for AI search), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
+3. [ ] =scripts/prompts/wire-waitlist.md= — waitlist DB table, =WaitlistRepository=, =POST /api/waitlist=, Resend confirmation email, frontend form wiring.
+4. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
+5. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (4).
 
-    Run this SQL after metadata crawl completes to get 500 well-ranked candidates:
+   *Quality improvement (parallel, not blocking):*
+   - [ ] =scripts/prompts/decouple-sentiment-trend-matview.md=
 
-    #+begin_src sql
-    -- Score each game by recency + review volume + sentiment quality
-    SELECT
-        g.appid,
-        g.name,
-        g.release_date,
-        g.review_count_english,
-        g.positive_pct,
-        g.review_score_desc,
-        g.price_usd,
-        g.is_free,
-        (
-            -- Recency boost: games released in last 3 years score highest
-            CASE
-                WHEN g.release_date >= NOW() - INTERVAL '1 year'  THEN 40
-                WHEN g.release_date >= NOW() - INTERVAL '2 years' THEN 30
-                WHEN g.release_date >= NOW() - INTERVAL '3 years' THEN 20
-                WHEN g.release_date >= NOW() - INTERVAL '5 years' THEN 10
-                ELSE 0
-            END
-            -- Review volume (log scale so TF2 doesn't dominate)
-            + LEAST(CAST(LOG(GREATEST(g.review_count_english, 1)) * 5 AS INT), 30)
-            -- Sentiment quality bonus (sweet spot: 70-95% positive = interesting)
-            + CASE
-                WHEN g.positive_pct BETWEEN 70 AND 95 THEN 20
-                WHEN g.positive_pct BETWEEN 60 AND 70 THEN 10
-                WHEN g.positive_pct > 95 THEN 10
-                ELSE 0
-              END
-            -- Hidden gem bonus (high sentiment, under 5000 reviews)
-            + CASE
-                WHEN g.review_count_english < 5000 AND g.positive_pct >= 85 THEN 15
-                ELSE 0
-              END
-        ) AS relevance_score
-    FROM games g
-    WHERE
-        g.type = 'game'
-        AND g.review_count_english >= 500
-        AND g.release_date >= '2018-01-01'
-        AND g.coming_soon = FALSE
-        AND g.review_score_desc NOT IN ('Overwhelmingly Negative', 'Very Negative')
-    ORDER BY relevance_score DESC, g.review_count_english DESC
-    LIMIT 500;
-    #+end_src
+   *Optional (post-Phase-B copy polish, not blocking):*
+   - [ ] =scripts/prompts/homepage-copy.md= (TBD) — hero h1 + subheadline, metadata title/description, Pro page copy. Use Option B or C from "Marketing copy" below. Strip "AI" from all visible copy.
 
-    After getting the 500, manually exclude:
-    - Games with primarily non-English audiences
-    - Abandonware / delisted games
-    - TF2, CSGO, Dota2 (old F2P giants — everyone knows them, low SEO value)
+*** Phase B — Operational (after Phase A is shipped)
+**** B.1 Set up external services
+- [ ] Sign up at https://resend.com (free, 3k emails/month)
+- [ ] Add DNS records for steampulse.io (DKIM + SPF) per Resend wizard
+- [ ] Add =RESEND_API_KEY= to =.env.staging= and =.env.production=
+- [ ] Verify sending from hello@steampulse.io works
+- [ ] Sign up at https://plausible.io ($9/mo, no GDPR cookie banner needed)
+- [ ] Add Plausible domain steampulse.io and verify
 
-    Crawl reviews for all 500, analyze top 50 first (highest relevance_score),
-    verify quality, then analyze the rest.
+**** B.2 Trigger batch analysis runs
+- [ ] *Top 200 by review_count* (~$200, runs 1–2 days). SQL:
+  #+begin_src sql
+  SELECT appid FROM games
+  WHERE review_count >= 500
+  ORDER BY review_count DESC
+  LIMIT 200;
+  #+end_src
+- [ ] *141 roguelike-deckbuilder games* (~$141, runs ~1 day). SQL:
+  #+begin_src sql
+  SELECT g.appid FROM games g
+  JOIN game_tags gt ON gt.appid = g.appid
+  JOIN tags t ON t.id = gt.tag_id
+  WHERE t.slug = 'roguelike-deckbuilder' AND g.review_count >= 500
+  ORDER BY g.review_count DESC;
+  #+end_src
+- Trigger via the existing batch Step Functions machine in =infra/stacks/batch_analysis_stack.py=. Cache-idempotent — already-analysed games skip. Watch CloudWatch for actual cost.
 
-    #+begin_src bash
-    # Crawl reviews for your 500 candidate appids:
-    poetry run python scripts/sp.py reviews crawl --appids <comma-list> -c 4
+**** B.3 Run wedge synthesizer
+- [ ] After RDB analysis completes, run synthesizer once for slug =roguelike-deckbuilder=
+- [ ] Inspect the row. Sanity-check: quotes verbatim, friction shared (mention_count ≥ 3), benchmark games are the obvious ones (Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons), narrative is readable
+- [ ] Iterate the LLM prompt 1–3 times if needed (bump =prompt_version= each iteration to bypass cache)
 
-    # Analyze first 50 (manually pass top appids):
-    poetry run python scripts/sp.py analyze <appid1> <appid2> ...
+**** B.4 Deploy + verify
+- [ ] =bash scripts/deploy.sh --env staging= → smoke-test on staging URL
+- [ ] =bash scripts/deploy.sh --env production=
+- [ ] steampulse.io resolves and loads
+- [ ] Top 200 game report pages render correctly with reports
+- [ ] Sample 5 *no-report* game pages — render gracefully, no empty section headers, Lighthouse SEO ≥ 90
+- [ ] =/genre/roguelike-deckbuilder/insights= renders all FREE sections, cross-links to per-game pages work
+- [ ] Waitlist form captures emails end-to-end (submit → DB row → confirmation email arrives)
+- [ ] OG images render correctly when sharing links
 
-    # Then analyze the rest:
-    poetry run python scripts/sp.py analyze --ready
-    #+end_src
+**** B.5 Submit to indexing
+- [ ] Submit =steampulse.io/sitemap.xml= to Google Search Console
+- [ ] Submit to Bing Webmaster Tools
+- [ ] Manually request indexing for top 10 highest-traffic pages (homepage, top 5 genres, top 5 game pages by review_count)
+- [ ] Set up Search Console alerts for crawl errors + manual actions
+- [ ] Verify =robots.txt= accessible: =curl https://steampulse.io/robots.txt=
+- [ ] Verify GPTBot can crawl: =curl -A "GPTBot" https://steampulse.io/games/440/team-fortress-2= returns 200
 
-*** Day 2 — Wire the waitlist + deploy
-**** TODO Run prompt: =scripts/prompts/wire-waitlist.md=
-     Implements: waitlist DB table, WaitlistRepository, POST /api/waitlist,
-     Resend confirmation email, frontend form wiring with success/error states.
-     8 files touched — see prompt for full details.
-**** TODO Set up Resend account + get API key
-     1. Sign up at resend.com (free, 3k emails/month)
-     2. Add DNS records for steampulse.io (DKIM + SPF) — Resend walks you through it
-     3. Add RESEND_API_KEY to .env.staging and .env.production
-     4. Verify sending from hello@steampulse.io works
-**** TODO Deploy to production: merge to main, CDK pipeline deploys
-**** TODO Verify steampulse.io loads, game pages render, reports display
-**** TODO Test waitlist form end-to-end: submit email → DB row → confirmation email arrives
+*** Phase C — Promote (after Phase B verified complete)
+**** C.1 Set up channels
+- [ ] Create =@steampulse_io= Twitter/X account; bio + link to site
+- [ ] Bio (1 line): "Steam review intelligence — synthesised, readable, free. steampulse.io"
 
-*** Day 3 — Google indexing + analytics
-**** TODO Submit sitemap to Google Search Console (steampulse.io/sitemap.xml)
-**** TODO Request indexing for the 10 highest-traffic game pages manually
-**** TODO Add Plausible Analytics ($9/mo — privacy-friendly, no cookie banner needed)
-     Sign up at https://plausible.io, add domain steampulse.io.
-     Add one script tag to =frontend/app/layout.tsx=:
-     =<script defer data-domain="steampulse.io" src="https://plausible.io/js/script.js"></script>=
-     Tracks: pageviews, referrers, top pages, countries. No GDPR cookie banner required.
-**** TODO Verify robots.txt is accessible: =curl https://steampulse.io/robots.txt=
+**** C.2 Day-1 promotion (the launch moment)
+- [ ] Twitter thread leading with the wedge demo (=/genre/roguelike-deckbuilder/insights=). Most-surprising-insight first. Link the page. Tag any relevant studio account. Ask one question at the end to invite replies.
+- [ ] r/roguelikes post — niche-targeted, lead with the genre-level insights
+- [ ] r/gamedev post — competitive-research framing: "I built a tool that synthesises every roguelike deckbuilder on Steam"
+- [ ] r/indiegaming post — different audience, different framing (hidden gems angle)
+- [ ] Share in 1–2 indie dev Discords you're already a member of (HTMAG, Indie Game Devs). *Do NOT create a SteamPulse Discord yet — see "When to create a Discord" below.*
+- [ ] Monitor: clicks, time on page, waitlist signups, replies, dev retweets
 
-*** Day 4 — Content seeding + soft launch
-**** TODO Generate 50 more reports (total: 100 games live)
-     Focus on: recent popular releases, controversial games, hidden gems.
-     Mix ensures diverse long-tail SEO keywords.
-**** TODO Write 3 Twitter/X threads — the primary signal-collection channel
-     Format: "We analyzed [N] reviews for [Game]. Here's what players actually said."
-     Include report screenshot + link. Tag the developer's account if findable.
-     Why Twitter first: devs retweet things about their own games = organic reach,
-     public replies = free user research, zero infrastructure needed.
-**** TODO Create a simple landing blurb for the home page
-     "AI-powered review intelligence for every major Steam game. Free."
-
-*** Day 5 — First public promotion
-**** TODO Post Twitter/X thread for 2-3 games — lead with the most surprising insight
-     ("Players say the tutorial is the #1 reason they refund this $40 game")
-     Tag the dev. Ask one question at the end to invite replies.
-**** TODO Post to r/gamedev: "I built an AI tool that analyzes Steam reviews — here are reports for 100 games"
-     Different angle than Twitter — focus on the "competitive research" use case for devs.
-**** TODO Post to r/indiegaming with a hidden gems angle (different audience, different framing)
-**** TODO Share in 1-2 indie dev Discords you are already a member of (HTMAG, Indie Game Devs)
-     Do NOT create a SteamPulse Discord yet — a server with 12 members signals abandonment.
-     Discord community comes after 200+ waitlist signups when users benefit from each other.
-**** TODO Monitor: clicks, time on page, waitlist signups, Twitter replies
-
-*** Day 6 — React + double down on what worked
-**** TODO Read all replies/comments from Day 5 — every response is a research interview
-**** TODO Reply to every comment personally (builds trust, Reddit/Twitter algorithms reward it)
-**** TODO Fix any bugs or UX issues people report
-**** TODO Post 2 more Twitter threads for games people requested or mentioned
-**** TODO Generate 100 more reports if demand signals are positive (total: 200)
-
-*** Day 7 — Measure + decide
-**** TODO Check metrics: unique visitors, pages/session, waitlist signups, bounce rate
-**** TODO Check Twitter: follower count, best-performing thread, any dev retweets?
-**** TODO Document what worked and what didn't in steam-pulse.org
-**** TODO Decision point based on results:
-     - 50+ waitlist signups → start building Pro features
-     - 10-50 signups → keep promoting, expand to 500 games, try Hacker News
-     - <10 signups → rethink positioning or audience targeting
-     - Devs engaging on Twitter → double down there, it's the right channel
-**** TODO If positive signal: run analyzer upgrade prompt, then scale to 500 games
-**** TODO If positive signal: post to Hacker News ("Show HN: AI-analyzed Steam reviews for 500 games")
-
-*** When to create a Discord (not yet)
-    Create a SteamPulse Discord only when:
-    - 200+ waitlist signups, OR
-    - Users are already asking each other questions you can't answer alone
-    A dead Discord with 12 members is worse than no Discord.
-    Until then: Twitter/X for async signal collection, Reddit for traffic spikes.
-
-*** Launch checklist (before Day 5)
-**** TODO [ ] steampulse.io resolves and loads
-**** TODO [ ] At least 50 game report pages render correctly
-**** TODO [ ] Waitlist form captures emails to DB
-**** TODO [ ] Sitemap submitted to Google Search Console
-**** TODO [ ] Analytics tracking live
-**** TODO [ ] @steampulse Twitter/X account created with bio + link to site
-**** TODO [ ] OG images render correctly when sharing links
-
-*** Marketing Copy — Notes for Later
-    Rule: never say "AI" in headlines or CTAs. Show the output, not the tech.
-    Let people experience it and draw their own conclusion.
-
-**** Homepage hero — candidates (current is "Discover Steam Games" — too generic)
-     Option A (curiosity):
-       "What do players actually think?"
-       Synthesized review intelligence for 500+ Steam games. Free.
-
-     Option B (human/relatable):
-       "Steam reviews, actually readable."
-       We read 50,000+ player reviews so you don't have to.
-
-     Option C (dev-targeted):
-       "The research tool Steam never built."
-       Deep review analysis for every major Steam game. Free.
-
-     Option D (strongest for r/gamedev):
-       "Know your competition before you ship."
-       Player sentiment, feature gaps, and refund signals — for any Steam game.
-
-     Favourite for general homepage: Option B or C.
-     Favourite for Twitter/Reddit dev audience: Option D.
-
-**** Pro page copy fixes
-     Replace outcome-free buzzword phrases:
-     - "AI-synthesized player intelligence"
-       → "Player intelligence distilled from thousands of reviews"
-     - "AI-powered review analysis"
-       → "Every review read, every pattern surfaced"
-
-**** Twitter/X bio (1 line)
-     Steam review intelligence — synthesized, readable, free. steampulse.io
+**** C.3 Day-2+ engagement loop
+- [ ] Read every reply and comment from Day 1 — each is a research interview
+- [ ] Reply personally to every comment (algorithm reward + trust building)
+- [ ] Fix any bugs or UX issues users report
+- [ ] 2–3 more Twitter threads — pick games people requested or mentioned (use template below)
 
 **** Twitter thread template (per game)
-     "We read [N] player reviews for [Game] so you don't have to.
-      Here's what players actually think:
-      🟢 Top praise: [top_praises[0]]
-      🔴 Top complaint: [top_complaints[0]]
-      💡 Most requested: [feature_requests[0]]
-      Full report → steampulse.io/games/[appid]/[slug]"
+   #+begin_example
+   We read [N] player reviews for [Game] so you don't have to.
+   Here's what players actually think:
+   🟢 Top praise: [top_praises[0]]
+   🔴 Top complaint: [top_complaints[0]]
+   💡 Most requested: [feature_requests[0]]
+   Full report → steampulse.io/games/[appid]/[slug]
+   #+end_example
 
-**** TODO Write homepage copy update prompt (=scripts/prompts/homepage-copy.md=)
-     Changes: hero h1 + subheadline, metadata title/description, pro page copy.
-     Use Option B or C for hero. Strip "AI" from all visible copy.
+*** Phase D — Decide (after ~7 days of promotion)
+**** D.1 Measure
+- [ ] Plausible: unique visitors, pages/session, waitlist signups, bounce rate
+- [ ] Twitter: follower count, best-performing thread, dev retweets
+- [ ] Search Console: indexing progress, top queries, click-through rates
+- [ ] Document what worked / didn't, here in steam-pulse.org
+
+**** D.2 Decision tree
+- *50+ waitlist signups* → start building Pro features (auth0 → Pro page → payment integration)
+- *10–50 signups* → keep promoting; expand to broader Roguelike (1001 games, ~$1000 LLM); try Hacker News
+- *<10 signups* → rethink positioning or audience targeting; talk to people who DID sign up
+- *Devs engaging on Twitter* → double down there, it's the right channel
+
+**** D.3 If positive signal
+- [ ] Post to Hacker News ("Show HN: Cross-genre synthesis of every roguelike deckbuilder on Steam")
+- [ ] Trigger broader Roguelike (1001 games) batch analysis if budget allows
+- [ ] Build a second wedge synthesis (Survival? Horror?) — see Wedge Strategy notes for criteria
+
+*** Launch checklist (must pass before Phase C public posts)
+- [ ] steampulse.io resolves and loads
+- [ ] Top 200 game report pages render correctly
+- [ ] /genre/roguelike-deckbuilder/insights renders all FREE sections, cross-links work
+- [ ] No-report game pages look credible (Lighthouse SEO ≥ 90)
+- [ ] Waitlist form captures emails end-to-end
+- [ ] Sitemap submitted to Search Console
+- [ ] Plausible analytics tracking live
+- [ ] @steampulse_io Twitter account created with bio + link
+- [ ] OG images render correctly when sharing links
+- [ ] robots.txt accessible and allows GPTBot + ClaudeBot
+
+*** When to create a Discord (not yet)
+   Create a SteamPulse Discord only when:
+   - 200+ waitlist signups, OR
+   - Users are already asking each other questions you can't answer alone
+   A dead Discord with 12 members signals abandonment. Until then:
+   Twitter/X for async signal collection, Reddit for traffic spikes.
+
+*** Marketing copy — for homepage + threads
+   *Rule: never say "AI" in headlines or CTAs. Show the output, not the tech.*
+
+**** Homepage hero — candidates
+   For wedge launch, lead with "Deep synthesis of every roguelike
+   deckbuilder on Steam" — ~141 games positioning, not "500+ Steam games."
+
+   - *Option A (curiosity):* "What do players actually think?" / Synthesised review intelligence for the Steam catalog. Free.
+   - *Option B (human/relatable):* "Steam reviews, actually readable." / We read 50,000+ player reviews so you don't have to.
+   - *Option C (dev-targeted):* "The research tool Steam never built." / Deep review analysis for every major Steam game. Free.
+   - *Option D (strongest for r/gamedev):* "Know your competition before you ship." / Player sentiment, feature gaps, and refund signals — for any Steam game.
+
+   *Favourite for general homepage: Option B or C. Favourite for Twitter/Reddit dev audience: Option D.*
+
+**** Pro page copy fixes
+   - "AI-synthesised player intelligence" → "Player intelligence distilled from thousands of reviews"
+   - "AI-powered review analysis" → "Every review read, every pattern surfaced"
 
 *** What we are NOT doing before launch
-    - No Pro payment integration (waitlist only)
-    - No ads (too early, need traffic first)
-    - No analytics engine (Phase 2)
-    - No full-text search (Phase 2)
-    - No Bedrock Knowledge Base (V2)
-    - No 6,000 game backfill ($2k spend — wait for demand signal)
-
-** Testing Front-Endless
-   Make a frontend change prompt → Claude Code updates tests alongside the code
-   - CI runs npx playwright test on the PR → catches regressions before merge
-   - Against staging: PLAYWRIGHT_BASE_URL=https://staging.steampulse.io npx playwright test — smoke tests real infrastructure with no
-  mocks needed for structural checks
-
-** Local Database Backup & Restore
-   Backup (runs pg_dump inside the Docker container — no version mismatch):
-   #+begin_src bash
-   ./scripts/backup_db.sh
-   # Output: backups/steampulse_YYYYMMDD_HHMMSS.sql.gz
-   #+end_src
-
-   Restore from a backup file:
-   #+begin_src bash
-   gunzip -c backups/steampulse_TIMESTAMP.sql.gz | docker exec -i steam-pulse-db-1 psql -U steampulse -d steampulse
-   #+end_src
-
-   Tests use a separate database — never the dev db:
-   #+begin_src bash
-   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/steampulse_test poetry run pytest tests/ -q
-   #+end_src
-
-** Prompt Eval Pipeline
-   Evaluates LLM analyzer output quality across 40+ automated criteria.
-   Scores structural validity, content specificity, anti-duplication, and
-   ground-truth consistency. Caches reviews + reports so you only pay for
-   LLM calls once per prompt version (~$0.34/game).
-
-*** Baseline current prompts
-    #+begin_src bash
-    # Single game
-    poetry run python scripts/sp.py eval 440
-
-    # Full 4-game test suite (TF2, Stardew, Cyberpunk, No Man's Sky)
-    poetry run python scripts/sp.py eval --suite
-    #+end_src
-
-*** After changing prompts — re-evaluate
-    #+begin_src bash
-    # New prompt hash auto-invalidates report cache, reviews stay cached
-    poetry run python scripts/sp.py eval 440
-    #+end_src
-
-*** Compare prompt versions side-by-side
-    #+begin_src bash
-    # Single game comparison
-    poetry run python scripts/sp.py eval 440 --compare current upgraded
-
-    # Full suite comparison
-    poetry run python scripts/sp.py eval --suite --compare current upgraded
-    #+end_src
-
-*** Run scorer unit tests (no LLM, fast — safe for CI)
-    #+begin_src bash
-    poetry run pytest tests/eval/test_scorers.py -v
-    #+end_src
-
-*** Run integration tests (real LLM calls — manual/on-demand)
-    #+begin_src bash
-    poetry run pytest tests/eval/test_eval_suite.py -m llm --timeout=180
-    #+end_src
-
-*** Export results as JSON
-    #+begin_src bash
-    poetry run python scripts/sp.py eval --suite --json > eval_results.json
-    #+end_src
-
-** Multi-Region Crawl Architecture
-   Goal: Distribute Steam API calls across N AWS regions to bypass per-IP
-   rate limits. Each region provides a distinct IP pool. Only the primary
-   region has the database, SNS topics, and application stack.
-
-*** Design: Hub-and-Spoke with SQS Fan-Out
-
-    #+begin_example
-    ┌─── Primary Region (us-west-2) ──────────────────────────────┐
-    │                                                              │
-    │  ┌──────────┐    ┌──────────────┐    ┌──────────────────┐   │
-    │  │ Dispatch │───▶│ SQS Queues   │    │ RDS (PostgreSQL) │   │
-    │  │ Lambda   │    │ app_crawl_q  │    └────────▲─────────┘   │
-    │  └──────────┘    │ review_crawl │             │              │
-    │       │          └───────┬──────┘             │              │
-    │       │                  │                    │              │
-    │       │          ┌───────▼──────┐             │              │
-    │       │          │ Crawl Lambda │─────────────┘              │
-    │       │          │ (local work) │  writes to DB directly     │
-    │       │          └──────────────┘                            │
-    │       │                                                      │
-    │       │  EventBridge  ┌───────────────────┐                  │
-    │       └──────────────▶│ Cross-Region Bus  │                  │
-    │                       └─────┬─────┬───────┘                  │
-    └─────────────────────────────┼─────┼──────────────────────────┘
-                                  │     │
-              ┌───────────────────┘     └──────────────────┐
-              ▼                                            ▼
-    ┌─── Spoke: us-east-1 ──────────┐   ┌─── Spoke: eu-west-1 ──────┐
-    │                                │   │                            │
-    │  ┌────────────┐  ┌──────────┐ │   │  ┌────────────┐  ┌──────┐ │
-    │  │ SQS Queue  │──│ Crawl    │ │   │  │ SQS Queue  │──│Crawl │ │
-    │  │ (regional) │  │ Lambda   │ │   │  │ (regional) │  │Lambda│ │
-    │  └────────────┘  └────┬─────┘ │   │  └────────────┘  └──┬───┘ │
-    │                       │       │   │                      │     │
-    │         ┌─────────────┘       │   │        ┌─────────────┘     │
-    │         ▼                     │   │        ▼                   │
-    │  EventBridge reply            │   │  EventBridge reply         │
-    │  → primary region             │   │  → primary region          │
-    │  (crawl results)              │   │  (crawl results)           │
-    └───────────────────────────────┘   └────────────────────────────┘
-    #+end_example
-
-*** Spoke stacks contain ONLY:
-    - 1 SQS queue (receives work items from primary via EventBridge)
-    - 1 Crawl Lambda (calls Steam API, returns results via EventBridge)
-    - 1 Lambda Layer (library_layer code — Steam client, models)
-    - NO database, NO RDS, NO SNS topics, NO VPC peering
-
-*** Data flow
-    1. Primary "Dispatch Lambda" partitions appids across regions
-       (round-robin or by appid hash mod N)
-    2. Sends =crawl-work= events to EventBridge → routed to each region's SQS
-    3. Each spoke Lambda fetches data from Steam API (distinct IP per region)
-    4. Spoke Lambda sends =crawl-result= event back via EventBridge
-       containing the full API response payload
-    5. Primary "Ingest Lambda" receives results, writes to RDS, publishes SNS
-
-*** Why EventBridge not cross-region SQS
-    - EventBridge has native cross-region event routing (Event Bus → Event Bus)
-    - SQS does not support cross-region natively (would need SNS fan-out)
-    - EventBridge is $1/million events — crawling 160k games = $0.16
-
-*** CDK implementation: SpokeStack
-    One CDK stack, deployed to N regions. Minimal:
-
-    #+begin_src python
-    class CrawlSpokeStack(Stack):
-        """Lightweight crawl worker — deploy to any region for more IP diversity."""
-
-        def __init__(self, scope, id, primary_region: str, **kwargs):
-            super().__init__(scope, id, **kwargs)
-
-            # Regional queue — receives work from primary EventBridge
-            queue = sqs.Queue(self, "CrawlQueue",
-                visibility_timeout=Duration.minutes(10),
-                retention_period=Duration.days(1))
-
-            # Crawl Lambda — same code, no DB access
-            fn = lambda_.Function(self, "CrawlWorker",
-                runtime=lambda_.Runtime.PYTHON_3_12,
-                handler="crawl_spoke.handler",
-                code=lambda_.Code.from_asset("src/lambda-functions"),
-                timeout=Duration.minutes(5),
-                memory_size=256)
-            fn.add_event_source(SqsEventSource(queue, batch_size=10))
-
-            # EventBridge rule — send results back to primary region
-            bus = events.EventBus.from_event_bus_arn(self, "PrimaryBus",
-                f"arn:aws:events:{primary_region}:{self.account}:event-bus/steampulse")
-            # Lambda publishes to this bus after each crawl
-    #+end_src
-
-*** Scaling math
-    | Regions | Concurrency/region | Total | Crawl time (160k games) |
-    |---------+--------------------+-------+-------------------------|
-    |       1 |                  3 |     3 | 7-8 days                |
-    |       3 |                  3 |     9 | 2-3 days                |
-    |       5 |                  3 |    15 | 1-2 days                |
-    |       8 |                  3 |    24 | <1 day                  |
-
-*** Monthly cost of spokes (idle)
-    $0 — Lambda is pay-per-invoke, SQS is pay-per-message, EventBridge
-    is pay-per-event. When not crawling, spoke stacks cost nothing.
-
-*** When to implement
-    NOT now. This is a Phase 2 optimization. For launch:
-    - Run the crawl locally at -c 3 for 7-8 days
-    - OR spin up 2-3 EC2 spot instances manually (Option A from above)
-    - Implement proper spoke architecture after launch, before the next full recrawl
-
-** High-Value Strategic Questions SteamPulse Will Answer
-   These are the questions that make SteamPulse genuinely useful to indie
-   developers — not just a review aggregator, but a market intelligence tool.
-
-*** "What genre should I concentrate on right now?"
-    Multi-signal answer combining data we already collect:
-
-    - *Supply gap:* Genres with growing review velocity but few new releases = underserved
-    - *Sentiment quality:* Genres where even mid-tier games score "Very Positive" = forgiving audience
-    - *Wishlist density:* =player_wishlist= items repeating across many reports = unmet demand
-    - *Hidden gem ratio:* High % of hidden gems = good games getting buried = opportunity
-    - *Review velocity trend:* Is the genre growing, peaking, or declining?
-
-    Surfaced as an *Opportunity Score per genre* once we have 500+ analyzed games.
-
-    Example output:
-    #+begin_example
-    Roguelike Deckbuilders: 🔥 High opportunity
-    — 40 games analyzed, avg "Very Positive"
-    — Top wishlist: "endless run mode", "more card synergies", "co-op"
-    — 3 hidden gems under 1k reviews
-    — Review velocity: growing +18% YoY
-    #+end_example
-
-*** "What features are players looking for in genre X?"
-    Cross-report synthesis — aggregated from all reports tagged with that genre:
-
-    - =player_wishlist= ranked by frequency across all genre games → what doesn't exist yet
-    - =gameplay_friction= → what to avoid building
-    - =churn_triggers= → what kills retention in this genre
-    - =design_strengths= → what the genre's best games do right
-    - =competitive_context= → the benchmark games players compare everything to
-
-    Example output for "Survival":
-    #+begin_example
-    Players want: base-building automation, narrative depth, co-op story mode
-    They hate: hunger/thirst micromanagement, punishing early death loops, empty worlds
-    They churn at: 5-hour mark when base feels "solved"
-    Benchmark: they compare everything to Valheim
-    #+end_example
-
-    This is what Chris Zukowski (howtomarketagame.com) does manually — reads
-    hundreds of reviews to write genre analysis posts. We generate it automatically.
-
-*** What's needed to answer these well
-    | Requirement                        | Status                                       |
-    |------------------------------------|----------------------------------------------|
-    | 500+ analyzed games with reports   | After crawl + analysis run                   |
-    | Reports tagged by genre            | ✅ genres table joined to reports            |
-    | Per-genre / per-tag rollup matviews| =mv_genre_*=, =mv_tag_*= already in place    |
-    | Cross-report synthesis matviews    | Phase-4 synthesizer — to build (see below)   |
-    | NL chat over catalog               | =/api/chat= V2 — NL → SQL over above artifacts |
-
-*** V1 delivery (pre-chat)
-    Pre-built genre insight pages: =/genre/survival= shows aggregated wishlist,
-    top friction points, opportunity score, hidden gems. No chat interface needed.
-    These pages are also high-value SEO targets (developers Google "survival game
-    player complaints" and land on us).
-
-*** V2 delivery (chat interface)
-    User types the question in natural language. The chat layer translates NL → SQL
-    against pre-computed artifacts (matviews + cross-report synthesis matviews +
-    =reports.report_json=) and answers from the result set. No vector RAG over raw
-    reviews. Same answer architecture as the V1 pages, just with a different front
-    door.
-
-** Query / Chat Architecture — synthesize, don't retrieve-raw
-
-   The V2 =/chat= endpoint and any future cross-cutting analytics surface
-   query *pre-synthesized artifacts*, never raw reviews. This is the
-   load-bearing principle from =ARCHITECTURE.org= → "Synthesize, don't
-   retrieve-raw."
-
-*** Three artifact tiers feed every query
-
-    1. *Structured matviews* (=mv_genre_counts=, =mv_tag_counts=,
-       =mv_price_positioning=, =mv_release_timing=,
-       =mv_platform_distribution=, =mv_trend_*=, =mv_new_releases=,
-       =mv_review_counts=, =mv_sentiment_trend=, etc.) — answer
-       countable / filterable questions instantly.
-    2. *Per-game synthesis* (=reports.report_json= +
-       =chunk_summaries= / =merged_summaries=) — already populated
-       by the three-phase analyzer. Answer narrative questions about
-       a single game (friction, wishlist, churn triggers, content depth).
-    3. *Cross-report synthesis matviews* — to build. A new family
-       (=mv_genre_synthesis=, =mv_tag_synthesis=,
-       =mv_developer_synthesis=, =mv_catalog_synthesis=) where a
-       Phase-4 LLM pass consumes existing =GameReport= rows and
-       persists aggregated wishlist / friction / dev_priorities per
-       genre / tag / developer / catalog. Refreshed on the existing
-       6h matview cadence.
-
-*** /api/chat = NL → SQL over those artifacts
-    Bedrock is used *only* for the NL → SQL translation step
-    (per-query, ~$0.0002 each). Retrieval is a Postgres =SELECT=. No
-    vector store, no Bedrock Knowledge Base, no OpenSearch Serverless,
-    no S3 export of report JSONs.
-
-*** Coverage of the Top 100 (rough breakdown)
-
-    | Bucket                                  | Approx count | Status                           |
-    |-----------------------------------------+--------------+----------------------------------|
-    | Tier 1+2 (existing matviews + reports)  | ~50          | Today, with thin matview adds    |
-    | Tier 3 (cross-report synthesis matview) | ~30          | Build the Phase-4 synthesizers   |
-    | Recency-corpus limited                  | ~10          | Mitigations in =ARCHITECTURE.org=|
-    | Missing data fields (DLC, engine, etc.) | ~10          | Crawl-side gaps — separate work  |
-
-*** What this does NOT need
-    - No vector store, no embeddings of reports or reviews.
-    - No OpenSearch Serverless ($350/mo fixed cost avoided).
-    - No Bedrock Knowledge Base.
-    - No S3 export of report JSONs.
-    - No runtime LLM calls per chat query beyond the NL → SQL step.
-
-*** Why this works
-    - The expensive LLM work (chunk → merge → synthesise → cross-genre
-      synthesise) is paid once per =(inputs, prompt_version)= and
-      cached in Postgres. Reads are cheap.
-    - Every UI surface (game page, genre page, chat answer) reads the
-      same row, so answers are consistent.
-    - Operational cost is matview refresh (6h cadence, debounced) +
-      per-query NL → SQL — both tiny.
-
-*** Data gaps to note (crawl-side, not architecture-side)
-    - No DLC↔base game relationship
-    - No game engine data
-    - No discount / price history
-    - No concurrent player counts
-    - No Steam Deck verified status (easy add — Steam API has it)
-    - No Steam Next Fest demo metadata
-
-** Top 100 Prompt Questions for SteamPulse
-   These are example natural-language questions the platform should be able to
-   answer. Organized by persona and category. Each maps to structured queries
-   over our games, reviews, tags, genres, and reports data.
-
-*** Market Sizing & Trends (Developer / Analyst)
-    1. How many games were released on Steam in 2025 with more than 100 reviews?
-    2. What percentage of games released this year are tagged "Roguelike"?
-    3. Which genre had the highest growth in new releases year-over-year?
-    4. How many Early Access games graduated to 1.0 in the last 12 months?
-    5. What's the median review count for indie RPGs released in 2024?
-    6. How many free-to-play games crossed 1,000 reviews in their first year?
-    7. Which tags are gaining popularity fastest (most new games using them)?
-    8. What's the average time an Early Access game spends before 1.0 launch?
-    9. How many games priced above $30 achieved "Very Positive" or better?
-    10. What fraction of all Steam games have fewer than 10 reviews?
-
-*** Genre & Tag Intelligence
-    11. What are the top 10 most common tag combinations for games with 500+ reviews?
-    12. Which genres have the highest average sentiment scores?
-    13. What tags correlate most strongly with "Overwhelmingly Positive" sentiment?
-    14. Are "Souls-like" games trending up or down in review volume year-over-year?
-    15. Which genre has the widest spread between best and worst sentiment?
-    16. What's the average price point for "City Builder" games with 1000+ reviews?
-    17. How do survival games compare to crafting games in average playtime at review?
-    18. Which tags appear together most often in hidden gem games (high sentiment, low reviews)?
-    19. What genres have the highest ratio of negative to positive reviews?
-    20. Are incremental/idle games growing or shrinking as a category?
-
-*** Competitive & Audience Analysis
-    21. What games share the most reviewer overlap with Stardew Valley?
-    22. Which games are reviewed by the same players who review Factorio?
-    23. What's the audience overlap between "Vampire Survivors" and other action roguelikes?
-    24. For players who reviewed both Terraria and Starbound, which did they rate higher?
-    25. What are the top 5 games most frequently mentioned in Cyberpunk 2077 reviews?
-    26. Which competitors do reviewers of Hades mention most often?
-    27. What's the sentiment breakdown when players compare my game to a specific competitor?
-    28. Which developers have the most cross-game reviewer overlap with my studio?
-    29. For the "Metroidvania" tag, which 3 games share the most audience?
-    30. What game has the most unique audience (least overlap with other games)?
-
-*** Sentiment & Review Quality
-    31. What aspects are players most frustrated with in the RPG genre?
-    32. What are the most common complaints across all "Mostly Negative" games?
-    33. Which design elements are praised most often in "Overwhelmingly Positive" games?
-    34. What percentage of reviews for my game mention performance/crash issues?
-    35. Is the sentiment for No Man's Sky improving, stable, or declining over the last year?
-    36. Which games had the biggest sentiment reversal (negative to positive) after updates?
-    37. What are the top 5 most-requested features across all survival games?
-    38. Do games with controller support have higher average sentiment than those without?
-    39. What's the average sentiment difference between Early Access and post-launch reviews?
-    40. Which games have the highest proportion of "helpful" reviews (votes_helpful > 10)?
-
-*** Pricing & Revenue Intelligence
-    41. What's the sweet spot price point for indie roguelikes with 500+ reviews?
-    42. Do games priced at $19.99 perform better in sentiment than those at $29.99?
-    43. For the "Strategy" genre, what price range has the best review-to-price ratio?
-    44. Which free-to-play games have the worst monetization sentiment?
-    45. How does DLC sentiment compare to base game sentiment for games with DLC?
-    46. What's the average price of games tagged "Short" vs "Long" that are rated positively?
-    47. Are there games priced above $50 with "Very Positive" reviews? Which ones?
-    48. What percentage of negative reviews mention "not worth the price"?
-    49. Which price tier ($5, $10, $15, $20, $25, $30+) has the highest average sentiment?
-    50. Do games that launch at a discount have better or worse long-term sentiment?
-
-*** Developer Portfolio & Studio Analysis
-    51. Which indie studios have consistently "Very Positive" games across their catalog?
-    52. What's the average sentiment trajectory across a developer's second and third releases?
-    53. Which developers improved their review scores the most between their first and latest game?
-    54. For studios with 3+ games, what's their average sentiment variance?
-    55. Which publishers have the best track record for indie games (top 10 by avg sentiment)?
-    56. Do solo developers have higher or lower average sentiment than small studios?
-    57. Which developer has the most total reviews across all their games?
-    58. What percentage of a developer's audience carries over between sequels?
-    59. Which studios have the fastest review velocity in their first launch week?
-    60. Are there developers whose games consistently appear in "hidden gem" lists?
-
-*** Launch & Timing Strategy
-    61. What's the best month to launch an indie game based on historical review velocity?
-    62. Do games launched in January perform differently from games launched in September?
-    63. How many games launched in the same week as Elden Ring got fewer than 50 reviews?
-    64. What's the average first-week review count for games that eventually reach 1,000 reviews?
-    65. Is there a day-of-week effect on launch review velocity?
-    66. How do Steam Next Fest demo games perform in reviews compared to non-demo games?
-    67. What's the typical review velocity curve for a "successful" indie game in the first 30 days?
-    68. Do holiday releases (Nov-Dec) have higher or lower average sentiment?
-    69. What percentage of games that got fewer than 50 reviews in month one ever recovered to 500+?
-    70. Which release windows have the least competition for the "Roguelike" tag?
-
-*** Player Behavior & Engagement
-    71. What's the average playtime at review for "Overwhelmingly Positive" games vs "Mixed"?
-    72. At what playtime do most negative reviews get written for open-world games?
-    73. Is there a churn wall (common dropout point) for survival games?
-    74. Do players with 100+ hours write more positive reviews than those with <10 hours?
-    75. What's the median playtime difference between positive and negative reviewers for RPGs?
-    76. Which games have the longest average playtime at review?
-    77. What percentage of reviewers have fewer than 2 hours of playtime (potential refunders)?
-    78. For multiplayer games, how does playtime at review correlate with sentiment?
-    79. What's the average number of games a reviewer who reviewed my game also reviewed?
-    80. Do "funny" reviews (high votes_funny) skew positive or negative?
-
-*** Technical & Platform Analysis
-    81. Which games have the most crash/performance complaints as a percentage of reviews?
-    82. Do games with Linux support have different sentiment profiles than Windows-only?
-    83. What are the most common technical complaints across VR games?
-    84. Which game engines correlate with the most technical issue reports?
-    85. How does controller support affect sentiment for platformer games?
-    86. What percentage of negative reviews for AAA games mention DRM?
-    87. Which games have the biggest gap between Steam Deck verified and actual review sentiment?
-    88. Do games with workshop/mod support have higher sentiment than those without?
-    89. What are the most common save-related complaints across all games?
-    90. Which categories (multiplayer, co-op, cloud saves) correlate with higher sentiment?
-
-*** Content & Replayability
-    91. What games are most praised for replayability across all genres?
-    92. Which single-player games have the highest average playtime at review?
-    93. Do games with achievements have higher engagement (playtime) than those without?
-    94. What's the sentiment difference between "short but sweet" games (<5h) and 100+ hour games?
-    95. Which game has the best value-for-money perception based on review signals?
-
-*** Cross-Cutting & Big Picture
-    96. What are the top 10 hidden gems on Steam right now (high sentiment, low visibility)?
-    97. If I'm making a roguelike deck-builder, what are the top 5 complaints I should avoid?
-    98. What would a "State of Steam 2025" report look like — key stats and trends?
-    99. Which game released this year is most likely to become a long-tail evergreen seller?
-    100. Across all 6,000 analyzed games, what is the single most common player complaint?
-
-
-* Analytics & Charts — Navigation Reference
-
-Quick reference for where each chart lives in the UI.
-
-** /analytics — Catalog-Wide Dashboard
-
-Main nav → "Analytics" link (BarChart3 icon). Shows 9 time-series charts across
-the entire Steam catalog. Control bar (granularity + genre filter) is Pro-gated.
-
-- Release Volume — bar + moving average, sentiment overlay
-- Sentiment Distribution — stacked area (positive / mixed / negative), Metacritic line
-- Genre Share — stacked area of top genres over time
-- Review Velocity — stacked bars by velocity band (<1/day, 1–10, 10–50, 50+)
-- Pricing Trends — free % bars + avg paid price line
-- Early Access Trends — EA count/% bars + EA vs non-EA sentiment lines
-- Platform & Steam Deck — Mac %, Linux %, Deck Verified/Playable/Unsupported %
-- Engagement Depth — stacked area by playtime bucket (<2h, 2–10h, 10–50h, 50–200h, 200h+)
-- Feature Adoption — multi-line Steam feature adoption (Workshop, VR, Co-op, etc.)
-
-** /games/[appid]/[slug] — Individual Game Report
-
-Scroll below the report text. Charts are in the =GameAnalyticsSection= block.
-
-- Playtime vs Sentiment — correlation chart
-- Review Velocity — area chart, 24-month trend
-- Early Access Impact — EA vs post-launch sentiment/playtime comparison
-- Top Reviews — most helpful/funny review cards
-- Audience Overlap — similar games by shared reviewers (5 free, all on Pro)
-
-** /genre/[slug] — Genre Pages
-
-e.g. =/genre/action=, =/genre/rpg=. Charts appear below the game list.
-
-- Price Positioning — price distribution + sentiment by price range
-- Release Timing — release density by month-of-year
-- Platform Gaps — Windows / Mac / Linux support percentages
-
-** /tag/[slug] — Tag Pages
-
-e.g. =/tag/multiplayer=, =/tag/roguelike=. Chart appears below the game list.
-
-- Tag Trend — yearly game count + avg sentiment for the tag
-
-** /developer/[slug] — Developer Profile Pages
-
-e.g. =/developer/valve=. Chart appears alongside the game list.
-
-- Developer Portfolio — sentiment and review trends across all games by that developer
-
-** TODO Post-launch: Split navigation into Browse vs Analyze
-
-The navbar currently mixes two fundamentally different modes:
-
-- *Casual browsing* — Browse, Hidden Gems, New Releases, Trending, game pages.
-  Discovery-oriented, SEO-driven, free tier. "Show me interesting stuff."
-- *Analytical toolkit* — Filters, lenses, compare, benchmark, market map.
-  Query-oriented, pro-driven. "Let me build a view into the data."
-
-The Toolkit link sits alongside Browse as if they are peers, but they are
-different experiences. The toolkit is a workspace; the browse pages are a
-storefront.
-
-*** Why wait until after launch
-- Not enough lenses yet to justify the split (stubs don't count)
-- Building Compare (item 8) and Pro gating (item 10) will reveal the right
-  boundary between "browsing" and "analysis"
-- The ToolkitShell architecture (visibleLenses, lockedFilters, lensContent)
-  already supports the split — no rewrite needed when the time comes
-- Launch needs content and reports indexed, not navigation polish
-
-*** Proposed post-launch nav structure
-#+begin_src
-Browse   → keeps: Hidden Gems, New Releases, Trending, search, game/genre/tag pages
-Analyze  → becomes: Toolkit (full workspace with all lenses, filters, compare)
-#+end_src
-
-Game pages stay in Browse but get an "Open in Toolkit" link that jumps to
-=/toolkit?appids=440&lens=sentiment=. Genre/tag pages get the same treatment.
-
-** TODO Wire toolkit filter bar into AnalyticsClient
-
-ROADMAP item #7 (analytics-dashboard-frontend.md) is mostly already done: the /analytics
-page has 9 charts with granularity toggle and genre filter via AnalyticsClient. The
-toolkit shell wraps it as the Trends lens. What remains is a small wiring task: connect
-the toolkit shell's genre/tag filter bar selections into AnalyticsClient's internal
-filter state so they stay in sync. Low priority — do after launch.
-
-** TODO Wire SteamSpy tag fetching into the crawl pipeline
-
-The spoke handler (_process_tags in spoke_handler.py) and ingest handler (_handle_tags in
-ingest_handler.py) are fully implemented, and tag_repo.upsert_tags() works. But nothing
-triggers the tags task. CrawlService._ingest_app_data() upserts genres and categories but
-never queues a "tags" task to the spoke. The tags and game_tags tables remain empty.
-
-Fix: after metadata ingest completes for a game, queue a "tags" SQS message to the spoke
-so it fetches SteamSpy tag data and routes it back through ingest. Then backfill existing
-games.
-
-NOTE: SteamSpy returns HTTP 403 from AWS eu-west-1 (and likely all cloud IPs). Replaced
-with Steam store page scraping in PR #40. The store page embeds identical player tag data
-(name + vote count) in InitAppTagModal() JS. Implementation details:
-- URL: https://store.steampowered.com/app/{appid}/?l=english
-- Age-gate bypass cookies: birthtime=0, wants_mature_content=1, lastagecheckage=1-0-1990
-- Extract JSON array via bracket-depth matching after "InitAppTagModal" marker
-- See steam_source.py get_player_tags() and _extract_tags_from_html()
-
-** TODO Leverage tag vote counts for deeper intelligence
-
-Player tag votes are a rich signal we currently only use for ordering. Each game has up to
-20 player-applied tags with community vote counts (e.g. Elden Ring: "Souls-like" 7,399,
-"Open World" 5,408). Ideas for utilizing this data in the platform:
-
-- Tag weight in LLM context: feed the analyzer top tags by vote weight instead of flat
-  lists, so the report reflects what the community actually considers defining vs marginal.
-- Weighted tag similarity: score game similarity using vote-weighted tag overlap rather
-  than boolean tag intersection. Powers better "similar games" and competitor discovery.
-- Tag-sentiment correlation: surface which tags correlate with high/low sentiment across
-  the catalog (e.g. do "Early Access" or "Pay to Win" tags predict lower scores?).
-- Tag trend tracking: re-crawl tags periodically and track vote count deltas over time.
-  Detect shifting player perception (game gains "Pay to Win" votes after monetization
-  update) and surface tag momentum charts in the Pro section.
-- Tag confidence thresholds: distinguish defining tags (high votes) from noise tags (low
-  votes) when filtering/searching. A game with 50 votes on "Roguelike" is barely one;
-  5,000 votes means it's a core identity.
-- Cross-tag analytics (Pro): "Which tag combinations correlate with highest hidden gem
-  scores?", "What's the average sentiment for games heavily tagged Multiplayer vs
-  Single-player?"
-
-** TODO Pro gating: backend auth + per-entity analytics fetch gating
-
-Currently all per-game analytics endpoints (playtime-sentiment, early-access-impact,
-review-velocity, top-reviews, audience-overlap) are fetched for every user regardless
-of Pro status. The frontend conditionally renders based on =usePro()=, but the full
-data is exposed in network responses.
-
-When auth ships:
-- Add backend auth middleware to Pro-only endpoints (return 403 for free users)
-- In =GameAnalyticsSection.tsx=: only fetch Pro-only endpoints when =isPro= is true
-- Clamp =TopReviews= limit (3 free, 10+ Pro)
-- Same pattern for genre page market analytics (PricePositioning, ReleaseTiming are Pro-only)
-
-Backend auth is the real security boundary — client-side gating is UX only.
-
-** TODO Fix CDK test fixture to use staging environment
-
-tests/infra/test_compute_stack.py uses ENVIRONMENT="production" while other infra tests
-use staging. Since ComputeStack uses ENVIRONMENT to build resource names, the synthesized
-template is not representative of staging. Changing to "staging" requires updating all CDK
-assertion matchers in the test since generated resource IDs change with the environment
-name. Low priority but worth cleaning up for consistency.
-
-** UX/UI Design References
-
-Curated sources for frontend design decisions. Consult these when planning UI changes.
-
-*** Game Platform UX References
-- Steam tag browse page: https://store.steampowered.com/tag/browse/
-- Steam tags (Steamworks docs): https://partner.steamgames.com/doc/store/tags
-- GOG catalog filtering (170 tags, faceted sidebar): https://www.gog.com/en/news/introducing_new_ways_to_browse_and_filter_game_catalog
-- itch.io enhanced tagging (curated master list, synonym merging): https://itch.io/updates/enhanced-itchio-tagging-system
-- Steam page optimization guide: https://presskit.gg/field-guides/steam-page-optimization-guide
-
-*** General UX Research & Best Practices
-- NN/g — Accordions on desktop (when to use, when not): https://www.nngroup.com/articles/accordions-on-desktop/
-- NN/g — Accordions for complex content: https://www.nngroup.com/articles/accordions-complex-content/
-- NN/g — Defining helpful filter categories and values: https://www.nngroup.com/articles/filter-categories-values/
-- Algolia — Search filter UX best practices: https://www.algolia.com/blog/ux/search-filter-ux-best-practices
-- LogRocket — Filtering UX/UI design patterns: https://blog.logrocket.com/ux-design/filtering-ux-ui-design-patterns-best-practices/
-- Shopify — Faceted navigation guide: https://www.shopify.com/blog/faceted-navigation
-- Fact Finder — Faceted search (9 best practices): https://www.fact-finder.com/blog/faceted-search/
-- Tag cloud critique (why they fail): https://medium.com/design-bootcamp/semantic-scramble-the-tag-cloud-dilemma-fae3998d5c6d
-- Tags — UX to implementation: https://schof.co/tags-ux-to-implementation/
-
-*** Key Takeaways (applicable to all UI work)
-- 5-7 items per visible filter group before "Show more" truncation (NN/g)
-- Popularity sort > alphabetical sort for filter values (NN/g)
-- Counts next to every filter value — critical for user confidence (Baymard)
-- Mega menus >50 links see 34% higher bounce (Baymard) — users default to search
-- Accordions: good when users need 1-2 sections, bad when they need most/all
-- Tag clouds: consistently ignored by users — do not use
-- Always provide type-ahead search alongside category browsing for large taxonomies
-
-** TODO ACM Cert
-
- You're safe. Here's what's happening:
-
-   - Certificate stack — creates an ACM cert (us-east-1, required for CloudFront). It needs a DNS validation CNAME 
-  (_76abda29...steampulse.io), but this is just a validation record — it does not point traffic to your site.
-   - Route53 A record (the one that makes steampulse.io live) — gated by domain-live: false in delivery_stack.py and will NOT be 
-  created.
-
-  You need to add that CNAME validation record to your DNS registrar for the cert to complete:
-
-   Name:  _76abda29abfe5e6a85a03baf3d03c1df.steampulse.io
-   Type:  CNAME
-   Value: _050dc13c2fcca44f1e27465737e4a311.jkddzztszm.acm-validations.aws
-
-  Once added, ACM will validate it and the deploy will continue. The site won't go live until you set domain-live: true.
-
-** TODO BUG:  When looking at "Recently Released", I see games "released" in 2027, but that is in the future
-** TODO Search: upgrade to pg_trgm for fuzzy/similarity-ranked search
-   Currently using ILIKE with exact/prefix boost in ORDER BY. Works but doesn't
-   scale well and can't handle typos. Switch to pg_trgm: add the extension,
-   create a GIN index on games.name, and use similarity() or word_similarity()
-   for ranking. This would properly rank "Minato" above "Terminator" for the
-   query "minato" without the prefix-boost hack, and also handle misspellings.
-
-* Research / Sources
-
-** Analytics Builder Lens — UX & charting research (2026-04-07)
-
-Consulted while finalizing scripts/prompts/analytics-builder-lens.md.
-
-- Dashboard Design Best Practices: The Complete 2025 Guide — 5of10
-  https://5of10.com/articles/dashboard-design-best-practices/
-- Visualizing data — Metabase Learn
-  https://www.metabase.com/learn/metabase-basics/querying-and-dashboards/visualization
-- Line, bar, and area charts — Metabase Documentation
-  https://www.metabase.com/docs/latest/questions/visualizations/line-bar-and-area-charts
-- Stacked Bar Charts: A Detailed Breakdown — Atlassian
-  https://www.atlassian.com/data/charts/stacked-bar-chart-complete-guide
-- Dual axis charts: why they spark debate, and how to get them right — Flourish
-  https://flourish.studio/blog/dual-axis-charts/
-- Stacked area charts: When to use them and when to avoid them — Inforiver
-  https://inforiver.com/insights/stacked-area-charts-when-to-use-and-avoid/
-
-Key takeaways folded into the prompt: smart defaults (never empty canvas),
-strict chart-type compatibility rules (dual-axis only when units differ),
-progressive disclosure, perf budgets (<2s render, ≤1000 points), colorblind-safe
-palette, full empty/loading/error states, click-to-inspect, URL as source of truth.
-
-
-** TODO Prompts Directory Cleanup [0/17]
-*** Move to completed/ (already implemented or nearly so)
-- [X] quick-stats-freshness.md — ~90% wired, props exist in GameReportClient.tsx
-- [-] precompute-detail-and-dashboard-queries.md — moved to completed/, broken into 3 focused prompts:
-  - [X] precompute-wire-trend-matviews.md — rewrite 8 trend methods to read from existing matviews
-  - [ ] precompute-denormalize-ea-reviews.md — add has_early_access_reviews to games, remove reviews scan
-  - [ ] precompute-game-metrics-cache.md — cache detail-page review metrics (low priority)
-- [ ] revenue-estimator-v2.md — partially done, fields exist, algorithm refinement remains
-
-*** Move to notes/ or doc/ (not implementation specs)
-- [ ] product-ideas.md — running brainstorm, explicitly "NOT a roadmap"
-- [ ] data-intelligence-features.md — feature roadmap brainstorm
-- [ ] landing-page-positioning.md — messaging/positioning strategy doc
-- [ ] value-assessment.md — Claude Code analysis prompt, not a feature
-
-*** Revise or rewrite
-- [ ] prompt-eval-pipeline.md — stale, assumes pre-data-source-clarity GameReport shape
-
-*** Still relevant, not started — low effort
+- No Pro payment integration (waitlist only — see Phase D decision tree)
+- No ads (too early, need traffic first)
+- No analytics-engine UI (Phase 2)
+- No full-text search (Phase 2)
+- No Bedrock Knowledge Base / vector RAG (architecturally ruled out — see =ARCHITECTURE.org=)
+- No 6,000-game backfill (~$2k spend — wait for demand signal in Phase D)
+
+*** Cost summary
+- Phase A prompt implementation: dev time only
+- Phase B batch analysis: ~$341 (top 200 + 141 RDB) of $500 LLM budget
+- Phase B services: Resend free tier + Plausible $9/month
+- Ongoing: matview refresh ~$5/month per active genre synthesis
+- *Total to launch and operate: under $400 + dev time*
+
+** Reference docs
+   Material moved out of this file to keep it lean. See:
+
+   - =doc/top-100-questions.org= — Top 100 example questions + coverage breakdown
+   - =doc/strategic-questions.org= — High-value strategic questions ("what genre to build", "what features players want")
+   - =doc/multi-region-crawl.org= — Hub-and-spoke multi-region crawl architecture
+   - =doc/analytics-pages-nav.org= — Where each chart lives in the UI
+   - =doc/runbooks/db-backup-restore.org= — Local DB backup/restore
+   - =doc/runbooks/testing-frontendless.org= — Frontendless Playwright testing
+   - =doc/runbooks/prompt-eval-pipeline.org= — Prompt eval pipeline runbook
+   - =doc/runbooks/acm-cert-validation.org= — ACM cert DNS validation (one-time pre-launch)
+   - =doc/research/ux-ui-references.org= — UX/UI design references
+   - =doc/research/analytics-builder-lens.org= — Analytics builder lens UX research
+   - =scripts/prompts/CLEANUP.md= — Prompts directory housekeeping (move to completed/, etc.)
+
+   For chat / synthesis architecture, see =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw."
+
+** Backlog (prompts and standalone TODOs not in launch path)
+   *These are valid but deferred. Pull into the Active Launch Plan if/when
+   Phase D decision-tree justifies them.*
+
+*** Low effort
 - [ ] fix-just-added-steam-page-date.md — migration + small code change
 - [ ] game-details-metadata-card.md — fields already in DB, need API + component
 - [ ] k6-perf-smoke-tests.md — straightforward setup
 - [ ] review-crawl-backfill.md — index + repo method + handler action + EventBridge rule
-- [ ] decouple-sentiment-trend-matview.md — move trend from frozen =report_json= into =mv_sentiment_trend=, two-phase deploy. Background: =ARCHITECTURE.org= → "Review corpus shape: rolling-recent window."
 
-*** Wedge launch (do these next, in order)
-- [ ] cross-genre-synthesizer-matview.md — backend: =mv_genre_synthesis= table, Phase-4 LLM, EventBridge weekly trigger, =/api/genres/{slug}/insights=. Plan: =steam-pulse.org= → "Wedge Strategy: Roguelike Deckbuilder Deep Coverage."
-- [ ] genre-insights-page.md — frontend: =/genre/[slug]/insights= Next.js page, SEO meta, Pro shell. Depends on the synthesizer prompt above (must produce a row first).
-
-*** Still relevant, not started — medium effort
+*** Medium effort
 - [ ] full-text-search-reviews.md — tsvector/tsquery + GIN index + endpoint
 - [ ] explore-market-map-lens.md — grid explorer, 8 panels
 - [ ] explore-table-lens.md — filterable data grid
 - [ ] report-export-premium.md — depends on auth
 
-*** Still relevant, not started — high effort
-- [ ] auth0-authentication.md — TODO in code references it
+*** High effort
+- [ ] auth0-authentication.md — TODO in code references it; Phase D Pro-features prerequisite
+
+*** Standalone TODOs (no prompt yet)
+- [ ] *Post-launch: Split nav into Browse vs Analyze.* The navbar mixes casual browse (Hidden Gems, New Releases, Trending — discovery, free, SEO) with analytical toolkit (filters, lenses, compare, market map — Pro). Wait until after launch + the ToolkitShell is fleshed out (already supports the split). Proposed: Browse (discovery), Analyze (toolkit workspace). Game pages stay in Browse with "Open in Toolkit" links.
+- [ ] *Wire toolkit filter bar into AnalyticsClient.* The /analytics page has 9 charts with granularity + genre filter via AnalyticsClient. Toolkit shell wraps it as the Trends lens. Need: connect the toolkit shell's genre/tag filter selections into AnalyticsClient's internal filter state.
+- [ ] *Wire SteamSpy tag fetching into the crawl pipeline.* Spoke handler =_process_tags=, ingest =_handle_tags=, and =tag_repo.upsert_tags()= are implemented but nothing triggers a "tags" SQS task — =CrawlService._ingest_app_data()= upserts genres/categories but never queues tags. =tags= and =game_tags= tables remain empty. Note: SteamSpy returns 403 from cloud IPs; PR #40 replaced with Steam store page scraping (=InitAppTagModal()= JS, age-gate cookies). See =steam_source.py get_player_tags()=.
+- [ ] *Leverage tag vote counts for deeper intelligence.* Player tag votes (e.g. Elden Ring "Souls-like" 7,399 / "Open World" 5,408) are a rich signal currently used only for ordering. Ideas: tag weight in LLM context, weighted tag similarity, tag-sentiment correlation, tag trend tracking over time, defining-vs-noise confidence thresholds, cross-tag analytics (Pro).
+- [ ] *Pro gating: backend auth + per-entity analytics fetch gating.* All per-game analytics endpoints fetched regardless of Pro status. When auth ships: backend middleware on Pro endpoints (403 for free), conditional fetches in =GameAnalyticsSection.tsx=, clamp =TopReviews= limit (3 free, 10+ Pro), same pattern for genre market analytics.
+- [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Switching requires updating CDK assertion matchers (resource IDs change with environment name). Low priority.
+- [ ] *BUG: "Recently Released" shows games released in 2027.* Filter out future =release_date= values.
+- [ ] *Search: upgrade to pg_trgm for fuzzy/similarity-ranked search.* Currently ILIKE with exact/prefix boost in ORDER BY. Switch to pg_trgm: add the extension, GIN index on =games.name=, use =similarity()= or =word_similarity()= for ranking. Properly ranks "Minato" above "Terminator" for "minato" without the prefix-boost hack, and handles misspellings.

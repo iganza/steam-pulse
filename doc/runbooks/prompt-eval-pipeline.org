@@ -1,0 +1,46 @@
+#+TITLE: Prompt Eval Pipeline — Runbook
+#+DESCRIPTION: Automated quality eval for LLM analyzer prompts (40+ criteria).
+
+Evaluates LLM analyzer output quality across 40+ automated criteria.
+Scores structural validity, content specificity, anti-duplication, and
+ground-truth consistency. Caches reviews + reports so you only pay for
+LLM calls once per prompt version (~$0.34/game).
+
+* Baseline current prompts
+#+begin_src bash
+# Single game
+poetry run python scripts/sp.py eval 440
+
+# Full 4-game test suite (TF2, Stardew, Cyberpunk, No Man's Sky)
+poetry run python scripts/sp.py eval --suite
+#+end_src
+
+* After changing prompts — re-evaluate
+#+begin_src bash
+# New prompt hash auto-invalidates report cache, reviews stay cached
+poetry run python scripts/sp.py eval 440
+#+end_src
+
+* Compare prompt versions side-by-side
+#+begin_src bash
+# Single game comparison
+poetry run python scripts/sp.py eval 440 --compare current upgraded
+
+# Full suite comparison
+poetry run python scripts/sp.py eval --suite --compare current upgraded
+#+end_src
+
+* Run scorer unit tests (no LLM, fast — safe for CI)
+#+begin_src bash
+poetry run pytest tests/eval/test_scorers.py -v
+#+end_src
+
+* Run integration tests (real LLM calls — manual/on-demand)
+#+begin_src bash
+poetry run pytest tests/eval/test_eval_suite.py -m llm --timeout=180
+#+end_src
+
+* Export results as JSON
+#+begin_src bash
+poetry run python scripts/sp.py eval --suite --json > eval_results.json
+#+end_src

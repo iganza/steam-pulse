@@ -32,9 +32,11 @@ The compiled artifacts are: =chunk_summaries= → =merged_summaries= →
 (=mv_genre_*=, =mv_tag_*=, =mv_trend_*=, etc.) for aggregates.
 
 This is the LLM-equivalent of the matview read-path invariant in
-=CLAUDE.md=: hard joins / aggregates / LLM synthesis happens *out of
-band*, cache-keyed by inputs, persisted in Postgres. Reads are thin
-=SELECT= against the synthesised artifact.
+=CLAUDE.md=, see =CLAUDE.md= → "Read path: UI is fed by materialized
+views + pre-computed data" for the SQL-only equivalent. Hard joins /
+aggregates / LLM synthesis happens *out of band*, cache-keyed by inputs,
+persisted in Postgres. Reads are thin =SELECT= against the synthesised
+artifact.
 
 *Why:*
 - *Cost*: chunk + merge + synthesis tokens are paid once per
@@ -517,42 +519,6 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 
 ** Flow-04: LLM Analysis (Batch Mode)
 
-TODO:  We need to re-write this section.  What we should be doing is:
-
-*** Batched Map-Reduce (batched analysis + on-demand RAG) (NEW)
-(Step functions)
-
-**** Phase One
-
-1. Pull batches of reviews from RDS (50-100 at a time)
-2. Send each batch to LLM and generate summaries (batched 50 summary at a time or so)
-3. Store the output back in RDS
-4. Repeat for Every Game
-
-*End result:  Rich summary information stored permanently in our database.*
-
-
-**** Phase Two
-
-1. Feed summaries back into LLM for the actual Analysis phase
-2. Generate insight/analysis summary for each game based on previously stored summaries
-3. Store summaries back in RDS
-
-*Steps 4–6 (vector-store / Bedrock Knowledge Base over summaries) are
-SUPERSEDED by the "Synthesize, don't retrieve-raw" principle above.*
-Cross-cutting / chat queries should read pre-synthesized artifacts
-(=reports=, future =mv_genre_synthesis=, etc.), not run vector RAG over
-summaries at request time. The =/api/chat= V2 endpoint translates NL →
-SQL against those artifacts.
-
-*End Result: LLM generated review analysis and insights stored in database*
-            *Rich query-able database of extract insights/analysis per game*
-
-**** Open Questions
-- how practical and hard would it be to store/have a history?  so sentiment changing over time can be measured?
-
-*** Original (Deprecated, to be removed after above section fleshed out)
-
 #+BEGIN_SRC
 Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Functions
            workflow orchestrates two-pass LLM analysis via Bedrock Batch Inference:
@@ -676,6 +642,11 @@ Invariant: Admin triggers analysis for a set of appids. A STANDARD Step Function
 - Scoring functions in =library_layer/utils/scores.py= — shared by real-time path and batch path
 - =_aggregate_chunk_summaries()= in =analyzer.py= — shared by =analyze_reviews()= and PreparePass2
 - Real-time single-game path (Express SFN → AnalysisFn) kept unchanged for =/api/preview= (Flow-05)
+
+*Note:* Vector store / Bedrock Knowledge Base over outputs is explicitly
+NOT in scope — see "Synthesize, don't retrieve-raw" in Architectural
+Principles above. Cross-cutting / chat queries read pre-synthesised
+artifacts (=reports=, future =mv_genre_synthesis=), not vector RAG.
 
 ** Flow-05: API Preview
 

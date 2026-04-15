@@ -202,6 +202,8 @@ and so on...
 
 ### Read path: UI is fed by materialized views + pre-computed data (mandatory)
 
+*See `ARCHITECTURE.org` → "Synthesize, don't retrieve-raw" for the LLM-layer equivalent of this rule.*
+
 **Every page, feed, listing, dashboard tile, headline count, and filter dropdown on the
 site is served from a materialized view (or equivalent pre-computed artifact) — never
 from a live scan/join/aggregate against base tables at request time.**
@@ -361,6 +363,8 @@ counts. Age-gated games require bypass cookies (handled in `_get_store_page()`).
 ### LLM Three-Phase Analysis (analyzer.py)
 
 See `scripts/prompts/three-phase-analysis.md` for the full design.
+
+This realises the "Synthesize, don't retrieve-raw" principle in `ARCHITECTURE.org`: each phase persists its output, and downstream reads are thin `SELECT`s against the synthesised artifact.
 
 **Phase 1 — CHUNK (LLM_MODEL__CHUNKING, map, parallel):**
 Stratified 50-review chunks → `RichChunkSummary`. Each chunk extracts structured

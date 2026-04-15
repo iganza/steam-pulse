@@ -1,0 +1,29 @@
+#+TITLE: UX/UI Design References
+#+DESCRIPTION: Curated sources for frontend design decisions. Consult when planning UI changes.
+
+* Game Platform UX References
+- Steam tag browse page: https://store.steampowered.com/tag/browse/
+- Steam tags (Steamworks docs): https://partner.steamgames.com/doc/store/tags
+- GOG catalog filtering (170 tags, faceted sidebar): https://www.gog.com/en/news/introducing_new_ways_to_browse_and_filter_game_catalog
+- itch.io enhanced tagging (curated master list, synonym merging): https://itch.io/updates/enhanced-itchio-tagging-system
+- Steam page optimization guide: https://presskit.gg/field-guides/steam-page-optimization-guide
+
+* General UX Research & Best Practices
+- NN/g — Accordions on desktop (when to use, when not): https://www.nngroup.com/articles/accordions-on-desktop/
+- NN/g — Accordions for complex content: https://www.nngroup.com/articles/accordions-complex-content/
+- NN/g — Defining helpful filter categories and values: https://www.nngroup.com/articles/filter-categories-values/
+- Algolia — Search filter UX best practices: https://www.algolia.com/blog/ux/search-filter-ux-best-practices
+- LogRocket — Filtering UX/UI design patterns: https://blog.logrocket.com/ux-design/filtering-ux-ui-design-patterns-best-practices/
+- Shopify — Faceted navigation guide: https://www.shopify.com/blog/faceted-navigation
+- Fact Finder — Faceted search (9 best practices): https://www.fact-finder.com/blog/faceted-search/
+- Tag cloud critique (why they fail): https://medium.com/design-bootcamp/semantic-scramble-the-tag-cloud-dilemma-fae3998d5c6d
+- Tags — UX to implementation: https://schof.co/tags-ux-to-implementation/
+
+* Key Takeaways (applicable to all UI work)
+- 5-7 items per visible filter group before "Show more" truncation (NN/g)
+- Popularity sort > alphabetical sort for filter values (NN/g)
+- Counts next to every filter value — critical for user confidence (Baymard)
+- Mega menus >50 links see 34% higher bounce (Baymard) — users default to search
+- Accordions: good when users need 1-2 sections, bad when they need most/all
+- Tag clouds: consistently ignored by users — do not use
+- Always provide type-ahead search alongside category browsing for large taxonomies

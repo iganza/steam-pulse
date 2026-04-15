@@ -1,0 +1,20 @@
+#+TITLE: ACM Certificate DNS Validation — Runbook
+#+DESCRIPTION: One-time pre-launch step. Adds the CNAME record so the ACM cert validates and CloudFront can serve steampulse.io on HTTPS.
+
+* TODO Add ACM validation CNAME at registrar
+The Certificate stack creates an ACM cert (us-east-1, required for
+CloudFront). It needs a DNS validation CNAME at the registrar, but this
+is *just a validation record* — it does not point traffic to the site.
+
+The Route53 A record (the one that makes steampulse.io live) is gated
+by =domain-live: false= in =delivery_stack.py= and will NOT be created
+until you flip that flag.
+
+* DNS records to add
+| Name                                                | Type  | Value                                                              |
+|-----------------------------------------------------+-------+--------------------------------------------------------------------|
+| =_76abda29abfe5e6a85a03baf3d03c1df.steampulse.io=   | CNAME | =_050dc13c2fcca44f1e27465737e4a311.jkddzztszm.acm-validations.aws= |
+
+Once the CNAME is live, ACM auto-validates the cert and the next deploy
+proceeds. The site stays *off* the public domain until =domain-live: true=
+is set in the delivery stack.

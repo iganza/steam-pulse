@@ -31,7 +31,7 @@ def base_url(request: pytest.FixtureRequest) -> str:
     if _is_prod(url) and not request.config.getoption("--prod"):
         pytest.skip(
             "Target is production — pass --prod to confirm: "
-            "poetry run pytest tests/smoke/ --prod -v"
+            "poetry run pytest tests/smoke/ --prod -m smoke -v"
         )
     return url.rstrip("/")
 

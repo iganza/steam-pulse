@@ -823,6 +823,33 @@ Tests are excluded from the Next.js build (`tests/` in `tsconfig.json` exclude a
 
 ---
 
+## Smoke Tests (pytest + httpx)
+
+Live API smoke tests live in `tests/smoke/`. They hit real deployed endpoints over HTTP — not unit tests.
+
+```bash
+# Prod (requires explicit --prod flag)
+poetry run pytest tests/smoke/ --prod -v
+
+# Staging
+SMOKETEST_BASE_URL=https://staging.example.com poetry run pytest tests/smoke/ -v
+
+# Local
+SMOKETEST_BASE_URL=http://localhost:8000 poetry run pytest tests/smoke/ -v
+```
+
+Smoke tests are excluded from default `pytest` runs via `--ignore=tests/smoke` in `pyproject.toml`. Running against production requires the `--prod` flag — without it, the suite skips.
+
+**Rule: any API change must update the smoke tests in the same PR.**
+
+When making API changes, always:
+1. **Adding an endpoint** — add a smoke test in the appropriate `test_*.py` file
+2. **Changing response shape** — update assertions to match the new keys/structure
+3. **Removing an endpoint** — remove the corresponding smoke test
+4. **Adding query params or filters** — add parametrized cases if the param affects behaviour
+
+---
+
 ## Database Migrations (yoyo)
 
 Schema DDL is managed by yoyo-migrations in `src/lambda-functions/migrations/`. The `MigrationFn` Lambda applies pending migrations post-deployment (after code is live). Migrations are **idempotent** — safe to run multiple times.

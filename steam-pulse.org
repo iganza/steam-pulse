@@ -1000,8 +1000,8 @@ palette, full empty/loading/error states, click-to-inspect, URL as source of tru
 ** TODO Prompts Directory Cleanup [0/17]
 *** Move to completed/ (already implemented or nearly so)
 - [X] quick-stats-freshness.md — ~90% wired, props exist in GameReportClient.tsx
-- [X] precompute-detail-and-dashboard-queries.md — moved to completed/, broken into 3 focused prompts:
-  - [ ] precompute-wire-trend-matviews.md — rewrite 8 trend methods to read from existing matviews
+- [-] precompute-detail-and-dashboard-queries.md — moved to completed/, broken into 3 focused prompts:
+  - [X] precompute-wire-trend-matviews.md — rewrite 8 trend methods to read from existing matviews
   - [ ] precompute-denormalize-ea-reviews.md — add has_early_access_reviews to games, remove reviews scan
   - [ ] precompute-game-metrics-cache.md — cache detail-page review metrics (low priority)
 - [ ] revenue-estimator-v2.md — partially done, fields exist, algorithm refinement remains

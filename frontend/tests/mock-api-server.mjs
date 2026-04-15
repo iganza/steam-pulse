@@ -306,9 +306,9 @@ const server = createServer((req, res) => {
     return respond(res, 200, {
       total_reviewers: 5000,
       overlaps: [
-        { appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2', header_image: null, positive_pct: 82, review_count: 8500000, overlap_count: 1200, overlap_pct: 24.0, shared_sentiment_pct: 78 },
-        { appid: 570, name: 'Dota 2', slug: 'dota-2', header_image: null, positive_pct: 81, review_count: 2000000, overlap_count: 800, overlap_pct: 16.0, shared_sentiment_pct: 72 },
-        { appid: 252490, name: 'Rust', slug: 'rust', header_image: null, positive_pct: 77, review_count: 500000, overlap_count: 400, overlap_pct: 8.0, shared_sentiment_pct: 65 },
+        { appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2-730', header_image: null, positive_pct: 82, review_count: 8500000, overlap_count: 1200, overlap_pct: 24.0, shared_sentiment_pct: 78 },
+        { appid: 570, name: 'Dota 2', slug: 'dota-2-570', header_image: null, positive_pct: 81, review_count: 2000000, overlap_count: 800, overlap_pct: 16.0, shared_sentiment_pct: 72 },
+        { appid: 252490, name: 'Rust', slug: 'rust-252490', header_image: null, positive_pct: 77, review_count: 500000, overlap_count: 400, overlap_pct: 8.0, shared_sentiment_pct: 65 },
       ],
     })
   }

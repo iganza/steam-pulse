@@ -148,8 +148,7 @@ export default async function HomePage() {
       ? trendReleases.value.periods
       : [];
 
-  const hasIntelCards =
-    showcaseGames.length > 0 || sentimentTrend.length > 0;
+  const hasIntelCards = showcaseGames.length > 0;
 
   const rows: {
     label: string;

@@ -77,6 +77,7 @@ class Game(BaseModel):
     revenue_estimate_method: str | None = None
     revenue_estimate_computed_at: datetime | None = None
     revenue_estimate_reason: str | None = None
+    has_early_access_reviews: bool = False
 
     @field_validator("developers", "publishers", mode="before")
     @classmethod

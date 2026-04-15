@@ -116,7 +116,9 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
 - Payment integration (Lemon Squeezy) — =/api/validate-key= always returns full access
 - =/pro= page — linked from all CTAs but content TBD
 - Audience overlap free/pro split (top 3 / full 20) — pending matview implementation
-- NL chat over catalog (V2, =PRO_ENABLED=true=)
+- NL chat over catalog (V2, =PRO_ENABLED=true=) — will query pre-synthesized
+  artifacts (=reports=, matviews), *not* vector RAG over raw reviews. See
+  =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw" for the invariant.
 
 ** High Level Front-End (Website experience)
 - Nice front-page where one can browse and search *ALL* games in Catalog
@@ -134,6 +136,129 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
 - RAG search over review summaries and generated review analysis/insights
 - layer analysis:  per-game --> per-genre --> per-tag --> cross-genre --> etc/etc
 
+
+** Wedge Strategy: Roguelike Deckbuilder Deep Coverage
+   Decision date: 2026-04-14. Driven by market scan showing the per-game
+   AI-review-analysis category went saturated in late 2025 / early 2026
+   (Datahumble, Steam Sentimeter, HowlRound, SteamReview AI), forcing a
+   pivot from "broad catalog coverage" to "depth in a chosen niche."
+
+   The free public per-game pages remain the SEO long-tail moat. The
+   *wedge* — the differentiating, share-worthy demo — is per-genre
+   cross-cutting synthesis at depth. Roguelike-deckbuilder is the
+   first niche.
+
+*** Why roguelike-deckbuilder
+    From catalog query 2026-04-14 (eligibility: ≥ 500 reviews):
+
+    | tag                   | eligible_games | avg_reviews | avg_positive_pct |
+    |-----------------------+----------------+-------------+------------------|
+    | roguelike             |           1001 |        8000 |             83.6 |
+    | roguelite             |            925 |        8231 |             83.8 |
+    | deckbuilding          |            334 |        6700 |             83.5 |
+    | roguelike-deckbuilder |            141 |        6590 |             87.5 |
+
+    Roguelike-deckbuilder wins because:
+    - *141 games = "complete coverage" affordable*: ~$70–141 total at
+      current ~$0.50–$1.00/game LLM cost. Whole niche, not a sample.
+    - *87.5% avg positive sentiment is meaningfully higher* than the
+      others — engaged audience writes richer reviews → richer synthesis.
+    - *Maps to Q97 in the Top 100*: "If I'm making a roguelike
+      deck-builder, what are the top 5 complaints I should avoid?"
+      The wedge demo answers your own demo question.
+    - *Reviewers write analytically about systems* (run length, build
+      variety, RNG fairness, meta-progression) — perfect input for
+      cross-game synthesis.
+    - *Clear benchmark games* (Slay the Spire, Balatro, Inscryption,
+      Monster Train, Dicey Dungeons) for cross-linking SEO.
+
+    Broader Roguelike (1001 games, ~$500–1000) is the expansion target
+    *if* the wedge demo lands.
+
+*** Free vs Pro packaging — =/genre/roguelike-deckbuilder/insights=
+    *Principle: free = the publishable insight, Pro = the toolkit to ask
+    your own questions.* Gating the headline content kills the SEO and
+    viral funnel that drives traffic.
+
+**** FREE (gamer + dev marketing target)
+     - Narrative summary paragraph
+     - *Top 10 friction points* with one representative quote each
+     - *Top 5 wishlist features* players want and aren't getting
+     - *Top 5 benchmark games* (cross-linked to per-game pages)
+     - *Churn wall stat* — when players drop off and why
+     - *Genre stats*: count, avg sentiment, price distribution, top devs
+     - "Last updated" timestamp (freshness signal)
+     - Methodology footer ("Synthesized from 141 games with 500+ reviews")
+
+**** PRO (gated when payment integration ships — V1 placeholder UI only)
+     - *Filter the synthesis*: by price tier, playtime, release year,
+       Early Access status, solo-dev vs studio
+     - *Full lists* (top 20 not top 10) with mention counts
+     - *Per-game contribution drill-down* — which games drove each insight
+     - *Cross-genre comparison* — RDB vs deckbuilding vs broader roguelike
+     - =dev_priorities= ranked with effort × frequency
+     - *Historical view* (depends on the lifetime-sample crawl decision —
+       see =ARCHITECTURE.org= → "Review corpus shape")
+     - *Export*: CSV / PDF / JSON for dev research workflows
+     - *API access* for studios building their own dashboards
+     - *Weekly per-genre intelligence email digest*
+
+**** Per-game pages stay fully free
+     They drive 80%+ of SEO traffic. *Never* gate any part of an
+     individual game's report. The wedge insights page is a *new*
+     surface, additive, not a replacement.
+
+*** Prompts needed for the wedge
+    *Two new prompts are blocking:*
+    - [ ] =cross-genre-synthesizer-matview.md= — backend: synthesis
+      table, Phase-4 LLM, repo, EventBridge trigger, API endpoint
+    - [ ] =genre-insights-page.md= — frontend: Next.js page,
+      =/api/genres/{slug}/insights= endpoint, SEO meta, Pro gating shell
+
+    *Already written, improves quality but not blocking:*
+    - [ ] =decouple-sentiment-trend-matview.md=
+
+    *Operational steps (no prompt, runbook):*
+    - Generate eligibility list (SQL → file)
+    - Trigger batch analysis on the 141 RDB appids via the existing
+      Step Functions machine in =infra/stacks/batch_analysis_stack.py=
+
+*** Critical path to live
+    *Track A (parallel, can start immediately):*
+    1. Generate 141-game appid list via SQL — ~30 min
+    2. Kick off batch analysis on existing Step Functions machine.
+       Watch CloudWatch for cost. Let run 1–2 days.
+
+    *Track B (parallel, while analysis runs):*
+    3. Implement =cross-genre-synthesizer-matview.md= — ~1–2 days
+    4. Implement =genre-insights-page.md= — ~1–2 days
+
+    *Sequential after both tracks complete:*
+    5. Run synthesizer on =roguelike-deckbuilder=. Inspect output.
+       Iterate the prompt 1–3 times. — half day
+    6. Polish the page. Screenshots, design tweaks. — half day
+    7. Ship: Twitter thread, r/roguelikes post, r/gamedev post,
+       waitlist confirmation email demo. — half day
+
+    *Total wall-clock to live: ~4–7 days from start of Track A.*
+
+*** Cost expectations
+    - Analysis run (141 games): $70–141 worst case
+    - Cross-genre synthesizer (one row, weekly refresh):
+      ~141 reports × ~3k tokens = ~420k input tokens × Sonnet $3/Mtok
+      = ~$1.30 per refresh × 4 refreshes/month = ~$5/month operational
+    - Page serving: matview row read + CDN. Negligible.
+    - *Total to launch and operate the first wedge: under $200.*
+
+*** Definition of "ready to go live"
+    - 141 RDB games have =GameReport= rows in =reports=
+    - =mv_genre_synthesis= row exists for slug =roguelike-deckbuilder=
+    - =/genre/roguelike-deckbuilder/insights= renders all FREE sections
+    - Page passes: SEO check (title, meta, schema.org markup),
+      mobile responsive, no JS errors
+    - Cross-links to ≥ 5 per-game pages from the benchmarks section
+    - Smoke test for =GET /api/genres/roguelike-deckbuilder/insights=
+      passes against staging
 
 ** 7-Day Launch Plan
    Goal: 50+ game reports live on steampulse.io, indexed by Google, waitlist
@@ -577,13 +702,13 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
     hundreds of reviews to write genre analysis posts. We generate it automatically.
 
 *** What's needed to answer these well
-    | Requirement                        | Status                              |
-    |------------------------------------|-------------------------------------|
-    | 500+ analyzed games with reports   | After crawl + analysis run          |
-    | Reports tagged by genre            | ✅ genres table joined to reports   |
-    | Cross-report aggregation queries   | analytics-engine-backend.md prompt  |
-    | Genre Opportunity Score endpoint   | Add to analytics-engine-backend.md  |
-    | V2 chat (natural language)         | Bedrock KB, post-launch             |
+    | Requirement                        | Status                                       |
+    |------------------------------------|----------------------------------------------|
+    | 500+ analyzed games with reports   | After crawl + analysis run                   |
+    | Reports tagged by genre            | ✅ genres table joined to reports            |
+    | Per-genre / per-tag rollup matviews| =mv_genre_*=, =mv_tag_*= already in place    |
+    | Cross-report synthesis matviews    | Phase-4 synthesizer — to build (see below)   |
+    | NL chat over catalog               | =/api/chat= V2 — NL → SQL over above artifacts |
 
 *** V1 delivery (pre-chat)
     Pre-built genre insight pages: =/genre/survival= shows aggregated wishlist,
@@ -592,50 +717,76 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
     player complaints" and land on us).
 
 *** V2 delivery (chat interface)
-    User types the question in natural language. Bedrock KB synthesizes across
-    all reports. Same answer, zero custom query code.
+    User types the question in natural language. The chat layer translates NL → SQL
+    against pre-computed artifacts (matviews + cross-report synthesis matviews +
+    =reports.report_json=) and answers from the result set. No vector RAG over raw
+    reviews. Same answer architecture as the V1 pages, just with a different front
+    door.
 
-** V2 Chat Architecture — Bedrock Knowledge Bases
-   The V2 =/chat= endpoint will use AWS Bedrock Knowledge Bases (RAG) to answer
-   natural language questions over our entire dataset. This replaces building a
-   custom NL→SQL pipeline.
+** Query / Chat Architecture — synthesize, don't retrieve-raw
 
-*** Hybrid KB approach
-    Two knowledge bases working together:
+   The V2 =/chat= endpoint and any future cross-cutting analytics surface
+   query *pre-synthesized artifacts*, never raw reviews. This is the
+   load-bearing principle from =ARCHITECTURE.org= → "Synthesize, don't
+   retrieve-raw."
 
-    - *Structured KB* → pointed at our RDS PostgreSQL.
-      Bedrock auto-generates SQL for countable/filterable questions:
-      "How many roguelikes released in 2025?", "Top 10 by sentiment", etc.
+*** Three artifact tiers feed every query
 
-    - *Unstructured KB* → 6,000 game report JSONs + chunk summaries in S3.
-      RAG retrieval for semantic/thematic questions:
-      "What frustrates RPG players?", "Compare community health of TF2 vs CS2"
+    1. *Structured matviews* (=mv_genre_counts=, =mv_tag_counts=,
+       =mv_price_positioning=, =mv_release_timing=,
+       =mv_platform_distribution=, =mv_trend_*=, =mv_new_releases=,
+       =mv_review_counts=, =mv_sentiment_trend=, etc.) — answer
+       countable / filterable questions instantly.
+    2. *Per-game synthesis* (=reports.report_json= +
+       =chunk_summaries= / =merged_summaries=) — already populated
+       by the three-phase analyzer. Answer narrative questions about
+       a single game (friction, wishlist, churn triggers, content depth).
+    3. *Cross-report synthesis matviews* — to build. A new family
+       (=mv_genre_synthesis=, =mv_tag_synthesis=,
+       =mv_developer_synthesis=, =mv_catalog_synthesis=) where a
+       Phase-4 LLM pass consumes existing =GameReport= rows and
+       persists aggregated wishlist / friction / dev_priorities per
+       genre / tag / developer / catalog. Refreshed on the existing
+       6h matview cadence.
 
-    Together these answer ~90 of the Top 100 questions with zero custom query code.
+*** /api/chat = NL → SQL over those artifacts
+    Bedrock is used *only* for the NL → SQL translation step
+    (per-query, ~$0.0002 each). Retrieval is a Postgres =SELECT=. No
+    vector store, no Bedrock Knowledge Base, no OpenSearch Serverless,
+    no S3 export of report JSONs.
 
-*** What it does NOT replace
-    - Two-pass analyzer (generates the reports — KB consumes them)
-    - PostgreSQL full-text search (faster/cheaper for exact keyword search)
-    - Analytics endpoints (pre-computed stats faster than RAG for dashboards)
+*** Coverage of the Top 100 (rough breakdown)
 
-*** Infrastructure
-    - OpenSearch Serverless: ~$350/month minimum
-    - Embedding 6,000 reports: ~$5 (cheap)
-    - Embedding 12M raw reviews: ~$500+ (unnecessary — reports summarize them)
-    - Wired via =bedrock-agent-runtime:retrieve-and-generate= API
+    | Bucket                                  | Approx count | Status                           |
+    |-----------------------------------------+--------------+----------------------------------|
+    | Tier 1+2 (existing matviews + reports)  | ~50          | Today, with thin matview adds    |
+    | Tier 3 (cross-report synthesis matview) | ~30          | Build the Phase-4 synthesizers   |
+    | Recency-corpus limited                  | ~10          | Mitigations in =ARCHITECTURE.org=|
+    | Missing data fields (DLC, engine, etc.) | ~10          | Crawl-side gaps — separate work  |
 
-*** Prerequisites before implementation
-    1. All 6,000 game reports generated and stored in DB
-    2. Export reports to S3 as JSON documents
-    3. Create Bedrock KB pointing at S3 bucket + RDS
-    4. Wire =/chat= endpoint to Bedrock retrieve-and-generate
-    5. The Top 100 questions become the test/eval suite
+*** What this does NOT need
+    - No vector store, no embeddings of reports or reviews.
+    - No OpenSearch Serverless ($350/mo fixed cost avoided).
+    - No Bedrock Knowledge Base.
+    - No S3 export of report JSONs.
+    - No runtime LLM calls per chat query beyond the NL → SQL step.
 
-*** Data gaps to note (not blocking V2, just won't have answers)
+*** Why this works
+    - The expensive LLM work (chunk → merge → synthesise → cross-genre
+      synthesise) is paid once per =(inputs, prompt_version)= and
+      cached in Postgres. Reads are cheap.
+    - Every UI surface (game page, genre page, chat answer) reads the
+      same row, so answers are consistent.
+    - Operational cost is matview refresh (6h cadence, debounced) +
+      per-query NL → SQL — both tiny.
+
+*** Data gaps to note (crawl-side, not architecture-side)
     - No DLC↔base game relationship
     - No game engine data
-    - No discount/price history
+    - No discount / price history
     - No concurrent player counts
+    - No Steam Deck verified status (easy add — Steam API has it)
+    - No Steam Next Fest demo metadata
 
 ** Top 100 Prompt Questions for SteamPulse
    These are example natural-language questions the platform should be able to
@@ -1020,6 +1171,11 @@ palette, full empty/loading/error states, click-to-inspect, URL as source of tru
 - [ ] game-details-metadata-card.md — fields already in DB, need API + component
 - [ ] k6-perf-smoke-tests.md — straightforward setup
 - [ ] review-crawl-backfill.md — index + repo method + handler action + EventBridge rule
+- [ ] decouple-sentiment-trend-matview.md — move trend from frozen =report_json= into =mv_sentiment_trend=, two-phase deploy. Background: =ARCHITECTURE.org= → "Review corpus shape: rolling-recent window."
+
+*** Wedge launch (do these next, in order)
+- [ ] cross-genre-synthesizer-matview.md — backend: =mv_genre_synthesis= table, Phase-4 LLM, EventBridge weekly trigger, =/api/genres/{slug}/insights=. Plan: =steam-pulse.org= → "Wedge Strategy: Roguelike Deckbuilder Deep Coverage."
+- [ ] genre-insights-page.md — frontend: =/genre/[slug]/insights= Next.js page, SEO meta, Pro shell. Depends on the synthesizer prompt above (must produce a row first).
 
 *** Still relevant, not started — medium effort
 - [ ] full-text-search-reviews.md — tsvector/tsquery + GIN index + endpoint

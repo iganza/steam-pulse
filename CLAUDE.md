@@ -838,7 +838,7 @@ SMOKETEST_BASE_URL=https://staging.example.com poetry run pytest tests/smoke/ -v
 SMOKETEST_BASE_URL=http://localhost:8000 poetry run pytest tests/smoke/ -v
 ```
 
-Smoke tests are excluded from default `pytest` runs via `--ignore=tests/smoke` in `pyproject.toml`. Running against production requires the `--prod` flag — without it, the suite skips.
+Smoke tests are excluded from default `pytest` runs via `--ignore=tests/smoke` in `pyproject.toml` `addopts`. Running against production requires the `--prod` flag — without it, the suite skips. The `smoke` marker is registered for explicit selection (e.g. `-m smoke`) but exclusion relies on `--ignore`.
 
 **Rule: any API change must update the smoke tests in the same PR.**
 

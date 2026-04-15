@@ -108,10 +108,10 @@ def test_velocity_buckets_sum_to_total(api: httpx.Client) -> None:
     assert bucket_sum == p["total"]
 
 
-def test_avg_price_incl_free_differs_from_avg_paid(api: httpx.Client) -> None:
+def test_avg_price_incl_free_lte_avg_paid(api: httpx.Client) -> None:
     r = api.get(
         "/api/analytics/trends/pricing", params={"granularity": "year", "limit": 1}
     )
     assert r.status_code == 200
     p = r.json()["periods"][0]
-    assert p["avg_price_incl_free"] != p["avg_paid_price"]
+    assert p["avg_price_incl_free"] <= p["avg_paid_price"]

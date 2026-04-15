@@ -79,7 +79,7 @@ Use `pytest.mark.parametrize` for:
 - `/api/games/{appid}/early-access-impact` returns 200
 - `/api/games/{appid}/review-velocity` returns 200
 - `/api/games/{appid}/top-reviews` returns 200
-- Non-existent appid (e.g. 999999999) returns 404 or empty
+- Non-existent appid (e.g. 999999999) returns 200 with `status == "not_available"`
 
 **Catalog endpoints**:
 - `/api/genres` returns non-empty list

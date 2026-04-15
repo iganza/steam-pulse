@@ -17,6 +17,130 @@ flow to validate code alignment.
 See also: =CLAUDE.md= for coding conventions, =steampulse-design.org= for
 original design rationale.
 
+* Architectural Principles
+
+** Synthesize, don't retrieve-raw (knowledge-path invariant)
+
+Every LLM-backed user-facing surface — game reports, future Pro chat,
+future cross-cutting analyses ("what makes roguelikes succeed", genre /
+tag synthesis, developer-level insights) — queries against
+*pre-synthesized artifacts*, never against raw =reviews= rows at request
+time.
+
+The compiled artifacts are: =chunk_summaries= → =merged_summaries= →
+=reports= (the existing three-phase analyzer), plus matviews
+(=mv_genre_*=, =mv_tag_*=, =mv_trend_*=, etc.) for aggregates.
+
+This is the LLM-equivalent of the matview read-path invariant in
+=CLAUDE.md=: hard joins / aggregates / LLM synthesis happens *out of
+band*, cache-keyed by inputs, persisted in Postgres. Reads are thin
+=SELECT= against the synthesised artifact.
+
+*Why:*
+- *Cost*: chunk + merge + synthesis tokens are paid once per
+  =(appid, prompt_version)=. Re-running RAG over raw reviews per query
+  throws that away.
+- *Latency*: a synthesised =reports.report_json= read is ~1ms;
+  a vector search + LLM synthesis over raw reviews is seconds.
+- *Consistency*: every UI surface (game page, chat answer,
+  cross-cutting tile) sees the same answer because they read the same
+  synthesised row, not a fresh stochastic LLM pass.
+- *Compounding*: cross-cutting syntheses (e.g. genre-level "wiki page")
+  consume existing =GameReport= rows, not raw reviews — so each new
+  game's synthesis enriches downstream analyses for free.
+
+*New cross-cutting features follow this shape:*
+1. Add a Phase-N synthesizer (sync =def=, cache-idempotent on its
+   inputs, e.g. the set of source =reports.id= or matview rows).
+2. Persist into a new table or matview (e.g. =mv_genre_synthesis=,
+   =mv_tag_persona=).
+3. API handler does a thin =SELECT= against that artifact, same as
+   any other matview-backed endpoint.
+
+*Anti-patterns (do not do):*
+- Embed raw =reviews= into a vector store and run RAG against it at
+  request time.
+- Bedrock Knowledge Base over raw review corpora.
+- Per-request LLM calls inside FastAPI handlers (other than the
+  bounded NL→SQL translation step in =/api/chat= V2 — which itself
+  queries synthesised artifacts).
+- Caching LLM responses *in application memory* as a substitute for a
+  persisted synthesis row. The DB row IS the cache.
+
+*Reference:* this principle aligns with the "LLM Wiki" pattern
+(Karpathy / levelup.gitconnected.com, "Beyond RAG"). Karpathy's
+markdown-files-in-git ergonomics do *not* transfer — synthesised state
+lives in Postgres, audited via migrations.
+
+** Review corpus shape: rolling-recent window
+
+The =reviews= table for any given appid is a *rolling-recent window*,
+not a lifetime sample. The crawler pulls Steam's review API ordered
+most-recent-first and caps at 10,000 reviews per game. For low-volume
+games (< ~10k lifetime reviews) we hold the full history; for
+high-volume games we hold only the most recent N — and the window
+*rolls forward* as new reviews push old ones past the cap.
+
+Empirical confirmation (2026-04-14):
+
+| Game             | review_count | first_review | last_review | window  |
+|------------------+--------------+--------------+-------------+---------|
+| Geometry Dash    |       10,769 | 2026-03-11   | 2026-04-06  | 26 days |
+| HELLDIVERS 2     |       10,184 | 2026-02-27   | 2026-04-05  | 38 days |
+| Phasmophobia     |       10,394 | 2025-12-11   | 2026-04-10  | 4 mo    |
+| Dead by Daylight |       10,218 | 2026-01-18   | 2026-04-07  | 3 mo    |
+| SOMA             |       10,265 | 2022-06-14   | 2026-04-06  | 4 yr    |
+
+*Implications for design (load-bearing — internalise these):*
+
+- =GameReport= for an active high-volume game is "what reviewers were
+  saying in the last weeks-to-months", *not* a lifetime synthesis. We
+  cannot see launch-era reviews, cannot distinguish enduring criticism
+  from a last-week pile-on, and cannot separate flash-in-the-pan topics
+  from durable themes for any game whose review velocity exceeds the
+  10k cap.
+- The corpus is well-suited for "current state of the conversation"
+  framing and for trend / freshness signals (recent reviews are dense
+  and current by construction). It is *not* well-suited for
+  long-horizon retrospective analysis.
+- Raising the 10k cap *does not* add historical context — it just
+  stretches the rolling window. Anyone proposing to "just crawl more
+  reviews" is solving the wrong problem unless they're explicitly
+  building lifetime sampling (see open question below).
+- =sentiment_trend= computed over this corpus is structurally accurate
+  for short-horizon trend detection and structurally incapable of
+  detecting multi-year drift. This is acceptable; the product framing
+  matches.
+- Headline numbers users see (=positive_pct=, =review_score_desc=,
+  =review_count= on the =Game= row) are *not* affected — those come
+  directly from Steam's API on every metadata crawl and reflect the
+  full lifetime.
+
+*Open question — lifetime-sample crawl (not built):*
+
+If the product needs "what made this game succeed long-term" rather
+than "what reviewers said this month," we'd add a separate crawl path:
+
+- A new crawl mode invoked once per appid: walks Steam's review
+  pagination with deeper cursors, sampling ~2k reviews stratified
+  across the game's lifetime (e.g. by quarter). Stored in a separate
+  table (=reviews_lifetime_sample=) so it doesn't interfere with the
+  rolling 10k recent corpus.
+- Synthesis Phase 1 chunker draws from *both* tables (e.g. 70% recent,
+  30% lifetime). Stratification bands become a real knob.
+- Lifetime sample is one-shot per game (refresh annually at most).
+  Steam ratelimit is the binding constraint, not LLM cost.
+
+Decision criteria: whether the recency-framed reports hold up in user
+testing; whether Pro users specifically ask for "long-term reception"
+insight; Steam ratelimit headroom for a one-shot deep crawl across the
+catalog.
+
+Not building this is a defensible choice. Building it half-heartedly
+(raising the 10k cap to 50k without stratification) is *not* — it
+costs more, fights Steam's ratelimit, and doesn't fix the underlying
+shape problem.
+
 * Component Registry
 
 ** Lambda Functions
@@ -413,9 +537,13 @@ TODO:  We need to re-write this section.  What we should be doing is:
 1. Feed summaries back into LLM for the actual Analysis phase
 2. Generate insight/analysis summary for each game based on previously stored summaries
 3. Store summaries back in RDS
-4. Embed summaries into a vector store (for eventual use with Bedrock knowledge base) or use [[https://github.com/VectifyAI/PageIndex][pageindex]] instead?
-5. Now we have a small, relatively cheap vector-index (vector-index on summaries/insights instead of full reviews)
-6. Use Bedrock knowledge base for natural language queries against summaries
+
+*Steps 4–6 (vector-store / Bedrock Knowledge Base over summaries) are
+SUPERSEDED by the "Synthesize, don't retrieve-raw" principle above.*
+Cross-cutting / chat queries should read pre-synthesized artifacts
+(=reports=, future =mv_genre_synthesis=, etc.), not run vector RAG over
+summaries at request time. The =/api/chat= V2 endpoint translates NL →
+SQL against those artifacts.
 
 *End Result: LLM generated review analysis and insights stored in database*
             *Rich query-able database of extract insights/analysis per game*

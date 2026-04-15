@@ -91,31 +91,33 @@ function ShowcaseContent({ game }: { game: ShowcaseGame }) {
       >
         <SentimentTimeline timeline={game.timeline} />
 
-        <div>
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
-            Audience overlap &middot; {game.totalReviewers.toLocaleString()} reviewers
-          </p>
-          <div className="flex flex-col gap-2">
-            {topOverlaps.map((entry) => (
-              <div key={entry.appid} className="flex items-center gap-2">
-                <span className="text-xs truncate flex-1 text-muted-foreground">
-                  {entry.name}
-                </span>
-                <div
-                  className="h-1.5 rounded-full flex-shrink-0"
-                  style={{
-                    width: `${Math.max(20, (entry.overlap_pct / maxOverlap) * 50)}%`,
-                    background: "var(--teal)",
-                    opacity: 0.7,
-                  }}
-                />
-                <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-10 text-right">
-                  {entry.overlap_pct.toFixed(1)}%
-                </span>
-              </div>
-            ))}
+        {topOverlaps.length > 0 && (
+          <div>
+            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+              Audience overlap &middot; {game.totalReviewers.toLocaleString()} reviewers
+            </p>
+            <div className="flex flex-col gap-2">
+              {topOverlaps.map((entry) => (
+                <div key={entry.appid} className="flex items-center gap-2">
+                  <span className="text-xs truncate flex-1 text-muted-foreground">
+                    {entry.name}
+                  </span>
+                  <div
+                    className="h-1.5 rounded-full flex-shrink-0"
+                    style={{
+                      width: `${Math.max(20, (entry.overlap_pct / maxOverlap) * 50)}%`,
+                      background: "var(--teal)",
+                      opacity: 0.7,
+                    }}
+                  />
+                  <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-10 text-right">
+                    {entry.overlap_pct.toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -151,11 +153,37 @@ export function GameShowcase({ games }: GameShowcaseProps) {
             {games.map((game, i) => (
               <button
                 key={game.appid}
+                type="button"
                 role="tab"
                 id={`showcase-tab-${game.appid}`}
                 aria-selected={i === activeIndex}
                 aria-controls={`showcase-panel-${game.appid}`}
+                tabIndex={i === activeIndex ? 0 : -1}
                 onClick={() => setActiveIndex(i)}
+                onKeyDown={(event) => {
+                  let nextIndex = i;
+                  switch (event.key) {
+                    case "ArrowRight":
+                      nextIndex = (i + 1) % games.length;
+                      break;
+                    case "ArrowLeft":
+                      nextIndex = (i - 1 + games.length) % games.length;
+                      break;
+                    case "Home":
+                      nextIndex = 0;
+                      break;
+                    case "End":
+                      nextIndex = games.length - 1;
+                      break;
+                    default:
+                      return;
+                  }
+                  event.preventDefault();
+                  setActiveIndex(nextIndex);
+                  document
+                    .getElementById(`showcase-tab-${games[nextIndex].appid}`)
+                    ?.focus();
+                }}
                 className="relative px-5 py-3 text-sm font-medium transition-colors"
                 style={{
                   color: i === activeIndex ? "var(--foreground)" : "var(--muted-foreground)",

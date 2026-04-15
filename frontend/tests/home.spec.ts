@@ -41,11 +41,10 @@ test.describe('Home page', () => {
 
   test('showcase tabs switch content', async ({ page }) => {
     const tablist = page.getByRole('tablist', { name: /showcase/i })
-    // Skip if showcase section didn't render (data-dependent)
-    if (!(await tablist.isVisible().catch(() => false))) return
+    await expect(tablist).toBeVisible()
     const tabs = tablist.getByRole('tab')
     const count = await tabs.count()
-    if (count < 2) return
+    expect(count).toBeGreaterThanOrEqual(2)
     // Click second tab and verify it becomes selected
     await tabs.nth(1).click()
     await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')

@@ -122,16 +122,14 @@ export default async function HomePage() {
       (sc) =>
         sc.report.status === "fulfilled" &&
         sc.stats.status === "fulfilled" &&
-        sc.overlap.status === "fulfilled" &&
         sc.report.value.report &&
         sc.report.value.game &&
-        sc.stats.value.timeline?.length >= 2 &&
-        sc.overlap.value.overlaps?.length > 0,
+        sc.stats.value.timeline?.length >= 2,
     )
     .map((sc) => {
       const r = (sc.report as PromiseFulfilledResult<Awaited<ReturnType<typeof getGameReport>>>).value;
       const s = (sc.stats as PromiseFulfilledResult<Awaited<ReturnType<typeof getReviewStats>>>).value;
-      const o = (sc.overlap as PromiseFulfilledResult<Awaited<ReturnType<typeof getAudienceOverlap>>>).value;
+      const o = sc.overlap.status === "fulfilled" ? sc.overlap.value : null;
       return {
         appid: sc.appid,
         slug: slugify(r.report!.game_name),
@@ -139,8 +137,8 @@ export default async function HomePage() {
         headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
         report: r.report!,
         timeline: s.timeline,
-        overlaps: o.overlaps,
-        totalReviewers: o.total_reviewers,
+        overlaps: o?.overlaps ?? [],
+        totalReviewers: o?.total_reviewers ?? 0,
       };
     });
 

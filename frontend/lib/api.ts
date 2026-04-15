@@ -175,7 +175,9 @@ export async function getTagsGrouped(
 
 /** GET /api/games/{appid}/review-stats */
 export async function getReviewStats(appid: number): Promise<ReviewStats> {
-  return apiFetch<ReviewStats>(`/api/games/${appid}/review-stats`);
+  return apiFetch<ReviewStats>(`/api/games/${appid}/review-stats`, {
+    next: { revalidate: 3600 },
+  });
 }
 
 /** GET /api/games/{appid}/benchmarks */
@@ -189,7 +191,9 @@ export async function getBenchmarks(appid: number, signal?: AbortSignal): Promis
 
 export async function getAudienceOverlap(appid: number, limit = 20): Promise<AudienceOverlap> {
   const clampedLimit = Math.max(1, Math.min(50, limit));
-  return apiFetch<AudienceOverlap>(`/api/games/${appid}/audience-overlap?limit=${clampedLimit}`);
+  return apiFetch<AudienceOverlap>(`/api/games/${appid}/audience-overlap?limit=${clampedLimit}`, {
+    next: { revalidate: 3600 },
+  });
 }
 
 export async function getPlaytimeSentiment(appid: number): Promise<PlaytimeSentiment> {
@@ -252,13 +256,17 @@ function trendParams(params: Record<string, string | number | undefined>): strin
 export async function getAnalyticsTrendReleaseVolume(params: {
   granularity?: Granularity; genre?: string; tag?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; filter: Record<string, string>; periods: ReleaseVolumePeriod[]; summary: { total_releases: number; avg_per_period: number; trend: string } }> {
-  return apiFetch(`/api/analytics/trends/release-volume${trendParams(params)}`);
+  return apiFetch(`/api/analytics/trends/release-volume${trendParams(params)}`, {
+    next: { revalidate: 3600 },
+  });
 }
 
 export async function getAnalyticsTrendSentiment(params: {
   granularity?: Granularity; genre?: string; type?: string; limit?: number;
 }): Promise<{ granularity: string; periods: SentimentDistPeriod[] }> {
-  return apiFetch(`/api/analytics/trends/sentiment${trendParams(params)}`);
+  return apiFetch(`/api/analytics/trends/sentiment${trendParams(params)}`, {
+    next: { revalidate: 3600 },
+  });
 }
 
 export async function getAnalyticsTrendGenreShare(params: {

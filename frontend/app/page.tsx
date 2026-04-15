@@ -21,13 +21,12 @@ import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { ForDevelopers } from "@/components/home/ForDevelopers";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
-import { slugify } from "@/lib/format";
 import type { Game, TagGroup } from "@/lib/types";
 
 const SHOWCASE_GAMES = [
-  { appid: 1086940, label: "Baldur's Gate 3" },      // RPG / fantasy
-  { appid: 413150, label: "Stardew Valley" },          // indie / simulation
-  { appid: 1091500, label: "Cyberpunk 2077" },         // AAA / open-world
+  { appid: 1086940, slug: "baldurs-gate-3-1086940" },   // RPG / fantasy
+  { appid: 413150, slug: "stardew-valley-413150" },     // indie / simulation
+  { appid: 1091500, slug: "cyberpunk-2077-1091500" },   // AAA / open-world
 ] as const;
 
 export const metadata: Metadata = {
@@ -110,9 +109,9 @@ export default async function HomePage() {
 
   // Showcase data — assemble per-game, skip any that failed
   const scResults = [
-    { report: sc0Report, stats: sc0Stats, overlap: sc0Overlap, appid: SHOWCASE_GAMES[0].appid },
-    { report: sc1Report, stats: sc1Stats, overlap: sc1Overlap, appid: SHOWCASE_GAMES[1].appid },
-    { report: sc2Report, stats: sc2Stats, overlap: sc2Overlap, appid: SHOWCASE_GAMES[2].appid },
+    { report: sc0Report, stats: sc0Stats, overlap: sc0Overlap, ...SHOWCASE_GAMES[0] },
+    { report: sc1Report, stats: sc1Stats, overlap: sc1Overlap, ...SHOWCASE_GAMES[1] },
+    { report: sc2Report, stats: sc2Stats, overlap: sc2Overlap, ...SHOWCASE_GAMES[2] },
   ];
 
   const showcaseGames: ShowcaseGame[] = scResults
@@ -130,7 +129,7 @@ export default async function HomePage() {
       const o = sc.overlap.status === "fulfilled" ? sc.overlap.value : null;
       return {
         appid: sc.appid,
-        slug: `${slugify(r.report!.game_name)}-${sc.appid}`,
+        slug: sc.slug,
         gameName: r.report!.game_name,
         headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
         report: r.report!,

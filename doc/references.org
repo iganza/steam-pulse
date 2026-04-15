@@ -1,0 +1,156 @@
+#+TITLE: References & Sources
+#+DESCRIPTION: Consolidated bibliography of external research and competitive-landscape sources used while planning SteamPulse. Grouped by topic. Date-stamp each entry when a claim depends on a point-in-time market state.
+
+Index of sources consulted during planning + architectural decisions.
+Point-in-time claims (market state, competitor pricing, SEO rules) are
+date-stamped — re-verify before acting on them.
+
+For full topic-specific references, also see:
+- =doc/research/ux-ui-references.org= — UX / UI design references
+- =doc/research/analytics-builder-lens.org= — Analytics builder lens research
+
+* Competitive landscape — Steam game intelligence (scanned 2026-04-14)
+
+Per-game AI review analysis went from greenfield to saturated in late
+2025 / early 2026. Drives the depth-in-niche wedge strategy — see
+=memory/project_market_saturation_2026.md=.
+
+** Direct competitors (per-game AI analysis)
+- [[https://datahumble.com/][Datahumble]] — launched March 2026. AI-powered, 150k+ titles indexed, cross-platform Twitch/Kick tracking. [[https://aijourn.com/ai-powered-game-analytics-startup-datahumble-launches-as-steam-release-volume-reaches-record-levels-giving-developers-continuous-market-intelligence/][Launch coverage]].
+- [[https://steamsentimeter.com/][Steam Sentimeter]] — up to 10k reviews per game, sentiment scores, category breakdowns (bugs/performance/content), playtime sentiment, momentum, ranked action plans.
+- [[https://www.howlround.dev/][HowlRound]] — positions as "#1 AI-powered Steam review analysis tool for indie devs."
+- [[https://steamreviewai.com/][SteamReview AI]] — indie-targeted.
+
+** Adjacent competitors (different lane)
+- [[https://vginsights.com/steam-analytics][VG Insights]] — ~$20/mo indie tier. Owns pricing / revenue breakdowns. [[https://vginsights.com/steam-analytics][Steam Analytics overview]].
+- [[https://gamalytic.com/][Gamalytic]] — free. Sales estimates, tag analysis. [[https://gamalytic.com/pricing][Pricing]].
+- [[https://gamedevreports.substack.com/][GameDiscoverCo]] (Simon Carless) — newsletter, owns dev mindshare for industry trend commentary. [[https://gamedevreports.substack.com/p/gamediscoverco-and-gamalytic-insights][Review-data comparison post]].
+- [[https://www.gginsights.io/home][GG Insights]] — 1000+ devs as customers, AI-powered research tools.
+- [[https://www.gamedevanalytics.com/][Game Dev Analytics]] — Steam market research platform for indies.
+- [[https://www.gameanalytics.com/][GameAnalytics]] — broader, multi-platform studio tools.
+- [[https://app.sensortower.com/vgi/][Sensor Tower Video Game Insights]] — pro-tier market research. [[https://app.sensortower.com/vgi/indie-tools/steam-analytics][Steam tier]].
+
+** Market context
+- [[https://www.mordorintelligence.com/industry-reports/indie-game-market][Indie Game Market Size 2026–2031]] — $4.85B (2025) → $5.54B (2026).
+- [[https://www.game-developers.org/roadmap-to-an-effective-indie-game-marketing-strategy-in-2026][Indie marketing 2026 roadmap]] — 20,000+ new games on Steam in 2025; visibility scarce.
+- [[https://wnhub.io/news/analytics/item-50202][Sensor Tower "State of Gaming 2026"]] — PC gaming record year 2025; cited for catalog-scale stats.
+
+** Community / discussion sources
+- [[https://steamcommunity.com/discussions/forum/0/595148973628471657/][Steam Discussions — Owner Estimations]]
+- [[http://mandragoragames.com/tpost/z8kysm0z91-the-list-of-steam-analytics-tools][Mandragora Games — list of Steam analytics tools]]
+- [[https://impress.games/blog/free-tools-for-video-game-market-competitor-analysis][Impress — 10 free tools for market/competitor analysis]]
+- [[https://www.steampageanalyzer.com/blog/steam-sales-calculator][Steam Sales Calculator (review-based)]]
+
+* Marketing & indie game strategy (Chris Zukowski / GDC circle)
+
+Foundational marketing voice in the indie space. His manual genre
+analysis is the model for SteamPulse's automated cross-genre synthesis
+wedge.
+
+- [[https://howtomarketagame.com/][How To Market A Game]] (Chris Zukowski's blog)
+- [[https://howtomarketagame.com/about/][About Chris Zukowski]]
+- [[https://howtomarketagame.com/blog/][Blog]]
+- [[https://howtomarketagame.com/wp-content/uploads/2023/05/Zukowski_60MistakesEbookV1.pdf][60 Game Marketing Mistakes (ebook)]]
+- [[https://www.gamedeveloper.com/marketing/super-practical-indie-game-marketing-with-chris-zukowski---gdc-podcast-ep-24][GDC Podcast ep. 24 — Practical indie marketing]]
+- [[https://www.gamedeveloper.com/marketing/game-developer-podcast-36-indie-marketing-advice-from-chris-zukowski][Game Developer Podcast ep. 34]]
+- [[https://unitycodemonkey.com/howtomarketagame.php][Code Monkey — How to Market a Game feat. Chris Zukowski]]
+- [[https://80.lv/articles/5-tips-strategies-for-marketing-indie-games][80.lv — 5 tips & strategies]]
+
+Key takeaways applied to launch strategy:
+- Community building > press coverage (Valheim, Tiny Glade examples)
+- Genres that outperform: horror, "crafty building strategy simulation-y games"
+- Demos are the post-2020 meta; Steam page optimisation matters more than press
+- Email lists convert (Tiny Glade built 25k before launch)
+- Stair-step discount strategy; avoid deep early discounts
+
+* SEO & indexing strategy (scanned 2026-04-14)
+
+Load-bearing for the soft-launch plan — see =scripts/prompts/soft-launch-seo-discipline.md=
+and =scripts/prompts/audit-game-page-no-report-state.md=.
+
+** Programmatic SEO (post Aug + Dec 2025 Google updates)
+- [[https://www.digitalapplied.com/blog/programmatic-seo-after-march-2026-surviving-scaled-content-ban][Programmatic SEO After March 2026 — Scaled Content Survival]] *(most actionable; Aug/Dec 2025 Scaled Content Abuse policy)*
+- [[https://seomatic.ai/blog/programmatic-seo-best-practices][SEOmatic — Programmatic SEO Best Practices]]
+- [[https://indexcraft.in/blog/technical/programmatic-seo-guide][IndexCraft — Programmatic SEO Guide 2026]]
+- [[https://www.digitalapplied.com/blog/programmatic-seo-scale-content-templates-2026][Digital Applied — Scale Content with Templates]]
+- [[https://www.jasminedirectory.com/blog/the-ultimate-guide-to-programmatic-seo-in-2026/][Jasmine Directory — Ultimate Guide]]
+- [[https://blog.theseoengine.com/what-is-programmatic-seo-the-mechanics-behind-publishing-1000-pages-that-actually-rank][The SEO Engine — 7 Proven Steps]]
+- [[https://zumeirah.com/programmatic-seo-in-2026/][Zumeirah — Scaling Traffic]]
+- [[https://www.shopify.com/blog/programmatic-seo][Shopify — Programmatic SEO]]
+- [[https://venue.cloud/news/insights/programmatic-seo-you-can-scale-without-spam][Venue — Scale Without Spam]]
+
+** Google crawl budget + indexing
+- [[https://developers.google.com/crawling/docs/crawl-budget][Google for Developers — Crawl Budget Management]]
+- [[https://developers.google.com/search/docs/advanced/crawling/large-site-managing-crawl-budget][Google — Crawl Budget for Large Sites]]
+- [[https://www.searchenginejournal.com/google-noindexed-pages-do-not-impact-crawl-budget/472870/][SEJ — Google: Noindexed Pages Do Not Impact Crawl Budget]]
+- [[https://www.clickrank.ai/search-console-indexing-enhancements/][ClickRank — Search Console & Indexing 2026]]
+- [[https://www.straightnorth.com/blog/crawl-budget-explained-how-google-crawls-your-site-and-how-to-optimize-it-for-seo/][StraightNorth — Crawl Budget Explained]]
+- [[https://www.verkeer.co/insights/crawl-budget-optimisation/][Verkeer — Crawl Budget Optimisation]]
+- [[https://www.trysight.ai/blog/content-indexing-for-large-websites][TrySight — Content Indexing for Large Websites]]
+- [[https://www.trysight.ai/blog/how-to-speed-up-google-indexing][TrySight — Speed Up Google Indexing]]
+- [[https://almcorp.com/blog/google-noindex-tag-warning-original-page-code/][ALM Corp — Noindex tag warning]]
+
+** SaaS SEO playbooks
+- [[https://designrevision.com/blog/seo-for-saas][Design Revision — The SaaS SEO Playbook 2026]]
+- [[https://www.tripledart.com/saas-seo/strategy][TripleDart — SaaS SEO Strategy 2026]]
+- [[https://designrevision.com/blog/seo-for-saas-startups][Design Revision — SEO for SaaS Startups]]
+- [[https://www.simpletiger.com/guide/saas-seo][SimpleTiger — SaaS SEO]]
+- [[https://seoprofy.com/blog/saas-seo/][SEO Profy — SaaS SEO step-by-step]]
+- [[https://www.onsaas.me/blog/saas-seo][OnSaaS — SaaS SEO complete guide]]
+- [[https://abedintech.com/saas-seo-strategy/][Abedin Tech — 7 proven tactics]]
+- [[https://agilityportal.io/blog/10-saas-seo-strategy][Agility Portal — 10 SaaS SEO strategies]]
+- [[https://www.gravitatedesign.com/blog/b2b-saas-seo-strategies/][Gravitate — B2B SaaS SEO]]
+- [[https://growtika.com/blog/saas-seo-guide][Growtika — SaaS SEO Guide]]
+
+** AI crawlers / Answer Engine Optimization (~13% of query volume as of 2026)
+- GPTBot (OpenAI), ClaudeBot (Anthropic), PerplexityBot, Google-Extended, CCBot — allow explicitly in =robots.txt=.
+- Discussed in the SaaS SEO sources above; no single canonical doc yet.
+
+* Architecture & design patterns
+
+** LLM Wiki / "Synthesize, don't retrieve-raw" (Karpathy)
+Foundational pattern for SteamPulse's synthesis-over-retrieval principle
+— see =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw."
+- [[https://levelup.gitconnected.com/beyond-rag-how-andrej-karpathys-llm-wiki-pattern-builds-knowledge-that-actually-compounds-31a08528665e][Beyond RAG — Karpathy's LLM Wiki Pattern (Level Up / gitconnected)]]
+
+** AI review analysis (related but separate)
+- [[https://www.vice.com/en/article/steam-reviews-have-a-serious-ai-problem/][Vice — Steam Reviews AI Problem]] — context: Steam has an AI-generated review problem, worth being aware of for inbound review data trust.
+- [[https://originality.ai/blog/steam-game-reviews-increase-in-ai-content][Originality.AI — 50% increase in AI-detected review content]]
+- [[https://copyleaks.com/blog/the-role-of-steam-reviews-and-the-emerging-threat-of-ai-generated-content][Copyleaks — AI reviews investigation]]
+- [[https://gam3s.gg/news/steam-plagued-by-ai-reviews/][GAM3S — Steam plagued by AI reviews]]
+- [[https://declom.com/steam-summarize][DeClom — Steam Summarize (competitor angle)]]
+- [[https://steamcommunity.com/discussions/forum/10/4361250750312692665/][Steam Community — suggestion for AI review summaries]]
+- [[https://www.pcgamer.com/games/rpg/rpg-dev-pushes-back-against-steam-review-ai-accusations-we-poured-years-of-our-lives-into-this-game-and-only-worked-with-real-human-artists-on-everything/][PC Gamer — RPG dev pushes back against AI accusations]] — reputational risk for devs being falsely labeled AI-assisted.
+
+* UX / UI design
+
+Full list in =doc/research/ux-ui-references.org=. Notable high-impact sources:
+
+- NN/g filter UX articles (accordions, filter categories, popularity sort)
+- Baymard Institute (faceted search + mega menu research)
+- [[https://www.algolia.com/blog/ux/search-filter-ux-best-practices][Algolia — Search filter UX]]
+- [[https://www.shopify.com/blog/faceted-navigation][Shopify — Faceted navigation]]
+- [[https://presskit.gg/field-guides/steam-page-optimization-guide][PressKit — Steam page optimization]]
+- Steam / GOG / itch.io tag-taxonomy patterns
+
+* Analytics & charting
+
+Full list in =doc/research/analytics-builder-lens.org=. Sources used
+while designing the Analytics Builder Lens (2026-04-07):
+
+- [[https://5of10.com/articles/dashboard-design-best-practices/][5of10 — Dashboard Design Best Practices 2025]]
+- [[https://www.metabase.com/learn/metabase-basics/querying-and-dashboards/visualization][Metabase Learn — Visualising data]]
+- [[https://www.metabase.com/docs/latest/questions/visualizations/line-bar-and-area-charts][Metabase Docs — Line/bar/area charts]]
+- [[https://www.atlassian.com/data/charts/stacked-bar-chart-complete-guide][Atlassian — Stacked bar charts guide]]
+- [[https://flourish.studio/blog/dual-axis-charts/][Flourish — Dual-axis charts]]
+- [[https://inforiver.com/insights/stacked-area-charts-when-to-use-and-avoid/][Inforiver — Stacked area charts]]
+
+* Meta / process
+
+- [[https://anthropic.com/][Anthropic]] — Claude API (Opus 4.6, Sonnet 4.6, Haiku 4.5) used by the three-phase analyzer
+- [[https://aws.amazon.com/bedrock/][AWS Bedrock]] — managed inference + batch mode
+- [[https://resend.com/][Resend]] — transactional email (waitlist confirmations, digest)
+- [[https://plausible.io/][Plausible Analytics]] — privacy-friendly analytics, no GDPR banner
+- [[https://search.google.com/test/rich-results][Google Rich Results Test]] — JSON-LD validation
+- [[https://search.google.com/search-console][Google Search Console]] — indexing status + manual indexing requests
+- [[https://www.bing.com/webmasters][Bing Webmaster Tools]]

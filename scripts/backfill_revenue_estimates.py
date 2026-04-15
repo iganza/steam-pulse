@@ -94,7 +94,7 @@ def _fetch_games_bulk(game_repo: GameRepository, appids: list[int]) -> dict[int,
     """Bulk SELECT only the columns `compute_estimate` needs."""
     rows = game_repo._fetchall(
         """
-        SELECT appid, name, slug, type, price_usd, is_free, review_count, release_date
+        SELECT appid, name, slug, type, price_usd, is_free, review_count, release_date, positive_pct
         FROM games
         WHERE appid = ANY(%s)
         """,
@@ -140,9 +140,7 @@ def main() -> None:
         genres_by_appid = tag_repo.find_genres_for_appids(appids)
         tags_by_appid = tag_repo.find_tags_for_appids(appids)
 
-        batch_updates: list[
-            tuple[int, int | None, Decimal | None, str | None, str | None]
-        ] = []
+        batch_updates: list[tuple[int, int | None, Decimal | None, str | None, str | None]] = []
         for appid in appids:
             game = games_by_appid.get(appid)
             if game is None:

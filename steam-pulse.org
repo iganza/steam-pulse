@@ -10,8 +10,7 @@ investors rely on aggregate scores and manual reading to understand player senti
 that doesn't scale and misses the deeper patterns buried across thousands of reviews.
 
 The project proposes a batch LLM-powered pipeline that ingests the Steam game catalog, game
-descriptions, reviews, and other relevant data, the processes them through Amazon Bedrock foundation
-models to extract, structured, query-able insights.  A three-phase approach (chunk → merge →
+descriptions, reviews, and other relevant data, the processes them through LLM models to extract, structured, query-able insights.  A three-phase approach (chunk → merge →
 synthesise) extracts summary information first, which is then processed by collected and saved, and
 provided to a further LLM processing step responsible for identifying relevant information such as
 recurring complaints, praised features, and competitive comparison across the entire catalog.
@@ -272,11 +271,13 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
    crawlers (GPTBot, ClaudeBot, PerplexityBot) indexing.
 
 *** Phase A — Build (prompts to ship, in order)
-1. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich analytical content even when no LLM report exists; enrich template if thin. *Gates Phase B SEO discipline — don't index thin pages.*
-2. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot for AI search), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
-3. [ ] =scripts/prompts/wire-waitlist.md= — waitlist DB table, =WaitlistRepository=, =POST /api/waitlist=, Resend confirmation email, frontend form wiring.
-4. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
-5. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (4).
+
+1. [ ] scripts/prompts/landing-page-positioning.md
+2. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich analytical content even when no LLM report exists; enrich template if thin. *Gates Phase B SEO discipline — don't index thin pages.*
+3. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot for AI search), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
+4. [ ] =scripts/prompts/wire-waitlist.md= — waitlist DB table, =WaitlistRepository=, =POST /api/waitlist=, Resend confirmation email, frontend form wiring.
+5. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
+6. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (4).
 
    *Quality improvement (parallel, not blocking):*
    - [ ] =scripts/prompts/decouple-sentiment-trend-matview.md=
@@ -433,22 +434,54 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
 - Ongoing: matview refresh ~$5/month per active genre synthesis
 - *Total to launch and operate: under $400 + dev time*
 
-** Reference docs
-   Material moved out of this file to keep it lean. See:
+** Documentation map
+   All project docs with a one-line summary. Start here when looking for
+   something; =CLAUDE.md= + =ARCHITECTURE.org= + this file are the three
+   load-bearing entry points.
 
-   - =doc/top-100-questions.org= — Top 100 example questions + coverage breakdown
-   - =doc/strategic-questions.org= — High-value strategic questions ("what genre to build", "what features players want")
-   - =doc/multi-region-crawl.org= — Hub-and-spoke multi-region crawl architecture
-   - =doc/analytics-pages-nav.org= — Where each chart lives in the UI
-   - =doc/runbooks/db-backup-restore.org= — Local DB backup/restore
-   - =doc/runbooks/testing-frontendless.org= — Frontendless Playwright testing
-   - =doc/runbooks/prompt-eval-pipeline.org= — Prompt eval pipeline runbook
-   - =doc/runbooks/acm-cert-validation.org= — ACM cert DNS validation (one-time pre-launch)
-   - =doc/research/ux-ui-references.org= — UX/UI design references
-   - =doc/research/analytics-builder-lens.org= — Analytics builder lens UX research
-   - =scripts/prompts/CLEANUP.md= — Prompts directory housekeeping (move to completed/, etc.)
+*** Root-level
+   - =CLAUDE.md= — Coding conventions + load-bearing architectural rules Claude Code must follow.
+   - =ARCHITECTURE.org= — Canonical component registry, interaction-flow diagrams, and architectural principles (the "Synthesize, don't retrieve-raw" invariant lives here).
+   - =README.md= — Public-facing project description + quickstart.
+   - =ROADMAP.md= — Historical prompt-execution roadmap (older — see Active Launch Plan above for current work).
+   - =steam-pulse.org= — *This file.* Strategy, monetisation, wedge strategy, active launch plan, backlog.
+   - =steam-pulse-query.org= — Org-mode scratchpad of ad-hoc SQL queries against the production DB.
 
-   For chat / synthesis architecture, see =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw."
+*** =doc/= — architecture, reference, and operating docs
+   - =doc/references.org= — *Consolidated bibliography* of external research sources (competitors, Zukowski marketing, SEO, Karpathy LLM Wiki, tooling). Grouped by topic.
+   - =doc/top-100-questions.org= — 100 example natural-language questions + architectural coverage breakdown by bucket.
+   - =doc/strategic-questions.org= — The big strategic questions ("what genre to build", "what features players want") SteamPulse should answer for indie devs.
+   - =doc/multi-region-crawl.org= — Hub-and-spoke architecture for distributing Steam API calls across AWS regions (Phase 2, not yet live).
+   - =doc/analytics-pages-nav.org= — Where each chart lives in the UI (=/analytics=, game pages, genre pages, tag pages, developer pages).
+   - =doc/review-analysis-pipeline.md= — How reviews get processed into =GameReport= via the three-phase analyzer.
+   - =doc/prompt-strategy.org= — LLM prompt design strategy + iteration guide for the analyzer.
+   - =doc/frontend-architecture.md= — Canonical Next.js frontend decisions (component patterns, data fetching, ISR).
+   - =doc/steam-apis.org= — Steam API reference + which tables each endpoint populates.
+   - =doc/anthropic-rate-limits.md= — Current per-model rate limits + throughput planning notes.
+   - =doc/cloudwatch-queries.org= — Saved CloudWatch Logs Insights queries for debugging Lambdas.
+   - =doc/test_games.org= — Curated appid test set used for analyzer eval + spot-checking.
+
+*** =doc/runbooks/= — operational procedures
+   - =doc/runbooks/db-backup-restore.org= — Local Postgres backup/restore commands.
+   - =doc/runbooks/testing-frontendless.org= — Playwright smoke testing against staging without a local frontend.
+   - =doc/runbooks/prompt-eval-pipeline.org= — Running the analyzer eval suite locally + comparing prompt versions.
+   - =doc/runbooks/acm-cert-validation.org= — One-time ACM cert DNS-validation CNAME setup for production launch.
+
+*** =doc/research/= — design research notes
+   - =doc/research/ux-ui-references.org= — UX / UI design references (Steam/GOG/itch.io, NN/g, Algolia, Baymard) + key takeaways.
+   - =doc/research/analytics-builder-lens.org= — Dashboard + charting UX research consulted for the Analytics Builder Lens prompt.
+
+*** =doc/sequences/= — sequence diagrams
+   - =doc/sequences/00_game_discovery.org= — Sequence diagram: game discovery crawl flow (more may be added as flows are documented).
+
+*** =doc/skills/= — Claude Code skill configs
+   - =doc/skills/steampulse-architecture/SKILL.md= + =doc/skills/steampulse-cdk/SKILL.md= — Invocable Claude Code skills for architecture Q&A and CDK work.
+
+*** =scripts/prompts/= — implementation specs (active + historical)
+   Every discrete implementation prompt lives here. Active work is tracked in "Active Launch Plan" above; housekeeping/deferred in "Backlog"; already-shipped in =scripts/prompts/completed/=. See =scripts/prompts/CLEANUP.md= for what's pending move to completed/.
+
+*** =memory/= (Claude's cross-conversation memory, personal)
+   - =~/.claude/projects/-Users-iganza-dev-git-saas-steam-pulse/memory/MEMORY.md= — Index of durable feedback rules + project state Claude loads into every session. Not checked into the repo.
 
 ** Backlog (prompts and standalone TODOs not in launch path)
    *These are valid but deferred. Pull into the Active Launch Plan if/when

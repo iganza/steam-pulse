@@ -20,7 +20,23 @@ test.describe('Home page', () => {
   })
 
   test('page heading is present', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /discover steam games/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /steam, decoded/i })).toBeVisible()
+  })
+
+  test('proof bar shows game count', async ({ page }) => {
+    await expect(page.getByText(/games tracked/i)).toBeVisible()
+  })
+
+  test('intelligence cards section is visible', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /what you get/i })).toBeVisible()
+  })
+
+  test('for developers section is visible', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /built for the people who make games/i })).toBeVisible()
+  })
+
+  test('footer CTA is visible', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /free to explore/i })).toBeVisible()
   })
 
   test('navbar Browse dropdown opens and shows genres', async ({ page, isMobile }) => {

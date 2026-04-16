@@ -10,7 +10,6 @@ import {
   getReviewStats,
   getAudienceOverlap,
   getAnalyticsTrendSentiment,
-  getAnalyticsTrendReleaseVolume,
 } from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
 import { ProofBar } from "@/components/home/ProofBar";
@@ -68,7 +67,6 @@ export default async function HomePage() {
     // Showcase game 3: Cyberpunk 2077
     sc2Report, sc2Stats, sc2Overlap,
     trendSentiment,
-    trendReleases,
   ] = await Promise.allSettled([
     getGames({ sort: "review_count", limit: 8 }),
     getGames({ sort: "sentiment_score", min_reviews: 200, limit: 8 }),
@@ -88,7 +86,6 @@ export default async function HomePage() {
     getReviewStats(SHOWCASE_GAMES[2].appid),
     getAudienceOverlap(SHOWCASE_GAMES[2].appid, 5),
     getAnalyticsTrendSentiment({ granularity: "month", limit: 12 }),
-    getAnalyticsTrendReleaseVolume({ granularity: "month", limit: 12 }),
   ]);
 
   const popularGames: Game[] =
@@ -140,10 +137,6 @@ export default async function HomePage() {
   const sentimentTrend =
     trendSentiment.status === "fulfilled"
       ? trendSentiment.value.periods
-      : [];
-  const releaseTrend =
-    trendReleases.status === "fulfilled"
-      ? trendReleases.value.periods
       : [];
 
   const hasIntelCards = showcaseGames.length > 0;
@@ -228,12 +221,7 @@ export default async function HomePage() {
         )}
 
         {/* Market Trends Preview */}
-        {(sentimentTrend.length >= 2 || releaseTrend.length >= 2) && (
-          <MarketTrendsPreview
-            sentimentData={sentimentTrend}
-            releaseData={releaseTrend}
-          />
-        )}
+        <MarketTrendsPreview />
 
         {/* Discovery Rows */}
         {rows.map(

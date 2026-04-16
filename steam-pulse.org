@@ -272,12 +272,13 @@ Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only
 
 *** Phase A — Build (prompts to ship, in order)
 
-1. [ ] scripts/prompts/landing-page-positioning.md
-2. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich analytical content even when no LLM report exists; enrich template if thin. *Gates Phase B SEO discipline — don't index thin pages.*
-3. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot for AI search), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
-4. [ ] =scripts/prompts/wire-waitlist.md= — waitlist DB table, =WaitlistRepository=, =POST /api/waitlist=, Resend confirmation email, frontend form wiring.
-5. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
-6. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (4).
+1. [X] scripts/prompts/landing-page-positioning.md
+2. [ ] scripts/prompts/interactive-market-trends-homepage.md
+3. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich analytical content even when no LLM report exists; enrich template if thin. *Gates Phase B SEO discipline — don't index thin pages.*
+4. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot for AI search), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
+5. [ ] =scripts/prompts/wire-waitlist.md= — waitlist DB table, =WaitlistRepository=, =POST /api/waitlist=, Resend confirmation email, frontend form wiring.
+6. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
+7. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (4).
 
    *Quality improvement (parallel, not blocking):*
    - [ ] =scripts/prompts/decouple-sentiment-trend-matview.md=

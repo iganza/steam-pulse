@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import {
@@ -14,47 +14,117 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { formatPeriodLabel } from "@/components/trends/periodLabel";
-import type { SentimentDistPeriod, ReleaseVolumePeriod } from "@/lib/types";
+import { GranularityToggle } from "@/components/trends/GranularityToggle";
+import type {
+  Granularity,
+  SentimentDistPeriod,
+  ReleaseVolumePeriod,
+} from "@/lib/types";
 
-interface MarketTrendsPreviewProps {
-  sentimentData: SentimentDistPeriod[];
-  releaseData: ReleaseVolumePeriod[];
+const INLINE_HEIGHT = 180;
+const FETCH_LIMIT = 200;
+const STEAM_ERA_START_YEAR = 2003;
+
+// Strip periods before Steam existed (early 2003). Period strings start with the
+// 4-digit year for every granularity ("2003", "2003-01", "2003-Q1", "2003-W01"),
+// so a prefix comparison is enough.
+function filterSteamEra<T extends { period: string }>(periods: T[]): T[] {
+  return periods.filter((p) => {
+    const year = parseInt(p.period.slice(0, 4), 10);
+    return Number.isFinite(year) && year >= STEAM_ERA_START_YEAR;
+  });
 }
 
-export function MarketTrendsPreview({
-  sentimentData,
-  releaseData,
-}: MarketTrendsPreviewProps) {
+const RELEASE_LABEL: Record<Granularity, string> = {
+  week: "Weekly releases on Steam",
+  month: "Monthly releases on Steam",
+  quarter: "Quarterly releases on Steam",
+  year: "Yearly releases on Steam",
+};
+
+function Skeleton({ height }: { height: number }) {
+  return (
+    <div
+      className="bg-secondary rounded animate-pulse"
+      style={{ height }}
+    />
+  );
+}
+
+export function MarketTrendsPreview() {
   const gradientId = useId();
 
-  if (sentimentData.length < 2 && releaseData.length < 2) return null;
+  const [granularity, setGranularity] = useState<Granularity>("year");
+  const [sentimentData, setSentimentData] = useState<SentimentDistPeriod[]>([]);
+  const [releaseData, setReleaseData] = useState<ReleaseVolumePeriod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+
+    Promise.allSettled([
+      fetch(
+        `/api/analytics/trends/sentiment?granularity=${granularity}&limit=${FETCH_LIMIT}`,
+        { signal: ctrl.signal },
+      ).then((r) => {
+        if (!r.ok) throw new Error(`sentiment ${r.status}`);
+        return r.json();
+      }),
+      fetch(
+        `/api/analytics/trends/release-volume?granularity=${granularity}&limit=${FETCH_LIMIT}`,
+        { signal: ctrl.signal },
+      ).then((r) => {
+        if (!r.ok) throw new Error(`releases ${r.status}`);
+        return r.json();
+      }),
+    ]).then((results) => {
+      if (ctrl.signal.aborted) return;
+      const [sentRes, relRes] = results;
+      const sentOk = sentRes.status === "fulfilled";
+      const relOk = relRes.status === "fulfilled";
+      setSentimentData(sentOk ? filterSteamEra(sentRes.value.periods ?? []) : []);
+      setReleaseData(relOk ? filterSteamEra(relRes.value.periods ?? []) : []);
+      setFailed(!sentOk && !relOk);
+      setLoading(false);
+    });
+
+    return () => ctrl.abort();
+  }, [granularity]);
+
+  if (failed) return null;
+
+  const hasSentiment = sentimentData.length >= 2;
+  const hasReleases = releaseData.length >= 2;
 
   return (
     <section>
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-serif text-xl font-semibold">Market Trends</h2>
-        <Link
-          href="/explore"
-          className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Explore trends <ChevronRight className="w-3 h-3" />
-        </Link>
+        <GranularityToggle
+          value={granularity}
+          onChange={setGranularity}
+          disabled={loading}
+        />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
         {/* Sentiment distribution trend */}
-        {sentimentData.length >= 2 && (
-          <div
-            className="rounded-xl p-5"
-            style={{
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
-              Steam sentiment distribution
-            </p>
-            <ResponsiveContainer width="100%" height={180}>
+        <div
+          className="rounded-xl p-5"
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            Steam sentiment distribution
+          </p>
+          {loading || !hasSentiment ? (
+            <Skeleton height={INLINE_HEIGHT} />
+          ) : (
+            <ResponsiveContainer width="100%" height={INLINE_HEIGHT}>
               <AreaChart
                 data={sentimentData}
                 margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
@@ -67,7 +137,7 @@ export function MarketTrendsPreview({
                 </defs>
                 <XAxis
                   dataKey="period"
-                  tickFormatter={(p) => formatPeriodLabel(p, "month")}
+                  tickFormatter={(p) => formatPeriodLabel(p, granularity)}
                   tick={{ fontSize: 10, fontFamily: "var(--font-mono)", fill: "var(--muted-foreground)" }}
                   axisLine={false}
                   tickLine={false}
@@ -82,7 +152,7 @@ export function MarketTrendsPreview({
                 />
                 <Tooltip
                   formatter={(value) => [`${Number(value).toFixed(1)}%`, "Positive"]}
-                  labelFormatter={(label) => formatPeriodLabel(String(label), "month")}
+                  labelFormatter={(label) => formatPeriodLabel(String(label), granularity)}
                   contentStyle={{
                     background: "var(--card)",
                     border: "1px solid var(--border)",
@@ -101,29 +171,31 @@ export function MarketTrendsPreview({
                 />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Release volume trend */}
-        {releaseData.length >= 2 && (
-          <div
-            className="rounded-xl p-5"
-            style={{
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
-              Monthly releases on Steam
-            </p>
-            <ResponsiveContainer width="100%" height={180}>
+        <div
+          className="rounded-xl p-5"
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            {RELEASE_LABEL[granularity]}
+          </p>
+          {loading || !hasReleases ? (
+            <Skeleton height={INLINE_HEIGHT} />
+          ) : (
+            <ResponsiveContainer width="100%" height={INLINE_HEIGHT}>
               <BarChart
                 data={releaseData}
                 margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
               >
                 <XAxis
                   dataKey="period"
-                  tickFormatter={(p) => formatPeriodLabel(p, "month")}
+                  tickFormatter={(p) => formatPeriodLabel(p, granularity)}
                   tick={{ fontSize: 10, fontFamily: "var(--font-mono)", fill: "var(--muted-foreground)" }}
                   axisLine={false}
                   tickLine={false}
@@ -136,7 +208,7 @@ export function MarketTrendsPreview({
                 />
                 <Tooltip
                   formatter={(value) => [Number(value).toLocaleString(), "Releases"]}
-                  labelFormatter={(label) => formatPeriodLabel(String(label), "month")}
+                  labelFormatter={(label) => formatPeriodLabel(String(label), granularity)}
                   contentStyle={{
                     background: "var(--card)",
                     border: "1px solid var(--border)",
@@ -153,8 +225,20 @@ export function MarketTrendsPreview({
                 />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-xs text-muted-foreground">
+          Games with ≥10 English reviews, bucketed by Steam&apos;s review score (Positive ≥70%, Mixed 40–70%, Negative &lt;40%).
+        </p>
+        <Link
+          href="/explore"
+          className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Explore trends <ChevronRight className="w-3 h-3" />
+        </Link>
       </div>
     </section>
   );

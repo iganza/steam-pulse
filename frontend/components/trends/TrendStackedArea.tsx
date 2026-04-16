@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ComposedChart, Line, Legend,
@@ -14,6 +15,7 @@ export function TrendStackedArea({
   normalized = true,
   secondaryLine,
   height = 300,
+  animate = true,
 }: {
   data: TrendPeriod[];
   series: { key: string; label: string; color: string }[];
@@ -21,6 +23,7 @@ export function TrendStackedArea({
   normalized?: boolean;
   secondaryLine?: { dataKey: string; label: string; color: string };
   height?: number;
+  animate?: boolean;
 }) {
   if (data.length < 2) {
     return (
@@ -37,21 +40,22 @@ export function TrendStackedArea({
   // "0.3%" instead of "30%".
   // Raw counts are preserved as "_raw_<key>" so the tooltip can show both.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chartData: any[] = normalized
-    ? data.map((d) => {
-        const rec = d as unknown as Record<string, number>;
-        const total = series.reduce((sum, s) => sum + (rec[s.key] || 0), 0);
-        const row: Record<string, unknown> = { period: d.period };
-        for (const s of series) {
-          row[s.key] = total > 0 ? Math.round((rec[s.key] || 0) / total * 1000) / 10 : 0;
-          row[`_raw_${s.key}`] = rec[s.key] || 0;
-        }
-        if (secondaryLine) {
-          row[secondaryLine.dataKey] = (rec as Record<string, unknown>)[secondaryLine.dataKey];
-        }
-        return row;
-      })
-    : data;
+  const chartData: any[] = useMemo(() => {
+    if (!normalized) return data;
+    return data.map((d) => {
+      const rec = d as unknown as Record<string, number>;
+      const total = series.reduce((sum, s) => sum + (rec[s.key] || 0), 0);
+      const row: Record<string, unknown> = { period: d.period };
+      for (const s of series) {
+        row[s.key] = total > 0 ? Math.round((rec[s.key] || 0) / total * 1000) / 10 : 0;
+        row[`_raw_${s.key}`] = rec[s.key] || 0;
+      }
+      if (secondaryLine) {
+        row[secondaryLine.dataKey] = (rec as Record<string, unknown>)[secondaryLine.dataKey];
+      }
+      return row;
+    });
+  }, [data, series, normalized, secondaryLine]);
 
   const tooltipStyle = { background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
 
@@ -81,15 +85,21 @@ export function TrendStackedArea({
   const yTickFormatter = normalized ? (v: number) => `${v.toFixed(0)}%` : undefined;
   const tickFmt = (v: string) => formatPeriodLabel(v, granularity);
 
+  // When animations are disabled (e.g. modal with hundreds of points), also
+  // throttle mouse-move events and disable the tooltip's slide animation —
+  // those are the hover-perf killers.
+  const throttleDelay = animate ? 0 : 50;
+  const tooltipAnimate = animate;
+
   if (secondaryLine) {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <ComposedChart data={chartData}>
+        <ComposedChart data={chartData} throttleDelay={throttleDelay}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
           <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
           <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-          <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
+          <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} isAnimationActive={tooltipAnimate} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           {series.map((s) => (
             <Area
@@ -102,6 +112,7 @@ export function TrendStackedArea({
               fill={s.color}
               stroke={s.color}
               fillOpacity={0.6}
+              isAnimationActive={animate}
             />
           ))}
           <Line
@@ -112,6 +123,7 @@ export function TrendStackedArea({
             stroke={secondaryLine.color}
             strokeWidth={2}
             dot={false}
+            isAnimationActive={animate}
           />
         </ComposedChart>
       </ResponsiveContainer>
@@ -120,11 +132,11 @@ export function TrendStackedArea({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={chartData}>
+      <AreaChart data={chartData} throttleDelay={throttleDelay}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={tickFmt} />
         <YAxis tick={{ fontSize: 11 }} tickFormatter={yTickFormatter} />
-        <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
+        <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} isAnimationActive={tooltipAnimate} />
         <Legend wrapperStyle={{ fontSize: 11 }} />
         {series.map((s) => (
           <Area
@@ -136,6 +148,7 @@ export function TrendStackedArea({
             fill={s.color}
             stroke={s.color}
             fillOpacity={0.6}
+            isAnimationActive={animate}
           />
         ))}
       </AreaChart>

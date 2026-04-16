@@ -127,6 +127,9 @@ export default async function GameReportPage({ params }: Props) {
     }
     if (reportData.game) {
       const g = reportData.game;
+      // `name` from game_meta is the canonical hero title — used for unanalyzed
+      // and ex-EA pages where we don't have a report.game_name to fall back on.
+      if (g.name) gameData.gameName = g.name;
       if (g.header_image) headerImage = g.header_image;
       if (g.short_desc) gameData.shortDesc = g.short_desc;
       if (g.developer) gameData.developer = g.developer;

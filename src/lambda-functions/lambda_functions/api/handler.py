@@ -195,6 +195,8 @@ async def get_game_report(appid: int) -> dict:
         genres = [g["name"] for g in genre_rows]
         tags = [t["name"] for t in _tag_repo.find_tags_for_game(appid)]
         game_meta = {
+            "name": game.name,
+            "slug": game.slug,
             "header_image": game.header_image,
             "short_desc": game.short_desc,
             "developer": game.developer,

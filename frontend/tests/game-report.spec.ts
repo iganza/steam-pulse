@@ -215,11 +215,14 @@ test.describe('Ex-Early-Access display (0048) — post-release split', () => {
           status: 'not_available',
           review_count: MOCK_GAME_POST_EA_ZERO.review_count,
           game: {
+            name: MOCK_GAME_POST_EA_ZERO.name,
+            slug: MOCK_GAME_POST_EA_ZERO.slug,
             short_desc: MOCK_GAME_POST_EA_ZERO.short_desc,
             developer: MOCK_GAME_POST_EA_ZERO.developer,
             release_date: MOCK_GAME_POST_EA_ZERO.release_date,
             price_usd: MOCK_GAME_POST_EA_ZERO.price_usd,
             is_free: MOCK_GAME_POST_EA_ZERO.is_free,
+            is_early_access: MOCK_GAME_POST_EA_ZERO.is_early_access,
             genres: MOCK_GAME_POST_EA_ZERO.genres,
             tags: MOCK_GAME_POST_EA_ZERO.tags,
             deck_compatibility: MOCK_GAME_POST_EA_ZERO.deck_compatibility,
@@ -240,8 +243,14 @@ test.describe('Ex-Early-Access display (0048) — post-release split', () => {
       })
     )
     await page.goto('/games/770777/project-scrapper')
-    // Zero post-release reviews → helper falls back to EA-era counts (9).
+    // Zero post-release reviews → helper falls back to EA-era counts.
     await expect(page.getByRole('heading', { name: 'Project Scrapper' })).toBeVisible()
+    // Ex-EA banner renders with the "no post-release reviews yet" variant —
+    // proves phase === early_access AND isExEarlyAccess === true (active EA
+    // games would fail this because their is_early_access flag would suppress).
+    const banner = page.getByTestId('ex-ea-indicator')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText(/no post-release reviews yet/i)
   })
 
   test('ex-EA game with healthy post-release shows post-release headline + ex-EA chip', async ({ page }) => {
@@ -252,11 +261,14 @@ test.describe('Ex-Early-Access display (0048) — post-release split', () => {
           status: 'not_available',
           review_count: MOCK_GAME_POST_EA_HEALTHY.review_count_post_release,
           game: {
+            name: MOCK_GAME_POST_EA_HEALTHY.name,
+            slug: MOCK_GAME_POST_EA_HEALTHY.slug,
             short_desc: MOCK_GAME_POST_EA_HEALTHY.short_desc,
             developer: MOCK_GAME_POST_EA_HEALTHY.developer,
             release_date: MOCK_GAME_POST_EA_HEALTHY.release_date,
             price_usd: MOCK_GAME_POST_EA_HEALTHY.price_usd,
             is_free: MOCK_GAME_POST_EA_HEALTHY.is_free,
+            is_early_access: MOCK_GAME_POST_EA_HEALTHY.is_early_access,
             genres: MOCK_GAME_POST_EA_HEALTHY.genres,
             tags: MOCK_GAME_POST_EA_HEALTHY.tags,
             deck_compatibility: MOCK_GAME_POST_EA_HEALTHY.deck_compatibility,
@@ -277,8 +289,12 @@ test.describe('Ex-Early-Access display (0048) — post-release split', () => {
       })
     )
     await page.goto('/games/770778/dungeon-delver')
-    // Ex-EA chip visible at the top of the detail page.
-    await expect(page.getByTestId('ex-ea-indicator')).toBeVisible()
+    // Post-release phase banner — proves phase === post_release (active EA
+    // games would render the "no post-release reviews yet" copy instead).
+    const banner = page.getByTestId('ex-ea-indicator')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText(/post-release review numbers/i)
+    await expect(banner).toContainText(/matches Steam/i)
   })
 })
 

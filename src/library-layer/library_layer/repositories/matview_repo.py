@@ -268,6 +268,10 @@ class MatviewRepository(BaseRepository):
         """Refresh all materialized views CONCURRENTLY. Returns name → success."""
         results: dict[str, bool] = {}
         prev_autocommit = self.conn.autocommit
+        # Close any open transaction before switching to autocommit —
+        # psycopg2 raises ProgrammingError if set_session is called mid-transaction.
+        if not prev_autocommit:
+            self.conn.rollback()
         self.conn.autocommit = True
         try:
             for name in MATVIEW_NAMES:

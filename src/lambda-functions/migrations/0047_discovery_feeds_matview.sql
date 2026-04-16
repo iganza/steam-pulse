@@ -13,7 +13,11 @@
 DROP MATERIALIZED VIEW IF EXISTS mv_discovery_feeds;
 
 CREATE MATERIALIZED VIEW mv_discovery_feeds AS
-WITH base AS (
+-- NOT MATERIALIZED so Postgres inlines `base` into each per-feed CTE and can
+-- use the idx_games_review_count / idx_games_hidden_gem_score / etc. indexes
+-- for the ORDER BY ... LIMIT 24 top-N pick. With a materialized base, each
+-- feed would sort all ~100k eligible games in memory.
+WITH base AS NOT MATERIALIZED (
     SELECT
         g.appid,
         g.name,

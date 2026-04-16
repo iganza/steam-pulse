@@ -907,7 +907,10 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     # hidden_gem / new_release / just_analyzed). Unfiltered catalog top-N feeds
     # that were previously served by slow-path SELECT ... FROM games ORDER BY.
     """CREATE MATERIALIZED VIEW IF NOT EXISTS mv_discovery_feeds AS
-    WITH base AS (
+    -- NOT MATERIALIZED so Postgres inlines `base` and each per-feed CTE can
+    -- use the existing games(review_count DESC) / games(hidden_gem_score DESC) /
+    -- etc. indexes for the ORDER BY ... LIMIT 24 top-N pick.
+    WITH base AS NOT MATERIALIZED (
         SELECT
             g.appid, g.name, g.slug, g.developer, g.header_image,
             g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,

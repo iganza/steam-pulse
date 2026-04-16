@@ -15,6 +15,10 @@ import {
 } from "recharts";
 import { formatPeriodLabel } from "@/components/trends/periodLabel";
 import { GranularityToggle } from "@/components/trends/GranularityToggle";
+import {
+  getAnalyticsTrendSentiment,
+  getAnalyticsTrendReleaseVolume,
+} from "@/lib/api";
 import type {
   Granularity,
   SentimentDistPeriod,
@@ -76,20 +80,8 @@ export function MarketTrendsPreview() {
     setLoading(true);
 
     Promise.allSettled([
-      fetch(
-        `/api/analytics/trends/sentiment?granularity=${granularity}&limit=${FETCH_LIMIT}`,
-        { signal: ctrl.signal },
-      ).then((r) => {
-        if (!r.ok) throw new Error(`sentiment ${r.status}`);
-        return r.json();
-      }),
-      fetch(
-        `/api/analytics/trends/release-volume?granularity=${granularity}&limit=${FETCH_LIMIT}`,
-        { signal: ctrl.signal },
-      ).then((r) => {
-        if (!r.ok) throw new Error(`releases ${r.status}`);
-        return r.json();
-      }),
+      getAnalyticsTrendSentiment({ granularity, limit: FETCH_LIMIT }, ctrl.signal),
+      getAnalyticsTrendReleaseVolume({ granularity, limit: FETCH_LIMIT }, ctrl.signal),
     ]).then((results) => {
       if (ctrl.signal.aborted) return;
       const [sentRes, relRes] = results;

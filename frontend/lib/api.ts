@@ -253,19 +253,27 @@ function trendParams(params: Record<string, string | number | undefined>): strin
   return qs ? `?${qs}` : "";
 }
 
-export async function getAnalyticsTrendReleaseVolume(params: {
-  granularity?: Granularity; genre?: string; tag?: string; type?: string; limit?: number;
-}): Promise<{ granularity: string; filter: Record<string, string>; periods: ReleaseVolumePeriod[]; summary: { total_releases: number; avg_per_period: number; trend: string } }> {
+export async function getAnalyticsTrendReleaseVolume(
+  params: {
+    granularity?: Granularity; genre?: string; tag?: string; type?: string; limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ granularity: string; filter: Record<string, string>; periods: ReleaseVolumePeriod[]; summary: { total_releases: number; avg_per_period: number; trend: string } }> {
   return apiFetch(`/api/analytics/trends/release-volume${trendParams(params)}`, {
     next: { revalidate: 3600 },
+    signal,
   });
 }
 
-export async function getAnalyticsTrendSentiment(params: {
-  granularity?: Granularity; genre?: string; type?: string; limit?: number;
-}): Promise<{ granularity: string; periods: SentimentDistPeriod[] }> {
+export async function getAnalyticsTrendSentiment(
+  params: {
+    granularity?: Granularity; genre?: string; type?: string; limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ granularity: string; periods: SentimentDistPeriod[] }> {
   return apiFetch(`/api/analytics/trends/sentiment${trendParams(params)}`, {
     next: { revalidate: 3600 },
+    signal,
   });
 }
 

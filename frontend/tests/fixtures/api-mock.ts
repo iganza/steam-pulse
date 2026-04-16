@@ -274,6 +274,16 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: MOCK_GAMES_LIST })
   )
 
+  // Homepage discovery feeds (popular / top_rated / hidden_gem / new_release / just_analyzed)
+  await page.route('**/api/discovery/**', route =>
+    route.fulfill({ json: { games: MOCK_GAMES_LIST.games } })
+  )
+
+  // Catalog stats (ProofBar)
+  await page.route('**/api/catalog/stats', route =>
+    route.fulfill({ json: { total_games: MOCK_GAMES_LIST.total } })
+  )
+
   // Genres
   await page.route('**/api/genres**', route =>
     route.fulfill({ json: MOCK_GENRES })

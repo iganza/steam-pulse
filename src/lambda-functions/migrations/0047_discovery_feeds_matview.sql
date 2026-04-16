@@ -13,10 +13,14 @@
 DROP MATERIALIZED VIEW IF EXISTS mv_discovery_feeds;
 
 CREATE MATERIALIZED VIEW mv_discovery_feeds AS
--- NOT MATERIALIZED so Postgres inlines `base` into each per-feed CTE and can
--- use the idx_games_review_count / idx_games_hidden_gem_score / etc. indexes
--- for the ORDER BY ... LIMIT 24 top-N pick. With a materialized base, each
--- feed would sort all ~100k eligible games in memory.
+-- NOT MATERIALIZED so Postgres inlines `base` into each per-feed CTE. The
+-- `popular`, `hidden_gem`, and `just_analyzed` feeds can then use the existing
+-- idx_games_review_count / idx_games_hidden_gem_score / idx_games_last_analyzed
+-- btree indexes to short-circuit the ORDER BY ... LIMIT 24 pick. The `top_rated`
+-- and `new_release` feeds have no matching index on games(positive_pct) or
+-- games(release_date), so they fall back to a seq-scan + top-N heap sort at
+-- refresh time — acceptable because refresh runs at most every 5min debounce +
+-- 6h EventBridge cadence, not per request.
 WITH base AS NOT MATERIALIZED (
     SELECT
         g.appid,

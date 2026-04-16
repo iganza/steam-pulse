@@ -168,10 +168,14 @@ export async function getDiscoveryFeed(
   );
 }
 
-/** GET /api/catalog/stats — headline counts for the homepage ProofBar */
+/** GET /api/catalog/stats — headline counts for the homepage ProofBar.
+ * Aligned to 300s to match the endpoint's s-maxage and the homepage ISR
+ * revalidate window — avoids the ProofBar pinning to an hour-old count
+ * while the rest of the page refreshes every 5 minutes.
+ */
 export async function getCatalogStats(): Promise<{ total_games: number }> {
   return apiFetch<{ total_games: number }>("/api/catalog/stats", {
-    next: { revalidate: 3600 },
+    next: { revalidate: 300 },
   });
 }
 

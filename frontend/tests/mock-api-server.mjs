@@ -397,6 +397,16 @@ const server = createServer((req, res) => {
     return respond(res, 200, MOCK_TAGS)
   }
 
+  // Homepage discovery rows — served from mv_discovery_feeds (pre-computed).
+  if (path.startsWith('/api/discovery/')) {
+    return respond(res, 200, { games: MOCK_GAMES_LIST.games })
+  }
+
+  // Catalog stats (homepage ProofBar)
+  if (path === '/api/catalog/stats') {
+    return respond(res, 200, { total_games: MOCK_GAMES_LIST.total })
+  }
+
   // Games list (wildcard — must come after specific /report routes)
   if (path.startsWith('/api/games')) {
     return respond(res, 200, MOCK_GAMES_LIST)

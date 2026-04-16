@@ -149,6 +149,32 @@ export async function getGames(
   });
 }
 
+/** Homepage discovery rows — served from mv_discovery_feeds. */
+export type DiscoveryFeedKind =
+  | "popular"
+  | "top_rated"
+  | "hidden_gem"
+  | "new_release"
+  | "just_analyzed";
+
+/** GET /api/discovery/{kind} */
+export async function getDiscoveryFeed(
+  kind: DiscoveryFeedKind,
+  limit = 8,
+): Promise<{ games: Game[] }> {
+  return apiFetch<{ games: Game[] }>(
+    `/api/discovery/${kind}?limit=${limit}`,
+    { next: { revalidate: 300 } },
+  );
+}
+
+/** GET /api/catalog/stats — headline counts for the homepage ProofBar */
+export async function getCatalogStats(): Promise<{ total_games: number }> {
+  return apiFetch<{ total_games: number }>("/api/catalog/stats", {
+    next: { revalidate: 3600 },
+  });
+}
+
 /** GET /api/genres */
 export async function getGenres(): Promise<Genre[]> {
   return apiFetch<Genre[]>("/api/genres", { next: { revalidate: 86400 } });

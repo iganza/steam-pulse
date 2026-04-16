@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
 import { HeroSearch } from "@/components/layout/HeroSearch";
 import {
-  getGames,
+  getDiscoveryFeed,
+  getCatalogStats,
   getGenres,
   getTagsGrouped,
   getGameReport,
@@ -60,6 +61,7 @@ export default async function HomePage() {
     justAnalyzed,
     genres,
     tags,
+    catalogStats,
     // Showcase game 1: Baldur's Gate 3
     sc0Report, sc0Stats, sc0Overlap,
     // Showcase game 2: Stardew Valley
@@ -68,13 +70,15 @@ export default async function HomePage() {
     sc2Report, sc2Stats, sc2Overlap,
     trendSentiment,
   ] = await Promise.allSettled([
-    getGames({ sort: "review_count", limit: 8 }),
-    getGames({ sort: "sentiment_score", min_reviews: 200, limit: 8 }),
-    getGames({ sort: "hidden_gem_score", limit: 8 }),
-    getGames({ sort: "release_date", limit: 8 }),
-    getGames({ sort: "last_analyzed", limit: 6 }),
+    // Discovery rows served from mv_discovery_feeds (pre-computed top-N per kind).
+    getDiscoveryFeed("popular", 8),
+    getDiscoveryFeed("top_rated", 8),
+    getDiscoveryFeed("hidden_gem", 8),
+    getDiscoveryFeed("new_release", 8),
+    getDiscoveryFeed("just_analyzed", 6),
     getGenres(),
     getTagsGrouped(200),
+    getCatalogStats(),
     // Per-game showcase fetches (3 games × 3 endpoints = 9 calls)
     getGameReport(SHOWCASE_GAMES[0].appid),
     getReviewStats(SHOWCASE_GAMES[0].appid),
@@ -102,7 +106,7 @@ export default async function HomePage() {
   const tagGroups: TagGroup[] = tags.status === "fulfilled" ? tags.value : [];
 
   const totalGames =
-    popular.status === "fulfilled" ? popular.value.total : 0;
+    catalogStats.status === "fulfilled" ? catalogStats.value.total_games : 0;
 
   // Showcase data — assemble per-game, skip any that failed
   const scResults = [
@@ -327,4 +331,8 @@ export default async function HomePage() {
   );
 }
 
-export const dynamic = "force-dynamic";
+// ISR: homepage content doesn't change faster than the matview refresh cadence.
+// CloudFront + Next.js ISR serve the rendered HTML from cache for every visitor
+// between revalidations. Individual apiFetch calls carry their own `revalidate`
+// values and are honoured on re-render.
+export const revalidate = 300;

@@ -53,3 +53,28 @@ def test_developer_analytics(api: httpx.Client) -> None:
 def test_publisher_analytics(api: httpx.Client) -> None:
     r = api.get("/api/publishers/valve/analytics")
     assert r.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "kind", ["popular", "top_rated", "hidden_gem", "new_release", "just_analyzed"]
+)
+def test_discovery_feed(api: httpx.Client, kind: str) -> None:
+    r = api.get(f"/api/discovery/{kind}", params={"limit": 8})
+    assert r.status_code == 200
+    data = r.json()
+    assert "games" in data
+    assert isinstance(data["games"], list)
+
+
+def test_discovery_feed_invalid_kind(api: httpx.Client) -> None:
+    r = api.get("/api/discovery/not-a-kind")
+    assert r.status_code == 422
+
+
+def test_catalog_stats(api: httpx.Client) -> None:
+    r = api.get("/api/catalog/stats")
+    assert r.status_code == 200
+    data = r.json()
+    assert "total_games" in data
+    assert isinstance(data["total_games"], int)
+    assert data["total_games"] >= 0

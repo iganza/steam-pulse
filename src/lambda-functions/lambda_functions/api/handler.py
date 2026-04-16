@@ -1,7 +1,7 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 import boto3  # type: ignore[import-untyped]
 from aws_lambda_powertools import Logger, Tracer
@@ -664,6 +664,43 @@ async def new_releases_added(
         window, page, page_size, genre=genre, tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
+
+
+_DISCOVERY_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
+
+DiscoveryFeedKind = Literal[
+    "popular", "top_rated", "hidden_gem", "new_release", "just_analyzed"
+]
+
+
+@app.get("/api/discovery/{kind}")
+async def discovery_feed(
+    kind: DiscoveryFeedKind,
+    limit: int = Query(default=8, ge=1, le=24),
+) -> JSONResponse:
+    """Top-N catalog-wide games for a homepage discovery row.
+
+    Reads from mv_discovery_feeds (pre-computed). Replaces the five unfiltered
+    `/api/games?sort=...` calls the homepage previously made, which went through
+    GameRepository.list_games() slow path against the base `games` table.
+    """
+    games = _matview_repo.list_discovery_feed(kind, limit)
+    return JSONResponse(
+        content={"games": games},
+        headers={"Cache-Control": _DISCOVERY_CACHE},
+    )
+
+
+@app.get("/api/catalog/stats")
+async def catalog_stats() -> JSONResponse:
+    """Cheap headline counts for the homepage ProofBar.
+
+    `total_games` is a pg_class.reltuples estimate, not a COUNT(*) — instant.
+    """
+    return JSONResponse(
+        content={"total_games": _matview_repo.get_total_games_count()},
+        headers={"Cache-Control": _DISCOVERY_CACHE},
+    )
 
 
 _REPORTS_CACHE = "public, s-maxage=300, stale-while-revalidate=600"

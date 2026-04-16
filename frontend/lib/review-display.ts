@@ -15,9 +15,12 @@
  *  - `all_time`: game with no EA history — current behavior.
  *
  * `hasEarlyAccessHistory` is exposed independently of phase so callers can
- * render an ex-EA chip for BOTH post_release and early_access phases of an
- * ex-EA game. Analytics views (time-series, dev trajectory) should not use
- * this helper — they want raw all-time numbers.
+ * reason about games with EA provenance. `isExEarlyAccess` is the specific
+ * "has EA history AND released AND not coming soon AND not currently EA" case
+ * — the only case where an "ex-EA" chip is appropriate. Keeping this flag
+ * inside the helper avoids every call site re-deriving the predicate (and
+ * mislabelling active EA games). Analytics views (time-series, dev trajectory)
+ * should not use this helper — they want raw all-time numbers.
  */
 import type { Game } from "./types";
 
@@ -28,14 +31,22 @@ export interface DisplayedReview {
   positivePct: number;
   label: string;
   phase: ReviewPhase;
-  /** True when the game has an EA history — callers render an "ex-EA" chip. */
+  /** True when the game has any EA-era reviews in its history. */
   hasEarlyAccessHistory: boolean;
+  /**
+   * True when the game has GRADUATED out of Early Access — has EA history,
+   * is released (not coming soon), and is no longer flagged as EA in Steam's
+   * genres. This is the only case where an "ex-EA" chip/banner should appear.
+   */
+  isExEarlyAccess: boolean;
 }
 
 export function displayedReview(game: Game): DisplayedReview {
   const hasEA = !!game.has_early_access_reviews;
   const comingSoon = !!game.coming_soon;
+  const isEA = !!game.is_early_access;
   const postCount = game.review_count_post_release ?? 0;
+  const isExEarlyAccess = hasEA && !comingSoon && !isEA;
 
   // Post-release: EA history AND released AND we have post-release reviews.
   if (hasEA && !comingSoon && postCount > 0) {
@@ -45,6 +56,7 @@ export function displayedReview(game: Game): DisplayedReview {
       label: game.review_score_desc_post_release ?? "",
       phase: "post_release",
       hasEarlyAccessHistory: true,
+      isExEarlyAccess,
     };
   }
 
@@ -56,6 +68,7 @@ export function displayedReview(game: Game): DisplayedReview {
       label: game.review_score_desc ?? "",
       phase: "early_access",
       hasEarlyAccessHistory: hasEA,
+      isExEarlyAccess,
     };
   }
 
@@ -66,5 +79,6 @@ export function displayedReview(game: Game): DisplayedReview {
     label: game.review_score_desc ?? "",
     phase: "all_time",
     hasEarlyAccessHistory: false,
+    isExEarlyAccess: false,
   };
 }

@@ -114,6 +114,7 @@ export default async function GameReportPage({ params }: Props) {
     revenueEstimateReason?: string | null;
     reviewPhase?: "post_release" | "early_access" | "all_time";
     hasEarlyAccessHistory?: boolean;
+    isExEarlyAccess?: boolean;
   } = {};
 
   try {
@@ -156,16 +157,19 @@ export default async function GameReportPage({ params }: Props) {
         review_score_desc_post_release: g.review_score_desc_post_release ?? "",
         has_early_access_reviews: g.has_early_access_reviews ?? false,
         coming_soon: g.coming_soon ?? false,
+        is_early_access: g.is_early_access ?? false,
       });
       // Always pass the resolved values through — a legitimate 0% / 0-count
       // state is meaningful (e.g. ex-EA game with no post-release reviews) and
-      // must not be collapsed to null by `|| null`. Label uses `?? null` to
-      // keep the "empty label" contract for downstream conditional rendering.
+      // must not be collapsed to null by `|| null`. Label uses an explicit
+      // empty-string check so an intentional "" (no label yet) becomes null for
+      // downstream conditional rendering, while preserving any non-empty value.
       gameData.positivePct = displayed.positivePct;
-      gameData.reviewScoreDesc = displayed.label || null;
+      gameData.reviewScoreDesc = displayed.label === "" ? null : displayed.label;
       gameData.reviewCount = displayed.count;
       gameData.reviewPhase = displayed.phase;
       gameData.hasEarlyAccessHistory = displayed.hasEarlyAccessHistory;
+      gameData.isExEarlyAccess = displayed.isExEarlyAccess;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
@@ -258,6 +262,7 @@ export default async function GameReportPage({ params }: Props) {
           revenueEstimateReason={gameData.revenueEstimateReason}
           reviewPhase={gameData.reviewPhase}
           hasEarlyAccessHistory={gameData.hasEarlyAccessHistory}
+          isExEarlyAccess={gameData.isExEarlyAccess}
         />
       </main>
     </>

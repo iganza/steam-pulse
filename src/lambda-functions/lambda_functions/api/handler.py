@@ -209,10 +209,14 @@ async def get_game_report(appid: int) -> dict:
             "tags": tags,
             "deck_compatibility": game.deck_compatibility,
             "deck_test_results": game.deck_test_results,
-            # Steam-sourced sentiment numbers (all-time, from summary API)
+            # Steam-sourced sentiment numbers (all-time, from summary API).
+            # `review_count_english` is exposed alongside `review_count` because
+            # `positive_pct` / `review_score_desc` are English-implicit and the
+            # frontend resolver prefers the English count to keep those aligned.
             "positive_pct": float(game.positive_pct) if game.positive_pct is not None else None,
             "review_score_desc": game.review_score_desc,
             "review_count": game.review_count,
+            "review_count_english": game.review_count_english,
             # English-only post-release split (derived locally from reviews table)
             "review_count_post_release": game.review_count_post_release,
             "positive_count_post_release": game.positive_count_post_release,

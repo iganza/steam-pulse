@@ -15,7 +15,14 @@ import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
-from aws_cdk.aws_cloudwatch import Metric, Stats
+from aws_cdk.aws_cloudwatch import (
+    Alarm,
+    ComparisonOperator,
+    Metric,
+    Stats,
+    TreatMissingData,
+)
+from aws_cdk.aws_cloudwatch_actions import SnsAction
 from cdk_monitoring_constructs import (
     AlarmFactoryDefaults,
     CustomMetricGroup,
@@ -190,6 +197,37 @@ class MonitoringStack(cdk.Stack):
                 ),
             ],
         )
+
+        # Heartbeat alarm for the hourly catalog refresh. The scheduled
+        # EventBridge rule fires once per hour; a successful run emits
+        # CatalogRefreshRun=1. If two consecutive 1h windows produce no
+        # successful run (metric missing or < 1), the refresh is broken
+        # (e.g. timeout, OOM, permission failure) and new games stop
+        # flowing — page immediately. TreatMissingData=BREACHING is
+        # essential: when the Lambda fails, no metric is emitted at all.
+        catalog_heartbeat_alarm = Alarm(
+            self,
+            "CatalogRefreshHeartbeat",
+            alarm_name=f"SteamPulse-{env.capitalize()}-Crawler-Catalog-Refresh-Heartbeat",
+            alarm_description=(
+                "Catalog refresh has not completed successfully in the last 2 hours. "
+                "New games are not being enqueued. Check /steampulse/"
+                f"{env}/crawler logs for timeouts or errors."
+            ),
+            metric=Metric(
+                namespace="SteamPulse",
+                metric_name="CatalogRefreshRun",
+                dimensions_map=dims,
+                statistic=Stats.SUM,
+                period=cdk.Duration.hours(1),
+            ),
+            threshold=1,
+            comparison_operator=ComparisonOperator.LESS_THAN_THRESHOLD,
+            evaluation_periods=2,
+            datapoints_to_alarm=2,
+            treat_missing_data=TreatMissingData.BREACHING,
+        )
+        catalog_heartbeat_alarm.add_alarm_action(SnsAction(self.alarm_topic))
 
         # ══════════════════════════════════════════════════════════════════════
         # Section 2: API & Frontend

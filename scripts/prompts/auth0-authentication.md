@@ -507,9 +507,10 @@ add if custom user shaping is needed.
 - **`/api/validate-key`** — will be removed separately before this is implemented
 - **Steam login** — requires custom Auth0 social connection (OpenID 2.0 wrapper).
   Implement as a follow-up after core Auth0 is working.
-- **Payment integration** — how users become "pro" (Stripe, etc.) is a separate
-  concern. This prompt assumes the `"pro"` role is assigned manually or via a
-  future payment webhook.
+- **Payment integration** — how users become "pro" is a separate concern handled
+  by `scripts/prompts/cleeng-integration.md` (Cleeng as subscription platform +
+  merchant of record). This prompt assumes the `"pro"` role is assigned manually
+  or via the Cleeng webhook handler described there.
 - **User profile page** — no `/account` or `/settings` page in this prompt
 - **Email verification flow** — Auth0 handles this automatically for database
   connections. Default settings are fine.

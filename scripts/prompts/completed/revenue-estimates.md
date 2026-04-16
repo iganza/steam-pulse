@@ -1,6 +1,6 @@
 # Revenue Estimates (Boxleiter v1)
 
-Add Boxleiter-ratio-based owner and gross revenue estimates to every analyzed game as a **Pro-only** signal. This is ROADMAP item #9 and one of two primary Compare-lens conversion triggers (the other being Promise Gap).
+Add Boxleiter-ratio-based owner and gross revenue estimates to every analyzed game as a **Pro-only** signal. One of two primary Compare-lens conversion triggers (the other being Promise Gap).
 
 ## Background
 

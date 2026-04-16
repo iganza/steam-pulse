@@ -23,7 +23,7 @@ and remove the override on the `/analytics` page so it becomes a true lens prese
 
 ### Why this matters
 
-Per the architecture (`ROADMAP.md` and `20260331091542-projects_steam_pulse_game_analysis_talks.org`),
+Per the architecture (`20260331091542-projects_steam_pulse_game_analysis_talks.org`),
 *filters persist across lens switches*. A user defines a segment once (e.g.
 "Roguelike + Co-op + Under $20 + 500+ reviews") and rotates lenses to interrogate
 it from different angles. Today the analytics page breaks that contract: changing

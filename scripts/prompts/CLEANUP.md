@@ -3,6 +3,7 @@
 Mechanical file-organization tasks. Do these when convenient; they don't gate any launch work.
 
 ## Move to completed/ (already implemented or nearly so)
+- [X] homepage-performance.md — ISR + mv_discovery_feeds matview, shipped in PR #95
 - [X] quick-stats-freshness.md — ~90% wired, props exist in GameReportClient.tsx
 - [-] precompute-detail-and-dashboard-queries.md — moved to completed/, broken into 3 focused prompts:
   - [X] precompute-wire-trend-matviews.md — rewrite 8 trend methods to read from existing matviews

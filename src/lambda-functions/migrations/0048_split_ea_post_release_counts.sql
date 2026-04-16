@@ -17,24 +17,43 @@ ALTER TABLE games ADD COLUMN IF NOT EXISTS positive_count_post_release   INTEGER
 ALTER TABLE games ADD COLUMN IF NOT EXISTS positive_pct_post_release     INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS review_score_desc_post_release TEXT    NOT NULL DEFAULT '';
 
--- Bulk backfill of counts + pct directly from the reviews table.
--- Label is left '' here; a one-shot admin invoke after code deploy fills it
--- using the Python steam_review_label formula (keeps breakpoints in one place).
+-- Bulk backfill of counts + pct + label directly from the reviews table.
+-- Label encodes Steam's published breakpoints as a SQL CASE so every game gets
+-- a meaningful value immediately — there's no "wait for recrawl" window where
+-- post-release labels are empty. The Python steam_review_label() helper in
+-- crawl_service keeps the two paths in sync for subsequent ingests (both
+-- paths must agree on the 0048 breakpoints).
 WITH agg AS (
     SELECT
         appid,
         COUNT(*) FILTER (WHERE written_during_early_access = FALSE) AS post_count,
-        COUNT(*) FILTER (WHERE written_during_early_access = FALSE AND voted_up = TRUE) AS post_positive
+        COUNT(*) FILTER (WHERE written_during_early_access = FALSE AND voted_up = TRUE) AS post_positive,
+        CASE
+            WHEN COUNT(*) FILTER (WHERE written_during_early_access = FALSE) > 0
+            THEN ROUND(
+                100.0 * COUNT(*) FILTER (WHERE written_during_early_access = FALSE AND voted_up = TRUE)
+                / COUNT(*) FILTER (WHERE written_during_early_access = FALSE)
+            )::INTEGER
+            ELSE 0
+        END AS post_pct
     FROM reviews
     GROUP BY appid
 )
 UPDATE games g
 SET review_count_post_release   = agg.post_count,
     positive_count_post_release = agg.post_positive,
-    positive_pct_post_release   = CASE
-        WHEN agg.post_count > 0
-        THEN ROUND(100.0 * agg.post_positive / agg.post_count)::INTEGER
-        ELSE 0
+    positive_pct_post_release   = agg.post_pct,
+    review_score_desc_post_release = CASE
+        WHEN agg.post_count <= 0 THEN ''
+        WHEN agg.post_pct >= 95 AND agg.post_count >= 500 THEN 'Overwhelmingly Positive'
+        WHEN agg.post_pct >= 80 AND agg.post_count >= 50  THEN 'Very Positive'
+        WHEN agg.post_pct >= 80                           THEN 'Positive'
+        WHEN agg.post_pct >= 70                           THEN 'Mostly Positive'
+        WHEN agg.post_pct >= 40                           THEN 'Mixed'
+        WHEN agg.post_pct < 20  AND agg.post_count >= 500 THEN 'Overwhelmingly Negative'
+        WHEN agg.post_pct < 20  AND agg.post_count >= 50  THEN 'Very Negative'
+        WHEN agg.post_pct < 20                            THEN 'Negative'
+        ELSE 'Mostly Negative'
     END
 FROM agg
 WHERE g.appid = agg.appid;

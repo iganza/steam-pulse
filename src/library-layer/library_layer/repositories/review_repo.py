@@ -254,12 +254,17 @@ class ReviewRepository(BaseRepository):
             "value_score": value_score,
         }
 
-    def aggregate_post_release(self, appid: int) -> tuple[int, int]:
-        """Return (post_release_count, post_release_positive_count) for one appid.
+    def aggregate_post_release(self, appid: int) -> tuple[int, int, int]:
+        """Return (post_count, post_positive_count, post_positive_pct) for one appid.
 
         Filters to `written_during_early_access = FALSE`. No language predicate —
         the reviews table is English-only by construction
         (steam_source.get_reviews passes language="english").
+
+        Pct is computed by SQL ``ROUND`` so it matches the bulk backfill in
+        migration 0048 exactly — Python's ``round()`` uses banker's rounding
+        (12.5 → 12), while Postgres rounds halves away from zero (12.5 → 13).
+        Having one code path own the arithmetic keeps the two in sync.
 
         Used by CrawlService to denormalize post-release counts onto games.
         """
@@ -268,15 +273,24 @@ class ReviewRepository(BaseRepository):
             SELECT
                 COUNT(*) FILTER (WHERE written_during_early_access = FALSE) AS post_count,
                 COUNT(*) FILTER (WHERE written_during_early_access = FALSE
-                                 AND voted_up = TRUE) AS post_positive
+                                 AND voted_up = TRUE) AS post_positive,
+                CASE
+                    WHEN COUNT(*) FILTER (WHERE written_during_early_access = FALSE) > 0
+                    THEN ROUND(
+                        100.0 * COUNT(*) FILTER (WHERE written_during_early_access = FALSE
+                                                 AND voted_up = TRUE)
+                        / COUNT(*) FILTER (WHERE written_during_early_access = FALSE)
+                    )::INTEGER
+                    ELSE 0
+                END AS post_pct
             FROM reviews
             WHERE appid = %s
             """,
             (appid,),
         )
         if row is None:
-            return (0, 0)
-        return (int(row["post_count"]), int(row["post_positive"]))
+            return (0, 0, 0)
+        return (int(row["post_count"]), int(row["post_positive"]), int(row["post_pct"]))
 
     def find_early_access_impact(self, appid: int) -> dict:
         """Compare EA-era reviews vs. post-launch reviews."""

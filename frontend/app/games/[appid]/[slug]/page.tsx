@@ -157,9 +157,13 @@ export default async function GameReportPage({ params }: Props) {
         has_early_access_reviews: g.has_early_access_reviews ?? false,
         coming_soon: g.coming_soon ?? false,
       });
-      gameData.positivePct = displayed.positivePct || null;
+      // Always pass the resolved values through — a legitimate 0% / 0-count
+      // state is meaningful (e.g. ex-EA game with no post-release reviews) and
+      // must not be collapsed to null by `|| null`. Label uses `?? null` to
+      // keep the "empty label" contract for downstream conditional rendering.
+      gameData.positivePct = displayed.positivePct;
       gameData.reviewScoreDesc = displayed.label || null;
-      if (displayed.count > 0) gameData.reviewCount = displayed.count;
+      gameData.reviewCount = displayed.count;
       gameData.reviewPhase = displayed.phase;
       gameData.hasEarlyAccessHistory = displayed.hasEarlyAccessHistory;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;

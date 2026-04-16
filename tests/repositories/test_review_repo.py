@@ -662,18 +662,20 @@ def test_aggregate_post_release_splits_ea_and_post(
         for i in range(10)
     ]
     review_repo.bulk_upsert(ea + post)
-    count, positive = review_repo.aggregate_post_release(440)
+    count, positive, pct = review_repo.aggregate_post_release(440)
     assert count == 10
     assert positive == 7
+    assert pct == 70
 
 
 def test_aggregate_post_release_no_reviews(
     game_repo: GameRepository, review_repo: ReviewRepository
 ) -> None:
     _seed_game(game_repo)
-    count, positive = review_repo.aggregate_post_release(440)
+    count, positive, pct = review_repo.aggregate_post_release(440)
     assert count == 0
     assert positive == 0
+    assert pct == 0
 
 
 def test_aggregate_post_release_all_ea(
@@ -691,9 +693,32 @@ def test_aggregate_post_release_all_ea(
         for i in range(5)
     ]
     review_repo.bulk_upsert(ea)
-    count, positive = review_repo.aggregate_post_release(440)
+    count, positive, pct = review_repo.aggregate_post_release(440)
     assert count == 0
     assert positive == 0
+    assert pct == 0
+
+
+def test_aggregate_post_release_rounds_half_away_from_zero(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Pct uses SQL ROUND (half-away-from-zero), NOT Python's banker's rounding.
+
+    5 positive / 8 total = 62.5% → 63 (not 62 from banker's rounding).
+    """
+    _seed_game(game_repo)
+    rows = [
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"agg-half-{i}",
+            "voted_up": i < 5,
+            "written_during_early_access": False,
+        }
+        for i in range(8)
+    ]
+    review_repo.bulk_upsert(rows)
+    count, positive, pct = review_repo.aggregate_post_release(440)
+    assert (count, positive, pct) == (8, 5, 63)
 
 
 # ---------------------------------------------------------------------------

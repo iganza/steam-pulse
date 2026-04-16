@@ -33,9 +33,12 @@ from library_layer.utils.scores import compute_hidden_gem_score, steam_review_la
         # Very Negative: <20% & ≥50
         (10, 50, "Very Negative"),
         (19, 499, "Very Negative"),
-        # Mostly Negative: <40% & <50 OR <20% & <50
+        # Mostly Negative: 20-39% & <50
         (30, 20, "Mostly Negative"),
-        (15, 10, "Mostly Negative"),
+        (39, 49, "Mostly Negative"),
+        # Negative: <20% & <50
+        (15, 10, "Negative"),
+        (5, 49, "Negative"),
     ],
 )
 def test_steam_review_label_breakpoints(pct: int, total: int, expected: str) -> None:

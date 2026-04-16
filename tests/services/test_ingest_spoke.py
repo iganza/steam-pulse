@@ -71,7 +71,7 @@ def test_ingest_spoke_reviews_returns_count() -> None:
     """ingest_spoke_reviews upserts reviews and returns count."""
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=1)
-    svc._review_repo.aggregate_post_release = MagicMock(return_value=(1, 1))
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(1, 1, 100))
 
     reviews = [
         {
@@ -103,7 +103,7 @@ def test_ingest_spoke_reviews_refreshes_post_release_metrics() -> None:
     """After upsert, derives English-only post-release counts and stores them on games."""
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=3)
-    svc._review_repo.aggregate_post_release = MagicMock(return_value=(10, 8))
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(10, 8, 80))
     svc._game_repo.update_post_release_metrics = MagicMock()
     svc._game_repo.set_has_early_access_reviews = MagicMock()
 
@@ -132,7 +132,7 @@ def test_ingest_spoke_reviews_zero_post_release() -> None:
     """Ex-EA game with no post-release reviews stores 0 counts and empty label."""
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=1)
-    svc._review_repo.aggregate_post_release = MagicMock(return_value=(0, 0))
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(0, 0, 0))
     svc._game_repo.update_post_release_metrics = MagicMock()
     svc._game_repo.set_has_early_access_reviews = MagicMock()
 

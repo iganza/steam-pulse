@@ -80,9 +80,11 @@ export function GameCard({ game }: GameCardProps) {
             )
           )}
         </div>
-        {displayed.phase === "post_release" && displayed.hasEarlyAccessHistory && (
+        {displayed.hasEarlyAccessHistory && !game.coming_soon && (
           <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-2 opacity-70">
-            ex-EA · post-release reviews only
+            {displayed.phase === "post_release"
+              ? "ex-EA · post-release reviews only"
+              : "ex-EA · no post-release reviews yet"}
           </p>
         )}
       </div>

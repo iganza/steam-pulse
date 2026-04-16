@@ -47,6 +47,8 @@ def steam_review_label(positive_pct: int, total: int) -> str:
         return "Overwhelmingly Negative"
     if pct < 20 and total >= 50:
         return "Very Negative"
+    if pct < 20:
+        return "Negative"
     return "Mostly Negative"
 
 

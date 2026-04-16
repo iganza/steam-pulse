@@ -181,12 +181,14 @@ export function GameReportClient({
         publisher={publisher}
         publisherSlug={publisherSlug}
       />
-      {reviewPhase === "post_release" && hasEarlyAccessHistory && (
+      {hasEarlyAccessHistory && reviewPhase !== "all_time" && (
         <div
           data-testid="ex-ea-indicator"
           className="max-w-4xl mx-auto px-6 pt-4 -mb-6 text-xs font-mono uppercase tracking-widest text-muted-foreground"
         >
-          ex-Early Access — showing post-release review numbers (matches Steam&apos;s store UI)
+          {reviewPhase === "post_release"
+            ? "ex-Early Access — showing post-release review numbers (matches Steam's store UI)"
+            : "ex-Early Access — no post-release reviews yet; showing EA-era numbers"}
         </div>
       )}
 

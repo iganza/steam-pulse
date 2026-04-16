@@ -289,9 +289,13 @@ class CrawlService:
 
         Called from both the direct crawl (`crawl_reviews`) and spoke ingest
         (`ingest_spoke_reviews`) paths. Idempotent; safe to call per batch.
+
+        The pct comes straight from ``aggregate_post_release`` which computes it
+        in SQL (ROUND half-away-from-zero) so ingest-path labels stay identical
+        to migration 0048's bulk backfill — Python ``round()`` would use
+        banker's rounding and drift on .5 boundaries.
         """
-        post_count, post_positive = self._review_repo.aggregate_post_release(appid)
-        post_pct = round(100 * post_positive / post_count) if post_count else 0
+        post_count, post_positive, post_pct = self._review_repo.aggregate_post_release(appid)
         post_label = steam_review_label(post_pct, post_count)
         self._game_repo.update_post_release_metrics(
             appid, post_count, post_positive, post_pct, post_label

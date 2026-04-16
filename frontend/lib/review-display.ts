@@ -2,14 +2,22 @@
  * Review display helper — picks the phase-appropriate count and sentiment for a
  * game based on its Early Access lifecycle.
  *
- * Post-EA (graduated) games should display POST-RELEASE counts to match Steam's
- * store UI ("No user reviews yet" when zero post-release reviews, even if the
- * game has many EA-era reviews). Pre-release / still-in-EA games fall back to
- * the all-time numbers. The backend denormalizes the split onto `games` at
- * review-ingest time (see migration 0048).
+ * Phase selection (matches the spec in scripts/prompts/split-ea-post-release-reviews.md):
+ *  - `post_release`: game has EA history AND is released AND has ≥1 post-release review.
+ *    Count/label come from the post-release split — this is what brings the card
+ *    in line with Steam's store UI for ex-EA games.
+ *  - `early_access`: game is coming soon, OR has EA history and released but
+ *    zero post-release reviews. Counts fall back to the EA-era (all-time)
+ *    numbers so users still see *something* — callers should label these as
+ *    "Early Access reviews" and/or show the ex-EA indicator. (We deliberately
+ *    do NOT render "No user reviews yet" here — the all-time numbers are
+ *    accurate EA reviews, they are not absent.)
+ *  - `all_time`: game with no EA history — current behavior.
  *
- * Analytics views that intentionally show historical / all-time sentiment
- * (time-series, developer trajectory) should NOT use this helper.
+ * `hasEarlyAccessHistory` is exposed independently of phase so callers can
+ * render an ex-EA chip for BOTH post_release and early_access phases of an
+ * ex-EA game. Analytics views (time-series, dev trajectory) should not use
+ * this helper — they want raw all-time numbers.
  */
 import type { Game } from "./types";
 

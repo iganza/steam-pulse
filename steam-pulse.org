@@ -257,14 +257,52 @@ Pro boundary, pricing, and Pro feature list.
     every week in Stage 0 without the wedge being undeniable is wasted.
 
 **** Prompts to land (priority order)
-1. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich indexable content even with no report. *Gates SEO discipline — don't index thin pages.*
-2. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
-3. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
-4. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (3).
-5. [ ] =scripts/prompts/interactive-market-trends-homepage.md= — homepage that actually sells the wedge.
+    *Items 1–5 are the EA vs post-release data-correctness cluster. Ship first —
+    Stage 0 exit criteria include "10+ flagship game reports you'd show a stranger
+    with pride" and a live wedge insights page; both surface the bug today. Trigger
+    case: Project Scrapper (9 EA / 0 post-release) — Steam store shows zero, we show
+    nine. Per-review =written_during_early_access= is already captured; none of the
+    read path uses it for aggregates/display. Fix in dependency order.*
+
+1. [ ] =scripts/prompts/split-ea-post-release-reviews.md= — *foundation.* Denormalise
+   English post-release =review_count= / =positive_pct= / =review_score_desc= onto
+   =games= at review-ingest time; wire into =GameCard= + detail hero +
+   =mv_discovery_feeds= + trend matviews. After this the UI stops showing EA-era
+   numbers as the primary headline for post-EA games.
+2. [ ] =scripts/prompts/post-ea-accelerated-review-recrawl.md= — new daily EventBridge
+   rule enqueues review re-crawls for games with =coming_soon=FALSE AND
+   has_early_access_reviews=TRUE AND release_date >= now - 30d=. Closes the long gap
+   between "post-EA release" and "next metadata re-crawl crosses 50-review eligibility"
+   so post-release sentiment materialises promptly instead of staying NULL for weeks.
+3. [ ] =scripts/prompts/analyzer-ea-awareness.md= — make the three-phase analyzer
+   phase-aware: chunks and merges carry =phase_mix= + counts; synthesis emits optional
+   =ea_era_reception= and =post_release_reception= blocks when both phases have ≥ 50
+   reviews; =sentiment_trend= brackets the window comparison on the EA→release
+   boundary. Aligns the LLM narrative with the phase-split headline.
+4. [ ] =scripts/prompts/ea-aware-timeline-endpoints.md= — add
+   =?phase=all|ea|post_release= query param to =/api/games/{appid}/review-stats=,
+   =/review-velocity=, =/playtime-sentiment=; return =release_date= +
+   =has_early_access_reviews= in the envelope so the frontend renders a phase toggle
+   and a vertical marker at the EA→release boundary on timeline charts.
+5. [ ] =scripts/prompts/phase-aware-genre-tag-aggregates.md= — rebuild
+   =mv_trend_catalog=, =mv_trend_by_genre=, =mv_trend_by_tag=, =mv_discovery_feeds=,
+   and the =*_counts= matviews to aggregate on =COALESCE(positive_pct_post_release,
+   positive_pct)=. Cross-game sentiment rollups reflect post-release reception for
+   post-EA games without a schema change on the read path.
+
+    *Wedge + SEO — ship after the EA cluster so the wedge renders with correct numbers:*
+6. [ ] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich indexable content even with no report. *Gates SEO discipline — don't index thin pages.*
+7. [ ] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
+8. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend: =mv_genre_synthesis= table, Phase-4 LLM, weekly EventBridge trigger, =/api/genres/{slug}/insights=.
+9. [ ] =scripts/prompts/genre-insights-page.md= — frontend: =/genre/[slug]/insights= Next.js page. Depends on (8).
+10. [ ] =scripts/prompts/interactive-market-trends-homepage.md= — homepage that actually sells the wedge.
 
     *Parallel / quality improvement, not blocking:*
     - [ ] =scripts/prompts/decouple-sentiment-trend-matview.md=
+    - Standalone TODO (skip as prompt unless the pattern recurs): generalise the
+      one-shot admin backfill from (1) into a reusable
+      =scripts/dev/backfill_game_metric.py= so future denormalised columns don't
+      each get a bespoke backfill script.
 
 **** Operational work (runbook, not prompts)
 - [ ] Sign up at https://resend.com, add DKIM + SPF, verify sending from hello@steampulse.io
@@ -500,46 +538,6 @@ Pro boundary, pricing, and Pro feature list.
 - [ ] =fix-just-added-steam-page-date.md= — migration + small code change. Minor trust/correctness fix.
 - [ ] BUG: "Recently Released" shows games released in 2027 — filter future =release_date=. Credibility fix.
 - [ ] Search: upgrade to =pg_trgm= for fuzzy/similarity-ranked search. Fuzzy matching for mis-spellings + better ranking. Useful once traffic picks up.
-
-*** EA vs post-release review handling (cluster, implement in order)
-    Steam's review summary API returns all-time aggregate counts (EA + post-release
-    combined) with no phase filter. Our site mirrors that, so a post-EA game with
-    EA-only reviews shows "N reviews" while Steam's store UI shows "No user reviews yet."
-    Trigger case: Project Scrapper — 9 EA reviews / 0 post-release, Steam UI shows
-    zero, we show nine. The per-review =written_during_early_access= flag is already
-    captured; none of the read path uses it for aggregates/display. Fix in five
-    sequential prompts — each builds on the previous.
-
-1. [ ] =split-ea-post-release-reviews.md= — *foundation.* Denormalize English
-   post-release =review_count= / =positive_pct= / =review_score_desc= onto =games=
-   at review-ingest time; wire into =GameCard= + detail hero + =mv_discovery_feeds= +
-   trend matviews. After this the UI stops showing EA-era numbers as the primary
-   headline for post-EA games.
-2. [ ] =post-ea-accelerated-review-recrawl.md= — new daily EventBridge rule enqueues
-   review re-crawls for games with =coming_soon=FALSE AND has_early_access_reviews=TRUE
-   AND release_date >= now - 30d=. Closes the long gap between "post-EA release"
-   and "next metadata re-crawl crosses 50-review eligibility," so post-release
-   sentiment materialises promptly instead of staying NULL for weeks.
-3. [ ] =analyzer-ea-awareness.md= — make the three-phase analyzer phase-aware: chunks
-   and merges carry =phase_mix= + counts; synthesis emits optional =ea_era_reception=
-   and =post_release_reception= blocks when both phases have ≥ 50 reviews;
-   =sentiment_trend= brackets the window comparison on the EA→release boundary for
-   transitioned games. Aligns the LLM narrative with the phase-split headline.
-4. [ ] =ea-aware-timeline-endpoints.md= — add =?phase=all|ea|post_release= query
-   param to =/api/games/{appid}/review-stats=, =/review-velocity=,
-   =/playtime-sentiment=; return =release_date= + =has_early_access_reviews= in the
-   envelope so the frontend renders a phase toggle and a vertical marker at the
-   EA→release boundary on timeline charts.
-5. [ ] =phase-aware-genre-tag-aggregates.md= — rebuild =mv_trend_catalog=,
-   =mv_trend_by_genre=, =mv_trend_by_tag=, =mv_discovery_feeds=, and the =*_counts=
-   matviews to aggregate on =COALESCE(positive_pct_post_release, positive_pct)=. Cross-game
-   sentiment rollups start reflecting post-release reception for post-EA games
-   without a schema change on the read path.
-
-    *Also a standalone TODO (keep in mind, skip as prompt unless we hit the pattern
-    again):* generalise the one-shot admin backfill from prompt 1 into a reusable
-    =scripts/dev/backfill_game_metric.py= so future denormalised columns don't each
-    get a bespoke backfill script.
 
 *** Gated on Stage 4 signal (Pro+ features — do NOT write before signal)
 - [ ] =pro-plus-export.md= (*write on signal*) — CSV/PDF export. Hard-gated on ≥ 3 inbound asks.

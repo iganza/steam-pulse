@@ -20,6 +20,38 @@ class SentimentTrend(TypedDict):
     reliable: bool  # True when each window has >= 50 reviews
 
 
+def steam_review_label(positive_pct: int, total: int) -> str:
+    """Mirror Steam's published review-summary breakpoints.
+
+    Returns "" when total == 0 (no post-release reviews → frontend skips rendering).
+    Used to derive the post-release-only label (`review_score_desc_post_release`)
+    locally from our English reviews table; the all-time `review_score_desc` on
+    `games` still comes from Steam's summary API.
+
+    Breakpoints from https://partner.steamgames.com/doc/store/reviews
+    """
+    if total <= 0:
+        return ""
+    pct = positive_pct
+    if pct >= 95 and total >= 500:
+        return "Overwhelmingly Positive"
+    if pct >= 80 and total >= 50:
+        return "Very Positive"
+    if pct >= 80:
+        return "Positive"
+    if pct >= 70:
+        return "Mostly Positive"
+    if pct >= 40:
+        return "Mixed"
+    if pct < 20 and total >= 500:
+        return "Overwhelmingly Negative"
+    if pct < 20 and total >= 50:
+        return "Very Negative"
+    if pct < 20:
+        return "Negative"
+    return "Mostly Negative"
+
+
 def compute_hidden_gem_score(positive_pct: int | float | None, review_count: int | None) -> float:
     """Hidden gem score: high quality + low discoverability.
 

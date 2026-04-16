@@ -71,6 +71,7 @@ def test_ingest_spoke_reviews_returns_count() -> None:
     """ingest_spoke_reviews upserts reviews and returns count."""
     svc = _make_crawl_service()
     svc._review_repo.bulk_upsert = MagicMock(return_value=1)
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(1, 1, 100))
 
     reviews = [
         {
@@ -96,3 +97,55 @@ def test_ingest_spoke_reviews_empty() -> None:
     svc = _make_crawl_service()
     result = svc.ingest_spoke_reviews(440, [])
     assert result == 0
+
+
+def test_ingest_spoke_reviews_refreshes_post_release_metrics() -> None:
+    """After upsert, derives English-only post-release counts and stores them on games."""
+    svc = _make_crawl_service()
+    svc._review_repo.bulk_upsert = MagicMock(return_value=3)
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(10, 8, 80))
+    svc._game_repo.update_post_release_metrics = MagicMock()
+    svc._game_repo.set_has_early_access_reviews = MagicMock()
+
+    reviews = [
+        {
+            "review_text": "r",
+            "voted_up": True,
+            "timestamp_created": 1700000001,
+            "language": "english",
+            "written_during_early_access": False,
+        }
+    ]
+    svc.ingest_spoke_reviews(440, reviews)
+
+    svc._review_repo.aggregate_post_release.assert_called_once_with(440)
+    svc._game_repo.update_post_release_metrics.assert_called_once()
+    args = svc._game_repo.update_post_release_metrics.call_args.args
+    assert args[0] == 440
+    assert args[1] == 10  # count
+    assert args[2] == 8  # positive
+    assert args[3] == 80  # pct = round(100 * 8 / 10)
+    assert args[4] == "Positive"  # 80% but only 10 total → "Positive" (≥50 threshold is for "Very Positive")
+
+
+def test_ingest_spoke_reviews_zero_post_release() -> None:
+    """Ex-EA game with no post-release reviews stores 0 counts and empty label."""
+    svc = _make_crawl_service()
+    svc._review_repo.bulk_upsert = MagicMock(return_value=1)
+    svc._review_repo.aggregate_post_release = MagicMock(return_value=(0, 0, 0))
+    svc._game_repo.update_post_release_metrics = MagicMock()
+    svc._game_repo.set_has_early_access_reviews = MagicMock()
+
+    reviews = [
+        {
+            "review_text": "r",
+            "voted_up": True,
+            "timestamp_created": 1700000001,
+            "language": "english",
+            "written_during_early_access": True,
+        }
+    ]
+    svc.ingest_spoke_reviews(440, reviews)
+
+    args = svc._game_repo.update_post_release_metrics.call_args.args
+    assert args == (440, 0, 0, 0, "")

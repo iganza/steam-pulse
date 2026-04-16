@@ -195,6 +195,8 @@ async def get_game_report(appid: int) -> dict:
         genres = [g["name"] for g in genre_rows]
         tags = [t["name"] for t in _tag_repo.find_tags_for_game(appid)]
         game_meta = {
+            "name": game.name,
+            "slug": game.slug,
             "header_image": game.header_image,
             "short_desc": game.short_desc,
             "developer": game.developer,
@@ -209,10 +211,21 @@ async def get_game_report(appid: int) -> dict:
             "tags": tags,
             "deck_compatibility": game.deck_compatibility,
             "deck_test_results": game.deck_test_results,
-            # Steam-sourced sentiment numbers
+            # Steam-sourced sentiment numbers (all-time, from summary API).
+            # `review_count_english` is exposed alongside `review_count` because
+            # `positive_pct` / `review_score_desc` are English-implicit and the
+            # frontend resolver prefers the English count to keep those aligned.
             "positive_pct": float(game.positive_pct) if game.positive_pct is not None else None,
             "review_score_desc": game.review_score_desc,
             "review_count": game.review_count,
+            "review_count_english": game.review_count_english,
+            # English-only post-release split (derived locally from reviews table)
+            "review_count_post_release": game.review_count_post_release,
+            "positive_count_post_release": game.positive_count_post_release,
+            "positive_pct_post_release": game.positive_pct_post_release,
+            "review_score_desc_post_release": game.review_score_desc_post_release,
+            "has_early_access_reviews": game.has_early_access_reviews,
+            "coming_soon": game.coming_soon,
             # Per-source freshness — UI renders these in the Steam Facts zone
             "meta_crawled_at": game.meta_crawled_at.isoformat() if game.meta_crawled_at else None,
             "review_crawled_at": game.review_crawled_at.isoformat()

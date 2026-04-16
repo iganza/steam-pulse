@@ -87,4 +87,30 @@ test.describe('Home page', () => {
     await search.fill('Action')
     await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
   })
+
+  test('Market Trends section is visible with granularity toggle', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /market trends/i })).toBeVisible()
+    const section = page.locator('section').filter({ hasText: 'Market Trends' })
+    // The toggle renders Week / Month / Quarter / Year buttons.
+    await expect(section.getByRole('button', { name: /^Week$/ })).toBeVisible()
+    await expect(section.getByRole('button', { name: /^Month$/ })).toBeVisible()
+    await expect(section.getByRole('button', { name: /^Quarter$/ })).toBeVisible()
+    await expect(section.getByRole('button', { name: /^Year$/ })).toBeVisible()
+  })
+
+  test('switching granularity refetches trend data with new param', async ({ page }) => {
+    const section = page.locator('section').filter({ hasText: 'Market Trends' })
+    // Wait for the initial default (year) fetch to settle before we interact.
+    await expect(section.getByRole('button', { name: /^Year$/ })).toBeVisible()
+    // Clicking "Month" should trigger a refetch with granularity=month.
+    const sentimentReq = page.waitForRequest((req) =>
+      /\/api\/analytics\/trends\/sentiment\?.*granularity=month/.test(req.url()),
+    )
+    const releasesReq = page.waitForRequest((req) =>
+      /\/api\/analytics\/trends\/release-volume\?.*granularity=month/.test(req.url()),
+    )
+    await section.getByRole('button', { name: /^Month$/ }).click()
+    await sentimentReq
+    await releasesReq
+  })
 })

@@ -51,6 +51,17 @@ function Skeleton({ height }: { height: number }) {
   );
 }
 
+function EmptyState({ height, message }: { height: number; message: string }) {
+  return (
+    <div
+      className="flex items-center justify-center text-xs font-mono text-muted-foreground text-center px-4"
+      style={{ height }}
+    >
+      {message}
+    </div>
+  );
+}
+
 export function MarketTrendsPreview() {
   const gradientId = useId();
 
@@ -119,10 +130,15 @@ export function MarketTrendsPreview() {
           }}
         >
           <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
-            Steam sentiment distribution
+            Positively rated releases
           </p>
-          {loading || !hasSentiment ? (
+          {loading ? (
             <Skeleton height={INLINE_HEIGHT} />
+          ) : !hasSentiment ? (
+            <EmptyState
+              height={INLINE_HEIGHT}
+              message="Not enough sentiment data for this view."
+            />
           ) : (
             <ResponsiveContainer width="100%" height={INLINE_HEIGHT}>
               <AreaChart
@@ -185,8 +201,13 @@ export function MarketTrendsPreview() {
           <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
             {RELEASE_LABEL[granularity]}
           </p>
-          {loading || !hasReleases ? (
+          {loading ? (
             <Skeleton height={INLINE_HEIGHT} />
+          ) : !hasReleases ? (
+            <EmptyState
+              height={INLINE_HEIGHT}
+              message="Not enough release data for this view."
+            />
           ) : (
             <ResponsiveContainer width="100%" height={INLINE_HEIGHT}>
               <BarChart
@@ -231,7 +252,7 @@ export function MarketTrendsPreview() {
 
       <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
         <p className="text-xs text-muted-foreground">
-          Games with ≥10 English reviews, bucketed by Steam&apos;s review score (Positive ≥70%, Mixed 40–70%, Negative &lt;40%).
+          Sentiment: share of games released in each period with Steam review score ≥70% (among games with ≥10 English reviews).
         </p>
         <Link
           href="/explore"

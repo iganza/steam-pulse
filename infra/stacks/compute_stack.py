@@ -381,7 +381,7 @@ class ComputeStack(cdk.Stack):
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(10),
-            memory_size=256,
+            memory_size=1024,
             tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(
                 self,

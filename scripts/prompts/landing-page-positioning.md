@@ -168,21 +168,31 @@ Each card shows a real data point or mini-visualization, not just text.
 - Appeal: both audiences
 - Note: Frame as "available for X games and growing" — honest about coverage
 
-### 3. Game Intelligence Showcase
+### 3. Game Intelligence Showcase (Tabbed, 3 Games)
 
-Pick a well-known game that has a full report. Show the actual game page
-experience — not just the report, but the full intelligence stack:
+Show three well-known games from different genres in a tabbed view. The user
+sees one game at a time and can click between tabs to explore different
+examples. This demonstrates breadth — SteamPulse isn't just for one genre.
 
+**Games** (hardcoded appids, chosen for SEO value + genre diversity):
+- Baldur's Gate 3 (1086940) — RPG / fantasy
+- Stardew Valley (413150) — indie / simulation
+- Cyberpunk 2077 (1091500) — AAA / open-world
+
+**Tab bar**: Game names as tabs at the top of the card. Active tab gets a teal
+underline; inactive tabs are muted. Client-side switching — all data is
+pre-fetched server-side, no loading on tab change.
+
+**Each tab shows the full intelligence stack**:
 - Review sentiment timeline (exists for every game)
-- Playtime-sentiment chart with churn wall (exists for every game)
 - Audience overlap competitors (exists for every game)
 - Report excerpt: one-liner + design strengths + gameplay friction (report-specific)
 
 This section demonstrates: "This is what you get when you look up any game."
-The report sections are clearly labeled as part of the deeper analysis, not the
-baseline.
+Games that fail to load (e.g. not yet analyzed) are silently excluded from the
+tab bar — the section degrades from 3 → 2 → 1 → hidden.
 
-**CTA**: "Explore this game →" and "Search for any game →"
+**CTA**: "Explore this game →" (per-tab, links to the active game's page)
 
 ### 4. Market Trends Preview
 
@@ -330,23 +340,29 @@ dark theme, design system, typography, overall aesthetic.
 This is a **content and layout** change to `frontend/app/page.tsx`. No backend
 changes. No new API endpoints needed — all data comes from existing endpoints:
 
-- Intelligence cards: static content + mini screenshots or small chart components
-- Game showcase: `GET /api/games/{appid}/report` + `/review-stats` + `/audience-overlap`
-- Market preview: `GET /api/analytics/trends/sentiment` or similar
-- Proof bar: `GET /api/games` for total count (or hardcode initially)
+- Intelligence cards: static content + mini chart components (Recharts sparklines)
+- Game showcase: 3 games × (`GET /api/games/{appid}/report` + `/review-stats` +
+  `/audience-overlap`) = 9 parallel calls. Tabbed client-side switching.
+- Market preview: `GET /api/analytics/trends/sentiment` + `/trends/release-volume`
+- Proof bar: `GET /api/games` for total count + genre count from existing fetch
 - Discovery rows: existing code, just reordered in the page
 
-**New components needed**:
-- `ProofBar` — stats row (games, reviews, trends)
-- `IntelligenceCards` — 3-4 card grid with mini-visualizations
-- `GameShowcase` — curated game intelligence display
-- `MarketPreview` — 1-2 embedded trend charts
-- `ForDevelopers` — CTA section with value props
+**New components** (all in `frontend/components/home/`):
+- `ProofBar` — stats row (games tracked, genres, trend history)
+- `IntelligenceCards` — 4-card grid with mini Recharts sparklines
+- `GameShowcase` — tabbed display cycling through 3 curated games
+- `MiniSentimentChart` — 80px area chart sparkline (no axes)
+- `MiniOverlapList` — top 3 audience overlap entries
+- `MiniTrendLine` — 80px line sparkline (no axes)
+- `MarketTrendsPreview` — 2 embedded trend charts (sentiment + releases)
+- `ForDevelopers` — CTA section with 3 value props
+- `FooterCTA` — closing search + "Free to explore"
 
 **Existing components reused**:
 - `HeroSearch` — stays as-is
 - `GameCard` — stays for discovery rows
 - `TagBrowser` — stays
+- `SentimentTimeline` — used full-size inside GameShowcase tabs
 
 ---
 

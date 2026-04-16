@@ -10,7 +10,7 @@ const websiteJsonLd = {
   "@type": "WebSite",
   name: "SteamPulse",
   url: "https://steampulse.io",
-  description: "Deep review intelligence for Steam games.",
+  description: "Player intelligence across 100,000+ Steam games — sentiment, trends, and competitive insights.",
   potentialAction: {
     "@type": "SearchAction",
     target: {
@@ -41,27 +41,27 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "SteamPulse: Steam Game Intelligence",
+    default: "SteamPulse — Steam Game Intelligence",
     template: "%s | SteamPulse",
   },
   description:
-    "Deep review intelligence for Steam games. Discover what players love, hate, and want next.",
+    "Player intelligence across 100,000+ Steam games. Sentiment analysis, competitive insights, market trends, and deep review reports — for gamers and game makers.",
   metadataBase: new URL("https://steampulse.io"),
   openGraph: {
     siteName: "SteamPulse",
     type: "website",
     locale: "en_US",
-    title: "SteamPulse: Steam Game Intelligence",
+    title: "SteamPulse — Steam Game Intelligence",
     description:
-      "Deep review intelligence for Steam games. Discover what players love, hate, and want next.",
+      "What players really think about every Steam game. Sentiment, trends, and competitive intelligence.",
     url: "https://steampulse.io",
     images: [{ url: "/og-default.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "SteamPulse: Steam Game Intelligence",
+    title: "SteamPulse — Steam Game Intelligence",
     description:
-      "Deep review intelligence for Steam games. Discover what players love, hate, and want next.",
+      "What players really think about every Steam game. Sentiment, trends, and competitive intelligence.",
     images: ["/og-default.png"],
     creator: "@steampulse",
   },

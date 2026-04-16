@@ -2,25 +2,49 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Gem, TrendingUp, ChevronRight, Star, Sparkles, Clock } from "lucide-react";
 import { HeroSearch } from "@/components/layout/HeroSearch";
-import { getGames, getGenres, getTagsGrouped } from "@/lib/api";
+import {
+  getGames,
+  getGenres,
+  getTagsGrouped,
+  getGameReport,
+  getReviewStats,
+  getAudienceOverlap,
+  getAnalyticsTrendSentiment,
+  getAnalyticsTrendReleaseVolume,
+} from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
+import { ProofBar } from "@/components/home/ProofBar";
+import { IntelligenceCards } from "@/components/home/IntelligenceCards";
+import { GameShowcase } from "@/components/home/GameShowcase";
+import type { ShowcaseGame } from "@/components/home/GameShowcase";
+import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
+import { ForDevelopers } from "@/components/home/ForDevelopers";
+import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game, TagGroup } from "@/lib/types";
 
+const SHOWCASE_GAMES = [
+  { appid: 1086940, slug: "baldurs-gate-3-1086940" },   // RPG / fantasy
+  { appid: 413150, slug: "stardew-valley-413150" },     // indie / simulation
+  { appid: 1091500, slug: "cyberpunk-2077-1091500" },   // AAA / open-world
+] as const;
+
 export const metadata: Metadata = {
-  title: "SteamPulse: Steam Game Intelligence",
+  title: "SteamPulse — Steam Game Intelligence",
   description:
-    "Deep review intelligence for 6,000+ Steam games. Discover what players love, hate, and want next.",
+    "Player intelligence across 100,000+ Steam games. Sentiment analysis, competitive insights, market trends, and deep review reports — for gamers and game makers.",
   openGraph: {
-    title: "SteamPulse: Steam Game Intelligence",
-    description: "Deep review intelligence for 6,000+ Steam games.",
+    title: "SteamPulse — Steam Game Intelligence",
+    description:
+      "What players really think about every Steam game. Sentiment, trends, and competitive intelligence.",
     url: "https://steampulse.io",
     images: [{ url: "/og-default.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "SteamPulse: Steam Game Intelligence",
-    description: "Deep review intelligence for 6,000+ Steam games.",
+    title: "SteamPulse — Steam Game Intelligence",
+    description:
+      "What players really think about every Steam game. Sentiment, trends, and competitive intelligence.",
     images: ["/og-default.png"],
   },
   alternates: {
@@ -29,16 +53,43 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const [popular, topRated, hiddenGems, newReleases, justAnalyzed, genres, tags] =
-    await Promise.allSettled([
-      getGames({ sort: "review_count", limit: 8 }),
-      getGames({ sort: "sentiment_score", min_reviews: 200, limit: 8 }),
-      getGames({ sort: "hidden_gem_score", limit: 8 }),
-      getGames({ sort: "release_date", limit: 8 }),
-      getGames({ sort: "last_analyzed", limit: 6 }),
-      getGenres(),
-      getTagsGrouped(200),
-    ]);
+  const [
+    popular,
+    topRated,
+    hiddenGems,
+    newReleases,
+    justAnalyzed,
+    genres,
+    tags,
+    // Showcase game 1: Baldur's Gate 3
+    sc0Report, sc0Stats, sc0Overlap,
+    // Showcase game 2: Stardew Valley
+    sc1Report, sc1Stats, sc1Overlap,
+    // Showcase game 3: Cyberpunk 2077
+    sc2Report, sc2Stats, sc2Overlap,
+    trendSentiment,
+    trendReleases,
+  ] = await Promise.allSettled([
+    getGames({ sort: "review_count", limit: 8 }),
+    getGames({ sort: "sentiment_score", min_reviews: 200, limit: 8 }),
+    getGames({ sort: "hidden_gem_score", limit: 8 }),
+    getGames({ sort: "release_date", limit: 8 }),
+    getGames({ sort: "last_analyzed", limit: 6 }),
+    getGenres(),
+    getTagsGrouped(200),
+    // Per-game showcase fetches (3 games × 3 endpoints = 9 calls)
+    getGameReport(SHOWCASE_GAMES[0].appid),
+    getReviewStats(SHOWCASE_GAMES[0].appid),
+    getAudienceOverlap(SHOWCASE_GAMES[0].appid, 5),
+    getGameReport(SHOWCASE_GAMES[1].appid),
+    getReviewStats(SHOWCASE_GAMES[1].appid),
+    getAudienceOverlap(SHOWCASE_GAMES[1].appid, 5),
+    getGameReport(SHOWCASE_GAMES[2].appid),
+    getReviewStats(SHOWCASE_GAMES[2].appid),
+    getAudienceOverlap(SHOWCASE_GAMES[2].appid, 5),
+    getAnalyticsTrendSentiment({ granularity: "month", limit: 12 }),
+    getAnalyticsTrendReleaseVolume({ granularity: "month", limit: 12 }),
+  ]);
 
   const popularGames: Game[] =
     popular.status === "fulfilled" ? popular.value.games ?? [] : [];
@@ -52,6 +103,50 @@ export default async function HomePage() {
     justAnalyzed.status === "fulfilled" ? justAnalyzed.value.games ?? [] : [];
   const genreList = genres.status === "fulfilled" ? genres.value : [];
   const tagGroups: TagGroup[] = tags.status === "fulfilled" ? tags.value : [];
+
+  const totalGames =
+    popular.status === "fulfilled" ? popular.value.total : 0;
+
+  // Showcase data — assemble per-game, skip any that failed
+  const scResults = [
+    { report: sc0Report, stats: sc0Stats, overlap: sc0Overlap, ...SHOWCASE_GAMES[0] },
+    { report: sc1Report, stats: sc1Stats, overlap: sc1Overlap, ...SHOWCASE_GAMES[1] },
+    { report: sc2Report, stats: sc2Stats, overlap: sc2Overlap, ...SHOWCASE_GAMES[2] },
+  ];
+
+  const showcaseGames: ShowcaseGame[] = scResults
+    .filter(
+      (sc) =>
+        sc.report.status === "fulfilled" &&
+        sc.report.value.report &&
+        sc.report.value.game,
+    )
+    .map((sc) => {
+      const r = (sc.report as PromiseFulfilledResult<Awaited<ReturnType<typeof getGameReport>>>).value;
+      const s = sc.stats.status === "fulfilled" ? sc.stats.value : null;
+      const o = sc.overlap.status === "fulfilled" ? sc.overlap.value : null;
+      return {
+        appid: sc.appid,
+        slug: sc.slug,
+        gameName: r.report!.game_name,
+        headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
+        report: r.report!,
+        timeline: s?.timeline ?? [],
+        overlaps: o?.overlaps ?? [],
+        totalReviewers: o?.total_reviewers ?? 0,
+      };
+    });
+
+  const sentimentTrend =
+    trendSentiment.status === "fulfilled"
+      ? trendSentiment.value.periods
+      : [];
+  const releaseTrend =
+    trendReleases.status === "fulfilled"
+      ? trendReleases.value.periods
+      : [];
+
+  const hasIntelCards = showcaseGames.length > 0;
 
   const rows: {
     label: string;
@@ -89,7 +184,7 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Search Hero */}
+      {/* Hero */}
       <header className="relative">
         <div
           className="absolute inset-0 opacity-30 pointer-events-none overflow-hidden"
@@ -98,18 +193,48 @@ export default async function HomePage() {
               "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(45,185,212,0.15), transparent)",
           }}
         />
-        <div className="relative max-w-3xl mx-auto px-6 pt-20 pb-16 text-center">
+        <div className="relative max-w-3xl mx-auto px-6 pt-20 pb-12 text-center">
           <h1
-            className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-6 leading-tight"
+            className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-3 leading-tight"
             style={{ letterSpacing: "-0.03em" }}
           >
-            Discover Steam Games
+            Steam, decoded
           </h1>
+          <p className="text-base text-muted-foreground mb-8 max-w-lg mx-auto">
+            Player intelligence across 100,000+ Steam games. What players love.
+            What they hate. What they want next.
+          </p>
           <HeroSearch />
+          {totalGames > 0 && genreList.length > 0 && (
+            <ProofBar totalGames={totalGames} genreCount={genreList.length} />
+          )}
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 pb-24 space-y-16">
+        {/* Intelligence Preview Cards */}
+        {hasIntelCards && showcaseGames.length > 0 && (
+          <IntelligenceCards
+            timeline={showcaseGames[0].timeline}
+            overlaps={showcaseGames[0].overlaps}
+            trendData={sentimentTrend}
+            report={showcaseGames[0].report}
+          />
+        )}
+
+        {/* Game Intelligence Showcase — tabbed, up to 3 games */}
+        {showcaseGames.length > 0 && (
+          <GameShowcase games={showcaseGames} />
+        )}
+
+        {/* Market Trends Preview */}
+        {(sentimentTrend.length >= 2 || releaseTrend.length >= 2) && (
+          <MarketTrendsPreview
+            sentimentData={sentimentTrend}
+            releaseData={releaseTrend}
+          />
+        )}
+
         {/* Discovery Rows */}
         {rows.map(
           (row) =>
@@ -159,6 +284,9 @@ export default async function HomePage() {
           </section>
         )}
 
+        {/* For Developers */}
+        <ForDevelopers />
+
         {/* Browse by Genre */}
         {genreList.length > 0 && (
           <section>
@@ -187,6 +315,9 @@ export default async function HomePage() {
 
         {/* Browse by Tag */}
         {tagGroups.length > 0 && <TagBrowser groups={tagGroups} />}
+
+        {/* Footer CTA */}
+        <FooterCTA />
 
         {/* Empty state */}
         {!hasAnyGames && (

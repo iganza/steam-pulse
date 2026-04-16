@@ -301,12 +301,63 @@ const server = createServer((req, res) => {
     return respond(res, 200, MOCK_BENCHMARKS)
   }
 
-  // Any other /api/games/* report (unknown appid) → not_available
+  // Audience overlap
+  if (/^\/api\/games\/\d+\/audience-overlap/.test(path)) {
+    return respond(res, 200, {
+      total_reviewers: 5000,
+      overlaps: [
+        { appid: 730, name: 'Counter-Strike 2', slug: 'counter-strike-2-730', header_image: null, positive_pct: 82, review_count: 8500000, overlap_count: 1200, overlap_pct: 24.0, shared_sentiment_pct: 78 },
+        { appid: 570, name: 'Dota 2', slug: 'dota-2-570', header_image: null, positive_pct: 81, review_count: 2000000, overlap_count: 800, overlap_pct: 16.0, shared_sentiment_pct: 72 },
+        { appid: 252490, name: 'Rust', slug: 'rust-252490', header_image: null, positive_pct: 77, review_count: 500000, overlap_count: 400, overlap_pct: 8.0, shared_sentiment_pct: 65 },
+      ],
+    })
+  }
+
+  // Any other /api/games/* report (unknown appid) → return mock report
   if (/^\/api\/games\/\d+\/report$/.test(path)) {
     return respond(res, 200, {
-      status: 'not_available',
-      review_count: 0,
-      game: null,
+      status: 'available',
+      report: MOCK_REPORT,
+      game: {
+        short_desc: MOCK_GAME_ANALYZED.short_desc,
+        header_image: MOCK_GAME_ANALYZED.header_image,
+        developer: MOCK_GAME_ANALYZED.developer,
+        release_date: MOCK_GAME_ANALYZED.release_date,
+        price_usd: null,
+        is_free: true,
+        is_early_access: false,
+        genres: MOCK_GAME_ANALYZED.genres,
+        tags: MOCK_GAME_ANALYZED.tags,
+        positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+        review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+        review_count: MOCK_GAME_ANALYZED.review_count,
+      },
+    })
+  }
+
+  // Trend analytics
+  if (path === '/api/analytics/trends/sentiment') {
+    return respond(res, 200, {
+      granularity: 'month',
+      periods: [
+        { period: '2024-01', total: 500, positive_count: 380, mixed_count: 70, negative_count: 50, positive_pct: 76.0, avg_steam_pct: 76.0, avg_metacritic: null },
+        { period: '2024-02', total: 520, positive_count: 400, mixed_count: 68, negative_count: 52, positive_pct: 76.9, avg_steam_pct: 76.9, avg_metacritic: null },
+        { period: '2024-03', total: 540, positive_count: 420, mixed_count: 65, negative_count: 55, positive_pct: 77.8, avg_steam_pct: 77.8, avg_metacritic: null },
+        { period: '2024-04', total: 510, positive_count: 395, mixed_count: 66, negative_count: 49, positive_pct: 77.5, avg_steam_pct: 77.5, avg_metacritic: null },
+      ],
+    })
+  }
+  if (path === '/api/analytics/trends/release-volume') {
+    return respond(res, 200, {
+      granularity: 'month',
+      filter: {},
+      periods: [
+        { period: '2024-01', releases: 1200, avg_steam_pct: 74.2, avg_reviews: 42, free_count: 180 },
+        { period: '2024-02', releases: 1350, avg_steam_pct: 75.1, avg_reviews: 38, free_count: 195 },
+        { period: '2024-03', releases: 1500, avg_steam_pct: 73.8, avg_reviews: 40, free_count: 210 },
+        { period: '2024-04', releases: 1420, avg_steam_pct: 74.5, avg_reviews: 45, free_count: 200 },
+      ],
+      summary: { total_releases: 5470, avg_per_period: 1368, trend: 'stable' },
     })
   }
 

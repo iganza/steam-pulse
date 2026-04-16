@@ -298,6 +298,35 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: MOCK_BENCHMARKS })
   )
 
+  // Generic game report fallback — catches appids not handled by specific routes below
+  await page.route('**/api/games/*/report', route =>
+    route.fulfill({
+      json: {
+        status: 'available',
+        report: MOCK_REPORT,
+        game: {
+          short_desc: MOCK_GAME_ANALYZED.short_desc,
+          header_image: MOCK_GAME_ANALYZED.header_image,
+          developer: MOCK_GAME_ANALYZED.developer,
+          release_date: MOCK_GAME_ANALYZED.release_date,
+          price_usd: 19.99,
+          is_free: false,
+          is_early_access: false,
+          genres: MOCK_GAME_ANALYZED.genres,
+          tags: MOCK_GAME_ANALYZED.tags,
+          positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+          review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+          review_count: MOCK_GAME_ANALYZED.review_count,
+          meta_crawled_at: MOCK_GAME_ANALYZED.meta_crawled_at,
+          review_crawled_at: MOCK_GAME_ANALYZED.review_crawled_at,
+          reviews_completed_at: MOCK_GAME_ANALYZED.reviews_completed_at,
+          tags_crawled_at: MOCK_GAME_ANALYZED.tags_crawled_at,
+          last_analyzed: MOCK_GAME_ANALYZED.last_analyzed,
+        },
+      },
+    })
+  )
+
   // Specific game report routes — registered LAST so they win over wildcard
   await page.route('**/api/games/440/report', route =>
     route.fulfill({

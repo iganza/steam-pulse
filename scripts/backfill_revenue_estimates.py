@@ -66,8 +66,8 @@ def _iter_candidate_appids(
     its connection — and the repository bulk update commits per batch. If
     we shared one connection we'd lose the cursor after the first write.
     """
-    clauses = []
-    params_list: list = []
+    clauses: list[str] = []
+    params_list: list[int | str] = []
 
     if only_stale:
         clauses.append("revenue_estimate_method IS DISTINCT FROM %s")
@@ -79,7 +79,7 @@ def _iter_candidate_appids(
 
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     sql = f"SELECT appid FROM games{where} ORDER BY appid"
-    params: tuple = tuple(params_list)
+    params: tuple[int | str, ...] = tuple(params_list)
 
     db_url = os.environ["DATABASE_URL"]
     reader_conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -117,7 +117,7 @@ def main() -> None:
         dest="only_stale",
         action="store_false",
         default=True,
-        help="Recompute every game. Default: --only-stale.",
+        help="Recompute every game. Default is stale-only (games missing estimates or with outdated data).",
     )
     parser.add_argument(
         "--start-after", type=int, default=None, help="Resume after this appid (skip appids <= N)."

@@ -16,9 +16,9 @@ queries like "is X worth it?"). Black Myth: Wukong already analyzed (#1 below).
 |        1 | Black Myth: Wukong ✅ DONE       | 2358720 | Very Positive (94%)     | #1 search traffic, anchor report                   |                   |                   |
 |        2 | Elden Ring         ✅ DONE       | 1245620 | Overwhelmingly Positive | Massive SEO, timeless, high review volume          | $422.08 - $421.89 | $421.89...$421.70 |
 |        3 | Baldur's Gate 3    ✅ DONE       | 1086940 | Overwhelmingly Positive | GOTY benchmark, devs study it obsessively          |                   |                   |
-|        4 | Cyberpunk 2077                   | 1091500 | Very Positive (89%)     | Redemption arc story = high dev interest           |                   |                   |
+|        4 | Cyberpunk 2077     ✅ DONE       | 1091500 | Very Positive (89%)     | Redemption arc story = high dev interest           |                   |                   |
 |        5 | Monster Hunter Wilds             | 2246340 | Mixed (67%)             | Recent, controversial, "is it worth it?" searches  |                   |                   |
-|        6 | Hades II                         | 1145350 | Overwhelmingly Positive | Best Early Access example, roguelite benchmark     |                   |                   |
+|        6 | Hades II           ✅ DONE       | 1145350 | Overwhelmingly Positive | Best Early Access example, roguelite benchmark     |                   |                   |
 |        7 | Stardew Valley                   |  413150 | Overwhelmingly Positive | Indie success story, every dev studies this        |                   |                   |
 |        8 | Hollow Knight                    |  367520 | Overwhelmingly Positive | Indie metroidvania benchmark, huge SEO             |                   |                   |
 |        9 | Kingdom Come: Deliverance II     | 1771300 | Very Positive (93%)     | Recent hit, niche RPG audience curious about data  |                   |                   |

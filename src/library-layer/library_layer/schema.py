@@ -989,7 +989,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,
            is_early_access FROM just_analyzed""",
     "CREATE UNIQUE INDEX IF NOT EXISTS mv_discovery_feeds_pk_idx ON mv_discovery_feeds(feed_kind, rank)",
-    "CREATE INDEX IF NOT EXISTS mv_discovery_feeds_kind_rank_idx ON mv_discovery_feeds(feed_kind, rank)",
 )
 
 

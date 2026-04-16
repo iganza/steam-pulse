@@ -138,9 +138,6 @@ SELECT feed_kind, rank,
 FROM just_analyzed;
 
 -- Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY.
+-- Also satisfies the canonical read path: WHERE feed_kind = %s ORDER BY rank LIMIT N.
 CREATE UNIQUE INDEX mv_discovery_feeds_pk_idx
-    ON mv_discovery_feeds (feed_kind, rank);
-
--- Btree for the canonical read path: WHERE feed_kind = %s ORDER BY rank LIMIT N.
-CREATE INDEX mv_discovery_feeds_kind_rank_idx
     ON mv_discovery_feeds (feed_kind, rank);

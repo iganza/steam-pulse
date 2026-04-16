@@ -101,6 +101,10 @@ class MatviewRepository(BaseRepository):
             d = dict(row)
             if d.get("release_date"):
                 d["release_date"] = str(d["release_date"])
+            # last_analyzed is TIMESTAMPTZ — convert to ISO string so JSONResponse
+            # (stdlib json.dumps) can serialize it without a 500.
+            if d.get("last_analyzed") is not None:
+                d["last_analyzed"] = d["last_analyzed"].isoformat()
             if d.get("estimated_revenue_usd") is not None:
                 d["estimated_revenue_usd"] = float(d["estimated_revenue_usd"])
             result.append(d)

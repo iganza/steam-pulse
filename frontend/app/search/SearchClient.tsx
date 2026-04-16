@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Search, X, Grid3X3, List, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { GameCard } from "@/components/game/GameCard";
+import { displayedReview } from "@/lib/review-display";
 import type { Game, Genre, Tag } from "@/lib/types";
 import type { GamesResponse } from "@/lib/api";
 
@@ -479,7 +480,8 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                   <div className="col-span-2 text-right">Released</div>
                 </div>
                 {games.map((game) => {
-                  const score = game.positive_pct;
+                  const displayed = displayedReview(game);
+                  const score = displayed.count > 0 ? displayed.positivePct : null;
                   const scoreColor = (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
                   return (
                     <Link
@@ -503,7 +505,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                         {game.genres?.[0] ?? "\u2014"}
                       </div>
                       <div className="col-span-1 text-right text-xs font-mono text-muted-foreground">
-                        {game.review_count?.toLocaleString() ?? "\u2014"}
+                        {displayed.count > 0 ? displayed.count.toLocaleString() : "\u2014"}
                       </div>
                       <div className="col-span-2 text-right">
                         {score != null ? (

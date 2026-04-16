@@ -254,6 +254,30 @@ class ReviewRepository(BaseRepository):
             "value_score": value_score,
         }
 
+    def aggregate_post_release(self, appid: int) -> tuple[int, int]:
+        """Return (post_release_count, post_release_positive_count) for one appid.
+
+        Filters to `written_during_early_access = FALSE`. No language predicate —
+        the reviews table is English-only by construction
+        (steam_source.get_reviews passes language="english").
+
+        Used by CrawlService to denormalize post-release counts onto games.
+        """
+        row = self._fetchone(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE written_during_early_access = FALSE) AS post_count,
+                COUNT(*) FILTER (WHERE written_during_early_access = FALSE
+                                 AND voted_up = TRUE) AS post_positive
+            FROM reviews
+            WHERE appid = %s
+            """,
+            (appid,),
+        )
+        if row is None:
+            return (0, 0)
+        return (int(row["post_count"]), int(row["post_positive"]))
+
     def find_early_access_impact(self, appid: int) -> dict:
         """Compare EA-era reviews vs. post-launch reviews."""
         rows = self._fetchall(

@@ -86,6 +86,12 @@ def test_discovery_feed_row_shape(api: httpx.Client) -> None:
         "review_count",
         "positive_pct",
         "is_early_access",
+        # 0048: English-only post-release split — homepage cards consume these.
+        "review_count_post_release",
+        "positive_pct_post_release",
+        "review_score_desc_post_release",
+        "has_early_access_reviews",
+        "coming_soon",
     ):
         assert key in g, f"missing {key} in response row"
     # Type assertions that would catch Decimal / datetime serialization bugs

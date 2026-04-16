@@ -85,6 +85,8 @@ class MatviewRepository(BaseRepository):
             """
             SELECT appid, name, slug, developer, header_image,
                    review_count, review_count_english, positive_pct, review_score_desc,
+                   review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
+                   has_early_access_reviews, coming_soon,
                    price_usd, is_free,
                    release_date, deck_compatibility,
                    hidden_gem_score, last_analyzed, is_early_access,

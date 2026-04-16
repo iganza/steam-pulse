@@ -21,6 +21,7 @@ from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.events import EventPublishError, publish_event
+from library_layer.utils.scores import steam_review_label
 from library_layer.utils.slugify import slugify
 from library_layer.utils.time import unix_to_datetime
 
@@ -211,6 +212,8 @@ class CrawlService:
         if has_ea_review and not getattr(game, "has_early_access_reviews", False):
             self._game_repo.set_has_early_access_reviews(appid)
 
+        self._refresh_post_release_metrics(appid)
+
         self._trigger_analysis(appid, game_name)
 
         # Publish reviews-ready event
@@ -277,7 +280,22 @@ class CrawlService:
         if any(r.get("written_during_early_access") for r in reviews_to_upsert):
             self._game_repo.set_has_early_access_reviews(appid)
 
+        self._refresh_post_release_metrics(appid)
+
         return upserted
+
+    def _refresh_post_release_metrics(self, appid: int) -> None:
+        """Recompute and denormalize English-only post-release aggregates onto games.
+
+        Called from both the direct crawl (`crawl_reviews`) and spoke ingest
+        (`ingest_spoke_reviews`) paths. Idempotent; safe to call per batch.
+        """
+        post_count, post_positive = self._review_repo.aggregate_post_release(appid)
+        post_pct = round(100 * post_positive / post_count) if post_count else 0
+        post_label = steam_review_label(post_pct, post_count)
+        self._game_repo.update_post_release_metrics(
+            appid, post_count, post_positive, post_pct, post_label
+        )
 
     # ------------------------------------------------------------------
     # DB ingest (shared by crawl_app and spoke ingest)

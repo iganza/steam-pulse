@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Gem } from "lucide-react";
 import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
+import { displayedReview } from "@/lib/review-display";
 import type { Game } from "@/lib/types";
 
 interface GameCardProps {
@@ -10,8 +11,9 @@ interface GameCardProps {
 
 export function GameCard({ game }: GameCardProps) {
   const href = `/games/${game.appid}/${game.slug}`;
-  // Steam's positive_pct is the only sentiment number on cards
-  const score = game.positive_pct;
+  const displayed = displayedReview(game);
+  // For ex-EA games we show the post-release score so it matches Steam's store UI.
+  const score = displayed.count > 0 ? displayed.positivePct : null;
   const scoreColor =
     (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
 
@@ -69,15 +71,20 @@ export function GameCard({ game }: GameCardProps) {
               </span>
             </>
           ) : (
-            (game.review_count_english ?? game.review_count) != null && (
+            displayed.count > 0 && (
               <span className="text-xs font-mono text-muted-foreground">
-                {(game.review_count_english ?? game.review_count)!.toLocaleString()}
+                {displayed.count.toLocaleString()}
                 {" reviews "}
                 <span style={{ opacity: 0.4, fontSize: "0.8em" }}>en</span>
               </span>
             )
           )}
         </div>
+        {displayed.phase === "post_release" && displayed.hasEarlyAccessHistory && (
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-2 opacity-70">
+            ex-EA · post-release reviews only
+          </p>
+        )}
       </div>
     </Link>
   );

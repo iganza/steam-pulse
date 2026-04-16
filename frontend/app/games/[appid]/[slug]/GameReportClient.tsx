@@ -72,6 +72,12 @@ interface GameReportClientProps {
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
   revenueEstimateReason?: string | null;
+  // positivePct / reviewScoreDesc / reviewCount above are pre-resolved by the
+  // page to the phase-appropriate values (post-release for ex-EA games, all-time
+  // otherwise). These two props communicate which phase was picked so the hero
+  // can show an "ex-EA" chip for post-EA games.
+  reviewPhase?: "post_release" | "early_access" | "all_time";
+  hasEarlyAccessHistory?: boolean;
 }
 
 function formatMonth(iso: string): string | null {
@@ -120,6 +126,8 @@ export function GameReportClient({
   estimatedRevenueUsd,
   revenueEstimateMethod,
   revenueEstimateReason,
+  reviewPhase,
+  hasEarlyAccessHistory,
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -173,6 +181,14 @@ export function GameReportClient({
         publisher={publisher}
         publisherSlug={publisherSlug}
       />
+      {reviewPhase === "post_release" && hasEarlyAccessHistory && (
+        <div
+          data-testid="ex-ea-indicator"
+          className="max-w-4xl mx-auto px-6 pt-4 -mb-6 text-xs font-mono uppercase tracking-widest text-muted-foreground"
+        >
+          ex-Early Access — showing post-release review numbers (matches Steam&apos;s store UI)
+        </div>
+      )}
 
       <div className="max-w-4xl mx-auto px-6 py-12 space-y-16">
         <Breadcrumbs items={breadcrumbItems} />

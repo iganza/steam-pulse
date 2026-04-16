@@ -14,6 +14,13 @@ export const MOCK_GAME_ANALYZED = {
   review_count: 142389,
   positive_pct: 87,
   review_score_desc: 'Very Positive',
+  // 0048: not an ex-EA game, so post-release split has empty defaults.
+  review_count_post_release: 0,
+  positive_count_post_release: 0,
+  positive_pct_post_release: 0,
+  review_score_desc_post_release: '',
+  has_early_access_reviews: false,
+  coming_soon: false,
   // 0.0-1.0 scale matching the backend; UI scales x100 at the badge boundary.
   hidden_gem_score: 0.12,
   price_usd: null,
@@ -35,6 +42,73 @@ export const MOCK_GAME_ANALYZED = {
   tags_crawled_at: _HOURS_AGO(2),
   // SteamPulse Analysis zone freshness
   last_analyzed: _DAYS_AGO(3),
+}
+
+// Project-Scrapper-like ex-EA game: EA history, released, but zero post-release
+// reviews. The card/hero should display EA counts with an ex-EA indicator.
+export const MOCK_GAME_POST_EA_ZERO = {
+  appid: 770777,
+  name: 'Project Scrapper',
+  slug: 'project-scrapper',
+  developer: 'Solo Dev',
+  header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/770777/header.jpg',
+  review_count: 9,
+  positive_pct: 88,
+  review_score_desc: 'Positive',
+  // 0048: graduated from EA; zero post-release reviews.
+  review_count_post_release: 0,
+  positive_count_post_release: 0,
+  positive_pct_post_release: 0,
+  review_score_desc_post_release: '',
+  has_early_access_reviews: true,
+  coming_soon: false,
+  hidden_gem_score: 0.1,
+  price_usd: 14.99,
+  is_free: false,
+  is_early_access: false,
+  genres: ['Indie', 'Action'],
+  tags: ['Indie', 'Roguelite'],
+  release_date: '2024-08-01',
+  short_desc: 'Post-EA indie with no post-release reviews yet.',
+  deck_compatibility: null,
+  deck_test_results: [],
+  meta_crawled_at: _HOURS_AGO(2),
+  review_crawled_at: _HOURS_AGO(2),
+  reviews_completed_at: _HOURS_AGO(2),
+  tags_crawled_at: _HOURS_AGO(2),
+}
+
+// Ex-EA game with healthy post-release reviews — hero should show the
+// post-release count, not the all-time total.
+export const MOCK_GAME_POST_EA_HEALTHY = {
+  appid: 770778,
+  name: 'Dungeon Delver',
+  slug: 'dungeon-delver',
+  developer: 'Mid Studio',
+  header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/770778/header.jpg',
+  review_count: 1500,       // 500 EA + 1000 post-release
+  positive_pct: 84,
+  review_score_desc: 'Very Positive',
+  review_count_post_release: 1000,
+  positive_count_post_release: 900,
+  positive_pct_post_release: 90,
+  review_score_desc_post_release: 'Very Positive',
+  has_early_access_reviews: true,
+  coming_soon: false,
+  hidden_gem_score: 0.3,
+  price_usd: 24.99,
+  is_free: false,
+  is_early_access: false,
+  genres: ['RPG', 'Indie'],
+  tags: ['RPG', 'Roguelike', 'Dungeon Crawler'],
+  release_date: '2023-10-15',
+  short_desc: 'Ex-EA dungeon crawler with healthy post-release reception.',
+  deck_compatibility: 3,
+  deck_test_results: [],
+  meta_crawled_at: _HOURS_AGO(2),
+  review_crawled_at: _HOURS_AGO(2),
+  reviews_completed_at: _HOURS_AGO(2),
+  tags_crawled_at: _HOURS_AGO(2),
 }
 
 export const MOCK_GAME_UNANALYZED = {
@@ -121,6 +195,13 @@ export const MOCK_GAME_2 = {
   review_count: 405000,
   positive_pct: 94, // higher than TF2
   review_score_desc: 'Overwhelmingly Positive',
+  // 0048: still EA, so post-release split is empty.
+  review_count_post_release: 0,
+  positive_count_post_release: 0,
+  positive_pct_post_release: 0,
+  review_score_desc_post_release: '',
+  has_early_access_reviews: true,
+  coming_soon: false,
   hidden_gem_score: 0.68, // higher than TF2
   price_usd: 19.99,
   is_free: false,

@@ -114,6 +114,16 @@ export interface Game {
   review_count_english?: number;
   positive_pct?: number;
   review_score_desc?: string | null;
+  // English-only post-release split (migration 0048). Derived locally from the
+  // reviews table (English-only by construction). NOT NULL DEFAULT on the DB
+  // side, so these are always numbers / string — not optional at the source.
+  // Kept optional in the TS type only because pre-0048 cached mocks may omit them.
+  review_count_post_release?: number;
+  positive_count_post_release?: number;
+  positive_pct_post_release?: number;
+  review_score_desc_post_release?: string;
+  has_early_access_reviews?: boolean;
+  coming_soon?: boolean;
   hidden_gem_score?: number;
   price_usd?: number;
   is_free?: boolean;

@@ -634,6 +634,69 @@ def test_early_access_impact_no_post(
 
 
 # ---------------------------------------------------------------------------
+# aggregate_post_release tests
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_post_release_splits_ea_and_post(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Returns (count, positive_count) for written_during_early_access = FALSE only."""
+    _seed_game(game_repo)
+    ea = [
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"agg-ea-{i}",
+            "voted_up": True,
+            "written_during_early_access": True,
+        }
+        for i in range(4)
+    ]
+    post = [
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"agg-post-{i}",
+            "voted_up": i < 7,
+            "written_during_early_access": False,
+        }
+        for i in range(10)
+    ]
+    review_repo.bulk_upsert(ea + post)
+    count, positive = review_repo.aggregate_post_release(440)
+    assert count == 10
+    assert positive == 7
+
+
+def test_aggregate_post_release_no_reviews(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    _seed_game(game_repo)
+    count, positive = review_repo.aggregate_post_release(440)
+    assert count == 0
+    assert positive == 0
+
+
+def test_aggregate_post_release_all_ea(
+    game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """All reviews written during EA → post-release count is 0."""
+    _seed_game(game_repo)
+    ea = [
+        {
+            **_make_reviews(count=1)[0],
+            "steam_review_id": f"agg-allea-{i}",
+            "voted_up": True,
+            "written_during_early_access": True,
+        }
+        for i in range(5)
+    ]
+    review_repo.bulk_upsert(ea)
+    count, positive = review_repo.aggregate_post_release(440)
+    assert count == 0
+    assert positive == 0
+
+
+# ---------------------------------------------------------------------------
 # find_review_velocity tests
 # ---------------------------------------------------------------------------
 

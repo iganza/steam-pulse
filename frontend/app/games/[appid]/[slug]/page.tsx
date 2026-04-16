@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getGameReport } from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import { displayedReview } from "@/lib/review-display";
 import { GameReportClient } from "./GameReportClient";
 
 interface Props {
@@ -111,6 +112,8 @@ export default async function GameReportPage({ params }: Props) {
     estimatedRevenueUsd?: number | null;
     revenueEstimateMethod?: string | null;
     revenueEstimateReason?: string | null;
+    reviewPhase?: "post_release" | "early_access" | "all_time";
+    hasEarlyAccessHistory?: boolean;
   } = {};
 
   try {
@@ -137,10 +140,28 @@ export default async function GameReportPage({ params }: Props) {
       if (g.deck_compatibility != null) gameData.deckCompatibility = g.deck_compatibility;
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
       if (g.is_early_access != null) gameData.isEarlyAccess = g.is_early_access;
-      // Steam-sourced sentiment + freshness fields — wired through to the client
-      if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
-      if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
-      if (g.review_count != null) gameData.reviewCount = g.review_count;
+      // Steam-sourced sentiment + freshness fields — wired through to the client.
+      // For ex-EA games the review_display helper swaps in the post-release split
+      // so the card/hero match Steam's store UI (migration 0048).
+      const displayed = displayedReview({
+        appid: numericAppid,
+        name: g.name ?? "",
+        slug: g.slug ?? slug,
+        review_count: g.review_count ?? undefined,
+        review_count_english: g.review_count_english ?? undefined,
+        positive_pct: g.positive_pct ?? undefined,
+        review_score_desc: g.review_score_desc ?? null,
+        review_count_post_release: g.review_count_post_release ?? 0,
+        positive_pct_post_release: g.positive_pct_post_release ?? 0,
+        review_score_desc_post_release: g.review_score_desc_post_release ?? "",
+        has_early_access_reviews: g.has_early_access_reviews ?? false,
+        coming_soon: g.coming_soon ?? false,
+      });
+      gameData.positivePct = displayed.positivePct || null;
+      gameData.reviewScoreDesc = displayed.label || null;
+      if (displayed.count > 0) gameData.reviewCount = displayed.count;
+      gameData.reviewPhase = displayed.phase;
+      gameData.hasEarlyAccessHistory = displayed.hasEarlyAccessHistory;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
@@ -231,6 +252,8 @@ export default async function GameReportPage({ params }: Props) {
           estimatedRevenueUsd={gameData.estimatedRevenueUsd}
           revenueEstimateMethod={gameData.revenueEstimateMethod}
           revenueEstimateReason={gameData.revenueEstimateReason}
+          reviewPhase={gameData.reviewPhase}
+          hasEarlyAccessHistory={gameData.hasEarlyAccessHistory}
         />
       </main>
     </>

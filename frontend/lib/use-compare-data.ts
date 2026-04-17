@@ -13,6 +13,12 @@ export function cacheGameMeta(meta: CompareGameMeta): void {
   gameMetaCache.set(meta.appid, meta);
 }
 
+/** Read-only accessor so other surfaces (e.g. GamePicker) can avoid duplicate
+ *  /report fetches for appids useCompareData has already resolved. */
+export function getCachedGameMeta(appid: number): CompareGameMeta | undefined {
+  return gameMetaCache.get(appid);
+}
+
 const DEPTH_MAP: Record<string, number> = {
   low: 0.25,
   short: 0.25,
@@ -83,9 +89,14 @@ async function resolveMeta(
     positive_pct?: number | null;
     review_score_desc?: string | null;
     review_count?: number | null;
+    review_count_english?: number | null;
   } | undefined,
   signal: AbortSignal,
 ): Promise<CompareGameMeta> {
+  // review_count_english stays aligned with positive_pct / review_score_desc
+  // (both English-implicit); fall back to all-language review_count.
+  const englishAlignedCount =
+    reportGame?.review_count_english ?? reportGame?.review_count;
   const cached = gameMetaCache.get(appid);
   if (cached) {
     // Merge fresh steam facts from the report call
@@ -93,7 +104,7 @@ async function resolveMeta(
       ...cached,
       positive_pct: reportGame?.positive_pct ?? cached.positive_pct,
       review_score_desc: reportGame?.review_score_desc ?? cached.review_score_desc,
-      review_count: reportGame?.review_count ?? cached.review_count,
+      review_count: englishAlignedCount ?? cached.review_count,
       price_usd: reportGame?.price_usd ?? cached.price_usd,
       is_free: reportGame?.is_free ?? cached.is_free,
       release_date: reportGame?.release_date ?? cached.release_date,
@@ -124,7 +135,7 @@ async function resolveMeta(
     header_image: header,
     positive_pct: reportGame?.positive_pct ?? null,
     review_score_desc: reportGame?.review_score_desc ?? null,
-    review_count: reportGame?.review_count ?? null,
+    review_count: englishAlignedCount ?? null,
     price_usd: reportGame?.price_usd ?? null,
     is_free: reportGame?.is_free ?? null,
     release_date: reportGame?.release_date ?? null,

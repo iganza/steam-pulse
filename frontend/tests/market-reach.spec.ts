@@ -64,7 +64,6 @@ test.describe('Market Reach card', () => {
       route.fulfill({
         json: {
           status: 'not_available',
-          review_count: 5000,
           game: {
             short_desc: 'F2P title',
             developer: 'Valve',

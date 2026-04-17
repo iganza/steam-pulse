@@ -44,6 +44,7 @@ export const MOCK_GAME_UNANALYZED = {
   developer: 'Small Studio',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/9999999/header.jpg',
   review_count: 42,
+  review_count_english: 38,
   positive_pct: 80,
   review_score_desc: 'Mostly Positive',
   hidden_gem_score: null,

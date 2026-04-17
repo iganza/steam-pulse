@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { X, Plus, Search } from "lucide-react";
-import { getGames } from "@/lib/api";
-import { cacheGameMeta } from "@/lib/use-compare-data";
+import { getGames, getGameReport } from "@/lib/api";
+import { cacheGameMeta, getCachedGameMeta } from "@/lib/use-compare-data";
 import type { Game } from "@/lib/types";
 
 interface GamePickerProps {
@@ -25,6 +25,22 @@ interface PillData {
 
 const pillCache = new Map<number, PillData>();
 
+/** Hydrate pill display from whichever cache has it: the picker's own
+ *  pillCache, or the shared compare meta cache populated by useCompareData
+ *  (so /compare?games=… reloads don't double-fetch reports). Falls back to
+ *  the "App {id}" placeholder when neither cache has the appid yet. */
+function resolvePill(id: number): PillData {
+  const cached = pillCache.get(id);
+  if (cached) return cached;
+  const meta = getCachedGameMeta(id);
+  if (meta) {
+    const p: PillData = { appid: id, name: meta.name, header_image: meta.header_image ?? null };
+    pillCache.set(id, p);
+    return p;
+  }
+  return { appid: id, name: `App ${id}`, header_image: null };
+}
+
 export function GamePicker({
   selectedAppids,
   maxGames,
@@ -38,7 +54,7 @@ export function GamePicker({
   const [results, setResults] = useState<Game[]>([]);
   const [loading, setLoading] = useState(false);
   const [pills, setPills] = useState<PillData[]>(() =>
-    selectedAppids.map((id) => pillCache.get(id) ?? { appid: id, name: `App ${id}`, header_image: null }),
+    selectedAppids.map((id) => resolvePill(id)),
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,50 +63,54 @@ export function GamePicker({
 
   // Rehydrate pill labels for appids we don't know yet.
   useEffect(() => {
-    const next = selectedAppids.map(
-      (id) => pillCache.get(id) ?? { appid: id, name: `App ${id}`, header_image: null },
-    );
-    setPills(next);
+    setPills(selectedAppids.map((id) => resolvePill(id)));
 
-    // Fetch any unknown ones via getGames.
+    // Fetch any unknown ones via the per-appid report endpoint.
+    // resolvePill above will have populated pillCache from the shared compare
+    // meta cache when possible, so this only fires for appids no surface has
+    // resolved yet.
     const unknown = selectedAppids.filter((id) => !pillCache.get(id));
     if (unknown.length === 0) return;
     const controller = new AbortController();
     (async () => {
-      for (const id of unknown) {
-        if (controller.signal.aborted) return;
-        try {
-          // We don't have a by-appid endpoint; try a broad search and match by appid.
-          // The compare data loader caches the proper meta. As a fallback, leave as "App {id}".
-          const res = await getGames({ q: String(id), limit: 5 }, controller.signal);
-          const match = res.games.find((g) => g.appid === id);
-          if (match) {
-            const p: PillData = {
-              appid: id,
-              name: match.name,
-              header_image: match.header_image ?? null,
-            };
-            pillCache.set(id, p);
-            cacheGameMeta({
-              appid: id,
-              name: match.name,
-              slug: match.slug,
-              header_image: match.header_image ?? null,
-              positive_pct: match.positive_pct ?? null,
-              review_score_desc: match.review_score_desc ?? null,
-              review_count: match.review_count ?? null,
-              price_usd: match.price_usd ?? null,
-              is_free: match.is_free ?? null,
-              release_date: match.release_date ?? null,
-            });
-            if (!controller.signal.aborted) {
-              setPills((prev) => prev.map((x) => (x.appid === id ? p : x)));
-            }
-          }
-        } catch {
-          // swallow — aborted or network error; the pill stays as "App {id}"
-        }
-      }
+      // /api/games/{appid}/report returns the full Steam projection under
+      // res.game; pull pill + cache meta straight from there. Fetch in
+      // parallel, then commit pillCache + setPills once for the whole batch.
+      const settled = await Promise.allSettled(
+        unknown.map((id) => getGameReport(id, controller.signal)),
+      );
+      if (controller.signal.aborted) return;
+      const fresh: PillData[] = [];
+      settled.forEach((result, idx) => {
+        if (result.status !== "fulfilled") return;
+        const id = unknown[idx];
+        const g = result.value.game;
+        if (!g?.name) return;
+        const p: PillData = {
+          appid: id,
+          name: g.name,
+          header_image: g.header_image ?? null,
+        };
+        pillCache.set(id, p);
+        // review_count_english stays aligned with positive_pct /
+        // review_score_desc; fall back to all-language review_count.
+        cacheGameMeta({
+          appid: id,
+          name: g.name,
+          slug: g.slug ?? String(id),
+          header_image: g.header_image ?? null,
+          positive_pct: g.positive_pct ?? null,
+          review_score_desc: g.review_score_desc ?? null,
+          review_count: g.review_count_english ?? g.review_count ?? null,
+          price_usd: g.price_usd ?? null,
+          is_free: g.is_free ?? null,
+          release_date: g.release_date ?? null,
+        });
+        fresh.push(p);
+      });
+      if (fresh.length === 0) return;
+      const byId = new Map(fresh.map((p) => [p.appid, p]));
+      setPills((prev) => prev.map((x) => byId.get(x.appid) ?? x));
     })();
     return () => {
       controller.abort();
@@ -164,7 +184,8 @@ export function GamePicker({
       header_image: game.header_image ?? null,
       positive_pct: game.positive_pct ?? null,
       review_score_desc: game.review_score_desc ?? null,
-      review_count: game.review_count ?? null,
+      // English-aligned to stay consistent with positive_pct / review_score_desc.
+      review_count: game.review_count_english ?? game.review_count ?? null,
       price_usd: game.price_usd ?? null,
       is_free: game.is_free ?? null,
       release_date: game.release_date ?? null,

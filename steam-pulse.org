@@ -489,6 +489,13 @@ Pro boundary, pricing, and Pro feature list.
    Plan. Items further down the stack are speculative — do not build
    them before the gating stage fires.*
 
+*** Pre-existing bugs
+    *Surfaced by Copilot review on PR #97 (the PR #96 revert). All
+    six metadata-desync items (the original three plus three audit
+    follow-ups) ship in PR #98, so this subsection is no longer a
+    backlog item. See =scripts/prompts/fix-frontend-backend-metadata-desyncs.md=
+    for the full arc.*
+
 *** Needed for Stage 2 (already written, ready to pull in)
 - [ ] =cleeng-integration.md= (*written*) — Cleeng subscription + MoR: hosted checkout, webhook handler, entitlements cache, is_pro(), waitlist-coupon wiring. Depends on auth0.
 
@@ -500,46 +507,6 @@ Pro boundary, pricing, and Pro feature list.
 - [ ] =fix-just-added-steam-page-date.md= — migration + small code change. Minor trust/correctness fix.
 - [ ] BUG: "Recently Released" shows games released in 2027 — filter future =release_date=. Credibility fix.
 - [ ] Search: upgrade to =pg_trgm= for fuzzy/similarity-ranked search. Fuzzy matching for mis-spellings + better ranking. Useful once traffic picks up.
-
-*** EA vs post-release review handling (cluster, implement in order)
-    Steam's review summary API returns all-time aggregate counts (EA + post-release
-    combined) with no phase filter. Our site mirrors that, so a post-EA game with
-    EA-only reviews shows "N reviews" while Steam's store UI shows "No user reviews yet."
-    Trigger case: Project Scrapper — 9 EA reviews / 0 post-release, Steam UI shows
-    zero, we show nine. The per-review =written_during_early_access= flag is already
-    captured; none of the read path uses it for aggregates/display. Fix in five
-    sequential prompts — each builds on the previous.
-
-1. [ ] =split-ea-post-release-reviews.md= — *foundation.* Denormalize English
-   post-release =review_count= / =positive_pct= / =review_score_desc= onto =games=
-   at review-ingest time; wire into =GameCard= + detail hero + =mv_discovery_feeds= +
-   trend matviews. After this the UI stops showing EA-era numbers as the primary
-   headline for post-EA games.
-2. [ ] =post-ea-accelerated-review-recrawl.md= — new daily EventBridge rule enqueues
-   review re-crawls for games with =coming_soon=FALSE AND has_early_access_reviews=TRUE
-   AND release_date >= now - 30d=. Closes the long gap between "post-EA release"
-   and "next metadata re-crawl crosses 50-review eligibility," so post-release
-   sentiment materialises promptly instead of staying NULL for weeks.
-3. [ ] =analyzer-ea-awareness.md= — make the three-phase analyzer phase-aware: chunks
-   and merges carry =phase_mix= + counts; synthesis emits optional =ea_era_reception=
-   and =post_release_reception= blocks when both phases have ≥ 50 reviews;
-   =sentiment_trend= brackets the window comparison on the EA→release boundary for
-   transitioned games. Aligns the LLM narrative with the phase-split headline.
-4. [ ] =ea-aware-timeline-endpoints.md= — add =?phase=all|ea|post_release= query
-   param to =/api/games/{appid}/review-stats=, =/review-velocity=,
-   =/playtime-sentiment=; return =release_date= + =has_early_access_reviews= in the
-   envelope so the frontend renders a phase toggle and a vertical marker at the
-   EA→release boundary on timeline charts.
-5. [ ] =phase-aware-genre-tag-aggregates.md= — rebuild =mv_trend_catalog=,
-   =mv_trend_by_genre=, =mv_trend_by_tag=, =mv_discovery_feeds=, and the =*_counts=
-   matviews to aggregate on =COALESCE(positive_pct_post_release, positive_pct)=. Cross-game
-   sentiment rollups start reflecting post-release reception for post-EA games
-   without a schema change on the read path.
-
-    *Also a standalone TODO (keep in mind, skip as prompt unless we hit the pattern
-    again):* generalise the one-shot admin backfill from prompt 1 into a reusable
-    =scripts/dev/backfill_game_metric.py= so future denormalised columns don't each
-    get a bespoke backfill script.
 
 *** Gated on Stage 4 signal (Pro+ features — do NOT write before signal)
 - [ ] =pro-plus-export.md= (*write on signal*) — CSV/PDF export. Hard-gated on ≥ 3 inbound asks.
@@ -573,3 +540,7 @@ Pro boundary, pricing, and Pro feature list.
 - [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Switching requires updating CDK assertion matchers (resource IDs change with environment name). Low priority.
 - [ ] *BUG: "Recently Released" shows games released in 2027.* Filter out future =release_date= values.
 - [ ] *Search: upgrade to pg_trgm for fuzzy/similarity-ranked search.* Currently ILIKE with exact/prefix boost in ORDER BY. Switch to pg_trgm: add the extension, GIN index on =games.name=, use =similarity()= or =word_similarity()= for ranking. Properly ranks "Minato" above "Terminator" for "minato" without the prefix-boost hack, and handles misspellings.
+
+*** Misc
+- [ ] Would it be nice if I could click on "Reviews", and I'm taken to page, or somehow shown the actual reviews?
+- [ ] If I click on price go right to a chart that somehow contextualizes the price in the genre of game?

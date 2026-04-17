@@ -401,7 +401,6 @@ test.describe('Quick Stats freshness — null timestamps', () => {
       route.fulfill({
         json: {
           status: 'not_available',
-          review_count: 42,
           game: {
             short_desc: 'A small indie adventure game.',
             developer: 'Small Studio',

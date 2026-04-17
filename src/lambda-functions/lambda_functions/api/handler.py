@@ -195,6 +195,8 @@ async def get_game_report(appid: int) -> dict:
         genres = [g["name"] for g in genre_rows]
         tags = [t["name"] for t in _tag_repo.find_tags_for_game(appid)]
         game_meta = {
+            "name": game.name,
+            "slug": game.slug,
             "header_image": game.header_image,
             "short_desc": game.short_desc,
             "developer": game.developer,
@@ -209,10 +211,13 @@ async def get_game_report(appid: int) -> dict:
             "tags": tags,
             "deck_compatibility": game.deck_compatibility,
             "deck_test_results": game.deck_test_results,
-            # Steam-sourced sentiment numbers
+            # Steam-sourced sentiment numbers. review_count_english is
+            # English-aligned and stays consistent with positive_pct /
+            # review_score_desc; review_count is all-language.
             "positive_pct": float(game.positive_pct) if game.positive_pct is not None else None,
             "review_score_desc": game.review_score_desc,
             "review_count": game.review_count,
+            "review_count_english": game.review_count_english,
             # Per-source freshness — UI renders these in the Steam Facts zone
             "meta_crawled_at": game.meta_crawled_at.isoformat() if game.meta_crawled_at else None,
             "review_crawled_at": game.review_crawled_at.isoformat()
@@ -258,14 +263,8 @@ async def get_game_report(appid: int) -> dict:
             "temporal": temporal_dict,
         }
 
-    review_count = (
-        (game.review_count_english or game.review_count)
-        if game
-        else _game_repo.get_review_count(appid)
-    )
     return {
         "status": "not_available",
-        "review_count": review_count,
         "game": game_meta,
     }
 

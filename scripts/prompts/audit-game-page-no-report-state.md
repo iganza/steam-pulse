@@ -26,12 +26,12 @@ Read `frontend/app/games/[appid]/[slug]/page.tsx` and every
 component it imports from `frontend/components/game/`. Map every
 section of the page (`<h2>`/`<section>`/card) to one of:
 
-| Status     | Meaning                                                              |
-|------------|----------------------------------------------------------------------|
-| **A**      | Renders rich content from non-report data (Steam, matviews) — keep   |
-| **B**      | Renders thin/empty content when `report=null` — needs enrichment     |
-| **C**      | Hidden cleanly when `report=null` — keep, no work needed             |
-| **D**      | Renders an empty section header / "N/A" placeholder — fix to be C or B-then-A |
+| Status | Meaning                                                                       |
+|--------|-------------------------------------------------------------------------------|
+| **A**  | Renders rich content from non-report data (Steam, matviews) — keep            |
+| **B**  | Renders thin/empty content when `report=null` — needs enrichment              |
+| **C**  | Hidden cleanly when `report=null` — keep, no work needed                      |
+| **D**  | Renders an empty section header / "N/A" placeholder — fix to be C or B-then-A |
 
 Output the audit as a markdown table at the top of the
 implementation PR description so the diff that follows is justified.

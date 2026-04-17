@@ -127,21 +127,32 @@ export function GameReportClient({
   const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
+    // Two independent fetches — benchmarks is intentionally decoupled from
+    // statsLoading so a slow benchmarks response never keeps the Sentiment
+    // History / Playtime Sentiment skeletons on screen after review-stats
+    // have already resolved.
+    let active = true;
+    (async () => {
       try {
-        const [stats, bench] = await Promise.all([
-          getReviewStats(appid),
-          getBenchmarks(appid).catch(() => null),
-        ]);
-        setReviewStats(stats);
-        if (bench) setBenchmarks(bench);
+        const stats = await getReviewStats(appid);
+        if (active) setReviewStats(stats);
       } catch {
         // charts simply won't render
       } finally {
-        setStatsLoading(false);
+        if (active) setStatsLoading(false);
       }
+    })();
+    (async () => {
+      try {
+        const bench = await getBenchmarks(appid);
+        if (active && bench) setBenchmarks(bench);
+      } catch {
+        // benchmark section simply won't render
+      }
+    })();
+    return () => {
+      active = false;
     };
-    load();
   }, [appid]);
 
   const name = report?.game_name ?? gameName ?? "Game Report";

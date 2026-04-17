@@ -156,7 +156,7 @@ test.describe('Game page — no-report state, JSON-LD schema enrichment', () => 
     await page.goto(NO_REPORT_URL)
   })
 
-  test('VideoGame schema includes aggregateRating, offers, author, publisher', async ({ page }) => {
+  test('VideoGame schema includes aggregateRating, offers, and author (publisher optional)', async ({ page }) => {
     const jsonLd = await page.locator('script[type="application/ld+json"]').textContent()
     expect(jsonLd).toBeTruthy()
     const data = JSON.parse(jsonLd!)

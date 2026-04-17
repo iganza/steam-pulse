@@ -43,6 +43,7 @@ const MOCK_GAME_UNANALYZED = {
   developer: 'Small Studio',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/9999999/header.jpg',
   review_count: 42,
+  review_count_english: 38,
   positive_pct: 80,
   review_score_desc: 'Mostly Positive',
   hidden_gem_score: null,
@@ -277,6 +278,8 @@ const server = createServer((req, res) => {
     return respond(res, 200, {
       status: 'not_available',
       game: {
+        name: MOCK_GAME_UNANALYZED.name,
+        slug: MOCK_GAME_UNANALYZED.slug,
         short_desc: MOCK_GAME_UNANALYZED.short_desc,
         developer: MOCK_GAME_UNANALYZED.developer,
         release_date: MOCK_GAME_UNANALYZED.release_date,
@@ -287,6 +290,10 @@ const server = createServer((req, res) => {
         tags: MOCK_GAME_UNANALYZED.tags,
         deck_compatibility: null,
         deck_test_results: [],
+        positive_pct: MOCK_GAME_UNANALYZED.positive_pct,
+        review_score_desc: MOCK_GAME_UNANALYZED.review_score_desc,
+        review_count: MOCK_GAME_UNANALYZED.review_count,
+        review_count_english: MOCK_GAME_UNANALYZED.review_count_english,
       },
     })
   }

@@ -383,6 +383,8 @@ export async function mockAllApiRoutes(page: Page) {
       json: {
         status: 'not_available',
         game: {
+          name: MOCK_GAME_UNANALYZED.name,
+          slug: MOCK_GAME_UNANALYZED.slug,
           short_desc: MOCK_GAME_UNANALYZED.short_desc,
           developer: MOCK_GAME_UNANALYZED.developer,
           release_date: MOCK_GAME_UNANALYZED.release_date,
@@ -395,6 +397,7 @@ export async function mockAllApiRoutes(page: Page) {
           positive_pct: MOCK_GAME_UNANALYZED.positive_pct,
           review_score_desc: MOCK_GAME_UNANALYZED.review_score_desc,
           review_count: MOCK_GAME_UNANALYZED.review_count,
+          review_count_english: MOCK_GAME_UNANALYZED.review_count_english,
           meta_crawled_at: MOCK_GAME_UNANALYZED.meta_crawled_at,
           review_crawled_at: MOCK_GAME_UNANALYZED.review_crawled_at,
           reviews_completed_at: MOCK_GAME_UNANALYZED.reviews_completed_at,

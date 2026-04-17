@@ -57,40 +57,44 @@ export function GamePicker({
     if (unknown.length === 0) return;
     const controller = new AbortController();
     (async () => {
-      for (const id of unknown) {
-        if (controller.signal.aborted) return;
-        try {
-          // /api/games/{appid}/report returns the full Steam projection under
-          // res.game; pull pill + cache meta straight from there.
-          const res = await getGameReport(id, controller.signal);
-          const g = res.game;
-          if (g?.name) {
-            const p: PillData = {
-              appid: id,
-              name: g.name,
-              header_image: g.header_image ?? null,
-            };
-            pillCache.set(id, p);
-            cacheGameMeta({
-              appid: id,
-              name: g.name,
-              slug: g.slug ?? "",
-              header_image: g.header_image ?? null,
-              positive_pct: g.positive_pct ?? null,
-              review_score_desc: g.review_score_desc ?? null,
-              review_count: g.review_count ?? null,
-              price_usd: g.price_usd ?? null,
-              is_free: g.is_free ?? null,
-              release_date: g.release_date ?? null,
-            });
-            if (!controller.signal.aborted) {
-              setPills((prev) => prev.map((x) => (x.appid === id ? p : x)));
-            }
-          }
-        } catch {
-          // swallow — aborted or network error; the pill stays as "App {id}"
-        }
-      }
+      // /api/games/{appid}/report returns the full Steam projection under
+      // res.game; pull pill + cache meta straight from there. Fetch in
+      // parallel, then commit pillCache + setPills once for the whole batch.
+      const settled = await Promise.allSettled(
+        unknown.map((id) => getGameReport(id, controller.signal)),
+      );
+      if (controller.signal.aborted) return;
+      const fresh: PillData[] = [];
+      settled.forEach((result, idx) => {
+        if (result.status !== "fulfilled") return;
+        const id = unknown[idx];
+        const g = result.value.game;
+        if (!g?.name) return;
+        const p: PillData = {
+          appid: id,
+          name: g.name,
+          header_image: g.header_image ?? null,
+        };
+        pillCache.set(id, p);
+        // review_count_english stays aligned with positive_pct /
+        // review_score_desc; fall back to all-language review_count.
+        cacheGameMeta({
+          appid: id,
+          name: g.name,
+          slug: g.slug ?? String(id),
+          header_image: g.header_image ?? null,
+          positive_pct: g.positive_pct ?? null,
+          review_score_desc: g.review_score_desc ?? null,
+          review_count: g.review_count_english ?? g.review_count ?? null,
+          price_usd: g.price_usd ?? null,
+          is_free: g.is_free ?? null,
+          release_date: g.release_date ?? null,
+        });
+        fresh.push(p);
+      });
+      if (fresh.length === 0) return;
+      const byId = new Map(fresh.map((p) => [p.appid, p]));
+      setPills((prev) => prev.map((x) => byId.get(x.appid) ?? x));
     })();
     return () => {
       controller.abort();

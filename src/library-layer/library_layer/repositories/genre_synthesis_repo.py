@@ -40,7 +40,13 @@ class GenreSynthesisRepository(BaseRepository):
         return GenreSynthesisRow.model_validate(d)
 
     def upsert(self, row: GenreSynthesisRow) -> None:
-        """Insert or update by slug. Always full replace — no merge."""
+        """Insert or update by slug. Always full replace — no merge.
+
+        Persists `row.computed_at` verbatim. The service sets this to the
+        time the LLM synthesis ran, and the caller expects the row it
+        receives back to carry that same timestamp — using NOW() on the
+        DB side would desync the in-memory model from the persisted row.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -49,7 +55,7 @@ class GenreSynthesisRepository(BaseRepository):
                     prompt_version, input_hash, synthesis, narrative_summary,
                     avg_positive_pct, median_review_count, computed_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (slug) DO UPDATE SET
                     display_name        = EXCLUDED.display_name,
                     input_appids        = EXCLUDED.input_appids,
@@ -60,7 +66,7 @@ class GenreSynthesisRepository(BaseRepository):
                     narrative_summary   = EXCLUDED.narrative_summary,
                     avg_positive_pct    = EXCLUDED.avg_positive_pct,
                     median_review_count = EXCLUDED.median_review_count,
-                    computed_at         = NOW()
+                    computed_at         = EXCLUDED.computed_at
                 """,
                 (
                     row.slug,
@@ -73,6 +79,7 @@ class GenreSynthesisRepository(BaseRepository):
                     row.narrative_summary,
                     row.avg_positive_pct,
                     row.median_review_count,
+                    row.computed_at,
                 ),
             )
         self.conn.commit()

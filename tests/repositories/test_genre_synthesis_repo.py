@@ -162,6 +162,9 @@ def test_upsert_then_get_roundtrip(
     assert got.synthesis.benchmark_games[0].name == "Slay the Spire"
     assert got.avg_positive_pct == pytest.approx(88.5)
     assert got.input_hash == "abc123"
+    # computed_at is persisted from the Python model (not DB NOW()), so the
+    # roundtrip timestamp matches what the service sets at synthesis time.
+    assert got.computed_at == row.computed_at
 
 
 def test_get_by_slug_missing_returns_none(

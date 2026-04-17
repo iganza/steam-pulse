@@ -519,6 +519,22 @@ class GameRepository(BaseRepository):
             result.append(d)
         return {"total": None, "games": result}
 
+    def find_review_stats_for_appids(self, appids: list[int]) -> list[dict]:
+        """Return [{appid, positive_pct, review_count}, ...] for the given appids.
+
+        Used by the Phase-4 synthesizer to compute aggregate descriptors
+        (avg_positive_pct, median_review_count) for the input set. Rows
+        with NULL positive_pct / review_count are still returned so callers
+        can filter them explicitly.
+        """
+        if not appids:
+            return []
+        rows = self._fetchall(
+            "SELECT appid, positive_pct, review_count FROM games WHERE appid = ANY(%s)",
+            (appids,),
+        )
+        return [dict(r) for r in rows]
+
     def find_benchmarks(
         self, appid: int, genre: str, year: int, price: float | None, is_free: bool
     ) -> dict:

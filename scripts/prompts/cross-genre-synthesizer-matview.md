@@ -18,6 +18,34 @@ This is the load-bearing distinction — synthesizing reports is cheap
 (~$1.30 per genre per refresh); synthesizing raw reviews would be
 catastrophic (~$50+ per genre per refresh).
 
+## Role in the product (2026-04-17 business-model pivot)
+
+The synthesis output is the **content engine** for two downstream
+products (see `project_business_model_2026.md` and
+`steam-pulse.org` → Active Launch Plan):
+
+1. **Paid genre market reports** (Phase 1, headline product) — the
+   `mv_genre_synthesis` row is the raw material an operator curates
+   into a $49-$1499 PDF report. The LLM produces synthesis; the
+   operator writes the report. Do NOT try to have Phase-4 produce
+   finished report prose.
+2. **Free genre insights page** (Phase 1, marketing funnel) —
+   `/genre/{slug}/insights` renders a public subset of the synthesis
+   (narrative summary, top-5 friction, top-3 wishlist, benchmark
+   list). The full depth lives in the paid PDF; the web page is
+   the preview.
+3. **NL chat + text-to-SQL backing store** (Phase 3, not launch) —
+   once Pro subscription ships, the structured `mv_genre_synthesis`
+   rows are the aggregation substrate that lets SteamPulse answer
+   cross-game quantitative questions LEYWARE's RAG-over-raw
+   architecture cannot.
+
+The implication for THIS prompt: no changes to the schema or prompt
+on account of reports/chat. Phase-4 stays minimal and focused. The
+report PDF is produced by human curation downstream; the chat layer
+is a future SQL front-end over the same table. Both consume the
+single canonical `mv_genre_synthesis.synthesis` JSONB.
+
 ## Naming note
 
 Called `mv_genre_synthesis` to align with the matview vocabulary in

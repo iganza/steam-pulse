@@ -69,6 +69,7 @@ def test_config_raises_when_llm_model_missing(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.delenv("LLM_MODEL__CHUNKING", raising=False)
     monkeypatch.delenv("LLM_MODEL__MERGING", raising=False)
     monkeypatch.delenv("LLM_MODEL__SUMMARIZER", raising=False)
+    monkeypatch.delenv("LLM_MODEL__GENRE_SYNTHESIS", raising=False)
     with pytest.raises(ValidationError):
         SteamPulseConfig(
             **{k: v for k, v in _ALL_REQUIRED.items() if not k.startswith("LLM_MODEL")}

@@ -156,6 +156,30 @@ class SteamPulseConfig(BaseSettings):
     # ── Batch dispatch tuning knobs ───────────────────────────────────────
     BATCH_DISPATCH_SIZE: int = 100
 
+    # ── Phase-4 cross-genre synthesizer tuning knobs ─────────────────────
+    # Single LLM call per genre per refresh, consuming per-game GameReports.
+    # MIN_REPORTS_PER_GENRE: refuse to synthesize below this (noise floor).
+    # MAX_REPORTS_PER_GENRE: sample by review_count DESC if the eligible
+    #   set is larger (context-budget cap).
+    # GENRE_SYNTHESIS_MAX_TOKENS: Sonnet output budget for the tool_use
+    #   response. Must fit the worst-case GenreSynthesis payload.
+    # GENRE_SYNTHESIS_PROMPT_VERSION: change to force a re-synthesis via
+    #   input_hash cache miss (cache key = sha256(version + sorted_appids)).
+    # GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT: only include games with at
+    #   least this many Steam reviews (low-signal games would drag the
+    #   synthesis toward noise).
+    # GENRE_SYNTHESIS_MAX_AGE_DAYS: weekly refresh threshold used by
+    #   find_stale() in the EventBridge scan.
+    # GENRE_SYNTHESIS_QUEUE_PARAM_NAME: SSM path for the synthesis SQS
+    #   queue URL. Lambda resolves at cold start.
+    MIN_REPORTS_PER_GENRE: int = 30
+    MAX_REPORTS_PER_GENRE: int = 200
+    GENRE_SYNTHESIS_MAX_TOKENS: int = 8000
+    GENRE_SYNTHESIS_PROMPT_VERSION: str = "v1"
+    GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT: int = 200
+    GENRE_SYNTHESIS_MAX_AGE_DAYS: int = 7
+    GENRE_SYNTHESIS_QUEUE_PARAM_NAME: str = ""
+
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.
 

@@ -134,6 +134,8 @@ SqsMessageType = Literal[
     "waitlist_confirmation",
     # Analysis pipeline (realtime or batch — three-phase analyzer entry point)
     "analysis_request",
+    # Phase-4 cross-genre synthesizer (one message = one genre to re-synthesize)
+    "genre_synthesis_job",
 ]
 
 AnalysisMode = Literal["realtime", "batch"]
@@ -178,3 +180,19 @@ class AnalysisRequest(BaseSqsMessage):
     appid: int
     mode: AnalysisMode = "realtime"
     reason: str | None = None  # "bulk_seed" | "stale_refresh" | "admin_reanalyze" | ...
+
+
+# --- Phase-4 genre synthesis messages ---
+
+
+class GenreSynthesisJobMessage(BaseSqsMessage):
+    """One genre to (re-)synthesize via the Phase-4 LLM pass.
+
+    Published by the weekly EventBridge scan (when a slug's synthesis has
+    aged out) and by admins forcing a refresh (e.g. after bumping
+    prompt_version).
+    """
+
+    message_type: SqsMessageType = "genre_synthesis_job"
+    slug: str
+    prompt_version: str

@@ -237,6 +237,41 @@ class TagRepository(BaseRepository):
             result[d["appid"]].append(d)
         return result
 
+    def find_eligible_for_synthesis(
+        self, slug: str, *, min_reviews: int
+    ) -> list[int]:
+        """Return appids eligible to feed the Phase-4 genre synthesizer.
+
+        Filters:
+          - game has the given tag slug
+          - game has a row in reports (Phase-3 already ran)
+          - games.review_count >= min_reviews
+
+        Sorted by review_count DESC so callers can trim to the top-N when
+        the eligible set exceeds MAX_REPORTS_PER_GENRE.
+        """
+        rows = self._fetchall(
+            """
+            SELECT g.appid
+            FROM games g
+            JOIN game_tags gt ON gt.appid = g.appid
+            JOIN tags t ON t.id = gt.tag_id
+            JOIN reports r ON r.appid = g.appid
+            WHERE t.slug = %s
+              AND COALESCE(g.review_count, 0) >= %s
+            ORDER BY g.review_count DESC NULLS LAST, g.appid
+            """,
+            (slug, min_reviews),
+        )
+        return [int(r["appid"]) for r in rows]
+
+    def find_display_name_for_slug(self, slug: str) -> str | None:
+        """Return the tag's display name for a slug, or None if unknown."""
+        row = self._fetchone("SELECT name FROM tags WHERE slug = %s", (slug,))
+        if row is None:
+            return None
+        return str(row["name"])
+
     def find_genres_for_appids(self, appids: list[int]) -> dict[int, list[dict]]:
         """Fetch genres for multiple appids in one query. Returns {appid: [genre, ...]}."""
         if not appids:

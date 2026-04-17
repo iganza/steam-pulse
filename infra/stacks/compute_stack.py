@@ -56,6 +56,7 @@ class ComputeStack(cdk.Stack):
         spoke_results_queue: sqs.IQueue,
         email_queue: sqs.IQueue,
         cache_invalidation_queue: sqs.IQueue,
+        genre_synthesis_queue: sqs.IQueue,
         spoke_crawl_queue_urls: str,
         **kwargs: object,
     ) -> None:
@@ -732,6 +733,100 @@ class ComputeStack(cdk.Stack):
                 email_queue,
                 batch_size=1,
                 report_batch_item_failures=True,
+            )
+        )
+
+        # ── Phase-4 Genre Synthesis Lambda ────────────────────────────────────
+        # One invocation per SQS message synthesizes one genre slug. Also
+        # handles the weekly EventBridge scan (stale-slug enqueue).
+        genre_synthesis_role = iam.Role(
+            self,
+            "GenreSynthesisRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+            ],
+        )
+        db_secret.grant_read(genre_synthesis_role)
+        anthropic_secret.grant_read(genre_synthesis_role)
+        genre_synthesis_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=["*"],
+            )
+        )
+        genre_synthesis_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{env}/*"
+                ],
+            )
+        )
+        genre_synthesis_queue.grant_consume_messages(genre_synthesis_role)
+        genre_synthesis_queue.grant_send_messages(genre_synthesis_role)
+
+        genre_synthesis_fn = PythonFunction(
+            self,
+            "GenreSynthesisFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/genre_synthesis/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=genre_synthesis_role,
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
+            timeout=cdk.Duration.minutes(5),
+            memory_size=1024,
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=logs.LogGroup(
+                self,
+                "GenreSynthesisLogs",
+                log_group_name=f"/steampulse/{env}/genre-synthesis",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="genre-synthesis",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+            ),
+        )
+        cdk.Tags.of(genre_synthesis_fn).add("steampulse:service", "genre-synthesis")
+        cdk.Tags.of(genre_synthesis_fn).add("steampulse:tier", "standard")
+
+        # One SQS message = one slug synthesis = one Bedrock call. Serialise
+        # with batch_size=1 + max_concurrency=2 so weekly bursts don't stampede
+        # Bedrock rate limits.
+        genre_synthesis_fn.add_event_source(
+            event_sources.SqsEventSource(
+                genre_synthesis_queue,
+                batch_size=1,
+                max_concurrency=2,
+                report_batch_item_failures=True,
+            )
+        )
+
+        # Weekly stale-scan — enqueues re-synthesis jobs for any slug whose
+        # synthesis row is older than GENRE_SYNTHESIS_MAX_AGE_DAYS.
+        # Deployed `enabled=False` per ARCHITECTURE.org rule — enable manually
+        # once the first slug has been seeded and the prompt has stabilised.
+        genre_synthesis_rule = events.Rule(
+            self,
+            "GenreSynthesisWeeklyRule",
+            schedule=events.Schedule.cron(
+                week_day="SUN", hour="2", minute="0"
+            ),
+            description="Weekly Phase-4 genre-synthesis stale-slug scan",
+            enabled=False,
+        )
+        genre_synthesis_rule.add_target(
+            events_targets.LambdaFunction(
+                genre_synthesis_fn,
+                event=events.RuleTargetInput.from_object({"action": "scan_stale"}),
             )
         )
 

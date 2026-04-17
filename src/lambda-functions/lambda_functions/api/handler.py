@@ -15,6 +15,7 @@ from library_layer.repositories.analysis_request_repo import AnalysisRequestRepo
 from library_layer.repositories.analytics_repo import AnalyticsRepository
 from library_layer.repositories.catalog_report_repo import CatalogReportRepository
 from library_layer.repositories.game_repo import EARLY_ACCESS_GENRE_ID, GameRepository
+from library_layer.repositories.genre_synthesis_repo import GenreSynthesisRepository
 from library_layer.repositories.matview_repo import MatviewRepository
 from library_layer.repositories.new_releases_repo import NewReleasesRepository
 from library_layer.repositories.report_repo import ReportRepository
@@ -67,6 +68,7 @@ _analytics_service = AnalyticsService(_analytics_repo)
 _catalog_report_repo = CatalogReportRepository(get_conn)
 _analysis_request_repo = AnalysisRequestRepository(get_conn)
 _catalog_report_service = CatalogReportService(_catalog_report_repo, _analysis_request_repo)
+_genre_synthesis_repo = GenreSynthesisRepository(get_conn)
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +306,22 @@ async def get_benchmarks(appid: int) -> dict:
 @app.get("/api/genres")
 async def list_genres() -> list[dict]:
     return _matview_repo.list_genre_counts()
+
+
+@app.get("/api/genres/{slug}/insights")
+async def get_genre_insights(slug: str) -> JSONResponse:
+    """Phase-4 cross-genre synthesis for `slug`. Refreshed weekly."""
+    logger.append_keys(slug=slug)
+    row = _genre_synthesis_repo.get_by_slug(slug)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "no_synthesis", "code": "not_found", "slug": slug},
+        )
+    return JSONResponse(
+        content=row.model_dump(mode="json"),
+        headers={"Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400"},
+    )
 
 
 @app.get("/api/tags/top")

@@ -18,7 +18,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-LLMTask = Literal["chunking", "merging", "summarizer"]
+LLMTask = Literal["chunking", "merging", "summarizer", "genre_synthesis"]
 
 
 class LLMUsage(BaseModel):

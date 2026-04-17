@@ -94,15 +94,17 @@ when present, is icing.
    that have reports and 5 that don't. Compare side-by-side. The
    no-report pages should look ~70%+ as rich as the report pages —
    different content shape, similar density.
-2. **Lighthouse SEO ≥ 90** on a sample no-report page.
-3. **Google Rich Results test** passes with the VideoGame JSON-LD.
-4. **Playwright E2E**: add a test fixture for "game without report"
+2. **Playwright E2E**: add a test fixture for "game without report"
    to `frontend/tests/fixtures/api-mock.ts`; new test in
    `game-no-report.spec.ts` verifies all expected fallback sections
    render and the LLM-only sections are absent (not empty).
-5. **No empty section headers in the DOM** when `report=null` — a
+3. **No empty section headers in the DOM** when `report=null` — a
    simple integration assertion.
-6. `cd frontend && npm run test:e2e`.
+4. `cd frontend && npm run test:e2e`.
+
+Lighthouse SEO and the Google Rich Results validation are deferred
+until post-deploy — the user runs those manually against the live
+production URL after merge + deploy. Don't block this PR on them.
 
 ## Out of scope
 

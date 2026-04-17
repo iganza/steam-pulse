@@ -80,7 +80,25 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
     [appid],
   );
 
-  const hasData = overlap || playtimeSentiment || eaImpact || velocity || topReviews;
+  // Inspect meaningful content — not just "endpoint returned an object" —
+  // so a game with all-empty payloads (the soft-launch thin no-report case)
+  // collapses the entire "Deep Dive Analytics" block rather than rendering
+  // an empty label with no child cards.
+  const hasOverlap = (overlap?.overlaps.length ?? 0) > 0;
+  const hasPlaytime = (playtimeSentiment?.buckets.length ?? 0) > 0;
+  // Mirror EarlyAccessImpact's own render guard exactly
+  // (verdict !== "no_ea" && early_access != null && post_launch != null) so
+  // hasData can't diverge from what the card itself would render — e.g. a
+  // "no_post" verdict with post_launch null would otherwise flip hasData
+  // true while the card rendered nothing.
+  const hasEA =
+    eaImpact != null &&
+    eaImpact.verdict !== "no_ea" &&
+    eaImpact.early_access != null &&
+    eaImpact.post_launch != null;
+  const hasVelocity = (velocity?.monthly.length ?? 0) >= 2;
+  const hasTopReviews = (topReviews?.reviews.length ?? 0) > 0;
+  const hasData = hasOverlap || hasPlaytime || hasEA || hasVelocity || hasTopReviews;
 
   if (loading) {
     return (
@@ -97,12 +115,14 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
       <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
         Deep Dive Analytics
       </p>
-      {playtimeSentiment && <PlaytimeSentimentChart data={playtimeSentiment} />}
-      {velocity && <ReviewVelocityChart data={velocity} />}
-      {eaImpact && <EarlyAccessImpactChart data={eaImpact} />}
-      {topReviews && <TopReviews data={topReviews} onSortChange={handleSortChange} />}
-      {overlap && (
-        <AudienceOverlapChart data={overlap} gameName={gameName} showAll={isPro} />
+      {hasPlaytime && <PlaytimeSentimentChart data={playtimeSentiment!} />}
+      {hasVelocity && <ReviewVelocityChart data={velocity!} />}
+      {hasEA && <EarlyAccessImpactChart data={eaImpact!} />}
+      {hasTopReviews && (
+        <TopReviews data={topReviews!} onSortChange={handleSortChange} />
+      )}
+      {hasOverlap && (
+        <AudienceOverlapChart data={overlap!} gameName={gameName} showAll={isPro} />
       )}
     </div>
   );

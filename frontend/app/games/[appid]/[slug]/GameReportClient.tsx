@@ -127,26 +127,59 @@ export function GameReportClient({
   const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
+    // Two independent fetches — benchmarks is intentionally decoupled from
+    // statsLoading so a slow benchmarks response never keeps the Sentiment
+    // History / Playtime Sentiment skeletons on screen after review-stats
+    // have already resolved. Reset state at the start of each effect run
+    // so an appid change never briefly shows the previous game's data, and
+    // so a failed fetch clears (rather than preserves) the stale value.
+    // The AbortController cancels the in-flight benchmarks request on
+    // appid change / unmount so rapid navigations don't waste network
+    // cycles (getReviewStats doesn't accept a signal today, so only
+    // benchmarks are aborted — its state update is still gated by
+    // `active`).
+    let active = true;
+    const benchController = new AbortController();
+    setStatsLoading(true);
+    setReviewStats(null);
+    setBenchmarks(null);
+    (async () => {
       try {
-        const [stats, bench] = await Promise.all([
-          getReviewStats(appid),
-          report ? getBenchmarks(appid).catch(() => null) : Promise.resolve(null),
-        ]);
-        setReviewStats(stats);
-        if (bench) setBenchmarks(bench);
+        const stats = await getReviewStats(appid);
+        if (active) setReviewStats(stats);
       } catch {
         // charts simply won't render
       } finally {
-        setStatsLoading(false);
+        if (active) setStatsLoading(false);
       }
+    })();
+    (async () => {
+      try {
+        const bench = await getBenchmarks(appid, benchController.signal);
+        if (active && bench) setBenchmarks(bench);
+      } catch {
+        // benchmark section simply won't render (includes AbortError)
+      }
+    })();
+    return () => {
+      active = false;
+      benchController.abort();
     };
-    load();
-  }, [appid, report]);
+  }, [appid]);
 
   const name = report?.game_name ?? gameName ?? "Game Report";
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
   const primaryGenre = genres?.[0];
+
+  // Hoist the Steam-chart render gates so the JSX below stays readable.
+  // PlaytimeChart's own internal guard is `total < 50`; we mirror it here
+  // so the parent <section> (including its SectionLabel) doesn't mount an
+  // empty shell when the chart would render null.
+  const playtimeReviewTotal =
+    reviewStats?.playtime_buckets.reduce((s, b) => s + b.reviews, 0) ?? 0;
+  const showSentimentHistory =
+    !!reviewStats && reviewStats.timeline.length >= 2;
+  const showPlaytimeSentiment = !!reviewStats && playtimeReviewTotal >= 50;
 
   const breadcrumbItems = [
     { label: "Home", href: "/" },
@@ -550,31 +583,41 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* --- Steam-sourced charts — rendered on both paths --- */}
+        {/* --- Steam-sourced charts — rendered on both paths when data is
+            sufficient. Sections (including their header) stay out of the DOM
+            entirely when data is thin, so no-report pages never show an empty
+            "Sentiment History" / "Playtime Sentiment" / "Competitive Benchmark"
+            heading. --- */}
 
-        <section>
-          <SectionLabel>Sentiment History</SectionLabel>
-          {statsLoading ? (
+        {statsLoading ? (
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimelineSkeleton />
-          ) : reviewStats && reviewStats.timeline.length >= 2 ? (
-            <SentimentTimeline timeline={reviewStats.timeline} />
-          ) : null}
-        </section>
+          </section>
+        ) : showSentimentHistory ? (
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
+            <SentimentTimeline timeline={reviewStats!.timeline} />
+          </section>
+        ) : null}
 
-        <section>
-          <SectionLabel>Playtime Sentiment</SectionLabel>
-          {statsLoading ? (
+        {statsLoading ? (
+          <section>
+            <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChartSkeleton />
-          ) : reviewStats ? (
+          </section>
+        ) : showPlaytimeSentiment ? (
+          <section>
+            <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChart
-              buckets={reviewStats.playtime_buckets}
-              insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+              buckets={reviewStats!.playtime_buckets}
+              insight={computePlaytimeInsight(reviewStats!.playtime_buckets)}
               isPro={isPro}
             />
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
-        {report && benchmarks && (
+        {benchmarks && benchmarks.cohort_size >= 10 && (
           <section>
             <SectionLabel>Competitive Benchmark</SectionLabel>
             <CompetitiveBenchmark
@@ -608,7 +651,13 @@ export function GameReportClient({
           </section>
         )}
 
-        {report && <GameAnalyticsSection appid={appid} gameName={name} />}
+        {/* Deep Dive Analytics — ungated from report. The section renders
+            overlap, top reviews, review velocity, playtime sentiment, and EA
+            impact from Steam-sourced endpoints that don't depend on the LLM
+            pass. Self-hides when all five endpoints return empty. */}
+        <GameAnalyticsSection appid={appid} gameName={name} />
+
+
 
         {!report && (
           <section className="text-center py-8">

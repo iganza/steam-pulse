@@ -21,6 +21,16 @@ const websiteJsonLd = {
   },
 };
 
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "SteamPulse",
+  url: "https://steampulse.io",
+  description:
+    "AI-powered Steam game intelligence — synthesised review reports, audience overlap, and genre insights for the Steam catalog.",
+  sameAs: ["https://twitter.com/steampulse"],
+};
+
 const playfair = Playfair_Display({
   variable: "--font-playfair",
   subsets: ["latin"],
@@ -86,6 +96,10 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
         <ProProvider isPro={isPro}>
           <NuqsAdapter>

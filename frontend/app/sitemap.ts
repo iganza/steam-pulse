@@ -1,10 +1,26 @@
 import type { MetadataRoute } from "next";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
+import type { Game } from "@/lib/types";
 
 // Generated on-demand so it always reflects current DB state
 export const dynamic = "force-dynamic";
 
 const BASE_URL = "https://steampulse.io";
+const MIN_REVIEWS = 10;
+
+function gameLastModified(game: Game): Date | undefined {
+  const candidates = [
+    game.reviews_completed_at,
+    game.review_crawled_at,
+    game.tags_crawled_at,
+    game.last_analyzed,
+    game.meta_crawled_at,
+  ].filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (candidates.length === 0) return undefined;
+  const max = candidates.reduce((a, b) => (a > b ? a : b));
+  const d = new Date(max);
+  return isNaN(d.getTime()) ? undefined : d;
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const routes: MetadataRoute.Sitemap = [
@@ -15,18 +31,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE_URL}/pro`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
   ];
 
-  // Games — paginate through all games (up to 49k for single sitemap)
+  // Games — paginate through all indexable games (up to 49k for single sitemap)
   try {
     let offset = 0;
     const limit = 1000;
     const devSlugs = new Set<string>();
     while (offset < 49000) {
-      const result = await getGames({ sort: "review_count", limit, offset });
+      const result = await getGames({
+        sort: "review_count",
+        limit,
+        offset,
+        min_reviews: MIN_REVIEWS,
+      });
       const games = result.games ?? [];
       if (games.length === 0) break;
       for (const game of games) {
         routes.push({
           url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
+          lastModified: gameLastModified(game),
           changeFrequency: "monthly",
           priority: 0.6,
         });

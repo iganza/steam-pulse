@@ -9,8 +9,11 @@ export const revalidate = 3600;
 const BASE_URL = "https://steampulse.io";
 const MIN_REVIEWS = 10;
 // Stay under the 50k-URL sitemap spec limit with headroom for hub routes
-// added after the game loop.
+// added after the game loop. HUB_RESERVE is the budget held back from the
+// game+developer loop so genre/tag entries always make it in.
 const MAX_URLS = 49000;
+const HUB_RESERVE = 500;
+const GAME_LOOP_CAP = MAX_URLS - HUB_RESERVE;
 
 function gameLastModified(game: Game): Date | undefined {
   const candidates = [
@@ -44,7 +47,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     let offset = 0;
     const limit = 1000;
     const devSlugs = new Set<string>();
-    while (routes.length < MAX_URLS) {
+    while (routes.length < GAME_LOOP_CAP) {
       const result = await getGames({
         sort: "review_count",
         limit,
@@ -54,14 +57,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       const games = result.games ?? [];
       if (games.length === 0) break;
       for (const game of games) {
-        if (routes.length >= MAX_URLS) break;
+        if (routes.length >= GAME_LOOP_CAP) break;
         routes.push({
           url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
           lastModified: gameLastModified(game),
           changeFrequency: "monthly",
           priority: 0.6,
         });
-        if (game.developer && routes.length < MAX_URLS) {
+        if (game.developer && routes.length < GAME_LOOP_CAP) {
           const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
           if (!devSlugs.has(devSlug)) {
             devSlugs.add(devSlug);

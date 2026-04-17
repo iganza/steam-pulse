@@ -24,12 +24,22 @@ def test_sitemap_xml(api: httpx.Client) -> None:
     assert r.status_code == 200
     root = ET.fromstring(r.text)
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-    urls = root.findall("sm:url", ns)
-    assert len(urls) > 0, "expected at least one <url> entry in sitemap.xml"
-    locs = [u.findtext("sm:loc", default="", namespaces=ns) for u in urls]
-    assert any("steampulse.io" in loc for loc in locs)
-    assert any("/games/" in loc for loc in locs)
-    assert any("/genre/" in loc for loc in locs)
+    saw_url = saw_domain = saw_games = saw_genre = False
+    for url_el in root.iterfind("sm:url", ns):
+        saw_url = True
+        loc = url_el.findtext("sm:loc", default="", namespaces=ns)
+        if "steampulse.io" in loc:
+            saw_domain = True
+        if "/games/" in loc:
+            saw_games = True
+        if "/genre/" in loc:
+            saw_genre = True
+        if saw_domain and saw_games and saw_genre:
+            break
+    assert saw_url, "expected at least one <url> entry in sitemap.xml"
+    assert saw_domain, "expected steampulse.io in at least one <loc>"
+    assert saw_games, "expected /games/ URL in sitemap"
+    assert saw_genre, "expected /genre/ URL in sitemap"
 
 
 def test_ai_crawler_not_blocked(api: httpx.Client) -> None:

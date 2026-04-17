@@ -61,8 +61,9 @@ async function apiFetch<T>(
 export async function getGameReport(appid: number, signal?: AbortSignal): Promise<{
   status: string;
   report?: GameReport;
-  review_count?: number;
   game?: {
+    name?: string;
+    slug?: string;
     header_image?: string;
     short_desc?: string;
     developer?: string;
@@ -81,6 +82,7 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
     positive_pct?: number | null;
     review_score_desc?: string | null;
     review_count?: number | null;
+    review_count_english?: number | null;
     meta_crawled_at?: string | null;
     review_crawled_at?: string | null;
     reviews_completed_at?: string | null;

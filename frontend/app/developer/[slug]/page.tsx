@@ -13,7 +13,15 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  let canonical: string | undefined;
+  try {
+    const res = await getGames({ developer: slug, limit: 1 });
+    canonical = res.games.find((g) => g.developer_slug === slug)?.developer;
+  } catch {
+    // Fall through to slug-derived name on backend hiccup.
+  }
+  const name =
+    canonical ?? slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   return {
     title: `${name} \u2014 Developer Profile`,
     description: `All Steam games by ${name} \u2014 player sentiment analysis across their catalog.`,
@@ -40,7 +48,6 @@ function avg(games: Game[], key: keyof Game): number | null {
 
 export default async function DeveloperPage({ params }: Props) {
   const { slug } = await params;
-  const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   // Fetch games and developer analytics in parallel
   const [gamesResult, portfolioResult] = await Promise.allSettled([
@@ -51,6 +58,10 @@ export default async function DeveloperPage({ params }: Props) {
   if (gamesResult.status === "rejected") notFound();
   const games: Game[] = gamesResult.value.games ?? [];
   const portfolio = portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
+
+  const canonical = games.find((g) => g.developer_slug === slug)?.developer;
+  const name =
+    canonical ?? slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   const avgScore = avg(games, "positive_pct");
   const totalReviews = games.reduce((a, g) => a + (g.review_count ?? 0), 0);

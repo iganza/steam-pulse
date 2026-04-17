@@ -276,7 +276,6 @@ const server = createServer((req, res) => {
   if (path === '/api/games/9999999/report') {
     return respond(res, 200, {
       status: 'not_available',
-      review_count: 42,
       game: {
         short_desc: MOCK_GAME_UNANALYZED.short_desc,
         developer: MOCK_GAME_UNANALYZED.developer,

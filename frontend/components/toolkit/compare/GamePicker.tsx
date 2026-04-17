@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { X, Plus, Search } from "lucide-react";
-import { getGames } from "@/lib/api";
+import { getGames, getGameReport } from "@/lib/api";
 import { cacheGameMeta } from "@/lib/use-compare-data";
 import type { Game } from "@/lib/types";
 
@@ -52,7 +52,7 @@ export function GamePicker({
     );
     setPills(next);
 
-    // Fetch any unknown ones via getGames.
+    // Fetch any unknown ones via the per-appid report endpoint.
     const unknown = selectedAppids.filter((id) => !pillCache.get(id));
     if (unknown.length === 0) return;
     const controller = new AbortController();
@@ -60,28 +60,28 @@ export function GamePicker({
       for (const id of unknown) {
         if (controller.signal.aborted) return;
         try {
-          // We don't have a by-appid endpoint; try a broad search and match by appid.
-          // The compare data loader caches the proper meta. As a fallback, leave as "App {id}".
-          const res = await getGames({ q: String(id), limit: 5 }, controller.signal);
-          const match = res.games.find((g) => g.appid === id);
-          if (match) {
+          // /api/games/{appid}/report returns the full Steam projection under
+          // res.game; pull pill + cache meta straight from there.
+          const res = await getGameReport(id, controller.signal);
+          const g = res.game;
+          if (g?.name) {
             const p: PillData = {
               appid: id,
-              name: match.name,
-              header_image: match.header_image ?? null,
+              name: g.name,
+              header_image: g.header_image ?? null,
             };
             pillCache.set(id, p);
             cacheGameMeta({
               appid: id,
-              name: match.name,
-              slug: match.slug,
-              header_image: match.header_image ?? null,
-              positive_pct: match.positive_pct ?? null,
-              review_score_desc: match.review_score_desc ?? null,
-              review_count: match.review_count ?? null,
-              price_usd: match.price_usd ?? null,
-              is_free: match.is_free ?? null,
-              release_date: match.release_date ?? null,
+              name: g.name,
+              slug: g.slug ?? "",
+              header_image: g.header_image ?? null,
+              positive_pct: g.positive_pct ?? null,
+              review_score_desc: g.review_score_desc ?? null,
+              review_count: g.review_count ?? null,
+              price_usd: g.price_usd ?? null,
+              is_free: g.is_free ?? null,
+              release_date: g.release_date ?? null,
             });
             if (!controller.signal.aborted) {
               setPills((prev) => prev.map((x) => (x.appid === id ? p : x)));

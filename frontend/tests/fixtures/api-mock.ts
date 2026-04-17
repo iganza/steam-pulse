@@ -382,7 +382,6 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({
       json: {
         status: 'not_available',
-        review_count: 42,
         game: {
           short_desc: MOCK_GAME_UNANALYZED.short_desc,
           developer: MOCK_GAME_UNANALYZED.developer,

@@ -118,11 +118,9 @@ export default async function GameReportPage({ params }: Props) {
     if (reportData.status === "available" && reportData.report) {
       report = reportData.report;
     }
-    if (reportData.review_count) {
-      gameData.reviewCount = reportData.review_count;
-    }
     if (reportData.game) {
       const g = reportData.game;
+      if (g.name) gameData.gameName = g.name;
       if (g.header_image) headerImage = g.header_image;
       if (g.short_desc) gameData.shortDesc = g.short_desc;
       if (g.developer) gameData.developer = g.developer;
@@ -137,10 +135,12 @@ export default async function GameReportPage({ params }: Props) {
       if (g.deck_compatibility != null) gameData.deckCompatibility = g.deck_compatibility;
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
       if (g.is_early_access != null) gameData.isEarlyAccess = g.is_early_access;
-      // Steam-sourced sentiment + freshness fields — wired through to the client
+      // Steam-sourced sentiment + freshness fields — wired through to the client.
+      // review_count_english stays aligned with positive_pct / review_score_desc
+      // (all English-implicit); all-language review_count would desync.
       if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
       if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
-      if (g.review_count != null) gameData.reviewCount = g.review_count;
+      if (g.review_count_english != null) gameData.reviewCount = g.review_count_english;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
@@ -155,6 +155,10 @@ export default async function GameReportPage({ params }: Props) {
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
     if (!(err instanceof ApiError)) throw err;
+  }
+
+  if (!gameData.gameName) {
+    gameData.gameName = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   // Build JSON-LD structured data

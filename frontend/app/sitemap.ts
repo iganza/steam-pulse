@@ -27,7 +27,7 @@ function gameLastModified(game: Game): Date | undefined {
   for (const c of candidates) {
     if (typeof c !== "string" || c.length === 0) continue;
     const t = new Date(c).getTime();
-    if (isNaN(t)) continue;
+    if (Number.isNaN(t)) continue;
     if (maxTime === undefined || t > maxTime) maxTime = t;
   }
   return maxTime === undefined ? undefined : new Date(maxTime);

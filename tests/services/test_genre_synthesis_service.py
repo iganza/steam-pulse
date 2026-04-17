@@ -114,6 +114,7 @@ def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict:
         llm_backend=backend,  # type: ignore[arg-type]
         config=config,
         metrics=metrics,
+        required_pipeline_version="3.0/test",
     )
     return {
         "service": service,

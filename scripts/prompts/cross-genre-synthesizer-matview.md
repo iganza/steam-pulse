@@ -20,7 +20,7 @@ catastrophic (~$50+ per genre per refresh).
 
 ## Role in the product (2026-04-17 business-model pivot)
 
-The synthesis output is the **content engine** for two downstream
+The synthesis output is the **content engine** for three downstream
 products (see `project_business_model_2026.md` and
 `steam-pulse.org` → Active Launch Plan):
 

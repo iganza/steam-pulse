@@ -232,27 +232,56 @@ def test_find_eligible_for_synthesis_filters_and_sorts(
         ]
     )
 
-    # Reports for 2001, 2002, 2003 only — 2004 has no report.
-    for appid in (2001, 2002, 2003):
+    # Reports at the current pipeline_version for 2001, 2002 — and a stale
+    # report at an older pipeline_version for 2003. 2004 has no report.
+    for appid in (2001, 2002):
         report_repo.upsert(
             {
                 "appid": appid,
                 "game_name": f"Game {appid}",
-                "pipeline_version": "3.0",
+                "pipeline_version": "3.0/current",
                 "chunk_count": 1,
                 "merged_summary_id": 1,
                 "total_reviews_analyzed": 1,
             }
         )
+    report_repo.upsert(
+        {
+            "appid": 2003,
+            "game_name": "Game 2003",
+            "pipeline_version": "3.0/old",  # stale — should be filtered out
+            "chunk_count": 1,
+            "merged_summary_id": 1,
+            "total_reviews_analyzed": 1,
+        }
+    )
 
     eligible = tag_repo.find_eligible_for_synthesis(
-        "deckbuilder", min_reviews=200, limit=10
+        "deckbuilder",
+        min_reviews=200,
+        limit=10,
+        pipeline_version="3.0/current",
     )
-    assert eligible == [2001, 2002]  # 2003 below threshold, 2004 has no report
+    # 2003 filtered by pipeline_version + below review threshold; 2004 has no report.
+    assert eligible == [2001, 2002]
 
     # SQL LIMIT is honoured — requesting only the top 1 returns the highest
     # review_count.
     top_one = tag_repo.find_eligible_for_synthesis(
-        "deckbuilder", min_reviews=200, limit=1
+        "deckbuilder",
+        min_reviews=200,
+        limit=1,
+        pipeline_version="3.0/current",
     )
     assert top_one == [2001]
+
+    # Querying the old pipeline_version returns only the stale-report game
+    # (and only if it meets the review threshold — 2003 has 150 reviews,
+    # below min=200, so empty).
+    at_old_version = tag_repo.find_eligible_for_synthesis(
+        "deckbuilder",
+        min_reviews=100,  # loosen to pick up 2003
+        limit=10,
+        pipeline_version="3.0/old",
+    )
+    assert at_old_version == [2003]

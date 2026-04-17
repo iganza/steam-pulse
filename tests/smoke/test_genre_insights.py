@@ -11,6 +11,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
+pytestmark = pytest.mark.smoke
+
 
 @pytest.mark.parametrize("slug", ["roguelike-deckbuilder"])
 def test_tag_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:

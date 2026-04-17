@@ -66,7 +66,13 @@ class GenreSynthesisService:
         llm_backend: ConverseBackend,
         config: SteamPulseConfig,
         metrics: Metrics,
+        required_pipeline_version: str,
     ) -> None:
+        """`required_pipeline_version` gates which Phase-3 reports count as
+        eligible input. After a Phase-3 PIPELINE_VERSION bump, stale reports
+        at the old version are excluded — Phase-4 waits until enough games
+        have been re-analyzed at the new version before synthesizing again.
+        """
         self._report_repo = report_repo
         self._tag_repo = tag_repo
         self._game_repo = game_repo
@@ -74,6 +80,7 @@ class GenreSynthesisService:
         self._llm = llm_backend
         self._config = config
         self._metrics = metrics
+        self._required_pipeline_version = required_pipeline_version
 
     def synthesize(
         self,
@@ -104,11 +111,13 @@ class GenreSynthesisService:
         display_name = self._resolve_display_name(slug)
 
         # SQL caps at MAX_REPORTS_PER_GENRE — the repo won't return more than
-        # the service intends to synthesize.
+        # the service intends to synthesize. pipeline_version excludes stale
+        # Phase-3 output so a bump forces a natural cache miss and refresh.
         selected_appids = self._tag_repo.find_eligible_for_synthesis(
             slug,
             min_reviews=self._config.GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT,
             limit=self._config.MAX_REPORTS_PER_GENRE,
+            pipeline_version=self._required_pipeline_version,
         )
         if len(selected_appids) < self._config.MIN_REPORTS_PER_GENRE:
             raise NotEnoughReportsError(

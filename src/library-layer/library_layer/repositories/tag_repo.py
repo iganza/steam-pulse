@@ -238,13 +238,16 @@ class TagRepository(BaseRepository):
         return result
 
     def find_eligible_for_synthesis(
-        self, slug: str, *, min_reviews: int, limit: int
+        self, slug: str, *, min_reviews: int, limit: int, pipeline_version: str
     ) -> list[int]:
         """Return appids eligible to feed the Phase-4 genre synthesizer.
 
         Filters:
           - game has the given tag slug
-          - game has a row in reports (Phase-3 already ran)
+          - game has a report at reports.pipeline_version = %s
+            (stale reports from a prior Phase-3 PIPELINE_VERSION are
+            excluded — mixing them in would degrade prompt adherence
+            and produce inconsistent cross-genre syntheses)
           - games.review_count >= min_reviews
 
         Sorted by review_count DESC and capped at `limit` so large tags
@@ -259,11 +262,12 @@ class TagRepository(BaseRepository):
             JOIN tags t ON t.id = gt.tag_id
             JOIN reports r ON r.appid = g.appid
             WHERE t.slug = %s
+              AND r.pipeline_version = %s
               AND COALESCE(g.review_count, 0) >= %s
             ORDER BY g.review_count DESC NULLS LAST, g.appid
             LIMIT %s
             """,
-            (slug, min_reviews, limit),
+            (slug, pipeline_version, min_reviews, limit),
         )
         return [int(r["appid"]) for r in rows]
 

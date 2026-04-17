@@ -29,6 +29,7 @@ from aws_lambda_powertools.utilities.batch import (
 )
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
+from library_layer.analyzer import PIPELINE_VERSION
 from library_layer.config import SteamPulseConfig
 from library_layer.events import GenreSynthesisJobMessage
 from library_layer.llm import make_converse_backend
@@ -70,6 +71,7 @@ _service = GenreSynthesisService(
     llm_backend=_llm_backend,
     config=_config,
     metrics=metrics,
+    required_pipeline_version=PIPELINE_VERSION,
 )
 
 _sqs = boto3.client("sqs")

@@ -136,11 +136,14 @@ export default async function GameReportPage({ params }: Props) {
       if (g.deck_test_results?.length) gameData.deckTestResults = g.deck_test_results;
       if (g.is_early_access != null) gameData.isEarlyAccess = g.is_early_access;
       // Steam-sourced sentiment + freshness fields — wired through to the client.
-      // review_count_english stays aligned with positive_pct / review_score_desc
-      // (all English-implicit); all-language review_count would desync.
+      // Always prefer review_count_english so the number next to positive_pct /
+      // review_score_desc stays on the same English-implicit basis; fall back
+      // to all-language review_count only when no English count exists (keeps
+      // QuickStats' Reviews tile and MarketReach's X/50 empty state populated).
       if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
       if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
-      if (g.review_count_english != null) gameData.reviewCount = g.review_count_english;
+      const englishAlignedCount = g.review_count_english ?? g.review_count;
+      if (englishAlignedCount != null) gameData.reviewCount = englishAlignedCount;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;

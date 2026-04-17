@@ -199,6 +199,45 @@ export default async function GameReportPage({ params }: Props) {
           },
         }
       : {}),
+    // author/publisher from Steam metadata — populated even without an LLM
+    // report so no-report pages still emit full schema. Linked to the
+    // respective entity pages via a URL when we have a slug.
+    ...(gameData.developer
+      ? {
+          "author": {
+            "@type": "Organization",
+            "name": gameData.developer,
+            ...(gameData.developerSlug
+              ? { "url": `https://steampulse.io/developer/${gameData.developerSlug}` }
+              : {}),
+          },
+        }
+      : {}),
+    ...(gameData.publisher
+      ? {
+          "publisher": {
+            "@type": "Organization",
+            "name": gameData.publisher,
+            ...(gameData.publisherSlug
+              ? { "url": `https://steampulse.io/publisher/${gameData.publisherSlug}` }
+              : {}),
+          },
+        }
+      : {}),
+    // Offer — price + currency. Free games emit "0" so crawlers still see a
+    // valid Offer; paid games emit the USD price. Link points to the Steam
+    // store page, the canonical purchase location.
+    ...(gameData.isFree || gameData.priceUsd != null
+      ? {
+          "offers": {
+            "@type": "Offer",
+            "price": gameData.isFree ? "0" : gameData.priceUsd!.toFixed(2),
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "url": `https://store.steampowered.com/app/${numericAppid}`,
+          },
+        }
+      : {}),
   };
 
   return (

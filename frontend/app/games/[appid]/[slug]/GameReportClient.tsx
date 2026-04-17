@@ -131,7 +131,7 @@ export function GameReportClient({
       try {
         const [stats, bench] = await Promise.all([
           getReviewStats(appid),
-          report ? getBenchmarks(appid).catch(() => null) : Promise.resolve(null),
+          getBenchmarks(appid).catch(() => null),
         ]);
         setReviewStats(stats);
         if (bench) setBenchmarks(bench);
@@ -142,7 +142,7 @@ export function GameReportClient({
       }
     };
     load();
-  }, [appid, report]);
+  }, [appid]);
 
   const name = report?.game_name ?? gameName ?? "Game Report";
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
@@ -550,31 +550,42 @@ export function GameReportClient({
           </section>
         )}
 
-        {/* --- Steam-sourced charts — rendered on both paths --- */}
+        {/* --- Steam-sourced charts — rendered on both paths when data is
+            sufficient. Sections (including their header) stay out of the DOM
+            entirely when data is thin, so no-report pages never show an empty
+            "Sentiment History" / "Playtime Sentiment" / "Competitive Benchmark"
+            heading. --- */}
 
-        <section>
-          <SectionLabel>Sentiment History</SectionLabel>
-          {statsLoading ? (
+        {statsLoading ? (
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimelineSkeleton />
-          ) : reviewStats && reviewStats.timeline.length >= 2 ? (
+          </section>
+        ) : reviewStats && reviewStats.timeline.length >= 2 ? (
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimeline timeline={reviewStats.timeline} />
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
-        <section>
-          <SectionLabel>Playtime Sentiment</SectionLabel>
-          {statsLoading ? (
+        {statsLoading ? (
+          <section>
+            <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChartSkeleton />
-          ) : reviewStats ? (
+          </section>
+        ) : reviewStats &&
+          reviewStats.playtime_buckets.reduce((s, b) => s + b.reviews, 0) >= 50 ? (
+          <section>
+            <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChart
               buckets={reviewStats.playtime_buckets}
               insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
               isPro={isPro}
             />
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
-        {report && benchmarks && (
+        {benchmarks && benchmarks.cohort_size >= 10 && (
           <section>
             <SectionLabel>Competitive Benchmark</SectionLabel>
             <CompetitiveBenchmark
@@ -608,7 +619,13 @@ export function GameReportClient({
           </section>
         )}
 
-        {report && <GameAnalyticsSection appid={appid} gameName={name} />}
+        {/* Deep Dive Analytics — ungated from report. The section renders
+            overlap, top reviews, review velocity, playtime sentiment, and EA
+            impact from Steam-sourced endpoints that don't depend on the LLM
+            pass. Self-hides when all five endpoints return empty. */}
+        <GameAnalyticsSection appid={appid} gameName={name} />
+
+
 
         {!report && (
           <section className="text-center py-8">

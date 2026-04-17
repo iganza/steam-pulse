@@ -544,3 +544,4 @@ Pro boundary, pricing, and Pro feature list.
 *** Misc
 - [ ] Would it be nice if I could click on "Reviews", and I'm taken to page, or somehow shown the actual reviews?
 - [ ] If I click on price go right to a chart that somehow contextualizes the price in the genre of game?
+- [ ] Manual: Lighthouse SEO ≥ 90 and Google Rich Results test on a live no-report page — both belong in the PR description per the plan.

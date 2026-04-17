@@ -302,9 +302,12 @@ test.describe('Data-driven insights — unanalyzed game', () => {
     await expect(page.getByTestId('playtime-chart')).toBeVisible()
   })
 
-  test('competitive benchmark is NOT shown for unanalyzed games', async ({ page }) => {
-    // Benchmarks section only renders in the analyzed game path
-    await expect(page.getByTestId('competitive-benchmark')).not.toBeAttached()
+  test('competitive benchmark IS shown for unanalyzed games when cohort >= 10', async ({ page }) => {
+    // Soft-launch SEO discipline: benchmark is sourced from
+    // /api/games/{appid}/benchmarks which is report-independent. Ungated so
+    // no-report pages still get a credible "Top X% in genre" dashboard row.
+    // MOCK_BENCHMARKS.cohort_size = 312 so the threshold (>= 10) is met.
+    await expect(page.getByTestId('competitive-benchmark')).toBeVisible()
   })
 
   test('promise gap is NOT shown for unanalyzed games', async ({ page }) => {

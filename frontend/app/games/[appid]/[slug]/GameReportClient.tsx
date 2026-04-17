@@ -130,8 +130,13 @@ export function GameReportClient({
     // Two independent fetches — benchmarks is intentionally decoupled from
     // statsLoading so a slow benchmarks response never keeps the Sentiment
     // History / Playtime Sentiment skeletons on screen after review-stats
-    // have already resolved.
+    // have already resolved. Reset state at the start of each effect run
+    // so an appid change never briefly shows the previous game's data, and
+    // so a failed fetch clears (rather than preserves) the stale value.
     let active = true;
+    setStatsLoading(true);
+    setReviewStats(null);
+    setBenchmarks(null);
     (async () => {
       try {
         const stats = await getReviewStats(appid);

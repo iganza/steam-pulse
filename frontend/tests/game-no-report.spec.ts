@@ -157,7 +157,15 @@ test.describe('Game page — no-report state, JSON-LD schema enrichment', () => 
   })
 
   test('VideoGame schema includes aggregateRating, offers, and author (publisher optional)', async ({ page }) => {
-    const jsonLd = await page.locator('script[type="application/ld+json"]').textContent()
+    // The app emits multiple <script type="application/ld+json"> tags — a
+    // site-level schema from app/layout.tsx plus the per-game VideoGame
+    // schema from games/[appid]/[slug]/page.tsx. Pick the VideoGame one
+    // explicitly to avoid strict-mode multi-match errors and to avoid
+    // parsing the wrong script. Mirrors tests/seo.spec.ts.
+    const jsonLdScripts = await page
+      .locator('script[type="application/ld+json"]')
+      .allTextContents()
+    const jsonLd = jsonLdScripts.find((script) => script.includes('"VideoGame"'))
     expect(jsonLd).toBeTruthy()
     const data = JSON.parse(jsonLd!)
 

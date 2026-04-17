@@ -133,7 +133,13 @@ export function GameReportClient({
     // have already resolved. Reset state at the start of each effect run
     // so an appid change never briefly shows the previous game's data, and
     // so a failed fetch clears (rather than preserves) the stale value.
+    // The AbortController cancels the in-flight benchmarks request on
+    // appid change / unmount so rapid navigations don't waste network
+    // cycles (getReviewStats doesn't accept a signal today, so only
+    // benchmarks are aborted — its state update is still gated by
+    // `active`).
     let active = true;
+    const benchController = new AbortController();
     setStatsLoading(true);
     setReviewStats(null);
     setBenchmarks(null);
@@ -149,14 +155,15 @@ export function GameReportClient({
     })();
     (async () => {
       try {
-        const bench = await getBenchmarks(appid);
+        const bench = await getBenchmarks(appid, benchController.signal);
         if (active && bench) setBenchmarks(bench);
       } catch {
-        // benchmark section simply won't render
+        // benchmark section simply won't render (includes AbortError)
       }
     })();
     return () => {
       active = false;
+      benchController.abort();
     };
   }, [appid]);
 

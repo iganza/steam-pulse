@@ -86,7 +86,15 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
   // an empty label with no child cards.
   const hasOverlap = (overlap?.overlaps.length ?? 0) > 0;
   const hasPlaytime = (playtimeSentiment?.buckets.length ?? 0) > 0;
-  const hasEA = eaImpact?.has_ea_reviews === true;
+  // Mirror EarlyAccessImpact's own render guard exactly
+  // (verdict !== "no_ea" && early_access != null && post_launch != null) so
+  // we don't flip hasEA true for payloads the card itself would skip —
+  // e.g. verdict "no_post" with post_launch null.
+  const hasEA =
+    eaImpact?.has_ea_reviews === true &&
+    eaImpact.verdict !== "no_ea" &&
+    eaImpact.early_access != null &&
+    eaImpact.post_launch != null;
   const hasVelocity = (velocity?.monthly.length ?? 0) >= 2;
   const hasTopReviews = (topReviews?.reviews.length ?? 0) > 0;
   const hasData = hasOverlap || hasPlaytime || hasEA || hasVelocity || hasTopReviews;

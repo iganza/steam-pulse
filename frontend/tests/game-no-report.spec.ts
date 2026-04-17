@@ -178,8 +178,14 @@ test.describe('Game page — no-report state, JSON-LD schema enrichment', () => 
       MOCK_GAME_UNANALYZED.positive_pct / 10,
       1,
     )
+    // page.tsx prefers review_count_english over review_count (English-aligned
+     // basis for the numeric next to positive_pct). Mirror the same fallback
+     // here so the assertion tracks the real page behavior.
     expect(data.aggregateRating.ratingCount).toBe(
-      String(MOCK_GAME_UNANALYZED.review_count),
+      String(
+        MOCK_GAME_UNANALYZED.review_count_english ??
+          MOCK_GAME_UNANALYZED.review_count,
+      ),
     )
 
     // offers — present because MOCK_GAME_UNANALYZED is paid ($9.99, not free).

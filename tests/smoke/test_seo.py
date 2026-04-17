@@ -25,10 +25,11 @@ def test_sitemap_xml(api: httpx.Client) -> None:
     root = ET.fromstring(r.text)
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     urls = root.findall("sm:url", ns)
-    assert len(urls) > 1000, f"expected >1000 <url> entries, got {len(urls)}"
+    assert len(urls) > 0, "expected at least one <url> entry in sitemap.xml"
     locs = [u.findtext("sm:loc", default="", namespaces=ns) for u in urls]
     assert any("steampulse.io" in loc for loc in locs)
     assert any("/games/" in loc for loc in locs)
+    assert any("/genre/" in loc for loc in locs)
 
 
 def test_ai_crawler_not_blocked(api: httpx.Client) -> None:

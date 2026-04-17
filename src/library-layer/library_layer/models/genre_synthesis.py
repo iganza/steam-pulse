@@ -14,13 +14,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Minimum mention_count for a cross-genre friction / wishlist signal.
+# Matches the v1 system prompt rule ("mention_count >= 3"). Enforced at
+# the schema boundary so instructor/tool_use rejects a weak LLM response
+# and triggers a retry instead of silently persisting noise.
+SHARED_SIGNAL_MIN_MENTIONS = 3
+
 
 class FrictionPoint(BaseModel):
     title: str
     description: str
     representative_quote: str
     source_appid: int
-    mention_count: int = Field(ge=1)
+    mention_count: int = Field(ge=SHARED_SIGNAL_MIN_MENTIONS)
 
 
 class WishlistItem(BaseModel):
@@ -28,7 +34,7 @@ class WishlistItem(BaseModel):
     description: str
     representative_quote: str
     source_appid: int
-    mention_count: int = Field(ge=1)
+    mention_count: int = Field(ge=SHARED_SIGNAL_MIN_MENTIONS)
 
 
 class BenchmarkGame(BaseModel):

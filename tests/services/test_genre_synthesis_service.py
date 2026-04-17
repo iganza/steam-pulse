@@ -203,9 +203,12 @@ def test_synthesize_refuses_below_minimum(service_parts: dict) -> None:
 
 
 def test_compute_input_hash_stable_and_order_independent() -> None:
-    a = _compute_input_hash(prompt_version="v1", sorted_appids=[1, 2, 3])
-    b = _compute_input_hash(prompt_version="v1", sorted_appids=[1, 2, 3])
+    a = _compute_input_hash(prompt_version="v1", appids=[1, 2, 3])
+    b = _compute_input_hash(prompt_version="v1", appids=[1, 2, 3])
     assert a == b
+    # Same set, permuted order — function sorts internally.
+    assert a == _compute_input_hash(prompt_version="v1", appids=[3, 1, 2])
+    assert a == _compute_input_hash(prompt_version="v1", appids=[2, 3, 1])
     # Version bump changes the hash.
-    c = _compute_input_hash(prompt_version="v2", sorted_appids=[1, 2, 3])
+    c = _compute_input_hash(prompt_version="v2", appids=[1, 2, 3])
     assert a != c

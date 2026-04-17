@@ -116,11 +116,12 @@ class GenreSynthesisService:
                 f"need at least {self._config.MIN_REPORTS_PER_GENRE}."
             )
 
-        sorted_appids = sorted(selected_appids)
-
         input_hash = _compute_input_hash(
-            prompt_version=prompt_version, sorted_appids=sorted_appids
+            prompt_version=prompt_version, appids=selected_appids
         )
+        # Numerically sorted view of the same set, shown to the LLM as
+        # the allow-list of valid source_appid values.
+        sorted_appids = sorted(selected_appids)
 
         # Step 3: cache-hit short-circuit. An existing row with the same
         # input_hash means the inputs and prompt haven't changed, so re-
@@ -244,8 +245,14 @@ class GenreSynthesisService:
         return avg_positive, median_reviews
 
 
-def _compute_input_hash(*, prompt_version: str, sorted_appids: list[int]) -> str:
-    """Stable cache key for (prompt_version, input set)."""
-    appids_str = ",".join(str(a) for a in sorted_appids)
+def _compute_input_hash(*, prompt_version: str, appids: list[int]) -> str:
+    """Stable cache key for (prompt_version, input appid set).
+
+    Callers pass appids in any order; the function sorts internally so
+    review_count-DESC and numerically-sorted views of the same set hash
+    to the same value. Sorting here (not in the caller) is the single
+    source of truth for the hash's ordering contract.
+    """
+    appids_str = ",".join(str(a) for a in sorted(appids))
     payload = f"{prompt_version}|{appids_str}".encode()
     return hashlib.sha256(payload).hexdigest()

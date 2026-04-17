@@ -78,13 +78,6 @@ class Game(BaseModel):
     revenue_estimate_computed_at: datetime | None = None
     revenue_estimate_reason: str | None = None
     has_early_access_reviews: bool = False
-    # English-only post-release review split (0048). Derived from local reviews
-    # rows (English-only by construction). NOT NULL DEFAULT in the DB — no
-    # distinction between "not yet computed" and "zero post-release reviews".
-    review_count_post_release: int = 0
-    positive_count_post_release: int = 0
-    positive_pct_post_release: int = 0
-    review_score_desc_post_release: str = ""
 
     @field_validator("developers", "publishers", mode="before")
     @classmethod
@@ -109,9 +102,6 @@ class Game(BaseModel):
         "total_negative",
         "required_age",
         "achievements_total",
-        "review_count_post_release",
-        "positive_count_post_release",
-        "positive_pct_post_release",
         mode="before",
     )
     @classmethod

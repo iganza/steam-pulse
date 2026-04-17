@@ -87,14 +87,7 @@ TABLES: tuple[str, ...] = (
         -- (e.g. free_to_play, insufficient_reviews, excluded_type, missing_price)
         revenue_estimate_reason TEXT,
         -- (0046) one-way latch: TRUE once any review has written_during_early_access
-        has_early_access_reviews BOOLEAN DEFAULT FALSE,
-        -- (0048) English-only post-release split. Derived from local reviews rows
-        -- (reviews table is English-only by construction). "No post-release reviews"
-        -- and "not yet computed" are observationally identical (0 count, empty label).
-        review_count_post_release     INTEGER NOT NULL DEFAULT 0,
-        positive_count_post_release   INTEGER NOT NULL DEFAULT 0,
-        positive_pct_post_release     INTEGER NOT NULL DEFAULT 0,
-        review_score_desc_post_release TEXT    NOT NULL DEFAULT ''
+        has_early_access_reviews BOOLEAN DEFAULT FALSE
     )
     """,
     """
@@ -408,11 +401,6 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_linux TEXT",
     # 0046_denormalize_has_ea_reviews
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS has_early_access_reviews BOOLEAN DEFAULT FALSE",
-    # 0048_split_ea_post_release_counts
-    "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_count_post_release INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE games ADD COLUMN IF NOT EXISTS positive_count_post_release INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE games ADD COLUMN IF NOT EXISTS positive_pct_post_release INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE games ADD COLUMN IF NOT EXISTS review_score_desc_post_release TEXT NOT NULL DEFAULT ''",
 )
 
 # Indexes — kept for test suite use only.
@@ -535,8 +523,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         gn.slug AS genre_slug,
         g.appid, g.name, g.slug, g.developer, g.header_image,
         g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
-        g.review_count_post_release, g.positive_pct_post_release, g.review_score_desc_post_release,
-        g.has_early_access_reviews, g.coming_soon,
         g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
         g.hidden_gem_score, g.last_analyzed,
@@ -552,8 +538,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         t.slug AS tag_slug,
         g.appid, g.name, g.slug, g.developer, g.header_image,
         g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
-        g.review_count_post_release, g.positive_pct_post_release, g.review_score_desc_post_release,
-        g.has_early_access_reviews, g.coming_soon,
         g.price_usd, g.is_free,
         g.release_date, g.deck_compatibility,
         g.hidden_gem_score, g.last_analyzed,
@@ -932,8 +916,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
         SELECT
             g.appid, g.name, g.slug, g.developer, g.header_image,
             g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
-            g.review_count_post_release, g.positive_pct_post_release, g.review_score_desc_post_release,
-            g.has_early_access_reviews,
             g.price_usd, g.is_free, g.release_date, g.deck_compatibility,
             g.hidden_gem_score, g.last_analyzed,
             g.estimated_owners, g.estimated_revenue_usd, g.revenue_estimate_method,
@@ -979,8 +961,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     )
     SELECT feed_kind, rank, appid, name, slug, developer, header_image,
            review_count, review_count_english, positive_pct, review_score_desc,
-           review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-           has_early_access_reviews, coming_soon,
            price_usd, is_free, release_date, deck_compatibility,
            hidden_gem_score, last_analyzed,
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,
@@ -988,8 +968,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     UNION ALL
     SELECT feed_kind, rank, appid, name, slug, developer, header_image,
            review_count, review_count_english, positive_pct, review_score_desc,
-           review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-           has_early_access_reviews, coming_soon,
            price_usd, is_free, release_date, deck_compatibility,
            hidden_gem_score, last_analyzed,
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,
@@ -997,8 +975,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     UNION ALL
     SELECT feed_kind, rank, appid, name, slug, developer, header_image,
            review_count, review_count_english, positive_pct, review_score_desc,
-           review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-           has_early_access_reviews, coming_soon,
            price_usd, is_free, release_date, deck_compatibility,
            hidden_gem_score, last_analyzed,
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,
@@ -1006,8 +982,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     UNION ALL
     SELECT feed_kind, rank, appid, name, slug, developer, header_image,
            review_count, review_count_english, positive_pct, review_score_desc,
-           review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-           has_early_access_reviews, coming_soon,
            price_usd, is_free, release_date, deck_compatibility,
            hidden_gem_score, last_analyzed,
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,
@@ -1015,8 +989,6 @@ MATERIALIZED_VIEWS: tuple[str, ...] = (
     UNION ALL
     SELECT feed_kind, rank, appid, name, slug, developer, header_image,
            review_count, review_count_english, positive_pct, review_score_desc,
-           review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-           has_early_access_reviews, coming_soon,
            price_usd, is_free, release_date, deck_compatibility,
            hidden_gem_score, last_analyzed,
            estimated_owners, estimated_revenue_usd, revenue_estimate_method,

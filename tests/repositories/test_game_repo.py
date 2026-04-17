@@ -123,29 +123,6 @@ def test_get_review_count_returns_zero_for_missing(game_repo: GameRepository) ->
     assert game_repo.get_review_count(9999999) == 0
 
 
-def test_update_post_release_metrics_persists_values(game_repo: GameRepository) -> None:
-    game_repo.upsert(_game_data())
-    game_repo.update_post_release_metrics(440, 1200, 1020, 85, "Very Positive")
-    game = game_repo.find_by_appid(440)
-    assert game is not None
-    assert game.review_count_post_release == 1200
-    assert game.positive_count_post_release == 1020
-    assert game.positive_pct_post_release == 85
-    assert game.review_score_desc_post_release == "Very Positive"
-
-
-def test_update_post_release_metrics_zero_counts(game_repo: GameRepository) -> None:
-    """A Project-Scrapper-like ex-EA game with no post-release reviews."""
-    game_repo.upsert(_game_data())
-    game_repo.update_post_release_metrics(440, 0, 0, 0, "")
-    game = game_repo.find_by_appid(440)
-    assert game is not None
-    assert game.review_count_post_release == 0
-    assert game.positive_count_post_release == 0
-    assert game.positive_pct_post_release == 0
-    assert game.review_score_desc_post_release == ""
-
-
 def test_update_velocity_cache(game_repo: GameRepository) -> None:
     game_repo.upsert(_game_data())
     game_repo.update_velocity_cache(440, 2.5)

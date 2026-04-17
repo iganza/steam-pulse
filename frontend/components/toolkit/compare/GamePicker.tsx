@@ -168,7 +168,8 @@ export function GamePicker({
       header_image: game.header_image ?? null,
       positive_pct: game.positive_pct ?? null,
       review_score_desc: game.review_score_desc ?? null,
-      review_count: game.review_count ?? null,
+      // English-aligned to stay consistent with positive_pct / review_score_desc.
+      review_count: game.review_count_english ?? game.review_count ?? null,
       price_usd: game.price_usd ?? null,
       is_free: game.is_free ?? null,
       release_date: game.release_date ?? null,

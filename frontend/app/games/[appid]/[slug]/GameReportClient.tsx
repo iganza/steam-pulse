@@ -164,6 +164,16 @@ export function GameReportClient({
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
   const primaryGenre = genres?.[0];
 
+  // Hoist the Steam-chart render gates so the JSX below stays readable.
+  // PlaytimeChart's own internal guard is `total < 50`; we mirror it here
+  // so the parent <section> (including its SectionLabel) doesn't mount an
+  // empty shell when the chart would render null.
+  const playtimeReviewTotal =
+    reviewStats?.playtime_buckets.reduce((s, b) => s + b.reviews, 0) ?? 0;
+  const showSentimentHistory =
+    !!reviewStats && reviewStats.timeline.length >= 2;
+  const showPlaytimeSentiment = !!reviewStats && playtimeReviewTotal >= 50;
+
   const breadcrumbItems = [
     { label: "Home", href: "/" },
     ...(primaryGenre
@@ -577,10 +587,10 @@ export function GameReportClient({
             <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimelineSkeleton />
           </section>
-        ) : reviewStats && reviewStats.timeline.length >= 2 ? (
+        ) : showSentimentHistory ? (
           <section>
             <SectionLabel>Sentiment History</SectionLabel>
-            <SentimentTimeline timeline={reviewStats.timeline} />
+            <SentimentTimeline timeline={reviewStats!.timeline} />
           </section>
         ) : null}
 
@@ -589,13 +599,12 @@ export function GameReportClient({
             <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChartSkeleton />
           </section>
-        ) : reviewStats &&
-          reviewStats.playtime_buckets.reduce((s, b) => s + b.reviews, 0) >= 50 ? (
+        ) : showPlaytimeSentiment ? (
           <section>
             <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChart
-              buckets={reviewStats.playtime_buckets}
-              insight={computePlaytimeInsight(reviewStats.playtime_buckets)}
+              buckets={reviewStats!.playtime_buckets}
+              insight={computePlaytimeInsight(reviewStats!.playtime_buckets)}
               isPro={isPro}
             />
           </section>

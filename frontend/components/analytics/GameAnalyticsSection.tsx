@@ -88,10 +88,11 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
   const hasPlaytime = (playtimeSentiment?.buckets.length ?? 0) > 0;
   // Mirror EarlyAccessImpact's own render guard exactly
   // (verdict !== "no_ea" && early_access != null && post_launch != null) so
-  // we don't flip hasEA true for payloads the card itself would skip —
-  // e.g. verdict "no_post" with post_launch null.
+  // hasData can't diverge from what the card itself would render — e.g. a
+  // "no_post" verdict with post_launch null would otherwise flip hasData
+  // true while the card rendered nothing.
   const hasEA =
-    eaImpact?.has_ea_reviews === true &&
+    eaImpact != null &&
     eaImpact.verdict !== "no_ea" &&
     eaImpact.early_access != null &&
     eaImpact.post_launch != null;

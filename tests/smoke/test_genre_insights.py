@@ -1,8 +1,8 @@
-"""Smoke test — /api/genres/{slug}/insights endpoint reachable + shape valid.
+"""Smoke test — /api/tags/{slug}/insights endpoint reachable + shape valid.
 
 The synthesis row may or may not exist for a given slug depending on
 whether the weekly scan has run and whether Phase-3 has analyzed enough
-games in that genre. Both 200 and 404 are legitimate responses — this
+games under that tag. Both 200 and 404 are legitimate responses — this
 test asserts the endpoint is wired correctly, not that data is seeded.
 """
 
@@ -13,8 +13,8 @@ import pytest
 
 
 @pytest.mark.parametrize("slug", ["roguelike-deckbuilder"])
-def test_genre_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:
-    r = api.get(f"/api/genres/{slug}/insights")
+def test_tag_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:
+    r = api.get(f"/api/tags/{slug}/insights")
     assert r.status_code in (200, 404)
     if r.status_code == 200:
         body = r.json()
@@ -30,6 +30,6 @@ def test_genre_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:
         assert "dev_priorities" in s and isinstance(s["dev_priorities"], list)
 
 
-def test_genre_insights_unknown_slug_returns_404(api: httpx.Client) -> None:
-    r = api.get("/api/genres/this-slug-will-never-exist-xyz123/insights")
+def test_tag_insights_unknown_slug_returns_404(api: httpx.Client) -> None:
+    r = api.get("/api/tags/this-slug-will-never-exist-xyz123/insights")
     assert r.status_code == 404

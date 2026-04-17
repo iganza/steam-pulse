@@ -25,12 +25,7 @@ from library_layer.models.genre_synthesis import (
     GenreSynthesis,
     GenreSynthesisRow,
 )
-from library_layer.prompts.genre_synthesis_v1 import (
-    SYSTEM_PROMPT as GENRE_SYNTHESIS_V1_SYSTEM_PROMPT,
-)
-from library_layer.prompts.genre_synthesis_v1 import (
-    build_user_message as build_genre_synthesis_v1_user_message,
-)
+from library_layer.prompts import genre_synthesis_v1
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.genre_synthesis_repo import (
     GenreSynthesisRepository,
@@ -41,8 +36,21 @@ from library_layer.repositories.tag_repo import TagRepository
 logger = Logger()
 
 
+# Registry of prompt-version → prompt module. Each module must expose
+# SYSTEM_PROMPT (str) and build_user_message(*, display_name, reports, input_appids).
+# Bumping the wire protocol requires adding a new module here AND the
+# corresponding GENRE_SYNTHESIS_PROMPT_VERSION bump in config.
+_PROMPT_MODULES = {
+    "v1": genre_synthesis_v1,
+}
+
+
 class NotEnoughReportsError(RuntimeError):
     """Raised when a slug has fewer than MIN_REPORTS_PER_GENRE eligible reports."""
+
+
+class UnknownPromptVersionError(RuntimeError):
+    """Raised when prompt_version doesn't map to a known prompt module."""
 
 
 class GenreSynthesisService:
@@ -86,20 +94,28 @@ class GenreSynthesisService:
           7. Upsert the row.
           8. Return the row.
         """
+        prompt_module = _PROMPT_MODULES.get(prompt_version)
+        if prompt_module is None:
+            raise UnknownPromptVersionError(
+                f"No prompt module for prompt_version={prompt_version!r}. "
+                f"Known versions: {sorted(_PROMPT_MODULES)}"
+            )
+
         display_name = self._resolve_display_name(slug)
 
-        eligible = self._tag_repo.find_eligible_for_synthesis(
+        # SQL caps at MAX_REPORTS_PER_GENRE — the repo won't return more than
+        # the service intends to synthesize.
+        selected_appids = self._tag_repo.find_eligible_for_synthesis(
             slug,
             min_reviews=self._config.GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT,
+            limit=self._config.MAX_REPORTS_PER_GENRE,
         )
-        if len(eligible) < self._config.MIN_REPORTS_PER_GENRE:
+        if len(selected_appids) < self._config.MIN_REPORTS_PER_GENRE:
             raise NotEnoughReportsError(
-                f"Slug {slug!r} has {len(eligible)} eligible reports; "
+                f"Slug {slug!r} has {len(selected_appids)} eligible reports; "
                 f"need at least {self._config.MIN_REPORTS_PER_GENRE}."
             )
 
-        # find_eligible_for_synthesis returns review_count DESC — take the top N.
-        selected_appids = eligible[: self._config.MAX_REPORTS_PER_GENRE]
         sorted_appids = sorted(selected_appids)
 
         input_hash = _compute_input_hash(
@@ -123,7 +139,7 @@ class GenreSynthesisService:
         reports = self._load_reports(selected_appids)
         avg_positive_pct, median_review_count = self._compute_aggregates(selected_appids)
 
-        user_message = build_genre_synthesis_v1_user_message(
+        user_message = prompt_module.build_user_message(
             display_name=display_name,
             reports=reports,
             input_appids=sorted_appids,
@@ -131,7 +147,7 @@ class GenreSynthesisService:
         request = LLMRequest(
             record_id=f"genre_synthesis:{slug}:{prompt_version}",
             task="genre_synthesis",
-            system=GENRE_SYNTHESIS_V1_SYSTEM_PROMPT,
+            system=prompt_module.SYSTEM_PROMPT,
             user=user_message,
             max_tokens=self._config.GENRE_SYNTHESIS_MAX_TOKENS,
             response_model=GenreSynthesis,
@@ -185,18 +201,23 @@ class GenreSynthesisService:
     def _load_reports(self, appids: list[int]) -> list[dict]:
         """Return [{"appid": int, "report": <GameReport dict>}, ...]
 
-        Ordered to match the input appids list. Skips appids with no
-        report (defensive — the tag_repo eligibility query already joined
-        on reports).
+        Ordered to match the input appids list. The eligibility query
+        already INNER-joined on `reports`, so every appid here MUST have
+        a report. A None return is treated as an invariant violation:
+        silently skipping would make input_hash (built from selected_appids)
+        disagree with the actually-sent input and produce a poisoned
+        cache entry on next run.
         """
         entries: list[dict] = []
         for appid in appids:
             report = self._report_repo.find_by_appid(appid)
             if report is None:
-                logger.warning(
-                    "genre_synthesis_missing_report", extra={"appid": appid}
+                raise RuntimeError(
+                    f"Report missing for appid={appid} despite passing "
+                    f"eligibility join — race between tag_repo.find_eligible_"
+                    f"for_synthesis and report_repo.find_by_appid. "
+                    f"Abort to avoid a poisoned input_hash."
                 )
-                continue
             entries.append({"appid": appid, "report": report.report_json})
         return entries
 
@@ -216,7 +237,10 @@ class GenreSynthesisService:
                 f"eligibility query is out of sync with games table."
             )
         avg_positive = sum(positives) / len(positives)
-        median_reviews = int(statistics.median(review_counts))
+        # median_low is a deterministic integer drawn from the sample —
+        # int(statistics.median(...)) truncates the .5 case for even-count
+        # samples and skews the statistic.
+        median_reviews = statistics.median_low(review_counts)
         return avg_positive, median_reviews
 
 

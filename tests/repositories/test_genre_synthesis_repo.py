@@ -242,5 +242,14 @@ def test_find_eligible_for_synthesis_filters_and_sorts(
             }
         )
 
-    eligible = tag_repo.find_eligible_for_synthesis("deckbuilder", min_reviews=200)
+    eligible = tag_repo.find_eligible_for_synthesis(
+        "deckbuilder", min_reviews=200, limit=10
+    )
     assert eligible == [2001, 2002]  # 2003 below threshold, 2004 has no report
+
+    # SQL LIMIT is honoured — requesting only the top 1 returns the highest
+    # review_count.
+    top_one = tag_repo.find_eligible_for_synthesis(
+        "deckbuilder", min_reviews=200, limit=1
+    )
+    assert top_one == [2001]

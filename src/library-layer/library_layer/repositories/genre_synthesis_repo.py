@@ -29,7 +29,13 @@ class GenreSynthesisRepository(BaseRepository):
         if row is None:
             return None
         d = dict(row)
-        d["synthesis"] = GenreSynthesis.model_validate(d["synthesis"])
+        # psycopg2 decodes JSONB to dict by default, but some call sites
+        # wrap the cursor with a plain str-returning JSON type — handle
+        # both so a future driver swap doesn't break reads silently.
+        synthesis = d["synthesis"]
+        if isinstance(synthesis, str):
+            synthesis = json.loads(synthesis)
+        d["synthesis"] = GenreSynthesis.model_validate(synthesis)
         d["avg_positive_pct"] = float(d["avg_positive_pct"])
         return GenreSynthesisRow.model_validate(d)
 

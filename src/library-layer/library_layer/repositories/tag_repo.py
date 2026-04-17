@@ -238,7 +238,7 @@ class TagRepository(BaseRepository):
         return result
 
     def find_eligible_for_synthesis(
-        self, slug: str, *, min_reviews: int
+        self, slug: str, *, min_reviews: int, limit: int
     ) -> list[int]:
         """Return appids eligible to feed the Phase-4 genre synthesizer.
 
@@ -247,8 +247,9 @@ class TagRepository(BaseRepository):
           - game has a row in reports (Phase-3 already ran)
           - games.review_count >= min_reviews
 
-        Sorted by review_count DESC so callers can trim to the top-N when
-        the eligible set exceeds MAX_REPORTS_PER_GENRE.
+        Sorted by review_count DESC and capped at `limit` so large tags
+        don't stream thousands of rows when the caller only ever consumes
+        the top-N (MAX_REPORTS_PER_GENRE).
         """
         rows = self._fetchall(
             """
@@ -260,8 +261,9 @@ class TagRepository(BaseRepository):
             WHERE t.slug = %s
               AND COALESCE(g.review_count, 0) >= %s
             ORDER BY g.review_count DESC NULLS LAST, g.appid
+            LIMIT %s
             """,
-            (slug, min_reviews),
+            (slug, min_reviews, limit),
         )
         return [int(r["appid"]) for r in rows]
 

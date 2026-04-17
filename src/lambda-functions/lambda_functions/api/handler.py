@@ -308,9 +308,15 @@ async def list_genres() -> list[dict]:
     return _matview_repo.list_genre_counts()
 
 
-@app.get("/api/genres/{slug}/insights")
-async def get_genre_insights(slug: str) -> JSONResponse:
-    """Phase-4 cross-genre synthesis for `slug`. Refreshed weekly."""
+@app.get("/api/tags/{slug}/insights")
+async def get_tag_insights(slug: str) -> JSONResponse:
+    """Phase-4 cross-tag synthesis for `slug`. Refreshed weekly.
+
+    Path uses `tags` — the synthesizer joins `tags`/`game_tags` (not the
+    separate `genres`/`game_genres` tables). The persisted table is
+    `mv_genre_synthesis` for historical/marketing reasons, but the
+    identifier space is tags.slug.
+    """
     logger.append_keys(slug=slug)
     row = _genre_synthesis_repo.get_by_slug(slug)
     if row is None:

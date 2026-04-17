@@ -20,6 +20,7 @@ from library_layer.models.report import Report
 from library_layer.services.genre_synthesis_service import (
     GenreSynthesisService,
     NotEnoughReportsError,
+    UnknownPromptVersionError,
     _compute_input_hash,
 )
 
@@ -164,18 +165,33 @@ def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
     synthesis_repo.upsert.assert_not_called()
 
 
-def test_synthesize_prompt_version_bump_triggers_rerun(service_parts: dict) -> None:
+def test_synthesize_input_set_change_triggers_rerun(service_parts: dict) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     backend: FakeBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
+    tag_repo = service_parts["tag_repo"]
 
     first = svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
     synthesis_repo.get_by_slug.return_value = first
 
-    svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v2")
+    # New appid enters the eligible set — input_hash changes, LLM re-runs.
+    tag_repo.find_eligible_for_synthesis.return_value = [1001, 1002, 1003, 1004]
+    # Extend game stats so _compute_aggregates has data for the new appid.
+    service_parts["service"]._game_repo.find_review_stats_for_appids.return_value = [
+        {"appid": 1001, "positive_pct": 90, "review_count": 5000},
+        {"appid": 1002, "positive_pct": 85, "review_count": 3000},
+        {"appid": 1003, "positive_pct": 80, "review_count": 1500},
+        {"appid": 1004, "positive_pct": 92, "review_count": 8000},
+    ]
+    svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
 
-    # Different prompt_version = new input_hash = new LLM call.
     assert len(backend.calls) == 2
+
+
+def test_synthesize_unknown_prompt_version_raises(service_parts: dict) -> None:
+    svc: GenreSynthesisService = service_parts["service"]
+    with pytest.raises(UnknownPromptVersionError):
+        svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v99")
 
 
 def test_synthesize_refuses_below_minimum(service_parts: dict) -> None:

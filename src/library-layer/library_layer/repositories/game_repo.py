@@ -341,8 +341,6 @@ class GameRepository(BaseRepository):
             f"""
             SELECT appid, name, slug, developer, header_image,
                    review_count, review_count_english, positive_pct, review_score_desc,
-                   review_count_post_release, positive_pct_post_release, review_score_desc_post_release,
-                   has_early_access_reviews, coming_soon,
                    price_usd, is_free,
                    release_date, deck_compatibility,
                    hidden_gem_score, last_analyzed, is_early_access,
@@ -754,40 +752,6 @@ class GameRepository(BaseRepository):
             self.conn.rollback()
             logger.warning(
                 "has_early_access_reviews column not yet available",
-                extra={"appid": appid},
-            )
-
-    def update_post_release_metrics(
-        self,
-        appid: int,
-        review_count: int,
-        positive_count: int,
-        positive_pct: int,
-        review_score_desc: str,
-    ) -> None:
-        """Denormalize English-only post-release review aggregates onto games.
-
-        Best-effort: gracefully handles missing columns during the
-        post-deploy/pre-migration window before migration 0048 is applied.
-        """
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE games
-                    SET review_count_post_release      = %s,
-                        positive_count_post_release    = %s,
-                        positive_pct_post_release      = %s,
-                        review_score_desc_post_release = %s
-                    WHERE appid = %s
-                    """,
-                    (review_count, positive_count, positive_pct, review_score_desc, appid),
-                )
-            self.conn.commit()
-        except psycopg2.errors.UndefinedColumn:
-            self.conn.rollback()
-            logger.warning(
-                "post_release columns not yet available",
                 extra={"appid": appid},
             )
 

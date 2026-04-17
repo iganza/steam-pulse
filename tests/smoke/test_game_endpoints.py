@@ -22,24 +22,6 @@ def test_game_report(api: httpx.Client, well_known_appid: int) -> None:
     assert "game" in data
 
 
-def test_game_report_exposes_post_release_split(
-    api: httpx.Client, well_known_appid: int
-) -> None:
-    """game_meta must expose the English-only post-release split fields (0048)."""
-    r = api.get(f"/api/games/{well_known_appid}/report")
-    assert r.status_code == 200
-    game = r.json()["game"]
-    for key in (
-        "review_count_post_release",
-        "positive_count_post_release",
-        "positive_pct_post_release",
-        "review_score_desc_post_release",
-        "has_early_access_reviews",
-        "coming_soon",
-    ):
-        assert key in game, f"missing {key} in /api/games/{{appid}}/report game_meta"
-
-
 def test_game_review_stats(api: httpx.Client, well_known_appid: int) -> None:
     r = api.get(f"/api/games/{well_known_appid}/review-stats")
     assert r.status_code == 200

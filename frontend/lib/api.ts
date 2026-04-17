@@ -81,17 +81,6 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
     positive_pct?: number | null;
     review_score_desc?: string | null;
     review_count?: number | null;
-    review_count_english?: number | null;
-    // 0048: English-only post-release review split. NOT NULL on the DB side,
-    // so the backend always sends numbers / string here.
-    review_count_post_release?: number;
-    positive_count_post_release?: number;
-    positive_pct_post_release?: number;
-    review_score_desc_post_release?: string;
-    has_early_access_reviews?: boolean;
-    coming_soon?: boolean;
-    name?: string;
-    slug?: string;
     meta_crawled_at?: string | null;
     review_crawled_at?: string | null;
     reviews_completed_at?: string | null;

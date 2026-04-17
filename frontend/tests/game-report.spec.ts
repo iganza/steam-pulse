@@ -1,12 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
-import {
-  MOCK_REVIEW_STATS_SPARSE,
-  MOCK_REPORT,
-  MOCK_GAME_ANALYZED,
-  MOCK_GAME_POST_EA_ZERO,
-  MOCK_GAME_POST_EA_HEALTHY,
-} from './fixtures/mock-data'
+import { MOCK_REVIEW_STATS_SPARSE, MOCK_REPORT, MOCK_GAME_ANALYZED } from './fixtures/mock-data'
 
 test.describe('Game report page — analyzed game', () => {
   test.beforeEach(async ({ page }) => {
@@ -203,98 +197,6 @@ test.describe('Data-driven insights — analyzed game', () => {
     const chart = page.getByTestId('playtime-chart')
     const skeleton = page.getByTestId('playtime-chart-skeleton')
     await expect(chart.or(skeleton)).toBeAttached()
-  })
-})
-
-test.describe('Ex-Early-Access display (0048) — post-release split', () => {
-  test('ex-EA game with zero post-release reviews shows EA counts and ex-EA indicator', async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.route('**/api/games/770777/report', route =>
-      route.fulfill({
-        json: {
-          status: 'not_available',
-          review_count: MOCK_GAME_POST_EA_ZERO.review_count,
-          game: {
-            name: MOCK_GAME_POST_EA_ZERO.name,
-            slug: MOCK_GAME_POST_EA_ZERO.slug,
-            short_desc: MOCK_GAME_POST_EA_ZERO.short_desc,
-            developer: MOCK_GAME_POST_EA_ZERO.developer,
-            release_date: MOCK_GAME_POST_EA_ZERO.release_date,
-            price_usd: MOCK_GAME_POST_EA_ZERO.price_usd,
-            is_free: MOCK_GAME_POST_EA_ZERO.is_free,
-            is_early_access: MOCK_GAME_POST_EA_ZERO.is_early_access,
-            genres: MOCK_GAME_POST_EA_ZERO.genres,
-            tags: MOCK_GAME_POST_EA_ZERO.tags,
-            deck_compatibility: MOCK_GAME_POST_EA_ZERO.deck_compatibility,
-            deck_test_results: MOCK_GAME_POST_EA_ZERO.deck_test_results,
-            positive_pct: MOCK_GAME_POST_EA_ZERO.positive_pct,
-            review_score_desc: MOCK_GAME_POST_EA_ZERO.review_score_desc,
-            review_count: MOCK_GAME_POST_EA_ZERO.review_count,
-            review_count_post_release: MOCK_GAME_POST_EA_ZERO.review_count_post_release,
-            positive_count_post_release: MOCK_GAME_POST_EA_ZERO.positive_count_post_release,
-            positive_pct_post_release: MOCK_GAME_POST_EA_ZERO.positive_pct_post_release,
-            review_score_desc_post_release: MOCK_GAME_POST_EA_ZERO.review_score_desc_post_release,
-            has_early_access_reviews: MOCK_GAME_POST_EA_ZERO.has_early_access_reviews,
-            coming_soon: MOCK_GAME_POST_EA_ZERO.coming_soon,
-            meta_crawled_at: MOCK_GAME_POST_EA_ZERO.meta_crawled_at,
-            review_crawled_at: MOCK_GAME_POST_EA_ZERO.review_crawled_at,
-          },
-        },
-      })
-    )
-    await page.goto('/games/770777/project-scrapper')
-    // Zero post-release reviews → helper falls back to EA-era counts.
-    await expect(page.getByRole('heading', { name: 'Project Scrapper' })).toBeVisible()
-    // Ex-EA banner renders with the "no post-release reviews yet" variant —
-    // proves phase === early_access AND isExEarlyAccess === true (active EA
-    // games would fail this because their is_early_access flag would suppress).
-    const banner = page.getByTestId('ex-ea-indicator')
-    await expect(banner).toBeVisible()
-    await expect(banner).toContainText(/no post-release reviews yet/i)
-  })
-
-  test('ex-EA game with healthy post-release shows post-release headline + ex-EA chip', async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.route('**/api/games/770778/report', route =>
-      route.fulfill({
-        json: {
-          status: 'not_available',
-          review_count: MOCK_GAME_POST_EA_HEALTHY.review_count_post_release,
-          game: {
-            name: MOCK_GAME_POST_EA_HEALTHY.name,
-            slug: MOCK_GAME_POST_EA_HEALTHY.slug,
-            short_desc: MOCK_GAME_POST_EA_HEALTHY.short_desc,
-            developer: MOCK_GAME_POST_EA_HEALTHY.developer,
-            release_date: MOCK_GAME_POST_EA_HEALTHY.release_date,
-            price_usd: MOCK_GAME_POST_EA_HEALTHY.price_usd,
-            is_free: MOCK_GAME_POST_EA_HEALTHY.is_free,
-            is_early_access: MOCK_GAME_POST_EA_HEALTHY.is_early_access,
-            genres: MOCK_GAME_POST_EA_HEALTHY.genres,
-            tags: MOCK_GAME_POST_EA_HEALTHY.tags,
-            deck_compatibility: MOCK_GAME_POST_EA_HEALTHY.deck_compatibility,
-            deck_test_results: MOCK_GAME_POST_EA_HEALTHY.deck_test_results,
-            positive_pct: MOCK_GAME_POST_EA_HEALTHY.positive_pct,
-            review_score_desc: MOCK_GAME_POST_EA_HEALTHY.review_score_desc,
-            review_count: MOCK_GAME_POST_EA_HEALTHY.review_count,
-            review_count_post_release: MOCK_GAME_POST_EA_HEALTHY.review_count_post_release,
-            positive_count_post_release: MOCK_GAME_POST_EA_HEALTHY.positive_count_post_release,
-            positive_pct_post_release: MOCK_GAME_POST_EA_HEALTHY.positive_pct_post_release,
-            review_score_desc_post_release: MOCK_GAME_POST_EA_HEALTHY.review_score_desc_post_release,
-            has_early_access_reviews: MOCK_GAME_POST_EA_HEALTHY.has_early_access_reviews,
-            coming_soon: MOCK_GAME_POST_EA_HEALTHY.coming_soon,
-            meta_crawled_at: MOCK_GAME_POST_EA_HEALTHY.meta_crawled_at,
-            review_crawled_at: MOCK_GAME_POST_EA_HEALTHY.review_crawled_at,
-          },
-        },
-      })
-    )
-    await page.goto('/games/770778/dungeon-delver')
-    // Post-release phase banner — proves phase === post_release (active EA
-    // games would render the "no post-release reviews yet" copy instead).
-    const banner = page.getByTestId('ex-ea-indicator')
-    await expect(banner).toBeVisible()
-    await expect(banner).toContainText(/post-release review numbers/i)
-    await expect(banner).toContainText(/matches Steam/i)
   })
 })
 

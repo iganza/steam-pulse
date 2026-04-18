@@ -76,7 +76,7 @@ def _canned_synthesis() -> GenreSynthesis:
 
 
 @pytest.fixture
-def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict:
+def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config = SteamPulseConfig(
         MIN_REPORTS_PER_GENRE=2,
         MAX_REPORTS_PER_GENRE=10,
@@ -125,7 +125,7 @@ def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict:
     }
 
 
-def test_synthesize_happy_path(service_parts: dict) -> None:
+def test_synthesize_happy_path(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     backend: FakeBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
@@ -147,7 +147,7 @@ def test_synthesize_happy_path(service_parts: dict) -> None:
     synthesis_repo.upsert.assert_called_once()
 
 
-def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
+def test_synthesize_cache_short_circuits(service_parts: dict[str, Any]) -> None:
     """Re-running with the same input set hits the cache and skips the LLM.
 
     On hit, the service must call touch_computed_at so the weekly stale-
@@ -179,7 +179,7 @@ def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
     assert second.computed_at >= first_row.computed_at
 
 
-def test_synthesize_input_set_change_triggers_rerun(service_parts: dict) -> None:
+def test_synthesize_input_set_change_triggers_rerun(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     backend: FakeBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
@@ -202,13 +202,13 @@ def test_synthesize_input_set_change_triggers_rerun(service_parts: dict) -> None
     assert len(backend.calls) == 2
 
 
-def test_synthesize_unknown_prompt_version_raises(service_parts: dict) -> None:
+def test_synthesize_unknown_prompt_version_raises(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     with pytest.raises(UnknownPromptVersionError):
         svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v99")
 
 
-def test_synthesize_refuses_below_minimum(service_parts: dict) -> None:
+def test_synthesize_refuses_below_minimum(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     # Drop eligible to 1 — below MIN_REPORTS_PER_GENRE=2.
     service_parts["tag_repo"].find_eligible_for_synthesis.return_value = [1001]

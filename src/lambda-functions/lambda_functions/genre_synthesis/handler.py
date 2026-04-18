@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 import boto3
 from aws_lambda_powertools import Logger, Metrics, Tracer
@@ -92,7 +93,7 @@ if _config.GENRE_SYNTHESIS_QUEUE_PARAM_NAME and os.environ.get("AWS_LAMBDA_FUNCT
 _STALE_SLUG_LOG_PREVIEW = 10
 
 
-def _scan_stale() -> dict:
+def _scan_stale() -> dict[str, int]:
     """Find stale synthesis rows and enqueue one job per slug.
 
     Uses send_sqs_batch which raises on any failed entries — a partial
@@ -131,7 +132,7 @@ def _scan_stale() -> dict:
     return {"stale_enqueued": len(stale)}
 
 
-def _handle_sqs_record(record: dict) -> None:
+def _handle_sqs_record(record: dict[str, Any]) -> None:
     """Parse one SQS record into a GenreSynthesisJobMessage and run synth."""
     body = json.loads(record["body"])
     msg = GenreSynthesisJobMessage.model_validate(body)
@@ -153,7 +154,7 @@ def _handle_sqs_record(record: dict) -> None:
 
 @tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
-def handler(event: dict, context: LambdaContext) -> dict:
+def handler(event: dict[str, Any], context: LambdaContext) -> dict[str, Any]:
     # EventBridge scheduled trigger — stale scan.
     if event.get("action") == "scan_stale" or event.get("source") == "aws.events":
         logger.info("scan_stale trigger")

@@ -285,3 +285,31 @@ def test_find_eligible_for_synthesis_filters_and_sorts(
         pipeline_version="3.0/old",
     )
     assert at_old_version == [2003]
+
+    # Seed a fourth game that would pass review_count but has NULL
+    # positive_pct (Steam occasionally omits it). It must be filtered.
+    _seed_game(game_repo, appid=2005, name="No Sentiment", review_count=60000)
+    tag_repo.upsert_tags(
+        [{"appid": 2005, "name": "Deckbuilder", "votes": 70, "tagid": 9001}]
+    )
+    report_repo.upsert(
+        {
+            "appid": 2005,
+            "game_name": "Game 2005",
+            "pipeline_version": "3.0/current",
+            "chunk_count": 1,
+            "merged_summary_id": 1,
+            "total_reviews_analyzed": 1,
+        }
+    )
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE games SET positive_pct = NULL WHERE appid = 2005")
+    db_conn.commit()
+
+    eligible_excluding_null = tag_repo.find_eligible_for_synthesis(
+        "deckbuilder",
+        min_reviews=200,
+        limit=10,
+        pipeline_version="3.0/current",
+    )
+    assert 2005 not in eligible_excluding_null

@@ -248,11 +248,15 @@ class TagRepository(BaseRepository):
             (stale reports from a prior Phase-3 PIPELINE_VERSION are
             excluded — mixing them in would degrade prompt adherence
             and produce inconsistent cross-genre syntheses)
-          - games.review_count >= min_reviews
+          - COALESCE(review_count_english, review_count) >= min_reviews
+            (English is the eligibility driver per schema docs; fall back
+            to total only when English is missing)
+          - positive_pct IS NOT NULL (guarantees _compute_aggregates can
+            always produce a valid avg without hard-failing at runtime)
 
-        Sorted by review_count DESC and capped at `limit` so large tags
-        don't stream thousands of rows when the caller only ever consumes
-        the top-N (MAX_REPORTS_PER_GENRE).
+        Sorted by English-first review count DESC and capped at `limit`
+        so large tags don't stream thousands of rows when the caller only
+        ever consumes the top-N (MAX_REPORTS_PER_GENRE).
         """
         rows = self._fetchall(
             """
@@ -263,8 +267,10 @@ class TagRepository(BaseRepository):
             JOIN reports r ON r.appid = g.appid
             WHERE t.slug = %s
               AND r.pipeline_version = %s
-              AND COALESCE(g.review_count, 0) >= %s
-            ORDER BY g.review_count DESC NULLS LAST, g.appid
+              AND COALESCE(g.review_count_english, g.review_count, 0) >= %s
+              AND g.positive_pct IS NOT NULL
+            ORDER BY COALESCE(g.review_count_english, g.review_count) DESC NULLS LAST,
+                     g.appid
             LIMIT %s
             """,
             (slug, pipeline_version, min_reviews, limit),

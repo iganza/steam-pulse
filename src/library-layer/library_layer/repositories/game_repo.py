@@ -519,7 +519,9 @@ class GameRepository(BaseRepository):
             result.append(d)
         return {"total": None, "games": result}
 
-    def find_review_stats_for_appids(self, appids: list[int]) -> list[dict]:
+    def find_review_stats_for_appids(
+        self, appids: list[int]
+    ) -> list[dict[str, object]]:
         """Return [{appid, positive_pct, review_count}, ...] for the given appids.
 
         Used by the Phase-4 synthesizer to compute aggregate descriptors

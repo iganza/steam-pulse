@@ -217,7 +217,7 @@ class GenreSynthesisService:
             raise ValueError(f"Unknown tag slug: {slug!r}")
         return name
 
-    def _load_reports(self, appids: list[int]) -> list[dict]:
+    def _load_reports(self, appids: list[int]) -> list[dict[str, object]]:
         """Return [{"appid": int, "report": <GameReport dict>}, ...]
 
         Ordered to match the input appids list. The eligibility query
@@ -227,7 +227,7 @@ class GenreSynthesisService:
         disagree with the actually-sent input and produce a poisoned
         cache entry on next run.
         """
-        entries: list[dict] = []
+        entries: list[dict[str, object]] = []
         for appid in appids:
             report = self._report_repo.find_by_appid(appid)
             if report is None:

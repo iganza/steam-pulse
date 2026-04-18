@@ -64,7 +64,10 @@ The input GameReports follow, as JSON documents delimited by blank lines.
 
 
 def build_user_message(
-    *, display_name: str, reports: list[dict], input_appids: list[int]
+    *,
+    display_name: str,
+    reports: list[dict[str, object]],
+    input_appids: list[int],
 ) -> str:
     """Assemble the user message.
 

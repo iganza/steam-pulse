@@ -525,14 +525,25 @@ class GameRepository(BaseRepository):
         """Return [{appid, positive_pct, review_count}, ...] for the given appids.
 
         Used by the Phase-4 synthesizer to compute aggregate descriptors
-        (avg_positive_pct, median_review_count) for the input set. Rows
-        with NULL positive_pct / review_count are still returned so callers
-        can filter them explicitly.
+        (avg_positive_pct, median_review_count) for the input set.
+
+        `review_count` here prefers `review_count_english` and falls back
+        to the all-language `review_count` — matching the English-first
+        eligibility/ordering logic in
+        TagRepository.find_eligible_for_synthesis so the aggregates are
+        computed over the same signal Phase-4 selected on.
+
+        Rows with NULL positive_pct / review_count are still returned so
+        callers can filter them explicitly.
         """
         if not appids:
             return []
         rows = self._fetchall(
-            "SELECT appid, positive_pct, review_count FROM games WHERE appid = ANY(%s)",
+            """
+            SELECT appid, positive_pct,
+                   COALESCE(review_count_english, review_count) AS review_count
+            FROM games WHERE appid = ANY(%s)
+            """,
             (appids,),
         )
         return [dict(r) for r in rows]

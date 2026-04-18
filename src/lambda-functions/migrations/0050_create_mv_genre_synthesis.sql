@@ -6,8 +6,9 @@
 -- table because Postgres MATERIALIZED VIEW cannot invoke an LLM.
 --
 -- The API reads one row: SELECT * FROM mv_genre_synthesis WHERE slug = $1.
--- `input_hash = sha256(prompt_version || sorted_appids)` is the cache key:
--- re-running with the same inputs is a no-op short-circuit in the service.
+-- `input_hash = sha256(prompt_version || pipeline_version || sorted_appids)`
+-- is the cache key: re-running with the same inputs is a no-op short-circuit
+-- in the service, and a Phase-3 `pipeline_version` bump forces re-synthesis.
 
 CREATE TABLE IF NOT EXISTS mv_genre_synthesis (
     slug                TEXT PRIMARY KEY,

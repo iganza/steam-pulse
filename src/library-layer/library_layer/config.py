@@ -164,7 +164,10 @@ class SteamPulseConfig(BaseSettings):
     # GENRE_SYNTHESIS_MAX_TOKENS: Sonnet output budget for the tool_use
     #   response. Must fit the worst-case GenreSynthesis payload.
     # GENRE_SYNTHESIS_PROMPT_VERSION: change to force a re-synthesis via
-    #   input_hash cache miss (cache key = sha256(version + sorted_appids)).
+    #   input_hash cache miss. The cache key is sha256(prompt_version ||
+    #   required Phase-3 pipeline_version || sorted_appids) — so either
+    #   a prompt bump here OR a Phase-3 PIPELINE_VERSION bump (the
+    #   analyzer constant) also forces Phase-4 to re-synthesize.
     # GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT: only include games with at
     #   least this many Steam reviews (low-signal games would drag the
     #   synthesis toward noise).

@@ -22,6 +22,7 @@ from library_layer.config import SteamPulseConfig
 from library_layer.llm.backend import LLMRequest
 from library_layer.llm.converse import ConverseBackend
 from library_layer.models.genre_synthesis import (
+    SHARED_SIGNAL_MIN_MENTIONS,
     GenreSynthesis,
     GenreSynthesisRow,
 )
@@ -73,6 +74,19 @@ class GenreSynthesisService:
         at the old version are excluded — Phase-4 waits until enough games
         have been re-analyzed at the new version before synthesizing again.
         """
+        if config.MIN_REPORTS_PER_GENRE < SHARED_SIGNAL_MIN_MENTIONS:
+            # friction_points / wishlist_items require mention_count >=
+            # SHARED_SIGNAL_MIN_MENTIONS. Asking the LLM to produce them
+            # from fewer input reports than that minimum is literally
+            # impossible — the tool_use schema will fail-and-retry until
+            # instructor gives up. Catch the misconfiguration here.
+            raise ValueError(
+                f"MIN_REPORTS_PER_GENRE={config.MIN_REPORTS_PER_GENRE} is below "
+                f"the cross-genre mention_count floor "
+                f"({SHARED_SIGNAL_MIN_MENTIONS}). Raise MIN_REPORTS_PER_GENRE or "
+                f"lower SHARED_SIGNAL_MIN_MENTIONS if the schema contract is "
+                f"being intentionally relaxed."
+            )
         self._report_repo = report_repo
         self._tag_repo = tag_repo
         self._game_repo = game_repo
@@ -92,8 +106,12 @@ class GenreSynthesisService:
 
         Steps:
           1. Resolve eligible appids (tag ⋈ games with reports ⋈ min_reviews).
-          2. Compute input_hash from (prompt_version, sorted_appids).
-          3. Short-circuit: if an existing row has the same input_hash, return it.
+          2. Compute input_hash from (prompt_version, required_pipeline_version,
+             sorted_appids). A Phase-3 pipeline bump changes the hash and
+             forces a fresh synthesis even if the eligible appid set is
+             unchanged.
+          3. Short-circuit: if an existing row has the same input_hash,
+             touch computed_at (so stale-scan doesn't re-enqueue) and return.
           4. Load GameReport JSON for each appid (bounded to MAX_REPORTS_PER_GENRE
              by review_count DESC).
           5. Build the LLM request (system prompt cached, user = report dumps).

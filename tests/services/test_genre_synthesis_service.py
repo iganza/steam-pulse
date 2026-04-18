@@ -78,7 +78,7 @@ def _canned_synthesis() -> GenreSynthesis:
 @pytest.fixture
 def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config = SteamPulseConfig(
-        MIN_REPORTS_PER_GENRE=2,
+        MIN_REPORTS_PER_GENRE=3,
         MAX_REPORTS_PER_GENRE=10,
         GENRE_SYNTHESIS_MAX_TOKENS=8000,
         GENRE_SYNTHESIS_PROMPT_VERSION="v1",
@@ -210,10 +210,36 @@ def test_synthesize_unknown_prompt_version_raises(service_parts: dict[str, Any])
 
 def test_synthesize_refuses_below_minimum(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
-    # Drop eligible to 1 — below MIN_REPORTS_PER_GENRE=2.
+    # Drop eligible to 1 — below MIN_REPORTS_PER_GENRE=3.
     service_parts["tag_repo"].find_eligible_for_synthesis.return_value = [1001]
     with pytest.raises(NotEnoughReportsError):
         svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
+
+
+def test_service_rejects_min_reports_below_mention_floor(
+    service_parts: dict[str, Any],
+) -> None:
+    """Constructor guard: MIN_REPORTS_PER_GENRE < SHARED_SIGNAL_MIN_MENTIONS
+    is rejected because the LLM tool_use schema cannot satisfy
+    mention_count >= 3 from fewer than 3 input reports."""
+    config = SteamPulseConfig(
+        MIN_REPORTS_PER_GENRE=2,  # invalid: below the mention floor
+        MAX_REPORTS_PER_GENRE=10,
+        GENRE_SYNTHESIS_MAX_TOKENS=8000,
+        GENRE_SYNTHESIS_PROMPT_VERSION="v1",
+        GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT=100,
+    )
+    with pytest.raises(ValueError, match="MIN_REPORTS_PER_GENRE"):
+        GenreSynthesisService(
+            report_repo=MagicMock(),
+            tag_repo=MagicMock(),
+            game_repo=MagicMock(),
+            synthesis_repo=MagicMock(),
+            llm_backend=MagicMock(),
+            config=config,
+            metrics=service_parts["service"]._metrics,
+            required_pipeline_version="3.0/test",
+        )
 
 
 def test_compute_input_hash_stable_and_order_independent() -> None:

@@ -169,9 +169,14 @@ def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
     assert len(backend.calls) == 1  # still just one LLM call
     assert second.input_hash == first_row.input_hash
     synthesis_repo.upsert.assert_not_called()
-    # Cache-hit path still refreshes the freshness timestamp.
+    # Cache-hit path still refreshes the freshness timestamp. Avoid a
+    # `>` assertion on two back-to-back datetime.now() calls — those can
+    # legitimately tie on low-resolution clocks. Instead, assert the repo
+    # was called with the same timestamp that the returned row carries.
     synthesis_repo.touch_computed_at.assert_called_once()
-    assert second.computed_at > first_row.computed_at
+    call_kwargs = synthesis_repo.touch_computed_at.call_args.kwargs
+    assert second.computed_at == call_kwargs["at"]
+    assert second.computed_at >= first_row.computed_at
 
 
 def test_synthesize_input_set_change_triggers_rerun(service_parts: dict) -> None:

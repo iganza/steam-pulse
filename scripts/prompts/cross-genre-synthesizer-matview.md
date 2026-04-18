@@ -18,6 +18,34 @@ This is the load-bearing distinction — synthesizing reports is cheap
 (~$1.30 per genre per refresh); synthesizing raw reviews would be
 catastrophic (~$50+ per genre per refresh).
 
+## Role in the product (2026-04-17 business-model pivot)
+
+The synthesis output is the **content engine** for three downstream
+products (see `project_business_model_2026.md` and
+`steam-pulse.org` → Active Launch Plan):
+
+1. **Paid genre market reports** (Phase 1, headline product) — the
+   `mv_genre_synthesis` row is the raw material an operator curates
+   into a $49-$1499 PDF report. The LLM produces synthesis; the
+   operator writes the report. Do NOT try to have Phase-4 produce
+   finished report prose.
+2. **Free genre insights page** (Phase 1, marketing funnel) —
+   `/genre/{slug}/insights` renders a public subset of the synthesis
+   (narrative summary, top-5 friction, top-3 wishlist, benchmark
+   list). The full depth lives in the paid PDF; the web page is
+   the preview.
+3. **NL chat + text-to-SQL backing store** (Phase 3, not launch) —
+   once Pro subscription ships, the structured `mv_genre_synthesis`
+   rows are the aggregation substrate that lets SteamPulse answer
+   cross-game quantitative questions LEYWARE's RAG-over-raw
+   architecture cannot.
+
+The implication for THIS prompt: no changes to the schema or prompt
+on account of reports/chat. Phase-4 stays minimal and focused. The
+report PDF is produced by human curation downstream; the chat layer
+is a future SQL front-end over the same table. Both consume the
+single canonical `mv_genre_synthesis.synthesis` JSONB.
+
 ## Naming note
 
 Called `mv_genre_synthesis` to align with the matview vocabulary in
@@ -226,9 +254,16 @@ for any alarms.
 
 ### 8. API endpoint — `lambda_functions/api/handler.py`
 
+Path is `/api/tags/{slug}/insights`, NOT `/api/genres/...`. The
+synthesizer joins `tags`/`game_tags` (see
+`TagRepository.find_eligible_for_synthesis`), so the identifier space
+is `tags.slug`. The persisted table keeps the `mv_genre_synthesis`
+name for historical/marketing reasons, but the web-facing namespace
+is tags.
+
 ```python
-@app.get("/api/genres/{slug}/insights")
-def get_genre_insights(slug: str) -> JSONResponse:
+@app.get("/api/tags/{slug}/insights")
+def get_tag_insights(slug: str) -> JSONResponse:
     row = genre_synthesis_repo.get_by_slug(slug)
     if row is None:
         raise HTTPException(404, f"No synthesis for {slug}")
@@ -255,7 +290,7 @@ a refresh.
 
 ### 10. Free vs Pro at the API boundary
 
-V1: `/api/genres/{slug}/insights` returns the **full** `GenreSynthesis`
+V1: `/api/tags/{slug}/insights` returns the **full** `GenreSynthesis`
 payload. The frontend chooses what to render based on
 `PRO_ENABLED` (currently always true since payment integration isn't
 shipped — see CLAUDE.md "No user accounts or login system").
@@ -289,7 +324,7 @@ this to the auth0-authentication.md prompt — V1 is open.
 5. **Cost tracking**: capture token counts from the Bedrock response.
    Log via Powertools. Per-synthesis cost should land near $1–2 for
    ~140 reports.
-6. **API smoke test**: `GET /api/genres/roguelike-deckbuilder/insights`
+6. **API smoke test**: `GET /api/tags/roguelike-deckbuilder/insights`
    returns 200 with the full payload. Add to `tests/smoke/`.
 7. **EventBridge dry-run**: invoke the handler with
    `{"action": "scan_stale"}` and verify it enqueues SQS messages

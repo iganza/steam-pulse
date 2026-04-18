@@ -74,6 +74,7 @@ _TEST_ENV_DEFAULTS = {
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__MERGING": "anthropic.claude-sonnet-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
+    "LLM_MODEL__GENRE_SYNTHESIS": "anthropic.claude-sonnet-test-v1:0",
     "BATCH_BUCKET_NAME": "test-batch-bucket",
     "BEDROCK_BATCH_ROLE_ARN": "arn:aws:iam::123456789012:role/test-bedrock-role",
     "PRIMARY_REGION": "us-east-1",
@@ -114,7 +115,7 @@ def clean_tables(request: pytest.FixtureRequest) -> Generator[None, None, None]:
             TRUNCATE games, reviews, tags, game_tags, genres, game_genres,
                      game_categories, reports, app_catalog, rate_limits,
                      analysis_jobs, game_relations, index_insights,
-                     chunk_summaries, merged_summaries
+                     chunk_summaries, merged_summaries, mv_genre_synthesis
             RESTART IDENTITY CASCADE
         """)
     conn.commit()

@@ -237,6 +237,53 @@ class TagRepository(BaseRepository):
             result[d["appid"]].append(d)
         return result
 
+    def find_eligible_for_synthesis(
+        self, slug: str, *, min_reviews: int, limit: int, pipeline_version: str
+    ) -> list[int]:
+        """Return appids eligible to feed the Phase-4 genre synthesizer.
+
+        Filters:
+          - game has the given tag slug
+          - game has a report at reports.pipeline_version = %s
+            (stale reports from a prior Phase-3 PIPELINE_VERSION are
+            excluded — mixing them in would degrade prompt adherence
+            and produce inconsistent cross-genre syntheses)
+          - COALESCE(review_count_english, review_count) >= min_reviews
+            (English is the eligibility driver per schema docs; fall back
+            to total only when English is missing)
+          - positive_pct IS NOT NULL (guarantees _compute_aggregates can
+            always produce a valid avg without hard-failing at runtime)
+
+        Sorted by English-first review count DESC and capped at `limit`
+        so large tags don't stream thousands of rows when the caller only
+        ever consumes the top-N (MAX_REPORTS_PER_GENRE).
+        """
+        rows = self._fetchall(
+            """
+            SELECT g.appid
+            FROM games g
+            JOIN game_tags gt ON gt.appid = g.appid
+            JOIN tags t ON t.id = gt.tag_id
+            JOIN reports r ON r.appid = g.appid
+            WHERE t.slug = %s
+              AND r.pipeline_version = %s
+              AND COALESCE(g.review_count_english, g.review_count, 0) >= %s
+              AND g.positive_pct IS NOT NULL
+            ORDER BY COALESCE(g.review_count_english, g.review_count) DESC NULLS LAST,
+                     g.appid
+            LIMIT %s
+            """,
+            (slug, pipeline_version, min_reviews, limit),
+        )
+        return [int(r["appid"]) for r in rows]
+
+    def find_display_name_for_slug(self, slug: str) -> str | None:
+        """Return the tag's display name for a slug, or None if unknown."""
+        row = self._fetchone("SELECT name FROM tags WHERE slug = %s", (slug,))
+        if row is None:
+            return None
+        return str(row["name"])
+
     def find_genres_for_appids(self, appids: list[int]) -> dict[int, list[dict]]:
         """Fetch genres for multiple appids in one query. Returns {appid: [genre, ...]}."""
         if not appids:

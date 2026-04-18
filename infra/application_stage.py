@@ -109,6 +109,7 @@ class ApplicationStage(cdk.Stage):
             spoke_results_queue=messaging.spoke_results_queue,
             email_queue=messaging.email_queue,
             cache_invalidation_queue=messaging.cache_invalidation_queue,
+            genre_synthesis_queue=messaging.genre_synthesis_queue,
             spoke_crawl_queue_urls=spoke_crawl_queue_urls,
             env=cdk_env,
         )

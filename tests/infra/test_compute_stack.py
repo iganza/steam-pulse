@@ -38,6 +38,7 @@ def template() -> assertions.Template:
     spoke_results_queue = sqs.Queue(stack, "SpokeResultsQueue")
     email_queue = sqs.Queue(stack, "EmailQueue")
     cache_invalidation_queue = sqs.Queue(stack, "CacheInvalidationQueue")
+    genre_synthesis_queue = sqs.Queue(stack, "GenreSynthesisQueue")
 
     config = SteamPulseConfig(
         ENVIRONMENT="production",
@@ -70,6 +71,7 @@ def template() -> assertions.Template:
         spoke_results_queue=spoke_results_queue,
         email_queue=email_queue,
         cache_invalidation_queue=cache_invalidation_queue,
+        genre_synthesis_queue=genre_synthesis_queue,
         spoke_crawl_queue_urls="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
     )
     return assertions.Template.from_stack(compute)

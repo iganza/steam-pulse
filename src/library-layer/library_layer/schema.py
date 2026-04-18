@@ -327,6 +327,26 @@ TABLES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_appid ON batch_executions(appid)",
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_status ON batch_executions(status)",
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_submitted ON batch_executions(submitted_at DESC)",
+    # 0050_create_mv_genre_synthesis — Phase-4 cross-genre LLM synthesis.
+    # Regular table (not a Postgres matview — it's populated by a Lambda).
+    # API reads one row per genre slug.
+    """
+    CREATE TABLE IF NOT EXISTS mv_genre_synthesis (
+        slug                TEXT PRIMARY KEY,
+        display_name        TEXT NOT NULL,
+        input_appids        INTEGER[] NOT NULL,
+        input_count         INTEGER NOT NULL,
+        prompt_version      TEXT NOT NULL,
+        input_hash          TEXT NOT NULL,
+        synthesis           JSONB NOT NULL,
+        narrative_summary   TEXT NOT NULL,
+        avg_positive_pct    NUMERIC NOT NULL,
+        median_review_count INTEGER NOT NULL,
+        computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_input_hash_idx ON mv_genre_synthesis(input_hash)",
+    "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_computed_at_idx ON mv_genre_synthesis(computed_at)",
     # Legacy table — kept for CLI backward compatibility
     """
     CREATE TABLE IF NOT EXISTS review_summaries (

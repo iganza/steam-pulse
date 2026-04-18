@@ -17,6 +17,7 @@ _ALL_REQUIRED = {
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
+    "LLM_MODEL__GENRE_SYNTHESIS": "anthropic.claude-sonnet-test-v1:0",
 }
 
 
@@ -47,6 +48,7 @@ def test_model_for_returns_configured_model() -> None:
     config = SteamPulseConfig(**_ALL_REQUIRED)
     assert config.model_for("chunking") == "anthropic.claude-haiku-test-v1:0"
     assert config.model_for("summarizer") == "anthropic.claude-sonnet-test-v1:0"
+    assert config.model_for("genre_synthesis") == "anthropic.claude-sonnet-test-v1:0"
 
 
 def test_model_for_raises_on_unknown_task() -> None:
@@ -69,6 +71,7 @@ def test_config_raises_when_llm_model_missing(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.delenv("LLM_MODEL__CHUNKING", raising=False)
     monkeypatch.delenv("LLM_MODEL__MERGING", raising=False)
     monkeypatch.delenv("LLM_MODEL__SUMMARIZER", raising=False)
+    monkeypatch.delenv("LLM_MODEL__GENRE_SYNTHESIS", raising=False)
     with pytest.raises(ValidationError):
         SteamPulseConfig(
             **{k: v for k, v in _ALL_REQUIRED.items() if not k.startswith("LLM_MODEL")}

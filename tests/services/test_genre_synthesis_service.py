@@ -148,7 +148,12 @@ def test_synthesize_happy_path(service_parts: dict) -> None:
 
 
 def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
-    """Re-running with the same input set hits the cache and skips the LLM."""
+    """Re-running with the same input set hits the cache and skips the LLM.
+
+    On hit, the service must call touch_computed_at so the weekly stale-
+    scan doesn't loop-enqueue the same slug forever. The returned row's
+    computed_at should reflect the bump, not the original timestamp.
+    """
     svc: GenreSynthesisService = service_parts["service"]
     backend: FakeBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
@@ -164,6 +169,9 @@ def test_synthesize_cache_short_circuits(service_parts: dict) -> None:
     assert len(backend.calls) == 1  # still just one LLM call
     assert second.input_hash == first_row.input_hash
     synthesis_repo.upsert.assert_not_called()
+    # Cache-hit path still refreshes the freshness timestamp.
+    synthesis_repo.touch_computed_at.assert_called_once()
+    assert second.computed_at > first_row.computed_at
 
 
 def test_synthesize_input_set_change_triggers_rerun(service_parts: dict) -> None:
@@ -204,12 +212,20 @@ def test_synthesize_refuses_below_minimum(service_parts: dict) -> None:
 
 
 def test_compute_input_hash_stable_and_order_independent() -> None:
-    a = _compute_input_hash(prompt_version="v1", appids=[1, 2, 3])
-    b = _compute_input_hash(prompt_version="v1", appids=[1, 2, 3])
-    assert a == b
+    def h(**kwargs: object) -> str:
+        return _compute_input_hash(
+            prompt_version=kwargs.get("prompt_version", "v1"),  # type: ignore[arg-type]
+            pipeline_version=kwargs.get("pipeline_version", "3.0/test"),  # type: ignore[arg-type]
+            appids=kwargs.get("appids", [1, 2, 3]),  # type: ignore[arg-type]
+        )
+
+    a = h()
+    assert a == h()
     # Same set, permuted order — function sorts internally.
-    assert a == _compute_input_hash(prompt_version="v1", appids=[3, 1, 2])
-    assert a == _compute_input_hash(prompt_version="v1", appids=[2, 3, 1])
-    # Version bump changes the hash.
-    c = _compute_input_hash(prompt_version="v2", appids=[1, 2, 3])
-    assert a != c
+    assert a == h(appids=[3, 1, 2])
+    assert a == h(appids=[2, 3, 1])
+    # Prompt version bump changes the hash.
+    assert a != h(prompt_version="v2")
+    # Pipeline version bump changes the hash — Phase-3 refresh with the
+    # same eligible set must force a cache miss.
+    assert a != h(pipeline_version="3.0/other")

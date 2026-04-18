@@ -85,6 +85,14 @@ if _config.GENRE_SYNTHESIS_QUEUE_PARAM_NAME and os.environ.get("AWS_LAMBDA_FUNCT
     _queue_url = get_parameter(_config.GENRE_SYNTHESIS_QUEUE_PARAM_NAME)
 
 
+# SQS SendMessageBatch accepts at most 10 entries per call.
+_SQS_SEND_BATCH_SIZE = 10
+# Number of slugs to include verbatim in the scan log line. Anything above
+# this is truncated with a has_more flag so a runaway catalog doesn't blow
+# CloudWatch log size.
+_STALE_SLUG_LOG_PREVIEW = 10
+
+
 def _scan_stale() -> dict:
     """Find stale synthesis rows and enqueue one job per slug."""
     if not _queue_url:
@@ -93,13 +101,36 @@ def _scan_stale() -> dict:
             "scan_stale cannot enqueue. Check SSM param."
         )
     stale = _synthesis_repo.find_stale(_config.GENRE_SYNTHESIS_MAX_AGE_DAYS)
-    logger.info("stale_slugs", extra={"count": len(stale), "slugs": stale})
-    for slug in stale:
-        msg = GenreSynthesisJobMessage(
-            slug=slug,
-            prompt_version=_config.GENRE_SYNTHESIS_PROMPT_VERSION,
-        )
-        _sqs.send_message(QueueUrl=_queue_url, MessageBody=msg.model_dump_json())
+    logger.info(
+        "stale_slugs",
+        extra={
+            "count": len(stale),
+            "slugs_preview": stale[:_STALE_SLUG_LOG_PREVIEW],
+            "has_more": len(stale) > _STALE_SLUG_LOG_PREVIEW,
+        },
+    )
+    for start in range(0, len(stale), _SQS_SEND_BATCH_SIZE):
+        batch = stale[start : start + _SQS_SEND_BATCH_SIZE]
+        entries = [
+            {
+                "Id": str(start + offset),
+                "MessageBody": GenreSynthesisJobMessage(
+                    slug=slug,
+                    prompt_version=_config.GENRE_SYNTHESIS_PROMPT_VERSION,
+                ).model_dump_json(),
+            }
+            for offset, slug in enumerate(batch)
+        ]
+        response = _sqs.send_message_batch(QueueUrl=_queue_url, Entries=entries)
+        failed = response.get("Failed") or []
+        if failed:
+            # Surface per-entry failures so a bad batch doesn't silently
+            # drop half the enqueue. DLQ won't help here — these never
+            # reached the queue at all.
+            logger.error(
+                "genre_synthesis_enqueue_partial_failure",
+                extra={"failed": failed},
+            )
     metrics.add_metric(
         name="GenreSynthesisStaleEnqueued",
         unit=MetricUnit.Count,

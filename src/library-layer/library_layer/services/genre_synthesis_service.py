@@ -126,7 +126,9 @@ class GenreSynthesisService:
             )
 
         input_hash = _compute_input_hash(
-            prompt_version=prompt_version, appids=selected_appids
+            prompt_version=prompt_version,
+            pipeline_version=self._required_pipeline_version,
+            appids=selected_appids,
         )
         # Numerically sorted view of the same set, shown to the LLM as
         # the allow-list of valid source_appid values.
@@ -135,8 +137,13 @@ class GenreSynthesisService:
         # Step 3: cache-hit short-circuit. An existing row with the same
         # input_hash means the inputs and prompt haven't changed, so re-
         # running the LLM would produce the same synthesis and waste money.
+        # On hit we still bump computed_at so the next weekly stale-scan
+        # doesn't re-enqueue the same slug forever — if we didn't, the row
+        # would be stale → enqueued → cache-hit (no write) → still stale.
         existing = self._synthesis_repo.get_by_slug(slug)
         if existing is not None and existing.input_hash == input_hash:
+            now = datetime.now(UTC)
+            self._synthesis_repo.touch_computed_at(slug, at=now)
             logger.info(
                 "genre_synthesis_cache_hit",
                 extra={"slug": slug, "input_hash": input_hash},
@@ -144,7 +151,9 @@ class GenreSynthesisService:
             self._metrics.add_metric(
                 name="GenreSynthesisCacheHit", unit=MetricUnit.Count, value=1
             )
-            return existing
+            # Return the row as stored, but with the refreshed timestamp so
+            # the caller observes the state that's now in the DB.
+            return existing.model_copy(update={"computed_at": now})
 
         reports = self._load_reports(selected_appids)
         avg_positive_pct, median_review_count = self._compute_aggregates(selected_appids)
@@ -237,15 +246,32 @@ class GenreSynthesisService:
         Sourced from the games table — these are descriptive stats about
         the synthesis input set, not derived from the LLM. Used in the
         free insights page header.
+
+        Every appid in `appids` must produce non-NULL positive_pct and
+        review_count. The tag-eligibility query already INNER-joined on
+        `games`, and the review-count threshold filter there guarantees
+        non-NULL review_count. If this invariant ever breaks, fail loudly
+        instead of silently computing stats over a subset.
         """
         rows = self._game_repo.find_review_stats_for_appids(appids)
-        positives = [float(r["positive_pct"]) for r in rows if r["positive_pct"] is not None]
-        review_counts = [int(r["review_count"]) for r in rows if r["review_count"] is not None]
-        if not positives or not review_counts:
+        if len(rows) != len(appids):
+            returned = {int(r["appid"]) for r in rows}
+            missing = sorted(set(appids) - returned)
             raise RuntimeError(
-                f"No review stats available for any of {len(appids)} appids — "
-                f"eligibility query is out of sync with games table."
+                f"Review stats missing for {len(missing)} of {len(appids)} "
+                f"appids ({missing[:10]}…) — eligibility query is out of "
+                f"sync with games table."
             )
+        null_positive = [int(r["appid"]) for r in rows if r["positive_pct"] is None]
+        null_reviews = [int(r["appid"]) for r in rows if r["review_count"] is None]
+        if null_positive or null_reviews:
+            raise RuntimeError(
+                f"NULL aggregate inputs — positive_pct NULL for "
+                f"{null_positive[:10]}, review_count NULL for {null_reviews[:10]}. "
+                f"Every eligible game must have both populated."
+            )
+        positives = [float(r["positive_pct"]) for r in rows]
+        review_counts = [int(r["review_count"]) for r in rows]
         avg_positive = sum(positives) / len(positives)
         # median_low is a deterministic integer drawn from the sample —
         # int(statistics.median(...)) truncates the .5 case for even-count
@@ -254,14 +280,21 @@ class GenreSynthesisService:
         return avg_positive, median_reviews
 
 
-def _compute_input_hash(*, prompt_version: str, appids: list[int]) -> str:
-    """Stable cache key for (prompt_version, input appid set).
+def _compute_input_hash(
+    *, prompt_version: str, pipeline_version: str, appids: list[int]
+) -> str:
+    """Stable cache key for (prompt_version, pipeline_version, appid set).
+
+    Including `pipeline_version` matters because a Phase-3 PIPELINE_VERSION
+    bump can refresh the underlying reports without changing the eligible
+    appid set (if the same games get re-analyzed at the new version). A
+    hash keyed only on appids would treat that as a cache hit and return
+    a synthesis built from the old, no-longer-present reports.
 
     Callers pass appids in any order; the function sorts internally so
     review_count-DESC and numerically-sorted views of the same set hash
-    to the same value. Sorting here (not in the caller) is the single
-    source of truth for the hash's ordering contract.
+    to the same value.
     """
     appids_str = ",".join(str(a) for a in sorted(appids))
-    payload = f"{prompt_version}|{appids_str}".encode()
+    payload = f"{prompt_version}|{pipeline_version}|{appids_str}".encode()
     return hashlib.sha256(payload).hexdigest()

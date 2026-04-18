@@ -7,6 +7,7 @@ any downstream consumer read via get_by_slug().
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from library_layer.models.genre_synthesis import GenreSynthesis, GenreSynthesisRow
 from library_layer.repositories.base import BaseRepository
@@ -81,6 +82,21 @@ class GenreSynthesisRepository(BaseRepository):
                     row.median_review_count,
                     row.computed_at,
                 ),
+            )
+        self.conn.commit()
+
+    def touch_computed_at(self, slug: str, *, at: datetime) -> None:
+        """Update only the computed_at timestamp on an existing row.
+
+        Called by the service on a cache-hit path when a stale-scan enqueue
+        fires but the input_hash still matches — without this, the scan
+        would find the same slug stale on the next tick and enqueue
+        forever while the synthesis never actually changes.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mv_genre_synthesis SET computed_at = %s WHERE slug = %s",
+                (at, slug),
             )
         self.conn.commit()
 

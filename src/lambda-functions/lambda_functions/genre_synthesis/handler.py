@@ -104,8 +104,11 @@ def _scan_stale() -> dict[str, int]:
     """
     if not _queue_url:
         raise RuntimeError(
-            "GENRE_SYNTHESIS_QUEUE_PARAM_NAME resolved to empty — "
-            "scan_stale cannot enqueue. Check SSM param."
+            "Synthesis queue URL not configured/resolved "
+            f"(GENRE_SYNTHESIS_QUEUE_PARAM_NAME="
+            f"{_config.GENRE_SYNTHESIS_QUEUE_PARAM_NAME!r}); "
+            "scan_stale cannot enqueue. Check the env var and the SSM "
+            "parameter value it points at."
         )
     stale = _synthesis_repo.find_stale(_config.GENRE_SYNTHESIS_MAX_AGE_DAYS)
     logger.info(

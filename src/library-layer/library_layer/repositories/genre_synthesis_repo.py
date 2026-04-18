@@ -43,10 +43,15 @@ class GenreSynthesisRepository(BaseRepository):
     def upsert(self, row: GenreSynthesisRow) -> None:
         """Insert or update by slug. Always full replace — no merge.
 
-        Persists `row.computed_at` verbatim. The service sets this to the
-        time the LLM synthesis ran, and the caller expects the row it
-        receives back to carry that same timestamp — using NOW() on the
-        DB side would desync the in-memory model from the persisted row.
+        Persists `row.computed_at` verbatim.
+
+        `computed_at` is a "last refresh/check" marker, not "last LLM run":
+        the service sets it to now() on every synthesize() call — whether
+        that call triggered an LLM invocation or hit the input_hash cache
+        (via touch_computed_at). Treat this column as "when Phase-4 last
+        confirmed this row is current", NOT as a per-row cost indicator.
+        Using NOW() on the DB side would desync the in-memory model from
+        the persisted row.
         """
         with self.conn.cursor() as cur:
             cur.execute(

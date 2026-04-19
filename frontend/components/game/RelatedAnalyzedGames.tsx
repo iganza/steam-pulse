@@ -19,8 +19,8 @@ export function RelatedAnalyzedGames({ games }: RelatedAnalyzedGamesProps) {
           <Link
             key={g.appid}
             href={`/games/${g.appid}/${g.slug}`}
-            className="block rounded-xl p-4 transition-colors hover:border-teal-400/40"
-            style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+            className="block rounded-xl border border-border p-4 transition-colors hover:border-teal-400/40"
+            style={{ background: "var(--card)" }}
           >
             <div className="flex items-start gap-3">
               {g.header_image && (

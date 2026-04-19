@@ -118,13 +118,15 @@ class ReportRepository(BaseRepository):
         # so the GROUP BY doesn't carry the JSONB report_json (or any other
         # wide columns) through aggregation. The outer query joins the
         # per-appid scores against games/reports for the final projection.
+        # Score is vote-weighted: candidates with strong tag signal (high
+        # game_tags.votes on shared tags) outrank candidates with weak signal.
         overlap_rows = self._fetchall(
             """
             WITH target_tags AS (
                 SELECT tag_id FROM game_tags WHERE appid = %s
             ),
             scored AS (
-                SELECT gt.appid, COUNT(*) AS overlap_score
+                SELECT gt.appid, SUM(gt.votes) AS overlap_score
                 FROM game_tags gt
                 WHERE gt.tag_id IN (SELECT tag_id FROM target_tags)
                   AND gt.appid <> %s
@@ -140,7 +142,7 @@ class ReportRepository(BaseRepository):
                 s.overlap_score
             FROM scored s
             JOIN games g ON g.appid = s.appid
-            JOIN reports r ON r.appid = s.appid
+            JOIN reports r ON r.appid = s.appid AND r.is_public = TRUE
             WHERE g.type = 'game'
             ORDER BY s.overlap_score DESC, r.last_analyzed DESC NULLS LAST
             LIMIT %s
@@ -162,6 +164,7 @@ class ReportRepository(BaseRepository):
             FROM reports r
             JOIN games g ON g.appid = r.appid
             WHERE r.appid <> %s
+              AND r.is_public = TRUE
               AND g.type = 'game'
             ORDER BY r.last_analyzed DESC NULLS LAST
             LIMIT %s

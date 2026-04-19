@@ -221,6 +221,68 @@ def test_find_related_analyzed_falls_back_when_overlap_thin(
     assert appids == {500, 600, 601, 602}
 
 
+def test_find_related_analyzed_weights_by_votes(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Overlap is weighted by game_tags.votes: a candidate with one strongly-
+    # voted shared tag outranks a candidate with multiple weakly-voted shared
+    # tags when the vote sum is lower.
+    for appid in (440, 500, 501, 502):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    tag_repo.upsert_tags([
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 440, "name": "FPS", "votes": 100},
+        {"appid": 440, "name": "Multiplayer", "votes": 100},
+    ])
+    # 500: one tag, heavily voted → score 1000
+    tag_repo.upsert_tags([{"appid": 500, "name": "Action", "votes": 1000}])
+    # 501: two tags, lightly voted → score 20
+    tag_repo.upsert_tags([
+        {"appid": 501, "name": "Action", "votes": 10},
+        {"appid": 501, "name": "FPS", "votes": 10},
+    ])
+    # 502: three tags, moderately voted → score 150
+    tag_repo.upsert_tags([
+        {"appid": 502, "name": "Action", "votes": 50},
+        {"appid": 502, "name": "FPS", "votes": 50},
+        {"appid": 502, "name": "Multiplayer", "votes": 50},
+    ])
+
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert [row["appid"] for row in rows] == [500, 502, 501]
+
+
+def test_find_related_analyzed_excludes_non_public_reports(
+    db_conn, game_repo: GameRepository, report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Reports flagged is_public=FALSE must not surface on public pages —
+    # neither via the overlap path nor the recent-reports fallback.
+    for appid in (440, 500, 501):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE reports SET is_public = FALSE WHERE appid = %s", (501,))
+    db_conn.commit()
+    tag_repo.upsert_tags([
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 501, "name": "Action", "votes": 100},
+    ])
+
+    # Overlap path: private 501 is filtered out despite sharing tags.
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert {row["appid"] for row in rows} == {500}
+
+    # Fallback path: private 501 still excluded when overlap is thin.
+    tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert 501 not in {row["appid"] for row in rows}
+
+
 def test_find_related_analyzed_filters_non_game_types(
     game_repo: GameRepository,
     report_repo: ReportRepository,

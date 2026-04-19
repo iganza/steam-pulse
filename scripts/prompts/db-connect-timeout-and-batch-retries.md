@@ -61,8 +61,13 @@ def get_conn(cursor_factory=psycopg2.extras.RealDictCursor) -> psycopg2.extensio
 
 Required changes:
 
-1. Add a parameter: `connect_timeout: int = 30`. Default is 30s. Batch
-   callers will pass 60s.
+1. Add a parameter: `connect_timeout: int = 5`. Default is 5s — matches
+   the prior hardcoded value and industry norms for latency-sensitive
+   API paths (fail fast so upstream retry layers recover quickly instead
+   of the API Lambda burning its whole timeout budget on a slow connect).
+   Batch callers pass a longer value (60s for long-running phases; 15s
+   for the short-timeout dispatch Lambda) sized to fit their Lambda
+   timeout budget.
 
 2. Wrap the `psycopg2.connect()` call with tenacity retry, but make
    retry **opt-in** via a `max_connect_attempts` parameter (default 1).

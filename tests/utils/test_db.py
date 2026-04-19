@@ -26,6 +26,21 @@ def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("tenacity.nap.time.sleep", lambda _s: None)
 
 
+def test_connect_default_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API callers (latency-sensitive) get the default: single attempt, no retry."""
+    calls: list[int] = []
+
+    def fake_connect(*_args: object, **_kwargs: object) -> psycopg2.extensions.connection:
+        calls.append(1)
+        raise psycopg2.OperationalError("timeout expired")
+
+    monkeypatch.setattr(psycopg2, "connect", fake_connect)
+
+    with pytest.raises(psycopg2.OperationalError, match="timeout expired"):
+        get_conn()
+    assert len(calls) == 1
+
+
 def test_connect_retry_on_transient_error(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_conn = MagicMock(spec=psycopg2.extensions.connection)
     mock_conn.closed = False
@@ -39,7 +54,7 @@ def test_connect_retry_on_transient_error(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(psycopg2, "connect", fake_connect)
 
-    result = get_conn()
+    result = get_conn(max_connect_attempts=3)
     assert result is mock_conn
     assert len(calls) == 3
 
@@ -56,7 +71,7 @@ def test_connect_retry_exhaustion_raises_operational_error(
     monkeypatch.setattr(psycopg2, "connect", fake_connect)
 
     with pytest.raises(psycopg2.OperationalError, match="timeout expired"):
-        get_conn()
+        get_conn(max_connect_attempts=3)
     assert len(calls) == 3
 
 
@@ -72,7 +87,7 @@ def test_connect_auth_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(psycopg2, "connect", fake_connect)
 
     with pytest.raises(psycopg2.OperationalError, match="password authentication failed"):
-        get_conn()
+        get_conn(max_connect_attempts=3)
     assert len(calls) == 1
 
 

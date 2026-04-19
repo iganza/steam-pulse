@@ -64,13 +64,16 @@ Required changes:
 1. Add a parameter: `connect_timeout: int = 30`. Default is 30s. Batch
    callers will pass 60s.
 
-2. Wrap the `psycopg2.connect()` call with tenacity retry:
+2. Wrap the `psycopg2.connect()` call with tenacity retry, but make
+   retry **opt-in** via a `max_connect_attempts` parameter (default 1).
+   API callers rely on the default (single attempt, no retry) so a DB
+   stall surfaces as a fast error rather than consuming the request
+   latency budget; batch callers pass `max_connect_attempts=3`.
    - `tenacity` is already in `poetry.lock`; add it as an explicit
      dependency in `pyproject.toml` of the library-layer if not already
      declared.
    - Retry only on `psycopg2.OperationalError`.
-   - Max 3 attempts (so: initial + 2 retries).
-   - Exponential backoff: 1s, then 2s (plus ±0.5s jitter).
+   - Exponential backoff: 1s, then 2s (plus up to 0.5s positive jitter).
    - **Do not retry on auth failures.** Inspect the exception message;
      if it contains `password authentication failed`,
      `role ... does not exist`, or `database ... does not exist`, raise

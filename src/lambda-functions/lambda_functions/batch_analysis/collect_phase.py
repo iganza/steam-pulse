@@ -70,7 +70,7 @@ _BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
 
 
 def _get_batch_conn() -> psycopg2.extensions.connection:
-    return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT)
+    return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT, max_connect_attempts=3)
 
 
 _game_repo = GameRepository(_get_batch_conn)

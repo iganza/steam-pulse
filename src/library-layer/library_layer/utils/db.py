@@ -70,11 +70,19 @@ def _log_connect_retry(retry_state: RetryCallState) -> None:
     )
 
 
-def _connect(url: str, cursor_factory: Any, connect_timeout: int) -> psycopg2.extensions.connection:
+def _connect(
+    url: str,
+    cursor_factory: Any,
+    connect_timeout: int,
+    max_attempts: int,
+) -> psycopg2.extensions.connection:
     @retry(
         retry=retry_if_exception(_is_transient_connect_error),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=2) + wait_random(-0.5, 0.5),
+        stop=stop_after_attempt(max_attempts),
+        # Positive-only jitter: base wait is always ≥1s, but guarding
+        # against accidental ValueError from time.sleep if min is ever
+        # lowered below 0.5s is cheap insurance.
+        wait=wait_exponential(multiplier=1, min=1, max=2) + wait_random(0, 0.5),
         before_sleep=_log_connect_retry,
         reraise=True,
     )
@@ -95,6 +103,7 @@ def _connect(url: str, cursor_factory: Any, connect_timeout: int) -> psycopg2.ex
 def get_conn(
     cursor_factory: Any = psycopg2.extras.RealDictCursor,
     connect_timeout: int = 30,
+    max_connect_attempts: int = 1,
 ) -> psycopg2.extensions.connection:
     """Return a cached psycopg2 connection, reconnecting if stale.
 
@@ -102,10 +111,12 @@ def get_conn(
     server-side disconnects (RDS maintenance, failover) that psycopg2's
     .closed flag doesn't catch.
 
-    The first caller's `connect_timeout` determines the warm-instance
-    connection; subsequent queries are unaffected since `connect_timeout`
-    only applies to the initial handshake. Batch Lambdas should pass 60s
-    to tolerate cold-start ENI-acquisition bursts.
+    The first caller's `connect_timeout` / `max_connect_attempts` determine
+    the warm-instance connection config; subsequent queries are unaffected
+    since these only apply to the initial handshake. Defaults are tuned
+    for latency-sensitive API callers (single attempt, 30s). Batch Lambdas
+    opt in to retries by passing `max_connect_attempts=3` with a shorter
+    per-attempt `connect_timeout` sized to fit their Lambda timeout budget.
     """
     if "conn" in _state and not _state["conn"].closed:
         conn = _state["conn"]
@@ -126,7 +137,9 @@ def get_conn(
             except Exception:
                 pass
 
-    _state["conn"] = _connect(get_db_url(), cursor_factory, connect_timeout)
+    _state["conn"] = _connect(
+        get_db_url(), cursor_factory, connect_timeout, max_connect_attempts
+    )
     return _state["conn"]  # type: ignore[return-value]
 
 
@@ -145,11 +158,15 @@ def _is_transient_write_error(exc: BaseException) -> bool:
     # write and a second attempt is meaningful.
     if isinstance(exc, _PERMANENT_WRITE_ERRORS):
         return False
-    return isinstance(
+    # Tuple form (not PEP-604 union) is intentional: isinstance prefers
+    # tuples, and some static-analysis tooling still misreads unions here.
+    return isinstance(  # noqa: UP038
         exc,
-        psycopg2.OperationalError
-        | psycopg2.errors.SerializationFailure
-        | psycopg2.errors.DeadlockDetected,
+        (
+            psycopg2.OperationalError,
+            psycopg2.errors.SerializationFailure,
+            psycopg2.errors.DeadlockDetected,
+        ),
     )
 
 

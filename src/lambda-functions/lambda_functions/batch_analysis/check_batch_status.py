@@ -9,6 +9,7 @@ Output: {status: "Running"|"Completed"|"Failed", message: str}
 
 import anthropic
 import boto3
+import psycopg2.extensions
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -20,7 +21,14 @@ logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
 
 _config = SteamPulseConfig()
-_batch_exec_repo = BatchExecutionRepository(get_conn)
+_BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
+
+
+def _get_batch_conn() -> psycopg2.extensions.connection:
+    return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT, max_connect_attempts=3)
+
+
+_batch_exec_repo = BatchExecutionRepository(_get_batch_conn)
 
 # Module-level clients — reused across warm Lambda invocations.
 _bedrock_client = boto3.client("bedrock") if _config.LLM_BACKEND != "anthropic" else None

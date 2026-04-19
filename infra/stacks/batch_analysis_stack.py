@@ -435,7 +435,11 @@ class BatchAnalysisStack(cdk.Stack):
             vpc=vpc,
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
-            timeout=cdk.Duration.seconds(30),
+            # 60s accommodates up to 3 DB connect attempts at 15s each
+            # plus backoff (~49s worst case) before running the actual query
+            # and SFN start_execution. Previously 30s, which could not fit
+            # even one connect retry on a cold VPC ENI acquisition.
+            timeout=cdk.Duration.seconds(60),
             memory_size=256,
             tracing=lambda_.Tracing.ACTIVE,
             log_group=logs.LogGroup(

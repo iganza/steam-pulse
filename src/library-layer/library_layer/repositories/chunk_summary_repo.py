@@ -11,6 +11,7 @@ import json
 import psycopg2.extras
 from library_layer.models.analyzer_models import RichChunkSummary
 from library_layer.repositories.base import BaseRepository
+from library_layer.utils.db import retry_on_transient_db_error
 
 
 class ChunkSummaryRepository(BaseRepository):
@@ -37,6 +38,7 @@ class ChunkSummaryRepository(BaseRepository):
             (appid, prompt_version),
         )
 
+    @retry_on_transient_db_error()
     def insert(
         self,
         appid: int,

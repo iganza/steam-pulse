@@ -32,6 +32,7 @@ import os
 from decimal import Decimal
 
 import boto3
+import psycopg2.extensions
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
@@ -65,13 +66,19 @@ _config = SteamPulseConfig()
 _BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
 _BATCH_ROLE_ARN = os.environ["BEDROCK_BATCH_ROLE_ARN"]
 _CONTENT_EVENTS_TOPIC_ARN = get_parameter(_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
+_BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
 
-_game_repo = GameRepository(get_conn)
-_chunk_repo = ChunkSummaryRepository(get_conn)
-_merge_repo = MergedSummaryRepository(get_conn)
-_report_repo = ReportRepository(get_conn)
-_review_repo = ReviewRepository(get_conn)
-_batch_exec_repo = BatchExecutionRepository(get_conn)
+
+def _get_batch_conn() -> psycopg2.extensions.connection:
+    return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT, max_connect_attempts=3)
+
+
+_game_repo = GameRepository(_get_batch_conn)
+_chunk_repo = ChunkSummaryRepository(_get_batch_conn)
+_merge_repo = MergedSummaryRepository(_get_batch_conn)
+_report_repo = ReportRepository(_get_batch_conn)
+_review_repo = ReviewRepository(_get_batch_conn)
+_batch_exec_repo = BatchExecutionRepository(_get_batch_conn)
 _sns = boto3.client("sns")
 
 

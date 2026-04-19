@@ -63,7 +63,7 @@ def test_returns_top_n_candidates(monkeypatch: Any) -> None:
     mod = _get_module()
 
     mock_conn = _mock_conn_with([440, 730, 570])
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     mock_sfn.start_execution.return_value = {
@@ -84,7 +84,7 @@ def test_dry_run_no_execution(monkeypatch: Any) -> None:
     mod = _get_module()
 
     mock_conn = _mock_conn_with([440, 730])
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     monkeypatch.setattr(mod, "_sfn", mock_sfn)
@@ -103,7 +103,7 @@ def test_empty_matview_no_execution(monkeypatch: Any) -> None:
     mod = _get_module()
 
     mock_conn = _mock_conn_with([])
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     monkeypatch.setattr(mod, "_sfn", mock_sfn)
@@ -122,7 +122,7 @@ def test_batch_size_override(monkeypatch: Any) -> None:
 
     mock_conn = _mock_conn_with([440, 730])
     mock_cursor = mock_conn.cursor.return_value.__enter__.return_value
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     mock_sfn.start_execution.return_value = {
@@ -143,7 +143,7 @@ def test_batch_size_non_positive_uses_default(monkeypatch: Any) -> None:
     mod = _get_module()
 
     mock_conn = _mock_conn_with([440])
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     monkeypatch.setattr(mod, "_sfn", mock_sfn)
@@ -158,7 +158,7 @@ def test_batch_size_string_uses_default(monkeypatch: Any) -> None:
     mod = _get_module()
 
     mock_conn = _mock_conn_with([440])
-    monkeypatch.setattr(mod, "get_conn", lambda: mock_conn)
+    monkeypatch.setattr(mod, "get_conn", lambda **_kw: mock_conn)
 
     mock_sfn = MagicMock()
     monkeypatch.setattr(mod, "_sfn", mock_sfn)

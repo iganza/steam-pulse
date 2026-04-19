@@ -46,6 +46,9 @@ tracer = Tracer(service="batch-dispatch")
 _config = SteamPulseConfig()
 _sfn = boto3.client("stepfunctions")
 _sns = boto3.client("sns")
+# Sized to fit the Lambda's 60s timeout with 3 retry attempts:
+# worst-case connect chain = 15 + backoff + 15 + backoff + 15 ≈ 49s.
+_BATCH_CONNECT_TIMEOUT = 15
 
 
 def _get_orchestrator_arn() -> str:
@@ -68,7 +71,7 @@ def _normalize_batch_size(raw: object, *, default: int) -> int:
 
 
 def _fetch_candidates(*, batch_size: int) -> list[int]:
-    conn = get_conn()
+    conn = get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT, max_connect_attempts=3)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",

@@ -102,7 +102,7 @@ def _connect(
 
 def get_conn(
     cursor_factory: Any = psycopg2.extras.RealDictCursor,
-    connect_timeout: int = 27,
+    connect_timeout: int = 5,
     max_connect_attempts: int = 1,
 ) -> psycopg2.extensions.connection:
     """Return a cached psycopg2 connection, reconnecting if stale.
@@ -114,9 +114,11 @@ def get_conn(
     The first caller's `connect_timeout` / `max_connect_attempts` determine
     the warm-instance connection config; subsequent queries are unaffected
     since these only apply to the initial handshake. Defaults are tuned
-    for latency-sensitive API callers (single attempt, 30s). Batch Lambdas
-    opt in to retries by passing `max_connect_attempts=3` with a shorter
-    per-attempt `connect_timeout` sized to fit their Lambda timeout budget.
+    for latency-sensitive API callers (single attempt, 5s — fails fast so
+    upstream retry layers recover quickly instead of the API burning its
+    whole Lambda budget on a slow connect). Batch Lambdas opt in to retries
+    by passing `max_connect_attempts=3` with a longer per-attempt
+    `connect_timeout` sized to fit their Lambda timeout budget.
     """
     if "conn" in _state and not _state["conn"].closed:
         conn = _state["conn"]

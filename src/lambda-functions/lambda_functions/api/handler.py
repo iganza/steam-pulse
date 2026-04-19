@@ -387,14 +387,13 @@ async def get_review_velocity(appid: int) -> dict:
 async def get_related_analyzed(appid: int, limit: int = 6) -> dict:
     """Analyzed games most similar to the target by tag overlap.
 
-    Falls back to recent reports when tag overlap yields fewer than 3 matches.
-    Used by the un-analyzed game page to keep visitors on-site.
+    Falls back to recent public reports when tag overlap yields fewer than 3
+    matches — including when the target game row is missing entirely. The
+    un-analyzed page still renders a slug-derived fallback for unknown appids
+    and benefits from having on-site cross-links, so a 404 here would just
+    produce a dead-end for SEO visitors.
     """
     logger.append_keys(appid=appid)
-    if not _game_repo.find_by_appid(appid):
-        raise HTTPException(
-            status_code=404, detail={"error": "game_not_found", "code": "not_found"}
-        )
     rows = _report_repo.find_related_analyzed(appid, limit=max(1, min(limit, 12)))
     return {
         "games": [

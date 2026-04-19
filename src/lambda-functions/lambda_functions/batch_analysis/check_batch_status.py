@@ -9,6 +9,7 @@ Output: {status: "Running"|"Completed"|"Failed", message: str}
 
 import anthropic
 import boto3
+import psycopg2.extensions
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -23,7 +24,7 @@ _config = SteamPulseConfig()
 _BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
 
 
-def _get_batch_conn():
+def _get_batch_conn() -> psycopg2.extensions.connection:
     return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT)
 
 

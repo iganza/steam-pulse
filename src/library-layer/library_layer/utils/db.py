@@ -202,7 +202,7 @@ def retry_on_transient_db_error(max_attempts: int = 3) -> Callable[..., Any]:
         wrapped = retry(
             retry=retry_if_exception(_is_transient_write_error),
             stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=1, min=0.5, max=2) + wait_random(0, 0.25),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2) + wait_random(0, 0.25),
             before_sleep=_before_sleep,
             reraise=True,
         )(fn)

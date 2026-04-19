@@ -6,13 +6,15 @@ from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.tag_repo import TagRepository
 
 
-def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
+def _seed_game(
+    game_repo: GameRepository, appid: int = 440, *, type_: str = "game"
+) -> None:
     game_repo.upsert(
         {
             "appid": appid,
             "name": "Team Fortress 2",
             "slug": f"team-fortress-2-{appid}",
-            "type": "game",
+            "type": type_,
             "developer": "Valve",
             "developer_slug": "valve",
             "publisher": "Valve",
@@ -217,3 +219,32 @@ def test_find_related_analyzed_falls_back_when_overlap_thin(
     # Fallback returned — every analyzed game except the target.
     assert 440 not in appids
     assert appids == {500, 600, 601, 602}
+
+
+def test_find_related_analyzed_filters_non_game_types(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # The endpoint is explicitly "games like this" — analyzed DLC/demo/tool
+    # rows that share tags with the target must not surface.
+    _seed_game(game_repo, 440)
+    _seed_game(game_repo, 500)  # type='game' — should appear
+    _seed_game(game_repo, 501, type_="dlc")  # should be filtered out
+    for appid in (440, 500, 501):
+        report_repo.upsert(_report(appid))
+    shared = [
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 501, "name": "Action", "votes": 100},
+    ]
+    tag_repo.upsert_tags(shared)
+
+    # Overlap path: DLC excluded despite sharing tags.
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert {row["appid"] for row in rows} == {500}
+
+    # Fallback path: DLC still excluded when overlap is thin.
+    tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert 501 not in {row["appid"] for row in rows}

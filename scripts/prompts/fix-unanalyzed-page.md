@@ -120,7 +120,7 @@ After the changes, visit both example URLs in a clean browser session and verify
    - Data freshness sentence is present and correct
    - Email waitlist card is the primary CTA
    - "More games like this" section shows at least 3 analyzed games
-   - Submitting an email adds a row to `game_report_requests`
+   - Submitting an email adds a row to `analysis_requests`
    - Analytics event fires on submit
 
 2. **Baldur's Gate 3 page** (analyzed): unchanged. No regression.

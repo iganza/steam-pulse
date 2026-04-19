@@ -24,6 +24,7 @@ export function RelatedAnalyzedGames({ games }: RelatedAnalyzedGamesProps) {
           >
             <div className="flex items-start gap-3">
               {g.header_image && (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={g.header_image}
                   alt=""

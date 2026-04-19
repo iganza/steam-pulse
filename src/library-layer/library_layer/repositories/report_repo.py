@@ -114,10 +114,21 @@ class ReportRepository(BaseRepository):
         Each row includes `one_liner` pulled from `report_json` — empty string
         when the report JSON has no `one_liner` key.
         """
+        # Overlap scores are computed in a narrow subquery keyed only by appid
+        # so the GROUP BY doesn't carry the JSONB report_json (or any other
+        # wide columns) through aggregation. The outer query joins the
+        # per-appid scores against games/reports for the final projection.
         overlap_rows = self._fetchall(
             """
             WITH target_tags AS (
                 SELECT tag_id FROM game_tags WHERE appid = %s
+            ),
+            scored AS (
+                SELECT gt.appid, COUNT(*) AS overlap_score
+                FROM game_tags gt
+                WHERE gt.tag_id IN (SELECT tag_id FROM target_tags)
+                  AND gt.appid <> %s
+                GROUP BY gt.appid
             )
             SELECT
                 g.appid,
@@ -126,16 +137,12 @@ class ReportRepository(BaseRepository):
                 g.header_image,
                 g.positive_pct,
                 COALESCE(r.report_json->>'one_liner', '') AS one_liner,
-                COUNT(gt.tag_id) AS overlap_score
-            FROM games g
-            JOIN reports r ON r.appid = g.appid
-            JOIN game_tags gt ON gt.appid = g.appid
-            WHERE gt.tag_id IN (SELECT tag_id FROM target_tags)
-              AND g.appid <> %s
-            GROUP BY
-                g.appid, g.slug, g.name, g.header_image, g.positive_pct,
-                r.report_json, r.last_analyzed
-            ORDER BY overlap_score DESC, r.last_analyzed DESC NULLS LAST
+                s.overlap_score
+            FROM scored s
+            JOIN games g ON g.appid = s.appid
+            JOIN reports r ON r.appid = s.appid
+            WHERE g.type = 'game'
+            ORDER BY s.overlap_score DESC, r.last_analyzed DESC NULLS LAST
             LIMIT %s
             """,
             (appid, appid, limit),
@@ -155,6 +162,7 @@ class ReportRepository(BaseRepository):
             FROM reports r
             JOIN games g ON g.appid = r.appid
             WHERE r.appid <> %s
+              AND g.type = 'game'
             ORDER BY r.last_analyzed DESC NULLS LAST
             LIMIT %s
             """,

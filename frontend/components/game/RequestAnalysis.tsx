@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { requestAnalysis } from "@/lib/api";
 import { track } from "@/lib/track";
 
@@ -25,7 +25,7 @@ export function RequestAnalysis({
   const [requestCount, setRequestCount] = useState(initialRequestCount);
   const [error, setError] = useState("");
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
 
@@ -134,7 +134,7 @@ interface CompactCtaProps {
   setEmail: (v: string) => void;
   setShowInput: (v: boolean) => void;
   setError: (v: string) => void;
-  handleSubmit: (e: React.FormEvent) => void;
+  handleSubmit: (e: FormEvent) => void;
 }
 
 function CompactCta({

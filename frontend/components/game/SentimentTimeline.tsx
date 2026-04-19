@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TimelineEntry } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 
 interface SentimentTimelineProps {
   timeline: TimelineEntry[];
@@ -94,14 +95,7 @@ interface SentimentTimelineStubProps {
 }
 
 export function SentimentTimelineStub({ firstCrawlIso }: SentimentTimelineStubProps) {
-  const date =
-    firstCrawlIso && !Number.isNaN(new Date(firstCrawlIso).getTime())
-      ? new Date(firstCrawlIso).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : null;
+  const date = formatDate(firstCrawlIso);
   return (
     <p className="text-sm text-muted-foreground font-mono">
       {date ? `First crawl ${date}. ` : ""}

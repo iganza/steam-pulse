@@ -541,7 +541,10 @@ export async function getReportRequestCount(appid: number): Promise<{ appid: num
 export async function getRelatedAnalyzedGames(
   appid: number,
 ): Promise<{ games: RelatedAnalyzedGame[] }> {
-  return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 300 } });
+  // Aligned with the page-level ISR window (24h) in games/[appid]/[slug]/page.tsx —
+  // a shorter per-fetch revalidate would effectively shrink the page ISR and
+  // hammer the DB on every cache miss.
+  return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 86400 } });
 }
 
 export { ApiError };

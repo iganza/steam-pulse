@@ -96,9 +96,8 @@ Files (audit the directory for any I've missed):
 
 - `src/lambda-functions/lambda_functions/batch_analysis/prepare_phase.py`
 - `src/lambda-functions/lambda_functions/batch_analysis/collect_phase.py`
-- `src/lambda-functions/lambda_functions/batch_analysis/dispatch.py`
-- `src/lambda-functions/lambda_functions/batch_analysis/check_status.py`
-  (or whatever the poller is called)
+- `src/lambda-functions/lambda_functions/batch_analysis/dispatch_batch.py`
+- `src/lambda-functions/lambda_functions/batch_analysis/check_batch_status.py`
 - Any other Lambda under `batch_analysis/` that calls `get_conn()`
 
 For each, at module top:
@@ -192,7 +191,7 @@ backoff shape — the insert is already idempotent so retries are safe.
 
 ## Tests
 
-Add under `tests/library_layer/`:
+Add under `tests/utils/` (the repo's existing home for utility-module tests; there is no `tests/library_layer/` directory):
 
 1. **Connect retry on transient error** — mock `psycopg2.connect` to
    raise `OperationalError("timeout expired")` twice, then return a mock
@@ -234,7 +233,9 @@ Add under `tests/library_layer/`:
 
 ## Verification
 
-Before handing back: run `poetry run pytest tests/library_layer/ -v`
-and paste the result into the PR description.
+Before handing back: run `poetry run pytest tests/utils/test_db.py -v`
+(plus the existing `tests/repositories/` suite to confirm the decorator
+didn't break any batch-write happy paths) and paste the result into
+the PR description.
 
 Do NOT run against production. Do NOT deploy. User handles both.

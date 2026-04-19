@@ -74,7 +74,7 @@ def _connect(url: str, cursor_factory: Any, connect_timeout: int) -> psycopg2.ex
     @retry(
         retry=retry_if_exception(_is_transient_connect_error),
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=2) + wait_random(0, 0.5),
+        wait=wait_exponential(multiplier=1, min=1, max=2) + wait_random(-0.5, 0.5),
         before_sleep=_log_connect_retry,
         reraise=True,
     )
@@ -147,11 +147,9 @@ def _is_transient_write_error(exc: BaseException) -> bool:
         return False
     return isinstance(
         exc,
-        (
-            psycopg2.OperationalError,
-            psycopg2.errors.SerializationFailure,
-            psycopg2.errors.DeadlockDetected,
-        ),
+        psycopg2.OperationalError
+        | psycopg2.errors.SerializationFailure
+        | psycopg2.errors.DeadlockDetected,
     )
 
 

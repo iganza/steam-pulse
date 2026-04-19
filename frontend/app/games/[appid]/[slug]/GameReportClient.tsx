@@ -14,15 +14,15 @@ import {
   Target,
   Swords,
   Users,
-  Clock,
 } from "lucide-react";
-import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
+import type { GameReport, ReviewStats, Benchmarks, RelatedAnalyzedGame } from "@/lib/types";
 import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import {
   SentimentTimeline,
   SentimentTimelineSkeleton,
+  SentimentTimelineStub,
 } from "@/components/game/SentimentTimeline";
 import {
   PlaytimeChart,
@@ -37,6 +37,7 @@ import { SteamFactsCard } from "@/components/game/SteamFactsCard";
 import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
 import { RequestAnalysis } from "@/components/game/RequestAnalysis";
+import { RelatedAnalyzedGames } from "@/components/game/RelatedAnalyzedGames";
 import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
 
 interface GameReportClientProps {
@@ -72,6 +73,9 @@ interface GameReportClientProps {
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
   revenueEstimateReason?: string | null;
+  /** Pre-fetched neighbors for the "More games like this" section on
+   *  un-analyzed pages. Empty on analyzed pages. */
+  relatedAnalyzed?: RelatedAnalyzedGame[];
 }
 
 function formatMonth(iso: string): string | null {
@@ -120,6 +124,7 @@ export function GameReportClient({
   estimatedRevenueUsd,
   revenueEstimateMethod,
   revenueEstimateReason,
+  relatedAnalyzed = [],
 }: GameReportClientProps) {
   const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
@@ -178,7 +183,11 @@ export function GameReportClient({
   const playtimeReviewTotal =
     reviewStats?.playtime_buckets.reduce((s, b) => s + b.reviews, 0) ?? 0;
   const showSentimentHistory =
-    !!reviewStats && reviewStats.timeline.length >= 2;
+    !!reviewStats && reviewStats.timeline.length >= 3;
+  // Un-analyzed pages keep the Sentiment History header visible with an
+  // informative stub so returning visitors see the section populate over time.
+  const showSentimentHistoryStub =
+    !report && !!reviewStats && reviewStats.timeline.length < 3;
   const showPlaytimeSentiment = !!reviewStats && playtimeReviewTotal >= 50;
 
   const breadcrumbItems = [
@@ -599,6 +608,11 @@ export function GameReportClient({
             <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimeline timeline={reviewStats!.timeline} />
           </section>
+        ) : showSentimentHistoryStub ? (
+          <section>
+            <SectionLabel>Sentiment History</SectionLabel>
+            <SentimentTimelineStub firstCrawlIso={reviewCrawledAt ?? reviewsCompletedAt} />
+          </section>
         ) : null}
 
         {statsLoading ? (
@@ -659,21 +673,10 @@ export function GameReportClient({
 
 
 
-        {!report && (
-          <section className="text-center py-8">
-            <div
-              className="flex flex-col items-center gap-4 px-6 py-6 rounded-xl"
-              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-            >
-              <div className="flex items-center gap-3">
-                <Clock className="w-5 h-5 text-muted-foreground" />
-                <p className="text-base text-muted-foreground">
-                  This game hasn&apos;t been analyzed yet.
-                </p>
-              </div>
-              <RequestAnalysis appid={appid} />
-            </div>
-          </section>
+        {!report && <RequestAnalysis appid={appid} gameTitle={name} />}
+
+        {!report && relatedAnalyzed.length > 0 && (
+          <RelatedAnalyzedGames games={relatedAnalyzed} />
         )}
 
         {/* Footer: analyzed games get the "Analysis based on N reviews" line;

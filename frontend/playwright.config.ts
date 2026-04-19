@@ -47,6 +47,14 @@ export default defineConfig({
       url: 'http://localhost:3000',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
+      // Point server-side fetches at the mock API server (port 3001) so
+      // page.tsx's getGameReport() etc. resolve during tests. Without this
+      // override, .env.local's API_URL=http://localhost:8000 wins and every
+      // server fetch fails.
+      env: {
+        ...process.env as Record<string, string>,
+        API_URL: 'http://localhost:3001',
+      },
     },
   ],
 })

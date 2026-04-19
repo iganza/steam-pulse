@@ -20,7 +20,7 @@ function formatWeek(weekStr: string): string {
 }
 
 export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
-  if (timeline.length < 2) return null;
+  if (timeline.length < 3) return null;
 
   return (
     <div data-testid="sentiment-timeline">
@@ -86,6 +86,27 @@ export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
         </AreaChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+interface SentimentTimelineStubProps {
+  firstCrawlIso: string | null | undefined;
+}
+
+export function SentimentTimelineStub({ firstCrawlIso }: SentimentTimelineStubProps) {
+  const date =
+    firstCrawlIso && !Number.isNaN(new Date(firstCrawlIso).getTime())
+      ? new Date(firstCrawlIso).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+  return (
+    <p className="text-sm text-muted-foreground font-mono">
+      {date ? `First crawl ${date}. ` : ""}
+      Tracking weekly going forward — chart appears at 3+ data points.
+    </p>
   );
 }
 

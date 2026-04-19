@@ -105,6 +105,63 @@ class ReportRepository(BaseRepository):
         row = self._fetchone("SELECT COUNT(*) AS cnt FROM reports")
         return int(row["cnt"]) if row else 0
 
+    def find_related_analyzed(self, appid: int, limit: int = 6) -> list[dict]:
+        """Return up to `limit` analyzed games most similar to `appid` by tag overlap.
+
+        Excludes the target game itself. When fewer than 3 tag-overlapping
+        analyzed games exist, falls back to the most-recently-analyzed reports
+        so an un-analyzed page always has at least some on-site cross-links.
+        Each row includes `one_liner` pulled from `report_json` — empty string
+        when the report JSON has no `one_liner` key.
+        """
+        overlap_rows = self._fetchall(
+            """
+            WITH target_tags AS (
+                SELECT tag_id FROM game_tags WHERE appid = %s
+            )
+            SELECT
+                g.appid,
+                g.slug,
+                g.name,
+                g.header_image,
+                g.positive_pct,
+                COALESCE(r.report_json->>'one_liner', '') AS one_liner,
+                COUNT(gt.tag_id) AS overlap_score
+            FROM games g
+            JOIN reports r ON r.appid = g.appid
+            JOIN game_tags gt ON gt.appid = g.appid
+            WHERE gt.tag_id IN (SELECT tag_id FROM target_tags)
+              AND g.appid <> %s
+            GROUP BY
+                g.appid, g.slug, g.name, g.header_image, g.positive_pct,
+                r.report_json, r.last_analyzed
+            ORDER BY overlap_score DESC, r.last_analyzed DESC NULLS LAST
+            LIMIT %s
+            """,
+            (appid, appid, limit),
+        )
+        if len(overlap_rows) >= 3:
+            return [dict(row) for row in overlap_rows]
+
+        fallback_rows = self._fetchall(
+            """
+            SELECT
+                g.appid,
+                g.slug,
+                g.name,
+                g.header_image,
+                g.positive_pct,
+                COALESCE(r.report_json->>'one_liner', '') AS one_liner
+            FROM reports r
+            JOIN games g ON g.appid = r.appid
+            WHERE r.appid <> %s
+            ORDER BY r.last_analyzed DESC NULLS LAST
+            LIMIT %s
+            """,
+            (appid, limit),
+        )
+        return [dict(row) for row in fallback_rows]
+
     def find_public(self, limit: int = 50, offset: int = 0) -> list[Report]:
         rows = self._fetchall(
             """

@@ -103,7 +103,9 @@ test.describe('Game page — with report (analyzed game)', () => {
   })
 
   test('crawl freshness text is present', async ({ page }) => {
-    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(
+      /Data current as of .+\. We re-crawl reviews and metadata every 14 days\./,
+    )
   })
 
   test('SteamPulse Analysis zone with analyzed freshness', async ({ page }) => {

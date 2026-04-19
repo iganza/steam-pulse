@@ -60,8 +60,11 @@ test.describe('Game page — no-report state, rich data variant', () => {
     await expect(page.getByTestId('playtime-chart')).toBeVisible()
   })
 
-  test('RequestAnalysis CTA is still shown (only on no-report path)', async ({ page }) => {
-    await expect(page.getByText(/hasn.?t been analyzed yet/i)).toBeVisible()
+  test('Waitlist card is shown (only on no-report path)', async ({ page }) => {
+    await expect(page.getByTestId('report-waitlist-card')).toBeVisible()
+    await expect(
+      page.getByText(/Get the full SteamPulse report on .+ when it's ready/i),
+    ).toBeVisible()
   })
 })
 
@@ -126,8 +129,15 @@ test.describe('Game page — no-report state, thin data variant', () => {
     await page.goto(NO_REPORT_URL)
   })
 
-  test('Sentiment History heading is absent when timeline is thin', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /sentiment history/i })).toHaveCount(0)
+  test('Sentiment History keeps its header with a stub when timeline is thin', async ({ page }) => {
+    // Un-analyzed pages keep the section header visible with an informative
+    // stub so returning visitors can watch the chart populate over time. The
+    // chart itself still waits for 3+ data points.
+    await expect(page.getByRole('heading', { name: /sentiment history/i })).toBeVisible()
+    await expect(page.getByTestId('sentiment-timeline')).toHaveCount(0)
+    await expect(
+      page.getByText(/Tracking weekly going forward — chart appears at 3\+ data points/i),
+    ).toBeVisible()
   })
 
   test('Playtime Sentiment heading is absent when bucket total < 50', async ({ page }) => {

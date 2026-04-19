@@ -2,7 +2,7 @@
 
 import { BarChart3, Calendar, Clock, DollarSign, Zap } from "lucide-react";
 import { SectionLabel } from "@/components/game/SectionLabel";
-import { parseLocalDate, relativeTime } from "@/lib/format";
+import { parseLocalDate, formatDate } from "@/lib/format";
 import type { ReviewStats } from "@/lib/types";
 
 interface QuickStatsProps {
@@ -57,8 +57,8 @@ export function QuickStats({
   const reviewsValue = totalReviewsAnalyzed ?? reviewCount;
   const showEnSuffix = totalReviewsAnalyzed != null;
   const showAnalyzedSuffix = reviewCount != null && totalReviewsAnalyzed != null;
-  const reviewsTs = relativeTime(reviewCrawledAt) ?? relativeTime(reviewsCompletedAt);
-  const metaTs = relativeTime(metaCrawledAt);
+  const reviewsTs = formatDate(reviewCrawledAt ?? reviewsCompletedAt);
+  const metaTs = formatDate(metaCrawledAt);
   // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.
   // Developer/Publisher credits moved into <GameHero /> as inline text so the
   // tile grid stays numeric-only and never squishes on long studio names.
@@ -97,7 +97,7 @@ export function QuickStats({
               data-testid="reviews-tile-crawled"
               className="text-xs font-mono text-muted-foreground mt-1"
             >
-              Crawled {reviewsTs}
+              Current as of {reviewsTs}
             </p>
           )}
         </div>
@@ -178,7 +178,7 @@ export function QuickStats({
           data-testid="quick-stats-meta-updated"
           className="mt-3 text-xs font-mono text-muted-foreground"
         >
-          Page metadata updated {metaTs} · Source: Steam
+          Metadata current as of {metaTs} · Source: Steam
         </p>
       )}
     </section>

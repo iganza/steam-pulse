@@ -294,7 +294,7 @@ Pro boundary, pricing, and Pro feature list.
 **** Prompts to land (priority order)
 1. [X] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich indexable content even with no report. *Gates SEO discipline — don't index thin pages.*
 2. [X] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
-3. [ ] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesizer. Content engine for reports; structured substrate for (Phase 3) NL chat.
+3. [X] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesizer. Content engine for reports; structured substrate for (Phase 3) NL chat.
 4. [ ] =scripts/prompts/genre-insights-page.md= — frontend =/genre/[slug]/insights=. Free preview + lead magnet for the paid report. Depends on (3).
 5. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + email capture + signed-S3 file delivery. *Replaces Cleeng + auth0 + /pro page from the prior plan.*
 6. [ ] =scripts/prompts/interactive-market-trends-homepage.md= — homepage that sells the reports (not the SaaS).

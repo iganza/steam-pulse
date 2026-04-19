@@ -1,40 +1,63 @@
 #!/usr/bin/env python3
-"""Push local LLM analysis tables to production.
+"""DISABLED as of 2026-04-18 — do not push analysis artifacts to prod.
 
-Copies chunk_summaries, merged_summaries, reports, and analysis_jobs
-from the local Docker Postgres into the production RDS (via SSH tunnel).
+Prod is now the source of truth for chunk_summaries, merged_summaries, and
+reports. This script used to copy those tables from local → prod with the
+`id` column preserved, which silently desynced `chunk_summaries_id_seq` and
+`merged_summaries_id_seq` against their tables (rows landed with explicit
+ids that the sequence never advanced past). The next real pipeline run
+would then hit PK collisions on nextval(), failing with `UniqueViolation:
+chunk_summaries_pkey`. Slay the Spire (appid 646570) was the first to trip
+it during the roguelike-deckbuilder wedge run.
 
-This is the reverse of scripts/dev/import_from_prod.py — it pushes
-analysis artifacts upward rather than pulling game/review data down.
-
-Assumes you have an SSM tunnel open to production in another terminal:
-
-    bash scripts/dev/db-tunnel.sh --stage prod     # localhost:5433 → prod RDS
-
-and your local Postgres running via `./scripts/dev/start-local.sh`
-(localhost:5432).
-
-The prod connection is passwordless here — libpq reads the password
-from `~/.pgpass` (a line like `localhost:5433:production_steampulse:postgres:<pw>`).
-Override with `--prod-url` if your setup differs.
-
-Usage:
-    # Push all analysis data for all appids found locally.
-    poetry run python scripts/dev/push_analysis_to_prod.py
-
-    # Push only specific appids.
-    poetry run python scripts/dev/push_analysis_to_prod.py --appids 440 730 570
-
-    # Dry run — show what would be pushed without writing anything.
-    poetry run python scripts/dev/push_analysis_to_prod.py --dry-run
+If you need analysis artifacts locally, pull them FROM prod with
+`scripts/dev/pull_analysis_from_prod.py`, do not push upward.
 """
 
-import argparse
-import getpass
-import os
+import sys
 
-import psycopg2
-import psycopg2.extras
+
+_DISABLED_REASONS = """\
+push_analysis_to_prod is disabled. Do not push to prod.
+
+Why:
+  1. Prod is the source of truth for analysis artifacts
+     (chunk_summaries, merged_summaries, reports) as of 2026-04-18.
+  2. This script copied those tables with explicit `id` values, which
+     does NOT advance the table's sequence. Prod ended up with
+     max(id) > last_value on chunk_summaries_id_seq and
+     merged_summaries_id_seq.
+  3. Every subsequent real pipeline run then hit PK collisions on
+     nextval() — failing with `UniqueViolation: chunk_summaries_pkey`
+     and burning batch budget before producing any report.
+  4. The setval fix is a symptom patch; this script is the root cause.
+
+If you need prod analysis locally, use
+`scripts/dev/pull_analysis_from_prod.py` instead.
+"""
+
+
+def main() -> None:
+    sys.stderr.write(_DISABLED_REASONS)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ── Legacy implementation retained below for reference only ──────────────────
+# The original push logic is preserved here in case a future migration needs
+# to reference the column lists or SQL shape. Nothing below runs — main()
+# above exits before import-time side effects matter.
+
+
+import argparse  # noqa: E402
+import getpass  # noqa: E402
+import os  # noqa: E402
+
+import psycopg2  # noqa: E402
+import psycopg2.extras  # noqa: E402
 
 _LOCAL_DEFAULT = "postgresql://steampulse:dev@localhost:5432/steampulse"
 _PROD_DEFAULT = (
@@ -273,7 +296,7 @@ def _push_analysis_jobs(
     print(f"  ✓ analysis_jobs: {len(rows)} row(s) upserted")
 
 
-def main() -> None:
+def _legacy_main() -> None:
     args = _parse_args()
 
     print("▶ Connecting to local + prod (write intent)...")
@@ -327,7 +350,3 @@ def main() -> None:
     finally:
         local.close()
         prod.close()
-
-
-if __name__ == "__main__":
-    main()

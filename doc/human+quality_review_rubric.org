@@ -1,0 +1,165 @@
+#+TITLE: Human Quality Review Rubric — Stratified Spot Check
+#+AUTHOR: Ivan Z. Ganza
+#+STARTUP: overview
+#+TODO: TODO REVIEWING | DONE
+
+* Purpose
+
+You are reviewing ~25 game reports produced by the 3-phase LLM pipeline before
+committing $115+ to analyze the remaining 116 games in the roguelike-deckbuilder
+wedge.
+
+The automated checker (=scripts/eval/validate_cross_source.py=) has already
+caught structural, citation, and fact-grounding errors. Your job is the
+quality-ceiling questions only a human can answer.
+
+Budget: ~15 min per report × 25 = ~6 hours one-time. Re-run when you change a
+prompt.
+
+* Setup
+
+- [ ] Run the sample selector and persist the sample:
+      =poetry run python scripts/eval/select_sample.py --wedge roguelike-deckbuilder=
+- [ ] Run the automated validator on that sample and resolve any structural
+      failures *before* starting this human review (don't waste the 6 hours
+      on broken reports)
+- [ ] Open this file in org-mode and duplicate the =Per-Report Review=
+      template below for each app_id in your sample
+
+* Rubric
+
+For each dimension, score 1-5 and write a one-line note. The note matters more
+than the number — when you aggregate, the notes are what tell you what to fix.
+
+** 1. Insight Sharpness
+
+Score 1 = generic AI slop, 5 = specific and non-obvious.
+
+Ask yourself: /if I showed this paragraph to a publisher who already knows this
+genre, would they learn something? Or would they say "yes, obviously"?/
+
+** 2. Evidence Discipline
+
+Score 1 = hand-waves, 5 = every claim ties to a specific review, tag, or number.
+
+Ask: /can I trace every strong claim back to a source? Or does the report
+assert things without grounding?/
+
+The automated checker verifies quotes are verbatim — this rubric question is
+about whether the *reasoning* cites evidence, not just whether quotes exist.
+
+** 3. Phase Coherence
+
+Score 1 = phases feel disconnected, 5 = Phase 2/3 genuinely build on Phase 1.
+
+Ask: /does Phase 3 reference and extend findings from Phase 1, or does each
+phase restart from scratch?/
+
+** 4. Uniqueness to This Game
+
+Score 1 = could be reskinned for any deckbuilder, 5 = unmistakably about THIS
+game.
+
+*Swap test*: mentally replace the game name with a similar game's name (e.g.
+swap "Slay the Spire" for "Monster Train"). Does the report still make sense?
+If yes, that's bad — the report isn't doing game-specific work.
+
+** 5. Saleability
+
+Score 1 = no one pays for this, 5 = a publisher would pay $49-$499 for this
+report.
+
+Gut check. Trust your instinct. This is the dimension that maps most directly
+to the hybrid business model (reports-led).
+
+* Per-Report Review Template
+
+Copy this block for each app_id. Fill as you go.
+
+#+BEGIN_SRC org
+** TODO Report: <game-name> (<appid>)  — stratum: <label>
+
+- Insight sharpness:   [ /5]  —
+- Evidence discipline: [ /5]  —
+- Phase coherence:     [ /5]  —
+- Uniqueness:          [ /5]  —
+- Saleability:         [ /5]  —
+
+*** Specific failures (if any)
+
+- Quote a sentence from the report that exemplifies the weakest dimension, so
+  future-you can use it as a regression example when tuning prompts.
+
+*** Notes
+
+-
+
+#+END_SRC
+
+* Aggregate Analysis (do this AFTER scoring all 25)
+
+** Weakest dimension
+
+Which rubric dimension scored lowest on average? That's the prompt to iterate
+on first.
+
+- Lowest-scoring dimension:
+- Average score for that dimension:
+- Hypothesis about the underlying prompt issue:
+
+** Stratum failure patterns
+
+Did any stratum (unreleased games, niche games, specific subtype) score
+systematically worse? That's a scope limit to document, not necessarily a
+prompt bug.
+
+- Worst-performing stratum:
+- Average score in that stratum vs. overall:
+- Decision: fix, scope-exclude, or accept?
+
+** Regression examples
+
+List 3 specific sentences from the worst 3 reports that show the failure mode
+concretely. These become regression tests when we tune prompts.
+
+1.
+2.
+3.
+
+* Decision Gate
+
+** Greenlight criteria (ALL must hold)
+
+- [ ] Overall average ≥ 3.5
+- [ ] No individual dimension averages < 3.0
+- [ ] No stratum averages < 2.5
+- [ ] No single failure mode appears in >30% of reports
+- [ ] Automated checker shows zero metadata fact-check failures on the sample
+
+** If greenlit
+
+Proceed with Phase 1-3 on the remaining 116 games in the wedge. Then run Phase
+4 (cross-genre synthesis) once on the full 141. Budget check: ~$116 + Phase 4
+cost remaining against ~$500 starting budget.
+
+** If blocked
+
+Identify the weakest prompt (lowest-scoring phase × dimension combo). Patch
+that prompt. Re-run the sample — NOT the whole wedge — and re-score with this
+rubric. Iterate until greenlit.
+
+Remember: the stratified 25 cost ~$25. Re-running it is a cheap iteration
+loop. Running the full 141 on a broken prompt is not.
+
+* Appendix: Fast-Mode Review (optional)
+
+If you want a cheaper first pass before the full rubric, do this "fast mode"
+in ~3 min per report:
+
+1. Read only the =one_liner= and =design_strengths=
+2. Swap test (dimension 4) — does it feel like this game or any game?
+3. If it fails the swap test, flag the whole report and move on — no need
+   to score the other dimensions
+4. If it passes, add to the "do the full rubric" pile
+
+Useful when you suspect a broad quality issue and want signal fast.

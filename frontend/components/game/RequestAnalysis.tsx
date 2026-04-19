@@ -99,11 +99,18 @@ export function RequestAnalysis({
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <div className="flex flex-col sm:flex-row gap-2">
+          <label htmlFor="waitlist-email" className="sr-only">
+            Email address
+          </label>
           <input
+            id="waitlist-email"
             type="email"
+            name="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
+            aria-label="Email address"
             required
             className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 text-sm"
           />
@@ -169,9 +176,12 @@ function CompactCta({
         <div className="flex gap-2">
           <input
             type="email"
+            name="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
+            aria-label="Email address"
             required
             className="flex-1 px-3 py-1 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 text-xs"
           />

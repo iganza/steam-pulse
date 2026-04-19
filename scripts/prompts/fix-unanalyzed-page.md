@@ -90,9 +90,11 @@ Technical notes:
 **Required behavior:** add a "More games like this" section below the waitlist card. Show up to 6 analyzed games ranked by tag overlap with the current game, descending. Each card links to the analyzed game's full report page.
 
 Logic:
-- New SQL function `game_tag_overlap(target_appid, limit_n)` in a new migration (`0051_game_tag_overlap_fn.sql`), computing a weighted shared-tag count against `game_tags`, filtered to `appid` present in `reports`.
-- Repository method `find_related_analyzed(appid, limit=6)` joins the overlap result to `games` + `reports`, selecting `appid, slug, name, header_image, positive_pct, report_json->>'one_liner'`.
-- If fewer than 3 analyzed games share tags, fall back to "Recent SteamPulse reports" — latest 6 rows from `reports` joined to `games`.
+- Repository method `find_related_analyzed(appid, limit=6)` on `ReportRepository` runs an inline CTE: a `scored` subquery aggregates `SUM(game_tags.votes)` per candidate appid (joined to `games` with `type = 'game'` and `reports` with `is_public = TRUE` so only eligible candidates are aggregated), then the outer query projects `appid, slug, name, header_image, positive_pct, report_json->>'one_liner'`. No new migration or SQL function — the query is narrow enough (scoped to target's ~10–20 tag IDs × analyzed+public row set) to run inline, and page-level ISR (`revalidate: 86400`) means each URL only hits it once per day. A pre-computed matview (`mv_related_analyzed_by_tag` style) is the right follow-up once analyzed-catalog size pushes live aggregation into measurable latency; for now, overkill.
+- Index `idx_game_tags_tag_appid ON game_tags(tag_id, appid)` already exists (migration 0015) and is exactly what the `scored` CTE uses.
+- Scoring is vote-weighted: candidates with strong tag signal (high `game_tags.votes` on shared tags) outrank candidates with many weakly-voted matches.
+- If fewer than 3 analyzed games share tags, fall back to "Recent SteamPulse reports" — latest 6 rows from public `reports` joined to `games` (type='game').
+- API handler `GET /api/games/{appid}/related-analyzed` does not 404 on a missing game row — the fallback still returns recent public reports so SEO visitors on unknown appids get on-site links, not a dead end.
 - Each card: game title, sentiment percentile chip, one-line `one_liner` from the report JSON (no schema change; extracted via `report_json->>'one_liner'`). If the JSON is missing `one_liner`, omit the line silently.
 
 **Acceptance:** every un-analyzed page has a path to at least 3 full reports on-site. No dead ends.

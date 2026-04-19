@@ -27,7 +27,7 @@ export function RelatedAnalyzedGames({ games }: RelatedAnalyzedGamesProps) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={g.header_image}
-                  alt=""
+                  alt={g.name}
                   className="w-20 h-auto rounded-md flex-shrink-0"
                   loading="lazy"
                 />

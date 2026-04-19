@@ -173,8 +173,14 @@ export default async function GameReportPage({ params }: Props) {
     try {
       const related = await getRelatedAnalyzedGames(numericAppid);
       relatedAnalyzed = related.games;
-    } catch {
-      // Related list is non-critical — a failure just hides the section.
+    } catch (err) {
+      // Related list is non-critical — we still render the page — but log
+      // so prod issues don't hide behind a silent empty section.
+      console.error("Failed to fetch related analyzed games", {
+        appid: numericAppid,
+        slug,
+        error: err,
+      });
     }
   }
 

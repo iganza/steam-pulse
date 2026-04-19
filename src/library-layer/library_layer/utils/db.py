@@ -155,15 +155,42 @@ def _is_transient_write_error(exc: BaseException) -> bool:
     )
 
 
+def _rollback_before_retry(retry_state: RetryCallState) -> None:
+    # SerializationFailure / DeadlockDetected abort the active psycopg2
+    # transaction — without an explicit ROLLBACK the next attempt hits
+    # "current transaction is aborted" (a ProgrammingError, which is NOT
+    # retried). The health-check path in get_conn() short-circuits on
+    # non-IDLE transaction status, so it cannot recover an aborted tx
+    # on its own.
+    if not retry_state.args:
+        return
+    self_obj = retry_state.args[0]
+    try:
+        conn = getattr(self_obj, "conn", None)
+    except Exception:
+        return
+    if conn is None:
+        return
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+
 def retry_on_transient_db_error(max_attempts: int = 3) -> Callable[..., Any]:
     """Decorator that retries a DB write on transient errors only.
 
     Transient (retried): OperationalError, SerializationFailure, DeadlockDetected.
     Permanent (re-raised): IntegrityError, ProgrammingError, DataError.
+
+    Before each retry, calls `self.conn.rollback()` if the wrapped callable
+    is a bound method on a BaseRepository-style object, so transactions
+    aborted by SerializationFailure/DeadlockDetected are reset.
     """
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        def _log(retry_state: RetryCallState) -> None:
+        def _before_sleep(retry_state: RetryCallState) -> None:
+            _rollback_before_retry(retry_state)
             exc = retry_state.outcome.exception() if retry_state.outcome else None
             logger.warning(
                 "db_write_retry fn=%s attempt=%d exc=%s",
@@ -176,7 +203,7 @@ def retry_on_transient_db_error(max_attempts: int = 3) -> Callable[..., Any]:
             retry=retry_if_exception(_is_transient_write_error),
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=1, min=0.5, max=2) + wait_random(0, 0.25),
-            before_sleep=_log,
+            before_sleep=_before_sleep,
             reraise=True,
         )(fn)
 

@@ -101,3 +101,25 @@ def test_write_retry_does_not_retry_integrity_error() -> None:
     with pytest.raises(psycopg2.errors.UniqueViolation, match="duplicate key"):
         write()
     assert len(calls) == 1
+
+
+def test_write_retry_rolls_back_before_retry_on_serialization_failure() -> None:
+    """SerializationFailure aborts the tx — the decorator must rollback before retrying."""
+    calls: list[int] = []
+    mock_conn = MagicMock(spec=psycopg2.extensions.connection)
+
+    class FakeRepo:
+        conn = mock_conn
+
+        @retry_on_transient_db_error()
+        def write(self) -> str:
+            calls.append(1)
+            if len(calls) == 1:
+                raise psycopg2.errors.SerializationFailure(
+                    "could not serialize access due to concurrent update"
+                )
+            return "ok"
+
+    assert FakeRepo().write() == "ok"
+    assert len(calls) == 2
+    mock_conn.rollback.assert_called_once_with()

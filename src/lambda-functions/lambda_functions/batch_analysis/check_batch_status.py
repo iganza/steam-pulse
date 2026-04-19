@@ -20,7 +20,14 @@ logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
 
 _config = SteamPulseConfig()
-_batch_exec_repo = BatchExecutionRepository(get_conn)
+_BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
+
+
+def _get_batch_conn():
+    return get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT)
+
+
+_batch_exec_repo = BatchExecutionRepository(_get_batch_conn)
 
 # Module-level clients — reused across warm Lambda invocations.
 _bedrock_client = boto3.client("bedrock") if _config.LLM_BACKEND != "anthropic" else None

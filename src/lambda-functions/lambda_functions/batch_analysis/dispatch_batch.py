@@ -46,6 +46,7 @@ tracer = Tracer(service="batch-dispatch")
 _config = SteamPulseConfig()
 _sfn = boto3.client("stepfunctions")
 _sns = boto3.client("sns")
+_BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
 
 
 def _get_orchestrator_arn() -> str:
@@ -68,7 +69,7 @@ def _normalize_batch_size(raw: object, *, default: int) -> int:
 
 
 def _fetch_candidates(*, batch_size: int) -> list[int]:
-    conn = get_conn()
+    conn = get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",

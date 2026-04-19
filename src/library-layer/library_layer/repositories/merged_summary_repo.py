@@ -14,6 +14,7 @@ import json
 import psycopg2.extras
 from library_layer.models.analyzer_models import MergedSummary
 from library_layer.repositories.base import BaseRepository
+from library_layer.utils.db import retry_on_transient_db_error
 
 
 class MergedSummaryRepository(BaseRepository):
@@ -78,6 +79,7 @@ class MergedSummaryRepository(BaseRepository):
             (appid, prompt_version, sorted_ids),
         )
 
+    @retry_on_transient_db_error()
     def insert(
         self,
         appid: int,

@@ -11,6 +11,7 @@ import psycopg2.extras
 from aws_lambda_powertools import Logger
 from library_layer.models.batch_execution import BatchExecution
 from library_layer.repositories.base import BaseRepository
+from library_layer.utils.db import retry_on_transient_db_error
 
 logger = Logger()
 
@@ -87,6 +88,7 @@ class BatchExecutionRepository(BaseRepository):
                 )
         self.conn.commit()
 
+    @retry_on_transient_db_error()
     def mark_completed(
         self,
         batch_id: str,
@@ -139,6 +141,7 @@ class BatchExecutionRepository(BaseRepository):
                 )
         self.conn.commit()
 
+    @retry_on_transient_db_error()
     def mark_failed(self, batch_id: str, *, failure_reason: str) -> None:
         """Mark a batch as failed with a reason.
 

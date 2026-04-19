@@ -6,11 +6,13 @@ import json
 
 from library_layer.models.report import Report
 from library_layer.repositories.base import BaseRepository
+from library_layer.utils.db import retry_on_transient_db_error
 
 
 class ReportRepository(BaseRepository):
     """CRUD operations for the reports table."""
 
+    @retry_on_transient_db_error()
     def upsert(self, report: dict) -> None:
         """Insert or update a report by appid.
 

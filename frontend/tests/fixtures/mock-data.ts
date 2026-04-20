@@ -12,6 +12,7 @@ export const MOCK_GAME_ANALYZED = {
   developer: 'Valve',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
   review_count: 142389,
+  review_count_english: 98432,
   positive_pct: 87,
   review_score_desc: 'Very Positive',
   // 0.0-1.0 scale matching the backend; UI scales x100 at the badge boundary.
@@ -66,7 +67,10 @@ export const MOCK_GAME_UNANALYZED = {
 export const MOCK_REPORT = {
   game_name: 'Team Fortress 2',
   appid: 440,
-  total_reviews_analyzed: 142389,
+  // Deliberately distinct from both review_count (142389, all-language) and
+  // review_count_english (98432) so the Reviews tile's three-way plumbing —
+  // main/en-suffix/analyzed-subtitle — can be asserted unambiguously.
+  total_reviews_analyzed: 2000,
   sentiment_trend: 'stable',
   sentiment_trend_note: 'Sentiment has remained consistent over the past 6 months.',
   one_liner: 'A timeless class-based shooter that rewards teamwork and creativity.',

@@ -6,8 +6,11 @@ import { parseLocalDate, formatDate } from "@/lib/format";
 import type { ReviewStats } from "@/lib/types";
 
 interface QuickStatsProps {
-  /** Steam's all-language review count. Fallback for the Reviews tile's
-   *  main value when no English count is available. */
+  /** English-preferred review count (`review_count_english ?? review_count`).
+   *  Used as the Reviews tile's main value only when `reviewCountEnglish` is
+   *  null — in that case the "en" suffix is suppressed because the fallback
+   *  may be the all-language total. Also feeds MarketReach and the JSON-LD
+   *  aggregateRating count, so its semantics must stay stable. */
   reviewCount: number | null;
   /** Steam's English-only review count from game metadata. Takes precedence
    *  over `reviewCount` as the main value and drives the "en" suffix. */

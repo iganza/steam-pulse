@@ -19,6 +19,7 @@ const MOCK_GAME_ANALYZED = {
   developer: 'Valve',
   header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
   review_count: 142389,
+  review_count_english: 98432,
   positive_pct: 87,
   review_score_desc: 'Very Positive',
   // 0.0-1.0 scale matching the backend; UI scales x100 at the badge boundary.
@@ -60,7 +61,7 @@ const MOCK_GAME_UNANALYZED = {
 const MOCK_REPORT = {
   game_name: 'Team Fortress 2',
   appid: 440,
-  total_reviews_analyzed: 142389,
+  total_reviews_analyzed: 2000,
   sentiment_trend: 'stable',
   sentiment_trend_note: 'Sentiment has remained consistent over the past 6 months.',
   one_liner: 'A timeless class-based shooter that rewards teamwork and creativity.',
@@ -281,6 +282,7 @@ const server = createServer((req, res) => {
         positive_pct: MOCK_GAME_ANALYZED.positive_pct,
         review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
         review_count: MOCK_GAME_ANALYZED.review_count,
+        review_count_english: MOCK_GAME_ANALYZED.review_count_english,
         meta_crawled_at: twoHoursAgo,
         review_crawled_at: twoHoursAgo,
         reviews_completed_at: twoHoursAgo,
@@ -388,6 +390,7 @@ const server = createServer((req, res) => {
         positive_pct: MOCK_GAME_ANALYZED.positive_pct,
         review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
         review_count: MOCK_GAME_ANALYZED.review_count,
+        review_count_english: MOCK_GAME_ANALYZED.review_count_english,
       },
     })
   }

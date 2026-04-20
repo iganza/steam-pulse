@@ -103,6 +103,35 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Current as of .+/)
   })
 
+  test('Quick Stats Reviews tile main value is Steam English count with "en" suffix', async ({ page }) => {
+    // Regression guard for PR #109: the main value must be Steam's English
+    // review total (review_count_english), NOT the analyzed-sample size. The
+    // fixture sets these to 98,432 and 2,000 respectively so a regression
+    // that swaps the two would flip the assertion.
+    const tile = page
+      .locator('section')
+      .filter({ hasText: 'Quick Stats' })
+      .locator('div')
+      .filter({ has: page.locator('span', { hasText: /^Reviews$/ }) })
+      .first()
+    await expect(tile.locator('p').first()).toContainText('98,432')
+    await expect(tile.locator('p').first()).not.toContainText('2,000')
+    await expect(tile.locator('span', { hasText: /^en$/ })).toBeVisible()
+  })
+
+  test('Quick Stats Reviews tile subtitle shows analyzed sample size', async ({ page }) => {
+    // The "N analyzed" subtitle is independent of the main value — it only
+    // appears when totalReviewsAnalyzed is present, and always reflects the
+    // analyzed sample, not the English total.
+    const tile = page
+      .locator('section')
+      .filter({ hasText: 'Quick Stats' })
+      .locator('div')
+      .filter({ has: page.locator('span', { hasText: /^Reviews$/ }) })
+      .first()
+    await expect(tile.getByText(/2,000 analyzed/)).toBeVisible()
+  })
+
   test('Quick Stats grid shows page metadata freshness footer', async ({ page }) => {
     await expect(page.getByTestId('quick-stats-meta-updated')).toHaveText(
       /Metadata current as of .+ · Source: Steam/,

@@ -611,7 +611,13 @@ export function GameReportClient({
         ) : showSentimentHistoryStub ? (
           <section>
             <SectionLabel>Sentiment History</SectionLabel>
-            <SentimentTimelineStub firstCrawlIso={reviewCrawledAt ?? reviewsCompletedAt} />
+            <SentimentTimelineStub
+              firstCrawlIso={
+                reviewStats?.timeline?.[0]?.week
+                ?? reviewCrawledAt
+                ?? reviewsCompletedAt
+              }
+            />
           </section>
         ) : null}
 

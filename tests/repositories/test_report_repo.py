@@ -261,7 +261,11 @@ def test_find_related_analyzed_excludes_non_public_reports(
 ) -> None:
     # Reports flagged is_public=FALSE must not surface on public pages —
     # neither via the overlap path nor the recent-reports fallback.
-    for appid in (440, 500, 501):
+    # Seed ≥3 public overlapping candidates so the overlap branch actually
+    # runs (the method falls back when fewer than 3 eligible rows are found),
+    # plus one private overlapping candidate that must be filtered even when
+    # the overlap path is taken.
+    for appid in (440, 500, 600, 700, 501):
         _seed_game(game_repo, appid)
         report_repo.upsert(_report(appid))
     with db_conn.cursor() as cur:
@@ -270,14 +274,18 @@ def test_find_related_analyzed_excludes_non_public_reports(
     tag_repo.upsert_tags([
         {"appid": 440, "name": "Action", "votes": 100},
         {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 600, "name": "Action", "votes": 100},
+        {"appid": 700, "name": "Action", "votes": 100},
         {"appid": 501, "name": "Action", "votes": 100},
     ])
 
-    # Overlap path: private 501 is filtered out despite sharing tags.
+    # Overlap path exercised (3+ eligible rows) — private 501 must not appear.
     rows = report_repo.find_related_analyzed(440, limit=6)
-    assert {row["appid"] for row in rows} == {500}
+    appids = {row["appid"] for row in rows}
+    assert appids == {500, 600, 700}
 
-    # Fallback path: private 501 still excluded when overlap is thin.
+    # Force the fallback path by swapping the target's tag to one no other
+    # public candidate shares, and verify 501 stays out of the fallback too.
     tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
     rows = report_repo.find_related_analyzed(440, limit=6)
     assert 501 not in {row["appid"] for row in rows}
@@ -290,23 +298,32 @@ def test_find_related_analyzed_filters_non_game_types(
 ) -> None:
     # The endpoint is explicitly "games like this" — analyzed DLC/demo/tool
     # rows that share tags with the target must not surface.
+    # Seed ≥3 type='game' overlapping candidates so the overlap branch
+    # actually runs (the method falls back below 3 eligible rows), plus one
+    # DLC that shares tags so we validate the type filter on the overlap CTE
+    # specifically — not just via the fallback's own type filter.
     _seed_game(game_repo, 440)
-    _seed_game(game_repo, 500)  # type='game' — should appear
-    _seed_game(game_repo, 501, type_="dlc")  # should be filtered out
-    for appid in (440, 500, 501):
+    _seed_game(game_repo, 500)  # type='game'
+    _seed_game(game_repo, 600)  # type='game'
+    _seed_game(game_repo, 700)  # type='game'
+    _seed_game(game_repo, 501, type_="dlc")  # shares tags but must be excluded
+    for appid in (440, 500, 600, 700, 501):
         report_repo.upsert(_report(appid))
-    shared = [
+    tag_repo.upsert_tags([
         {"appid": 440, "name": "Action", "votes": 100},
         {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 600, "name": "Action", "votes": 100},
+        {"appid": 700, "name": "Action", "votes": 100},
         {"appid": 501, "name": "Action", "votes": 100},
-    ]
-    tag_repo.upsert_tags(shared)
+    ])
 
-    # Overlap path: DLC excluded despite sharing tags.
+    # Overlap path exercised (3+ eligible rows) — DLC 501 must not appear.
     rows = report_repo.find_related_analyzed(440, limit=6)
-    assert {row["appid"] for row in rows} == {500}
+    appids = {row["appid"] for row in rows}
+    assert appids == {500, 600, 700}
 
-    # Fallback path: DLC still excluded when overlap is thin.
+    # Force the fallback path by swapping the target's tag to one no other
+    # candidate shares — DLC still excluded by the fallback's type filter.
     tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
     rows = report_repo.find_related_analyzed(440, limit=6)
     assert 501 not in {row["appid"] for row in rows}

@@ -103,7 +103,9 @@ test.describe('Game page — with report (analyzed game)', () => {
   })
 
   test('crawl freshness text is present', async ({ page }) => {
-    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(
+    // toContainText (not toHaveText) so the optional "Refresh queued — …"
+    // suffix that appears past 90d doesn't flake the assertion.
+    await expect(page.getByTestId('steam-facts-crawled')).toContainText(
       /Data current as of .+\. We re-crawl reviews and metadata every 14 days\./,
     )
   })

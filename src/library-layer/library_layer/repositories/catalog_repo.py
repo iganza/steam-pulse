@@ -126,7 +126,7 @@ class CatalogRepository(BaseRepository):
               meta_crawled_at IS NULL
               OR meta_crawled_at
                  + (window_secs * INTERVAL '1 second')
-                 + ((abs(hashtext(appid::text)) %% window_secs) * INTERVAL '1 second')
+                 + ((abs(hashtext(appid::text)::bigint) %% window_secs) * INTERVAL '1 second')
                  < NOW()
             ORDER BY tier_rank, meta_crawled_at ASC NULLS FIRST
             LIMIT %(limit)s
@@ -189,7 +189,7 @@ class CatalogRepository(BaseRepository):
               review_crawled_at IS NULL
               OR review_crawled_at
                  + (window_secs * INTERVAL '1 second')
-                 + ((abs(hashtext(appid::text)) %% window_secs) * INTERVAL '1 second')
+                 + ((abs(hashtext(appid::text)::bigint) %% window_secs) * INTERVAL '1 second')
                  < NOW()
             ORDER BY tier_rank, review_crawled_at ASC NULLS FIRST
             LIMIT %(limit)s

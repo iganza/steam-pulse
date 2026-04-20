@@ -492,18 +492,25 @@ def _due_reviews(n: int) -> list[int]:
     return [e.appid for e in entries]
 
 
-def refresh_meta_once(limit: int = 600) -> list[int]:
+def refresh_meta_once(limit: int | None = None) -> list[int]:
     """Operator dry-run: appids the hourly meta-refresh dispatcher would enqueue.
+
+    Defaults `limit` to `SteamPulseConfig.REFRESH_META_BATCH_LIMIT` so local
+    dry-runs stay aligned with the deployed EventBridge rule payload.
 
     Use from a shell to sanity-check the tier query before flipping the
     EventBridge rule to enabled=True:
         poetry run python -c "from scripts.sp import refresh_meta_once; print(refresh_meta_once(limit=5))"
     """
+    if limit is None:
+        limit = SteamPulseConfig().REFRESH_META_BATCH_LIMIT
     return _due_meta(limit)
 
 
-def refresh_reviews_once(limit: int = 500) -> list[int]:
+def refresh_reviews_once(limit: int | None = None) -> list[int]:
     """Operator dry-run: appids the hourly review-refresh dispatcher would enqueue."""
+    if limit is None:
+        limit = SteamPulseConfig().REFRESH_REVIEWS_BATCH_LIMIT
     return _due_reviews(limit)
 
 
@@ -1230,12 +1237,17 @@ def _build_parser() -> argparse.ArgumentParser:
     qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qt.add_argument("--dry-run", action="store_true")
 
+    _refresh_defaults = SteamPulseConfig()
     qrm = qu_sub.add_parser(
         "refresh-meta",
         help="Tier-due metadata refresh — enqueues metadata + tags tasks",
     )
     qrm.add_argument(
-        "--limit", type=int, default=600, metavar="N", help="Max appids to enqueue (default: 600)"
+        "--limit",
+        type=int,
+        default=_refresh_defaults.REFRESH_META_BATCH_LIMIT,
+        metavar="N",
+        help=f"Max appids to enqueue (default: {_refresh_defaults.REFRESH_META_BATCH_LIMIT})",
     )
     qrm.add_argument("--dry-run", action="store_true")
 
@@ -1244,7 +1256,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Tier-due review refresh — enqueues review-crawl tasks",
     )
     qrr.add_argument(
-        "--limit", type=int, default=500, metavar="N", help="Max appids to enqueue (default: 500)"
+        "--limit",
+        type=int,
+        default=_refresh_defaults.REFRESH_REVIEWS_BATCH_LIMIT,
+        metavar="N",
+        help=f"Max appids to enqueue (default: {_refresh_defaults.REFRESH_REVIEWS_BATCH_LIMIT})",
     )
     qrr.add_argument("--dry-run", action="store_true")
 

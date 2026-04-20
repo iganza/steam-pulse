@@ -856,7 +856,10 @@ class ComputeStack(cdk.Stack):
             events_targets.LambdaFunction(
                 crawler_fn,
                 event=events.RuleTargetInput.from_object(
-                    {"action": "refresh_meta", "limit": 600}
+                    {
+                        "action": "refresh_meta",
+                        "limit": config.REFRESH_META_BATCH_LIMIT,
+                    }
                 ),
             )
         )
@@ -872,7 +875,10 @@ class ComputeStack(cdk.Stack):
             events_targets.LambdaFunction(
                 crawler_fn,
                 event=events.RuleTargetInput.from_object(
-                    {"action": "refresh_reviews", "limit": 500}
+                    {
+                        "action": "refresh_reviews",
+                        "limit": config.REFRESH_REVIEWS_BATCH_LIMIT,
+                    }
                 ),
             )
         )

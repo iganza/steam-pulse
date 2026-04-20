@@ -7,7 +7,6 @@ import type { AudienceOverlap as AudienceOverlapData, AudienceOverlapEntry } fro
 interface AudienceOverlapProps {
   data: AudienceOverlapData;
   gameName: string;
-  showAll?: boolean;
 }
 
 function sentimentColor(pct: number): string {
@@ -16,13 +15,11 @@ function sentimentColor(pct: number): string {
   return "#ef4444";
 }
 
-export function AudienceOverlap({ data, gameName, showAll = false }: AudienceOverlapProps) {
+export function AudienceOverlap({ data, gameName }: AudienceOverlapProps) {
   if (data.overlaps.length === 0) return null;
 
   const maxOverlap = Math.max(...data.overlaps.map((e) => e.overlap_pct)) || 1;
-  const items: AudienceOverlapEntry[] = showAll
-    ? data.overlaps
-    : data.overlaps.slice(0, 5);
+  const items: AudienceOverlapEntry[] = data.overlaps;
 
   return (
     <Card>
@@ -76,14 +73,6 @@ export function AudienceOverlap({ data, gameName, showAll = false }: AudienceOve
             </div>
           ))}
         </div>
-
-        {!showAll && data.overlaps.length > 5 && (
-          <div className="mt-4 text-center">
-            <Link href="/pro" className="text-sm text-teal-400 hover:underline">
-              See all overlaps &rarr;
-            </Link>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

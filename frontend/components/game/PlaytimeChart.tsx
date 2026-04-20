@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import type { PlaytimeBucket } from "@/lib/types";
 
 interface PlaytimeChartProps {
   buckets: PlaytimeBucket[];
   insight: string;
-  isPro?: boolean;
 }
 
 function barColor(pct: number): string {
@@ -15,7 +13,7 @@ function barColor(pct: number): string {
   return "#ef4444";
 }
 
-export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChartProps) {
+export function PlaytimeChart({ buckets, insight }: PlaytimeChartProps) {
   const total = buckets.reduce((sum, b) => sum + b.reviews, 0);
   if (total < 50) return null;
 
@@ -80,28 +78,9 @@ export function PlaytimeChart({ buckets, insight, isPro = false }: PlaytimeChart
       </div>
 
       {insight && (
-        <div className="mt-4 relative">
-          <div className={isPro ? "" : "blur-sm pointer-events-none select-none"}>
-            <p className="text-sm text-muted-foreground leading-relaxed italic">
-              {insight}
-            </p>
-          </div>
-          {!isPro && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Link
-                href="/pro"
-                className="text-sm font-mono px-3 py-1 rounded-full"
-                style={{
-                  background: "rgba(45,185,212,0.15)",
-                  color: "var(--teal)",
-                  border: "1px solid rgba(45,185,212,0.3)",
-                }}
-              >
-                Pro insight →
-              </Link>
-            </div>
-          )}
-        </div>
+        <p className="mt-4 text-sm text-muted-foreground leading-relaxed italic">
+          {insight}
+        </p>
       )}
     </div>
   );

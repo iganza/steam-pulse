@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Syne, JetBrains_Mono } from "next/font/google";
 import { Navbar } from "@/components/layout/Navbar";
-import { ProProvider } from "@/lib/pro";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 
@@ -85,8 +84,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const isPro = process.env.NEXT_PUBLIC_PRO_ENABLED === "true";
-
   return (
     <html
       lang="en"
@@ -101,12 +98,10 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
-        <ProProvider isPro={isPro}>
-          <NuqsAdapter>
-            <Navbar />
-            {children}
-          </NuqsAdapter>
-        </ProProvider>
+        <NuqsAdapter>
+          <Navbar />
+          {children}
+        </NuqsAdapter>
       </body>
     </html>
   );

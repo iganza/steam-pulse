@@ -247,10 +247,10 @@ export function MarketTrendsPreview() {
           Sentiment: share of games released in each period with Steam review score ≥70% (among games with ≥10 English reviews).
         </p>
         <Link
-          href="/explore"
+          href="/reports"
           className="flex items-center gap-1 text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
         >
-          Explore trends <ChevronRight className="w-3 h-3" />
+          Browse reports <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
     </section>

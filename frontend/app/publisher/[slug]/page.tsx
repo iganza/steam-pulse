@@ -163,14 +163,6 @@ export default async function PublisherPage({ params }: Props) {
             No games found for this publisher.
           </p>
         )}
-
-        {/* Pro CTA */}
-        <p className="mt-12 text-sm text-muted-foreground text-center">
-          Want a competitive analysis across all games in this publisher&apos;s catalog?{" "}
-          <Link href="/pro" className="font-mono hover:text-foreground transition-colors" style={{ color: "var(--teal)" }}>
-            Publisher Intelligence (Pro) &rarr;
-          </Link>
-        </p>
       </div>
     </div>
   );

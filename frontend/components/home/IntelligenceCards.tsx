@@ -85,7 +85,7 @@ export function IntelligenceCards({
           icon={<TrendingUp className="w-4 h-4" style={{ color: "var(--teal)" }} />}
           title="Market Intelligence"
           subtitle="Genre trends, pricing, release timing"
-          href="/explore"
+          href="/reports"
         >
           <MiniTrendLine data={trendLine} />
         </IntelCard>

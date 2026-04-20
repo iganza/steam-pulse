@@ -130,11 +130,4 @@ test.describe('Game page — with report (analyzed game)', () => {
   test('review velocity card shows reviews/day', async ({ page }) => {
     await expect(page.getByText(/\/day/)).toBeVisible()
   })
-
-  test('compare deep-link is present', async ({ page }) => {
-    const link = page.getByTestId('game-compare-deeplink')
-    await link.scrollIntoViewIfNeeded()
-    await expect(link).toBeVisible({ timeout: 15_000 })
-    await expect(link).toHaveAttribute('href', /\/compare\?appids=440/)
-  })
 })

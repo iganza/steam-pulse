@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 import type { StorePageAlignment } from "@/lib/types";
 
 interface PromiseGapProps {
   alignment: StorePageAlignment;
-  isPro: boolean;
 }
 
 type Verdict = "validated" | "underdelivered" | "hidden_strength";
@@ -15,8 +13,6 @@ interface PromiseRow {
   claim: string;
   verdict: Verdict;
 }
-
-const FREE_VISIBLE_COUNT = 2;
 
 const VERDICT_STYLE: Record<
   Verdict,
@@ -97,7 +93,7 @@ function PromiseRowCard({ row }: { row: PromiseRow }) {
   );
 }
 
-export function PromiseGap({ alignment, isPro }: PromiseGapProps) {
+export function PromiseGap({ alignment }: PromiseGapProps) {
   const rows: PromiseRow[] = [
     ...alignment.promises_delivered.map((claim) => ({ claim, verdict: "validated" as const })),
     ...alignment.promises_broken.map((claim) => ({ claim, verdict: "underdelivered" as const })),
@@ -106,49 +102,15 @@ export function PromiseGap({ alignment, isPro }: PromiseGapProps) {
 
   if (rows.length === 0) return null;
 
-  const visibleRows = rows.slice(0, FREE_VISIBLE_COUNT);
-  const gatedRows = rows.slice(FREE_VISIBLE_COUNT);
   const audience = AUDIENCE_STYLE[alignment.audience_match];
 
   return (
     <div data-testid="promise-gap">
       <div className="space-y-3">
-        {visibleRows.map((row, i) => (
+        {rows.map((row, i) => (
           <PromiseRowCard key={i} row={row} />
         ))}
       </div>
-
-      {gatedRows.length > 0 && (
-        <div className="relative mt-3">
-          <div
-            className={
-              isPro ? "space-y-3" : "blur-sm pointer-events-none select-none space-y-3"
-            }
-          >
-            {gatedRows.map((row, i) => (
-              <PromiseRowCard key={i + FREE_VISIBLE_COUNT} row={row} />
-            ))}
-          </div>
-          {!isPro && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-              <p className="text-sm font-mono text-foreground font-medium">
-                Full Promise Gap Analysis
-              </p>
-              <Link
-                href="/pro"
-                className="text-sm font-mono px-4 py-1.5 rounded-full transition-colors"
-                style={{
-                  background: "rgba(45,185,212,0.15)",
-                  color: "var(--teal)",
-                  border: "1px solid rgba(45,185,212,0.3)",
-                }}
-              >
-                Upgrade to Pro →
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
 
       <div
         className="mt-6 p-5 rounded-xl"
@@ -169,15 +131,9 @@ export function PromiseGap({ alignment, isPro }: PromiseGapProps) {
             Audience Match
           </p>
         </div>
-        {isPro ? (
-          <p className="text-base text-foreground/80 leading-relaxed">
-            {alignment.audience_match_note}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground italic">
-            Detailed audience alignment analysis available with Pro.
-          </p>
-        )}
+        <p className="text-base text-foreground/80 leading-relaxed">
+          {alignment.audience_match_note}
+        </p>
       </div>
     </div>
   );

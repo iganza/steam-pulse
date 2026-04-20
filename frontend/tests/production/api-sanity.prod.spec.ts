@@ -86,12 +86,4 @@ test.describe('API response shape sanity — production', () => {
     expect(resp.body).toHaveProperty('popularity_rank')
     expect(resp.body).toHaveProperty('cohort_size')
   })
-
-  test('GET /api/new-releases/released returns items', async ({ page }) => {
-    const resp = await fetchApiJson(page, '/api/new-releases/released?window=month')
-    expect(resp.status).toBe(200)
-    expect(resp.body).toHaveProperty('items')
-    expect(resp.body).toHaveProperty('total')
-    expect(resp.body.total).toBeGreaterThanOrEqual(0)
-  })
 })

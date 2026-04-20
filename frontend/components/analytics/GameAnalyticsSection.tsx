@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { usePro } from "@/lib/pro";
 import {
   getAudienceOverlap,
   getPlaytimeSentiment,
@@ -28,7 +27,6 @@ interface GameAnalyticsSectionProps {
 }
 
 export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionProps) {
-  const isPro = usePro();
   const [overlap, setOverlap] = useState<AudienceOverlap | null>(null);
   const [playtimeSentiment, setPlaytimeSentiment] = useState<PlaytimeSentiment | null>(null);
   const [eaImpact, setEaImpact] = useState<EarlyAccessImpact | null>(null);
@@ -47,7 +45,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
     async function fetchAll() {
       const results = await Promise.allSettled([
-        getAudienceOverlap(appid, isPro ? 50 : 5),
+        getAudienceOverlap(appid, 20),
         getPlaytimeSentiment(appid),
         getEarlyAccessImpact(appid),
         getReviewVelocity(appid),
@@ -66,7 +64,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
     fetchAll();
     return () => { cancelled = true; };
-  }, [appid, isPro]);
+  }, [appid]);
 
   const handleSortChange = useCallback(
     async (sort: "helpful" | "funny") => {
@@ -122,7 +120,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
         <TopReviews data={topReviews!} onSortChange={handleSortChange} />
       )}
       {hasOverlap && (
-        <AudienceOverlapChart data={overlap!} gameName={gameName} showAll={isPro} />
+        <AudienceOverlapChart data={overlap!} gameName={gameName} />
       )}
     </div>
   );

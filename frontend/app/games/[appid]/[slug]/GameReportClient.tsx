@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { usePro } from "@/lib/pro";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -126,7 +125,6 @@ export function GameReportClient({
   revenueEstimateReason,
   relatedAnalyzed = [],
 }: GameReportClientProps) {
-  const isPro = usePro();
   const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -227,22 +225,11 @@ export function GameReportClient({
           <section className="animate-fade-up stagger-1">
             <SectionLabel>The Verdict</SectionLabel>
             <blockquote
-              className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-4 italic"
+              className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-8 italic"
               style={{ letterSpacing: "-0.01em" }}
             >
               &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
             </blockquote>
-            <div className="mb-8">
-              <Link
-                href={`/compare?appids=${appid}`}
-                data-testid="game-compare-deeplink"
-                className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border"
-                style={{ borderColor: "var(--teal)", color: "var(--teal)" }}
-              >
-                <Swords className="w-3.5 h-3.5" />
-                Compare with…
-              </Link>
-            </div>
             <div className="mb-4">
               <SteamFactsCard
                 positivePct={positivePct ?? null}
@@ -301,16 +288,13 @@ export function GameReportClient({
 
         {/* Market Reach — Boxleiter v1 revenue estimate. Independent of the
             LLM pass (review count + price + genre/tags is enough), so it
-            renders on unanalyzed pages too. Pro-gated.
-            TODO(pro-gating): `isPro` comes from usePro() context; free tier
-            is the current default until auth + subscription wiring lands. */}
+            renders on unanalyzed pages too. */}
         <MarketReach
           estimatedOwners={estimatedOwners ?? null}
           estimatedRevenueUsd={estimatedRevenueUsd ?? null}
           method={revenueEstimateMethod ?? null}
           reason={revenueEstimateReason ?? null}
           reviewCount={reviewCount ?? 0}
-          isPro={isPro}
         />
 
         {/* About — only shown on unanalyzed pages. On analyzed pages the
@@ -459,7 +443,7 @@ export function GameReportClient({
         {report?.store_page_alignment && (
           <section>
             <SectionLabel>Promise Gap</SectionLabel>
-            <PromiseGap alignment={report.store_page_alignment} isPro={isPro} />
+            <PromiseGap alignment={report.store_page_alignment} />
           </section>
         )}
 
@@ -539,19 +523,6 @@ export function GameReportClient({
                 </div>
               ))}
             </div>
-            {primaryGenre && (
-              <p className="mt-6 text-sm text-muted-foreground">
-                Researching the {primaryGenre} market? See what players want that no game
-                currently delivers.{" "}
-                <Link
-                  href="/pro"
-                  className="font-mono hover:text-foreground transition-colors"
-                  style={{ color: "var(--teal)" }}
-                >
-                  Genre Intelligence (Pro) &rarr;
-                </Link>
-              </p>
-            )}
           </section>
         )}
 
@@ -634,7 +605,6 @@ export function GameReportClient({
             <PlaytimeChart
               buckets={reviewStats!.playtime_buckets}
               insight={computePlaytimeInsight(reviewStats!.playtime_buckets)}
-              isPro={isPro}
             />
           </section>
         ) : null}
@@ -646,7 +616,6 @@ export function GameReportClient({
               benchmarks={benchmarks}
               genre={primaryGenre}
               year={releaseDate ? new Date(releaseDate).getFullYear() : undefined}
-              isPro={isPro}
             />
           </section>
         )}

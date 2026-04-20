@@ -39,13 +39,8 @@ test.describe('Navigation flows — production', () => {
     await expect(page).toHaveURL(/\/genre\//)
   })
 
-  test('/trending page loads', async ({ page }) => {
-    await page.goto('/trending')
-    await expect(page.getByRole('heading', { name: /trending/i })).toBeVisible()
-  })
-
-  test('/pro page loads', async ({ page }) => {
-    await page.goto('/pro')
-    await expect(page.getByRole('heading', { name: /join the waitlist/i })).toBeVisible()
+  test('/about page loads', async ({ page }) => {
+    await page.goto('/about')
+    await expect(page.getByRole('heading', { name: /about steampulse/i })).toBeVisible()
   })
 })

@@ -35,19 +35,18 @@ test.describe('Navbar', () => {
     await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
   })
 
-  test('"For Developers" links to /pro', async ({ page, isMobile }) => {
-    test.skip(isMobile, '"For Developers" link is in the desktop nav, hidden on mobile')
+  test('About link navigates to /about', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Desktop-only nav link')
     await page.goto('/')
-    await page.getByRole('link', { name: /for developers/i }).click()
-    await expect(page).toHaveURL('/pro')
+    await page.getByRole('link', { name: /^about$/i }).click()
+    await expect(page).toHaveURL('/about')
   })
 
   test('mobile hamburger menu opens on small viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
-    // The mobile toggle is the last button in the nav (menu/X icon)
     const hamburger = page.locator('nav button').last()
     await hamburger.click()
-    await expect(page.getByRole('link', { name: /trending/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /reports/i })).toBeVisible()
   })
 })

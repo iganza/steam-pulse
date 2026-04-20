@@ -117,7 +117,8 @@ class SteamPulseConfig(BaseSettings):
 
     # ── Tiered refresh scheduling ─────────────────────────────────────────────
     # Tier intervals (days). Each game's "due" time is computed as
-    #   last_crawled_at + tier_interval + (hash(appid) % tier_interval_seconds)
+    #   last_crawled_at + tier_interval
+    #   + (abs(hashtext(appid::text)::bigint) % tier_interval_seconds)
     # so work is smeared evenly across the window rather than firing on a boundary.
     # Metadata covers S/A/B/C; reviews cover S/A/B only (tier C excluded).
     REFRESH_META_TIER_S_DAYS: int = 2

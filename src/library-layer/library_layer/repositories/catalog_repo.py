@@ -85,9 +85,11 @@ class CatalogRepository(BaseRepository):
         → B (analysis-eligible) → C (long tail). Each tier has its own cadence.
 
         Deterministic smearing: a game's due time is offset into its tier's
-        window by `hashtext(appid::text) % window_seconds`, so work spreads
-        evenly instead of spiking at every tier boundary. Same appid always
-        hashes to the same slot — no "due / not due" oscillation.
+        window by `abs(hashtext(appid::text)::bigint) % window_secs` (bigint
+        cast is required because hashtext returns int4 and `abs(INT_MIN)`
+        overflows), so work spreads evenly instead of spiking at every tier
+        boundary. Same appid always hashes to the same slot — no "due / not
+        due" oscillation.
 
         NULLS FIRST ensures legacy rows (no meta_crawled_at) refresh first.
         """
@@ -102,7 +104,7 @@ class CatalogRepository(BaseRepository):
                 ac.*,
                 CASE
                   WHEN g.review_count >= %(s_threshold)s THEN %(s_secs)s
-                  WHEN g.coming_soon = TRUE
+                  WHEN COALESCE(g.coming_soon, FALSE) = TRUE
                     OR gg.genre_id IS NOT NULL
                     OR g.review_count >= %(a_threshold)s THEN %(a_secs)s
                   WHEN g.review_count >= %(b_threshold)s THEN %(b_secs)s
@@ -110,7 +112,7 @@ class CatalogRepository(BaseRepository):
                 END AS window_secs,
                 CASE
                   WHEN g.review_count >= %(s_threshold)s THEN 0
-                  WHEN g.coming_soon = TRUE
+                  WHEN COALESCE(g.coming_soon, FALSE) = TRUE
                     OR gg.genre_id IS NOT NULL
                     OR g.review_count >= %(a_threshold)s THEN 1
                   WHEN g.review_count >= %(b_threshold)s THEN 2
@@ -181,7 +183,7 @@ class CatalogRepository(BaseRepository):
               JOIN games g ON g.appid = ac.appid
               LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
               WHERE ac.meta_status = 'done'
-                AND g.coming_soon = FALSE
+                AND COALESCE(g.coming_soon, FALSE) = FALSE
                 AND g.review_count >= %(b_threshold)s
             )
             SELECT * FROM tiered

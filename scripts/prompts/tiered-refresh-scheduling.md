@@ -145,16 +145,19 @@ Replace the existing daily `stale_refresh` EventBridge rule with two hourly
 rules (one per kind). Each fires a new action on `CrawlerFn` that picks up
 the top-K due candidates and enqueues them.
 
-| Rule (new)              | Cadence | Action                     | Limit (initial) |
+| Rule (new)              | Cadence | Action                     | Limit (shipped) |
 | ----------------------- | ------- | -------------------------- | --------------- |
-| `RefreshMetaRule`       | hourly  | `{"action":"refresh_meta"}`     | 200             |
-| `RefreshReviewsRule`    | hourly  | `{"action":"refresh_reviews"}`  | 100             |
+| `RefreshMetaRule`       | hourly  | `{"action":"refresh_meta"}`     | 600             |
+| `RefreshReviewsRule`    | hourly  | `{"action":"refresh_reviews"}`  | 500             |
 
 Both **`enabled=False`** initially (see hard constraint #2).
 
-Hourly × 200 = 4800 metadata crawls/day ceiling; hourly × 100 = 2400 review
+Hourly × 600 = 14 400 metadata crawls/day ceiling; hourly × 500 = 12 000 review
 crawls/day ceiling. Comfortably under Steam API ceilings (community-reported
-~57k appdetails/day per IP). Limits live in `config.py`.
+~57k appdetails/day per IP). Limits live in `config.py` — the initial proposal
+was 200/100, raised to 600/500 before shipping once real catalog tier counts
+were measured (S ≈ 1.9k, A ≈ 60k, B ≈ 28k, C ≈ 68k → steady-state demand ~486/hr
+meta, ~402/hr reviews).
 
 The old `StaleMetaRefreshRule` (daily, limit=2000) and the `stale_refresh`
 action it invokes are **removed** — the new tiered path supersedes them.
@@ -258,8 +261,8 @@ REFRESH_TIER_A_REVIEW_COUNT: int = 1_000
 REFRESH_TIER_B_REVIEW_COUNT: int = 50  # mirrors REVIEW_ELIGIBILITY_THRESHOLD
 
 # Hourly dispatcher batch sizes
-REFRESH_META_BATCH_LIMIT: int = 200
-REFRESH_REVIEWS_BATCH_LIMIT: int = 100
+REFRESH_META_BATCH_LIMIT: int = 600
+REFRESH_REVIEWS_BATCH_LIMIT: int = 500
 ```
 
 ### 2. `catalog_repo.py` — replace `find_stale_meta`, add review finder
@@ -274,9 +277,9 @@ REFRESH_REVIEWS_BATCH_LIMIT: int = 100
 - Both return `list[CatalogEntry]` (reuse the existing pydantic model).
 - Delete the docstring's old tier numbers — they're wrong once this lands.
 
-### 3. `utils/events.py` — add `source` to `ReviewCrawlMessage`
+### 3. `events.py` — add `source` to `ReviewCrawlMessage`
 
-`src/library-layer/library_layer/utils/events.py`
+`src/library-layer/library_layer/events.py`
 
 ```python
 class ReviewCrawlMessage(BaseModel):

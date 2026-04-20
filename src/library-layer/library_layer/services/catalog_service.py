@@ -140,7 +140,7 @@ class CatalogService:
         logger.info(
             "refresh_meta enqueued",
             extra={
-                "appids": len(due),
+                "enqueued": len(due),
                 "messages": len(messages),
                 "limit": limit,
                 "oldest_crawled_at": oldest.isoformat() if oldest else None,
@@ -167,7 +167,7 @@ class CatalogService:
         send_sqs_batch(self._sqs, self._review_crawl_queue_url, messages)
         logger.info(
             "refresh_reviews enqueued",
-            extra={"appids": len(due), "limit": limit},
+            extra={"enqueued": len(due), "limit": limit},
         )
         return len(due)
 

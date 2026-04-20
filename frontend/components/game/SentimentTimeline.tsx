@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TimelineEntry } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 
 interface SentimentTimelineProps {
   timeline: TimelineEntry[];
@@ -20,7 +21,7 @@ function formatWeek(weekStr: string): string {
 }
 
 export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
-  if (timeline.length < 2) return null;
+  if (timeline.length < 3) return null;
 
   return (
     <div data-testid="sentiment-timeline">
@@ -86,6 +87,20 @@ export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
         </AreaChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+interface SentimentTimelineStubProps {
+  firstCrawlIso: string | null | undefined;
+}
+
+export function SentimentTimelineStub({ firstCrawlIso }: SentimentTimelineStubProps) {
+  const date = formatDate(firstCrawlIso);
+  return (
+    <p className="text-sm text-muted-foreground font-mono">
+      {date ? `First crawl ${date}. ` : ""}
+      Tracking weekly going forward — chart appears at 3+ data points.
+    </p>
   );
 }
 

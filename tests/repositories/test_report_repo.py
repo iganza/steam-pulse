@@ -3,15 +3,18 @@
 import pytest
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.report_repo import ReportRepository
+from library_layer.repositories.tag_repo import TagRepository
 
 
-def _seed_game(game_repo: GameRepository, appid: int = 440) -> None:
+def _seed_game(
+    game_repo: GameRepository, appid: int = 440, *, type_: str = "game"
+) -> None:
     game_repo.upsert(
         {
             "appid": appid,
             "name": "Team Fortress 2",
             "slug": f"team-fortress-2-{appid}",
-            "type": "game",
+            "type": type_,
             "developer": "Valve",
             "developer_slug": "valve",
             "publisher": "Valve",
@@ -156,3 +159,171 @@ def test_has_current_report_returns_false_when_no_report(
     report_repo: ReportRepository,
 ) -> None:
     assert report_repo.has_current_report(9999999, "3.0") is False
+
+
+def test_find_related_analyzed_ranks_by_tag_overlap(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Target (440) has three tags. Candidate 500 shares all three, 501 shares
+    # two, 502 shares one, 503 shares zero. All candidates are analyzed.
+    for appid in (440, 500, 501, 502, 503):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    target_tags = [
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 440, "name": "FPS", "votes": 100},
+        {"appid": 440, "name": "Multiplayer", "votes": 100},
+    ]
+    tag_repo.upsert_tags(target_tags)
+    tag_repo.upsert_tags([
+        {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 500, "name": "FPS", "votes": 100},
+        {"appid": 500, "name": "Multiplayer", "votes": 100},
+    ])
+    tag_repo.upsert_tags([
+        {"appid": 501, "name": "Action", "votes": 100},
+        {"appid": 501, "name": "FPS", "votes": 100},
+    ])
+    tag_repo.upsert_tags([{"appid": 502, "name": "Action", "votes": 100}])
+    tag_repo.upsert_tags([{"appid": 503, "name": "Puzzle", "votes": 100}])
+
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    appids = [row["appid"] for row in rows]
+    # Target itself is always excluded. Zero-overlap (503) never appears.
+    assert 440 not in appids
+    assert 503 not in appids
+    # Ordered by descending overlap.
+    assert appids[:3] == [500, 501, 502]
+    # one_liner surfaces from report_json.
+    assert rows[0]["one_liner"] == "The gold standard of team shooters."
+
+
+def test_find_related_analyzed_falls_back_when_overlap_thin(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Target has tags that overlap only one candidate — below the 3-row floor
+    # that triggers the "latest analyzed reports" fallback.
+    for appid in (440, 500, 600, 601, 602):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    tag_repo.upsert_tags([{"appid": 440, "name": "Action", "votes": 100}])
+    tag_repo.upsert_tags([{"appid": 500, "name": "Action", "votes": 100}])
+    # 600/601/602 have no tags — unreachable via overlap.
+
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    appids = {row["appid"] for row in rows}
+    # Fallback returned — every analyzed game except the target.
+    assert 440 not in appids
+    assert appids == {500, 600, 601, 602}
+
+
+def test_find_related_analyzed_weights_by_votes(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Overlap is weighted by game_tags.votes: a candidate with one strongly-
+    # voted shared tag outranks a candidate with multiple weakly-voted shared
+    # tags when the vote sum is lower.
+    for appid in (440, 500, 501, 502):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    tag_repo.upsert_tags([
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 440, "name": "FPS", "votes": 100},
+        {"appid": 440, "name": "Multiplayer", "votes": 100},
+    ])
+    # 500: one tag, heavily voted → score 1000
+    tag_repo.upsert_tags([{"appid": 500, "name": "Action", "votes": 1000}])
+    # 501: two tags, lightly voted → score 20
+    tag_repo.upsert_tags([
+        {"appid": 501, "name": "Action", "votes": 10},
+        {"appid": 501, "name": "FPS", "votes": 10},
+    ])
+    # 502: three tags, moderately voted → score 150
+    tag_repo.upsert_tags([
+        {"appid": 502, "name": "Action", "votes": 50},
+        {"appid": 502, "name": "FPS", "votes": 50},
+        {"appid": 502, "name": "Multiplayer", "votes": 50},
+    ])
+
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert [row["appid"] for row in rows] == [500, 502, 501]
+
+
+def test_find_related_analyzed_excludes_non_public_reports(
+    db_conn, game_repo: GameRepository, report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # Reports flagged is_public=FALSE must not surface on public pages —
+    # neither via the overlap path nor the recent-reports fallback.
+    # Seed ≥3 public overlapping candidates so the overlap branch actually
+    # runs (the method falls back when fewer than 3 eligible rows are found),
+    # plus one private overlapping candidate that must be filtered even when
+    # the overlap path is taken.
+    for appid in (440, 500, 600, 700, 501):
+        _seed_game(game_repo, appid)
+        report_repo.upsert(_report(appid))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE reports SET is_public = FALSE WHERE appid = %s", (501,))
+    db_conn.commit()
+    tag_repo.upsert_tags([
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 600, "name": "Action", "votes": 100},
+        {"appid": 700, "name": "Action", "votes": 100},
+        {"appid": 501, "name": "Action", "votes": 100},
+    ])
+
+    # Overlap path exercised (3+ eligible rows) — private 501 must not appear.
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    appids = {row["appid"] for row in rows}
+    assert appids == {500, 600, 700}
+
+    # Force the fallback path by swapping the target's tag to one no other
+    # public candidate shares, and verify 501 stays out of the fallback too.
+    tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert 501 not in {row["appid"] for row in rows}
+
+
+def test_find_related_analyzed_filters_non_game_types(
+    game_repo: GameRepository,
+    report_repo: ReportRepository,
+    tag_repo: TagRepository,
+) -> None:
+    # The endpoint is explicitly "games like this" — analyzed DLC/demo/tool
+    # rows that share tags with the target must not surface.
+    # Seed ≥3 type='game' overlapping candidates so the overlap branch
+    # actually runs (the method falls back below 3 eligible rows), plus one
+    # DLC that shares tags so we validate the type filter on the overlap CTE
+    # specifically — not just via the fallback's own type filter.
+    _seed_game(game_repo, 440)
+    _seed_game(game_repo, 500)  # type='game'
+    _seed_game(game_repo, 600)  # type='game'
+    _seed_game(game_repo, 700)  # type='game'
+    _seed_game(game_repo, 501, type_="dlc")  # shares tags but must be excluded
+    for appid in (440, 500, 600, 700, 501):
+        report_repo.upsert(_report(appid))
+    tag_repo.upsert_tags([
+        {"appid": 440, "name": "Action", "votes": 100},
+        {"appid": 500, "name": "Action", "votes": 100},
+        {"appid": 600, "name": "Action", "votes": 100},
+        {"appid": 700, "name": "Action", "votes": 100},
+        {"appid": 501, "name": "Action", "votes": 100},
+    ])
+
+    # Overlap path exercised (3+ eligible rows) — DLC 501 must not appear.
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    appids = {row["appid"] for row in rows}
+    assert appids == {500, 600, 700}
+
+    # Force the fallback path by swapping the target's tag to one no other
+    # candidate shares — DLC still excluded by the fallback's type filter.
+    tag_repo.upsert_tags([{"appid": 440, "name": "Puzzle", "votes": 100}])
+    rows = report_repo.find_related_analyzed(440, limit=6)
+    assert 501 not in {row["appid"] for row in rows}

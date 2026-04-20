@@ -383,6 +383,33 @@ async def get_review_velocity(appid: int) -> dict:
     return _review_repo.find_review_velocity(appid)
 
 
+@app.get("/api/games/{appid}/related-analyzed")
+async def get_related_analyzed(appid: int, limit: int = 6) -> dict:
+    """Analyzed games most similar to the target by tag overlap.
+
+    Falls back to recent public reports when tag overlap yields fewer than 3
+    matches — including when the target game row is missing entirely. The
+    un-analyzed page still renders a slug-derived fallback for unknown appids
+    and benefits from having on-site cross-links, so a 404 here would just
+    produce a dead-end for SEO visitors.
+    """
+    logger.append_keys(appid=appid)
+    rows = _report_repo.find_related_analyzed(appid, limit=max(1, min(limit, 12)))
+    return {
+        "games": [
+            {
+                "appid": int(row["appid"]),
+                "slug": row["slug"],
+                "name": row["name"],
+                "header_image": row.get("header_image") or "",
+                "positive_pct": int(row["positive_pct"]) if row.get("positive_pct") is not None else None,
+                "one_liner": row.get("one_liner") or "",
+            }
+            for row in rows
+        ],
+    }
+
+
 @app.get("/api/games/{appid}/top-reviews")
 async def get_top_reviews(appid: int, sort: str = "helpful", limit: int = 10) -> dict:
     logger.append_keys(appid=appid)

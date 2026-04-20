@@ -223,6 +223,38 @@ export async function mockAnalyticsRoutes(page: Page) {
 }
 
 export async function mockPerEntityAnalyticsRoutes(page: Page) {
+  await page.route('**/api/games/*/related-analyzed*', route =>
+    route.fulfill({
+      json: {
+        games: [
+          {
+            appid: 440,
+            slug: 'team-fortress-2-440',
+            name: 'Team Fortress 2',
+            header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
+            positive_pct: 96,
+            one_liner: 'The gold standard of team shooters.',
+          },
+          {
+            appid: 730,
+            slug: 'counter-strike-2-730',
+            name: 'Counter-Strike 2',
+            header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+            positive_pct: 82,
+            one_liner: 'Precise gunplay with demanding matchmaking.',
+          },
+          {
+            appid: 570,
+            slug: 'dota-2-570',
+            name: 'Dota 2',
+            header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+            positive_pct: 81,
+            one_liner: 'Deep strategy with a punishing learning curve.',
+          },
+        ],
+      },
+    })
+  )
   await page.route('**/api/games/*/audience-overlap*', route =>
     route.fulfill({ json: MOCK_AUDIENCE_OVERLAP })
   )

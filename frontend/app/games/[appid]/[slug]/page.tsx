@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGameReport } from "@/lib/api";
+import { getGameReport, getRelatedAnalyzedGames } from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import type { RelatedAnalyzedGame } from "@/lib/types";
 import { GameReportClient } from "./GameReportClient";
 
 interface Props {
@@ -164,6 +165,25 @@ export default async function GameReportPage({ params }: Props) {
     gameData.gameName = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
+  // Un-analyzed pages surface up to 6 analyzed neighbors so SEO visitors
+  // always have a path to a full report. Skipped on analyzed pages — the
+  // report itself is the destination.
+  let relatedAnalyzed: RelatedAnalyzedGame[] = [];
+  if (!report) {
+    try {
+      const related = await getRelatedAnalyzedGames(numericAppid);
+      relatedAnalyzed = related.games;
+    } catch (err) {
+      // Related list is non-critical — we still render the page — but log
+      // so prod issues don't hide behind a silent empty section.
+      console.error("Failed to fetch related analyzed games", {
+        appid: numericAppid,
+        slug,
+        error: err,
+      });
+    }
+  }
+
   // Build JSON-LD structured data
   const canonicalUrl = `https://steampulse.io/games/${appid}/${slug}`;
   const jsonLd = {
@@ -277,6 +297,7 @@ export default async function GameReportPage({ params }: Props) {
           estimatedRevenueUsd={gameData.estimatedRevenueUsd}
           revenueEstimateMethod={gameData.revenueEstimateMethod}
           revenueEstimateReason={gameData.revenueEstimateReason}
+          relatedAnalyzed={relatedAnalyzed}
         />
       </main>
     </>

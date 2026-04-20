@@ -1,3 +1,27 @@
+/** Whole days since an ISO timestamp. Returns Infinity for missing/invalid input. */
+export function daysSince(iso: string | null | undefined): number {
+  if (!iso) return Infinity;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return Infinity;
+  return Math.floor((Date.now() - then) / 86400000);
+}
+
+/** Short absolute-date string ("Apr 19, 2026") from an ISO timestamp.
+ *  Pinned to UTC so an ISO-Z timestamp renders the same calendar day for every
+ *  viewer — otherwise "Data current as of ..." shifts by ±1 day near midnight
+ *  UTC depending on the visitor's offset. */
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 /** Short relative-time string ("2h ago", "3d ago") from an ISO timestamp. */
 export function relativeTime(iso: string | null | undefined): string | null {
   if (!iso) return null;

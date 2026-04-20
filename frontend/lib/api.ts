@@ -5,7 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   MetricDefinition, TrendQueryResult,
-  CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult,
+  CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -536,6 +536,15 @@ export async function requestAnalysis(appid: number, email: string): Promise<Ana
 
 export async function getReportRequestCount(appid: number): Promise<{ appid: number; request_count: number }> {
   return apiFetch(`/api/reports/request-count/${appid}`, { next: { revalidate: 300 } });
+}
+
+export async function getRelatedAnalyzedGames(
+  appid: number,
+): Promise<{ games: RelatedAnalyzedGame[] }> {
+  // Aligned with the page-level ISR window (24h) in games/[appid]/[slug]/page.tsx —
+  // a shorter per-fetch revalidate would effectively shrink the page ISR and
+  // hammer the DB on every cache miss.
+  return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 86400 } });
 }
 
 export { ApiError };

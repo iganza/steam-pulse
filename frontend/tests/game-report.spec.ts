@@ -52,9 +52,11 @@ test.describe('Game report page — analyzed game', () => {
   })
 
   test('Steam Facts zone shows crawl freshness', async ({ page }) => {
-    // Verdict section's Steam-facts zone shows when Steam data was last
-    // fetched via the relativeTime() helper.
-    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+    // Freshness is framed as a confident statement with an owned cadence,
+    // not "Crawled Xd ago" (which read as defensive).
+    await expect(page.getByTestId('steam-facts-crawled')).toHaveText(
+      /Data current as of .+\. We re-crawl reviews and metadata every 14 days\./,
+    )
   })
 
   test('SteamPulse Analysis zone header renders with analyzed freshness', async ({ page }) => {
@@ -98,12 +100,12 @@ test.describe('Game report page — analyzed game', () => {
   })
 
   test('Quick Stats Reviews tile shows crawl freshness caption', async ({ page }) => {
-    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Current as of .+/)
   })
 
   test('Quick Stats grid shows page metadata freshness footer', async ({ page }) => {
     await expect(page.getByTestId('quick-stats-meta-updated')).toHaveText(
-      /Page metadata updated \d+[mhd] ago · Source: Steam/,
+      /Metadata current as of .+ · Source: Steam/,
     )
   })
 
@@ -371,8 +373,11 @@ test.describe('Game report page — unanalyzed game', () => {
     await expect(page.getByText('Quick Stats').first()).toBeVisible()
   })
 
-  test('shows "analysis not yet available" message', async ({ page }) => {
-    await expect(page.getByText(/Analysis in progress/i)).toBeVisible()
+  test('shows the report waitlist card as primary CTA', async ({ page }) => {
+    await expect(page.getByTestId('report-waitlist-card')).toBeVisible()
+    await expect(
+      page.getByText(/Get the full SteamPulse report on .+ when it's ready/i),
+    ).toBeVisible()
   })
 
   test('hero section is rendered', async ({ page }) => {
@@ -385,12 +390,12 @@ test.describe('Game report page — unanalyzed game', () => {
   })
 
   test('Quick Stats Reviews tile shows crawl freshness caption', async ({ page }) => {
-    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Crawled \d+[mhd] ago/)
+    await expect(page.getByTestId('reviews-tile-crawled')).toHaveText(/Current as of .+/)
   })
 
   test('Quick Stats grid shows page metadata freshness footer', async ({ page }) => {
     await expect(page.getByTestId('quick-stats-meta-updated')).toHaveText(
-      /Page metadata updated \d+[mhd] ago · Source: Steam/,
+      /Metadata current as of .+ · Source: Steam/,
     )
   })
 })

@@ -105,6 +105,77 @@ class ReportRepository(BaseRepository):
         row = self._fetchone("SELECT COUNT(*) AS cnt FROM reports")
         return int(row["cnt"]) if row else 0
 
+    def find_related_analyzed(self, appid: int, limit: int = 6) -> list[dict]:
+        """Return up to `limit` analyzed games most similar to `appid` by tag overlap.
+
+        Excludes the target game itself. When fewer than 3 tag-overlapping
+        analyzed games exist, falls back to the most-recently-analyzed reports
+        so an un-analyzed page always has at least some on-site cross-links.
+        Each row includes `one_liner` pulled from `report_json` — empty string
+        when the report JSON has no `one_liner` key.
+        """
+        # Overlap scores are computed in a narrow subquery keyed only by appid
+        # so the GROUP BY doesn't carry the JSONB report_json (or any other
+        # wide columns) through aggregation. Eligibility filters
+        # (g.type = 'game', r.is_public = TRUE) are pushed into the scored
+        # CTE so aggregation only runs over candidates that can survive the
+        # outer projection — otherwise popular tags aggregate across the whole
+        # catalog before being discarded. Score is vote-weighted: candidates
+        # with strong tag signal (high game_tags.votes on shared tags) outrank
+        # candidates with weak signal.
+        overlap_rows = self._fetchall(
+            """
+            WITH target_tags AS (
+                SELECT tag_id FROM game_tags WHERE appid = %s
+            ),
+            scored AS (
+                SELECT gt.appid, SUM(gt.votes) AS overlap_score
+                FROM game_tags gt
+                JOIN games g ON g.appid = gt.appid AND g.type = 'game'
+                JOIN reports r ON r.appid = gt.appid AND r.is_public = TRUE
+                WHERE gt.tag_id IN (SELECT tag_id FROM target_tags)
+                  AND gt.appid <> %s
+                GROUP BY gt.appid
+            )
+            SELECT
+                g.appid,
+                g.slug,
+                g.name,
+                g.header_image,
+                g.positive_pct,
+                COALESCE(r.report_json->>'one_liner', '') AS one_liner
+            FROM scored s
+            JOIN games g ON g.appid = s.appid
+            JOIN reports r ON r.appid = s.appid
+            ORDER BY s.overlap_score DESC, r.last_analyzed DESC NULLS LAST
+            LIMIT %s
+            """,
+            (appid, appid, limit),
+        )
+        if len(overlap_rows) >= 3:
+            return [dict(row) for row in overlap_rows]
+
+        fallback_rows = self._fetchall(
+            """
+            SELECT
+                g.appid,
+                g.slug,
+                g.name,
+                g.header_image,
+                g.positive_pct,
+                COALESCE(r.report_json->>'one_liner', '') AS one_liner
+            FROM reports r
+            JOIN games g ON g.appid = r.appid
+            WHERE r.appid <> %s
+              AND r.is_public = TRUE
+              AND g.type = 'game'
+            ORDER BY r.last_analyzed DESC NULLS LAST
+            LIMIT %s
+            """,
+            (appid, limit),
+        )
+        return [dict(row) for row in fallback_rows]
+
     def find_public(self, limit: int = 50, offset: int = 0) -> list[Report]:
         rows = self._fetchall(
             """

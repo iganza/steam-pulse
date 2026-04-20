@@ -1,7 +1,8 @@
 "use client";
 
 import { ScoreBar } from "@/components/game/ScoreBar";
-import { relativeTime } from "@/lib/format";
+import { daysSince, formatDate } from "@/lib/format";
+import { CRAWL_CADENCE_DAYS } from "@/lib/constants";
 
 interface SteamFactsCardProps {
   positivePct: number | null;
@@ -31,19 +32,31 @@ export function SteamFactsCard({
   reviewsCompletedAt,
   metaCrawledAt,
 }: SteamFactsCardProps) {
-  const crawledAt =
-    relativeTime(reviewCrawledAt) ??
-    relativeTime(reviewsCompletedAt) ??
-    relativeTime(metaCrawledAt);
+  const crawlIso = reviewCrawledAt ?? reviewsCompletedAt ?? metaCrawledAt ?? null;
+  const crawlDate = formatDate(crawlIso);
+  const age = daysSince(crawlIso);
+  const stale = age > 90;
 
   return (
     <div
       className="rounded-xl p-4"
       style={{ background: "var(--card)", border: "1px solid var(--border)" }}
     >
-      {crawledAt && (
-        <div className="flex justify-end mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
-          <span data-testid="steam-facts-crawled">Crawled {crawledAt}</span>
+      {crawlDate && (
+        <div
+          className="mb-3 text-xs font-mono text-muted-foreground"
+          style={stale ? { color: "#f59e0b" } : undefined}
+        >
+          <span data-testid="steam-facts-crawled">
+            Data current as of {crawlDate}. We re-crawl reviews and metadata every{" "}
+            {CRAWL_CADENCE_DAYS} days.
+            {stale && (
+              <>
+                {" "}
+                Refresh queued — this page will update within {CRAWL_CADENCE_DAYS} days.
+              </>
+            )}
+          </span>
         </div>
       )}
       {positivePct != null ? (

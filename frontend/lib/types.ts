@@ -608,3 +608,12 @@ export interface AnalysisRequestResult {
   status: "requested" | "already_requested";
   request_count: number;
 }
+
+export interface RelatedAnalyzedGame {
+  appid: number;
+  slug: string;
+  name: string;
+  header_image: string;
+  positive_pct: number | null;
+  one_liner: string;
+}

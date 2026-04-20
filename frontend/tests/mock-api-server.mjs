@@ -254,8 +254,16 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   const path = url.pathname
 
+  // Root health probe — lets Playwright's webServer.reuseExistingServer
+  // recognize an already-running mock instead of trying to relaunch on 3001.
+  if (path === '/') {
+    return respond(res, 200, { ok: true })
+  }
+
   // Specific game reports — registered before the wildcard
   if (path === '/api/games/440/report') {
+    const now = new Date()
+    const twoHoursAgo = new Date(now.getTime() - 2 * 3600 * 1000).toISOString()
     return respond(res, 200, {
       status: 'available',
       report: MOCK_REPORT,
@@ -270,11 +278,19 @@ const server = createServer((req, res) => {
         tags: MOCK_GAME_ANALYZED.tags,
         deck_compatibility: MOCK_GAME_ANALYZED.deck_compatibility,
         deck_test_results: MOCK_GAME_ANALYZED.deck_test_results,
+        positive_pct: MOCK_GAME_ANALYZED.positive_pct,
+        review_score_desc: MOCK_GAME_ANALYZED.review_score_desc,
+        review_count: MOCK_GAME_ANALYZED.review_count,
+        meta_crawled_at: twoHoursAgo,
+        review_crawled_at: twoHoursAgo,
+        reviews_completed_at: twoHoursAgo,
       },
     })
   }
 
   if (path === '/api/games/9999999/report') {
+    const now = new Date()
+    const twoHoursAgo = new Date(now.getTime() - 2 * 3600 * 1000).toISOString()
     return respond(res, 200, {
       status: 'not_available',
       game: {
@@ -294,6 +310,9 @@ const server = createServer((req, res) => {
         review_score_desc: MOCK_GAME_UNANALYZED.review_score_desc,
         review_count: MOCK_GAME_UNANALYZED.review_count,
         review_count_english: MOCK_GAME_UNANALYZED.review_count_english,
+        meta_crawled_at: twoHoursAgo,
+        review_crawled_at: twoHoursAgo,
+        reviews_completed_at: twoHoursAgo,
       },
     })
   }
@@ -305,6 +324,38 @@ const server = createServer((req, res) => {
 
   if (/^\/api\/games\/\d+\/benchmarks$/.test(path)) {
     return respond(res, 200, MOCK_BENCHMARKS)
+  }
+
+  // Related analyzed games — tag-overlap neighbors for the un-analyzed page
+  if (/^\/api\/games\/\d+\/related-analyzed/.test(path)) {
+    return respond(res, 200, {
+      games: [
+        {
+          appid: 440,
+          slug: 'team-fortress-2-440',
+          name: 'Team Fortress 2',
+          header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/440/header.jpg',
+          positive_pct: 96,
+          one_liner: 'The gold standard of team shooters.',
+        },
+        {
+          appid: 730,
+          slug: 'counter-strike-2-730',
+          name: 'Counter-Strike 2',
+          header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+          positive_pct: 82,
+          one_liner: 'Precise gunplay with demanding matchmaking.',
+        },
+        {
+          appid: 570,
+          slug: 'dota-2-570',
+          name: 'Dota 2',
+          header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg',
+          positive_pct: 81,
+          one_liner: 'Deep strategy with a punishing learning curve.',
+        },
+      ],
+    })
   }
 
   // Audience overlap

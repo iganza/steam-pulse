@@ -288,19 +288,15 @@ If a synthesis goes stale faster than that for a specific genre
 (unlikely), the admin can publish to `genre-synthesis-queue` to force
 a refresh.
 
-### 10. Free vs Pro at the API boundary
+### 10. API boundary — all fields free
 
-V1: `/api/tags/{slug}/insights` returns the **full** `GenreSynthesis`
-payload. The frontend chooses what to render based on
-`PRO_ENABLED` (currently always true since payment integration isn't
-shipped — see CLAUDE.md "No user accounts or login system").
-
-When auth ships, gate at the API: Pro response includes the full
-`dev_priorities`, `friction_points[10:20]`, and the comparison
-endpoint. Free response truncates. Implementation: a
-`pro: bool` flag derived from the request, applied as
-`row.synthesis = trim_for_free(row.synthesis)` before return. Defer
-this to the auth0-authentication.md prompt — V1 is open.
+`/api/tags/{slug}/insights` returns the **full** `GenreSynthesis`
+payload to any caller. No auth, no tiering, no trimming. Under the
+two-tier catalog model (`project_business_model_2026.md`) every
+on-site surface is free forever — the paid product is the
+self-serve PDF report, not a gated view of this data. Do not add
+`pro: bool` flags, `trim_for_free` helpers, or any gating at the API
+boundary.
 
 ## Verification
 

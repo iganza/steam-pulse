@@ -1,180 +1,78 @@
 * SteamPulse
 
+** Operating Principle
+
+   *"If work can't be built once and sold 1,000 times without my
+   involvement, it doesn't belong in this business."*
+
+   SteamPulse is a self-serve catalog of LLM-synthesised Steam genre
+   research reports. The product sells and delivers value while the
+   operator sleeps. Every future feature, tier, or surface must pass
+   the sleep test — otherwise it is killed or gated behind a numerical
+   revenue trigger. See "Tier 2 — Gated" below.
+
 ** Executive Summary
+
+   SteamPulse produces deep, cited genre research reports for Steam
+   indie devs, studios, and publishers. Each report synthesises the
+   complete player-review corpus of a single niche (141 games for the
+   launch wedge) into a cross-cutting narrative: friction points,
+   wishlist items, benchmark games, churn timing, and ranked dev
+   priorities — all quote-backed to individual reviews.
+
+   The three-phase LLM pipeline (chunk → merge → synthesise) is the
+   unfair advantage. Competitors do single-pass per-game analysis; no
+   one else publishes frequency-weighted cross-game synthesis at
+   narrative depth with citation traceability.
+
+   - *Product:* catalog of flagship PDF reports, three self-serve tiers
+     ($49 indie / $149 studio / $499 publisher). Stripe Checkout + S3
+     signed-URL delivery. Zero operator touch per sale.
+   - *Surface:* every per-game page and genre summary page is 100% free
+     and indexed for SEO long-tail discovery. No content is gated
+     anywhere. Reports are the only paid product.
+   - *Cadence:* one new report per quarter. Reports never expire. The
+     catalog compounds.
+   - *Operator labour:* ~15 hours/month average — 40-60 hours per
+     report (curation, design, editorial voice), spread across the
+     quarter. Zero ongoing support, zero weekly content cadence, zero
+     manual fulfilment.
 
 ** Project Description
 
-Steam hosts over 100,000 games with millions of player reviews and game descriptions, but this
-wealth of qualitative feedback and information remains largely untouched.  Developers, publishers and
-investors rely on aggregate scores and manual reading to understand player sentiment -- a process
-that doesn't scale and misses the deeper patterns buried across thousands of reviews.
+   Steam hosts over 100,000 games with millions of player reviews, but
+   this qualitative data remains largely untouched at the aggregate
+   level. Per-game review summaries are commodity (Datahumble, LEYWARE,
+   Sentimeter, HowlRound, SteamReview AI, GG Insights all produce this
+   shape). *Cross-genre synthesis* — frequency-weighted aggregation of
+   friction points, wishlist items, benchmark games, and churn timing
+   across every game in a single niche — is whitespace.
 
-The project proposes a batch LLM-powered pipeline that ingests the Steam game catalog, game
-descriptions, reviews, and other relevant data, the processes them through LLM models to extract, structured, query-able insights.  A three-phase approach (chunk → merge →
-synthesise) extracts summary information first, which is then processed by collected and saved, and
-provided to a further LLM processing step responsible for identifying relevant information such as
-recurring complaints, praised features, and competitive comparison across the entire catalog.
+   The three-phase pipeline:
 
-The result is a structured intelligence layer on top of raw data, query-able via simple SQL.
-This enabled questions that were previously impossible at scale:  "What do players consistently
-criticize about survival games released in the last two years?" or "How does this studio's latest
-title compare to competitors across various sentiment dimensions".
+   1. *Chunk* — batch 50 reviews at a time into structured TopicSignal
+      extractions across 9 categories (design_praise, gameplay_friction,
+      wishlist_items, dropout_moments, technical_issues, refund_signals,
+      community_health, monetization_sentiment, content_depth).
+   2. *Merge* — collapse per-chunk signals into a per-game =GameReport=
+      with quote-traceable claims and anti-duplication enforcement.
+   3. *Synthesise* — aggregate =N= per-game reports in a niche into a
+      single =mv_genre_synthesis= row with mention_count ≥ 3
+      frequency-weighted friction clusters, auto-detected benchmark
+      games, median dropout-hour timing, and ranked cross-genre dev
+      priorities.
 
-The target market includes:  indie and AA game studios seeking actionable feedback, publishers
-evaluating acquisitions or portfolio health, gaming-focused investors performing due diligence, and
-market research firms looking to add qualitative sentiment data to their offerings.
-
-No existing tool in the space provides this depth of LLM-extracted intelligence.  Current solutions
-stop at surface-level metrics like scores, player counts, and revenue estimates.
-
-
-** Monetization — Code-level Tier Reference
-
-   *UPDATE 2026-04-17:* The business pivoted from $15/mo SaaS to a
-   reports-led hybrid (paid PDF reports $49-$1,499 + optional $25/mo
-   Pro in Phase 3 for NL chat + past-reports access). See
-   =project_business_model_2026.md= in memory and the Active Launch
-   Plan below. The =usePro()= hook + =/api/validate-key= stub stay in
-   code to gate Phase-3 subscription content once it ships; for Phase
-   1 (reports launch), all current "Pro" report sections on per-game
-   pages stay *free* — the paid product is the PDF report, not the
-   web page. Retiring the Cleeng + auth0 dependency in favour of
-   Stripe Checkout per =scripts/prompts/stripe-checkout-report-delivery.md=.
-
-   *Canonical monetization strategy lives in
-   =scripts/prompts/monetization-strategy.md=* (pricing tiers, why this
-   direction, funnel design, verification metrics) — note this doc
-   predates the 2026-04-17 pivot and needs a rewrite. This section is
-   an *implementation reference* — what the code gates today, so devs
-   modifying a component know whether it's Pro-only, free, or mixed.
-
-   Pro is controlled globally via =NEXT_PUBLIC_PRO_ENABLED= env var and
-   the =usePro()= hook; entitlements are currently stubbed through
-   =/api/validate-key= (always grants access). Until Phase 3, leave
-   this stubbed — the per-game page tiering below describes intent,
-   not launch behaviour.
-
-*** Report Sections — Game Page
-| Section              | Tier | Implemented | Reasoning                                                         |
-|----------------------+------+-------------+-------------------------------------------------------------------|
-| one_liner            | Free | ✓           | SEO-friendly summary; appears in search snippets                  |
-| overall_sentiment    | Free | ✓           | Hook for the rest of the report; drives traffic and sharing       |
-| sentiment_score      | Free | ✓           | Single number — teaser, not the full story                        |
-| sentiment_trend      | Free | ✓           | Single trend indicator                                            |
-| design_strengths     | Free | ✓           | Positive signals; safe to share; not actionable for devs alone    |
-| gameplay_friction    | Free | ✓           | Useful to gamers; devs need =dev_priorities= to act on it         |
-| audience_profile     | Free | ✓           | Broad brushstrokes — ideal for gamers browsing                    |
-| competitive_context  | Free | ✓           | Cross-links to other game pages — huge SEO value                  |
-| genre_context        | Free | ✓           | Cross-linking and discoverability                                  |
-| dev_priorities       | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
-| churn_triggers       | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
-| player_wishlist      | Free | ✓ *         | Intended Pro; currently unblurred (=validate-key= stubbed)        |
-
-*NOTE:* =dev_priorities=, =churn_triggers=, =player_wishlist= are intended to be Pro-gated.
-The =/api/validate-key= endpoint is currently stubbed (always grants access). When payment
-integration ships, these three sections should be blurred for free users.
-
-*** Analytics Components — Game Page
-| Feature                             | Free         | Pro          | Gating Method         |
-|-------------------------------------+--------------+--------------+-----------------------|
-| Review velocity chart               | ✓ full       | ✓ full       | No gating             |
-| Playtime distribution chart         | ✓ chart      | ✓ + insight  | Blur insight text     |
-| Market Reach (revenue estimates)    | ✗ blurred    | ✓ full       | Blur + CTA overlay    |
-| Competitive Benchmark (percentiles) | ✗ blurred    | ✓ full       | Blur + CTA overlay    |
-| Promise Gap (store alignment)       | ✓ 2 rows     | ✓ all rows   | Blur rows 3+ + CTA    |
-| Audience alignment note             | ✗ generic    | ✓ detailed   | Blur + CTA overlay    |
-| Audience overlap                    | ✓ 5 games    | ✓ 50 games   | API data limit (slice)|
-
-*Audience overlap detail:* API fetches 50 items for Pro, 5 for Free.
-Show-but-blur pattern planned for full launch: top 3 free (named + %), full 20 Pro.
-Matview not yet built — live query times out in prod. See =scripts/prompts/audience-overlap-matview.md=.
-
-*** Toolkit Lenses
-| Lens          | Free Access               | Pro Access                    | Lock Method            |
-|---------------+---------------------------+-------------------------------+------------------------|
-| Sentiment     | ✓ Full                    | ✓ Full                        | No gating              |
-| Compare       | ✓ 2 games, 5 metrics      | ✓ 4 games, 14 metrics         | Data cap + blur rows   |
-| Builder       | ✓ 1 metric                | ✓ 6 metrics                   | Cap limit              |
-| Trends        | ✗ Fully locked            | ✓ Full                        | Tab lock + modal       |
-
-*Compare Lens detail:*
-- Free metrics: Positive %, Total Reviews, Price, Released, Sentiment Trend
-- Pro-only metrics (blurred): Hidden Gem Score, Promises Delivered/Broken,
-  Hidden Strengths, Content Depth, Community Health, Refund Risk,
-  Churn Triggers, Technical Issues, Ideal Player, Casual Friendliness,
-  Genre Sentiment Percentile
-- Pro-only UI: CompareRadar chart, PromiseGapDiff, CSV export button
-
-*Trends Lens detail:*
-- Entire tab locked for Free — clicking shows ProLockOverlay modal
-- Free users cannot select granularity (locked to month), game type, or items shown
-- Pro gets week/month/quarter/year, all game types, up to 15 genre items
-
-*** Gating Patterns Used in Code
-1. *Blur + overlay CTA* — content rendered but CSS blurred, overlay with "Upgrade to Pro →"
-   Used by: MarketReach, PlaytimeChart insight, CompetitiveBenchmark, PromiseGap, MetricsGrid
-2. *Data cap* — API fetches different amounts, frontend slices by tier
-   Used by: Audience overlap (50 vs 5), Compare games (4 vs 2), Builder metrics (6 vs 1)
-3. *Full lock + modal* — tab/feature entirely disabled, ProLockOverlay shown on click
-   Used by: Trends lens tab
-4. *Conditional render* — component simply not rendered for free users
-   Used by: CompareRadar, PromiseGapDiff, CSV export
-5. *UI disable* — controls exist but are disabled (dropdowns, toggles)
-   Used by: Trends lens filter controls
-
-All CTAs use consistent design: teal colour, "Upgrade to Pro →" copy, link to =/pro= page.
-Blurred content is properly hidden from screen readers (=aria-hidden= + =sr-only= fallback).
-
-*** Deferred / Not Yet Implemented
-- Payment integration — Cleeng *subscription only* per
-  =scripts/prompts/cleeng-integration.md= (Cleeng = subscription platform
-  + merchant of record; free to 10K subs). =/api/validate-key= currently
-  stubbed to grant full access; replaced in Stage 2 by
-  =/api/me/entitlement= backed by a Cleeng-webhook-synced =entitlements=
-  table.
-- =/pro= page — linked from all CTAs. Content written once
-  =scripts/prompts/pricing-page.md= is drafted (covers $15/mo Pro tier only
-  at launch; Pro+ post-signal per monetisation strategy).
-- Pro+ tier ($40–50/mo, for agencies/publishers) — gated on Stage 4 signal
-  (≥ 30 Pro subs + ≥ 3 inbound asks). Features: CSV/PDF export, read-only
-  API, "request a genre" queue, multi-seat.
-- Audience overlap free/pro split (top 3 / full 20) — pending matview
-  implementation.
-- NL chat over catalog (V2, =PRO_ENABLED=true=) — will query pre-synthesized
-  artifacts (=reports=, matviews), *not* vector RAG over raw reviews. See
-  =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw" for the invariant.
-
-*Rejected (do not build):*
-- One-off per-game unlock ($3). See
-  =scripts/prompts/monetization-strategy.md= Option C rejection rationale:
-  engineering-heavy, cannibalizes Pro, zero exclusivity for payer, solves
-  a non-problem (catalog backfill was never the product).
-- Pro monthly token ledger (5 "analyse this game" tokens/month). Depended
-  on the unlock flow above.
-
-** High Level Front-End (Website experience)
-- Nice front-page where one can browse and search *ALL* games in the catalog.
-- Every per-game page is index-worthy on structured data alone (SEO moat).
-- Free users get the full per-game experience; Pro adds cross-cutting analysis
-  (compare, cross-genre synthesis, filters, exports, API, "analyse this game"
-  tokens). NL chat over catalog arrives in V2, querying pre-synthesised
-  matview artifacts — *not* vector RAG (=ARCHITECTURE.org= → "Synthesize,
-  don't retrieve-raw").
-
-See =scripts/prompts/monetization-strategy.md= for the canonical Free /
-Pro boundary, pricing, and Pro feature list.
-
+   The LLM output is a structured first draft. The published *report*
+   is that draft plus 40-60 hours of human editorial craft: framing,
+   sequencing, methodology transparency, executive summary, visual
+   design. The craft layer is what a buyer pays for; the pipeline is
+   what makes the craft tractable.
 
 ** Wedge Strategy: Roguelike Deckbuilder Deep Coverage
-   Decision date: 2026-04-14. Driven by market scan showing the per-game
-   AI-review-analysis category went saturated in late 2025 / early 2026
-   (Datahumble, Steam Sentimeter, HowlRound, SteamReview AI), forcing a
-   pivot from "broad catalog coverage" to "depth in a chosen niche."
 
-   The free public per-game pages remain the SEO long-tail moat. The
-   *wedge* — the differentiating, share-worthy demo — is per-genre
-   cross-cutting synthesis at depth. Roguelike-deckbuilder is the
-   first niche.
+   Decision date: 2026-04-14. Depth-in-niche strategy; 141 eligible
+   games (≥ 500 reviews each), ~$70-141 total LLM cost for whole-niche
+   coverage.
 
 *** Why roguelike-deckbuilder
     From catalog query 2026-04-14 (eligibility: ≥ 500 reviews):
@@ -186,128 +84,85 @@ Pro boundary, pricing, and Pro feature list.
     | deckbuilding          |            334 |        6700 |             83.5 |
     | roguelike-deckbuilder |            141 |        6590 |             87.5 |
 
-    Roguelike-deckbuilder wins because:
-    - *141 games = "complete coverage" affordable*: ~$70–141 total at
-      current ~$0.50–$1.00/game LLM cost. Whole niche, not a sample.
-    - *87.5% avg positive sentiment is meaningfully higher* than the
-      others — engaged audience writes richer reviews → richer synthesis.
-    - *Maps to Q97 in the Top 100*: "If I'm making a roguelike
-      deck-builder, what are the top 5 complaints I should avoid?"
-      The wedge demo answers your own demo question.
+    - *141 games = "complete coverage" affordable*: ~$70-141 total at
+      ~$0.50-$1.00/game. Whole niche, not a sample.
+    - *87.5% avg positive sentiment* — engaged audience writes richer
+      reviews → richer synthesis.
     - *Reviewers write analytically about systems* (run length, build
-      variety, RNG fairness, meta-progression) — perfect input for
+      variety, RNG fairness, meta-progression) — ideal input for
       cross-game synthesis.
     - *Clear benchmark games* (Slay the Spire, Balatro, Inscryption,
-      Monster Train, Dicey Dungeons) for cross-linking SEO.
+      Monster Train, Dicey Dungeons) for cross-linking.
 
-    Broader Roguelike (1001 games, ~$500–1000) is the expansion target
-    *if* the wedge demo lands.
-
-*** Free vs Pro for the wedge insights page
-    Canonical Free / Pro strategy + pricing lives in
-    =scripts/prompts/monetization-strategy.md=. The concrete FREE and PRO
-    section breakdowns for =/genre/[slug]/insights= — which specific bits
-    the page renders for each tier — live in
-    =scripts/prompts/genre-insights-page.md=.
-
-    Summary, so this page isn't a mystery when you scan the wedge plan:
-
-    - *Free on the wedge insights page*: narrative summary, top-10
-      friction, top-5 wishlist, top-5 benchmark games (cross-linked to
-      per-game pages), churn wall stat, genre stats, methodology footer.
-    - *Pro on the wedge insights page*: full lists (top 20 not 10),
-      per-game contribution drill-down, cross-genre comparison, filter the
-      synthesis by price/EA/etc, dev_priorities ranked, export, API
-      access, weekly email digest.
-    - *Per-game pages stay fully free* — SEO long-tail moat. The wedge
-      insights page is a new, additive Pro-tier surface.
-
-*** Prompts needed for the wedge
-    See the Active Launch Plan (Stage 0) for the full ordered prompt list.
-    Wedge-specific prompts that live inside Stage 0:
-    - =cross-genre-synthesizer-matview.md= — backend: synthesis table,
-      Phase-4 LLM, repo, EventBridge trigger, API endpoint.
-    - =genre-insights-page.md= — frontend: Next.js page,
-      =/api/genres/{slug}/insights= endpoint, SEO meta, Pro gating shell.
-    - =decouple-sentiment-trend-matview.md= — quality improvement, not blocking.
+    Broader Roguelike (1001 games) is the expansion target *if* the
+    wedge demo lands.
 
 *** Cost expectations
-    - Analysis run (141 games): $70–141 worst case
-    - Cross-genre synthesizer (one row, weekly refresh):
-      ~141 reports × ~3k tokens = ~420k input tokens × Sonnet $3/Mtok
-      = ~$1.30 per refresh × 4 refreshes/month = ~$5/month operational
+    - Analysis run (141 games): $70-141 worst case
+    - Cross-genre synthesizer (one row, weekly refresh): ~$5/month
     - Page serving: matview row read + CDN. Negligible.
-    - *Total to launch and operate the first wedge: under $200.*
-
-*** Definition of "ready to go live"
-    - 141 RDB games have =GameReport= rows in =reports=
-    - =mv_genre_synthesis= row exists for slug =roguelike-deckbuilder=
-    - =/genre/roguelike-deckbuilder/insights= renders all FREE sections
-    - Page passes: SEO check (title, meta, schema.org markup),
-      mobile responsive, no JS errors
-    - Cross-links to ≥ 5 per-game pages from the benchmarks section
-    - Smoke test for =GET /api/genres/roguelike-deckbuilder/insights=
-      passes against staging
+    - *Total to launch and operate Report #1: under $200 in compute +
+      ~60 hours of editorial curation.*
 
 ** Active Launch Plan
-   *Reorganised 2026-04-17 around the *reports-led hybrid business
-   model*, after research revealed: the per-game AI review category is
-   *forming* (not saturated — Datahumble, Sentimeter, HowlRound,
-   SteamReview AI, LEYWARE all launched 2025-early 2026); the $15/mo
-   SaaS price point is owned by GameDiscoverCo Plus + Claude; the
-   indie-dev buying pattern is *episodic* ("research a genre once,
-   build for 18 months") and fits a PDF report better than a monthly
-   sub; LEYWARE's RAG-over-raw architecture caps answer quality where
-   SteamPulse's pre-synthesized structured data wins the aggregation
-   questions buyers actually have. See memory
-   =project_business_model_2026.md= for full pivot rationale.*
 
-   *Headline product: paid genre market reports at $49 / $99 / $299
-   indie-standard-studio tiers, plus a $1,499 publisher tier on
-   manual-invoice. Retention lever (Phase 3, not launch): $25/mo Pro
-   with NL chat + text-to-SQL over the structured data + access to
-   all past/future reports. Free SEO funnel unchanged (per-game pages
-   + genre insights pages). Revenue target: lifestyle-scale,
-   $30-110k year 1, $80-260k year 2-3.*
+*** Tier 1 — Launch & Run (the entire business for 12+ months)
 
-*** The three real gates (pass all before investing in the next phase)
-1. *The reports sell.* First genre report (Roguelike Deckbuilder) must
-   convert at a visible rate. Signal: 10+ sales in first 30 days across
-   indie/standard/studio tiers, OR ≥ 1 publisher inbound ask.
-2. *Pipeline is repeatable.* Report #2 and #3 must ship for ≤ 40 hours
-   of curation each (Report #1 will take longer; that's expected). If
-   you're still grinding on Report #2 at 80 hours, the design system
-   is wrong — simplify template, not content.
-3. *Pro signal exists.* Before building NL chat + text-to-SQL
-   (Phase 3), need ≥ 20 report buyers AND ≥ 3 asking about ongoing
-   access, OR a clear "I'd pay to ask my own questions" pattern in
-   post-purchase surveys.
+    Phased launch. The free cross-genre synthesis page is the proof
+    artifact and ships first. Pre-orders for the paid PDF open next,
+    providing the revenue signal that justifies the 60 hours of
+    editorial work. The polished PDF ships last, delivered
+    automatically to pre-order buyers when =published_at= reaches now.
+    Free per-game + free genre pages for SEO throughout. One new
+    report per quarter once the catalog is operational. Nothing else.
 
-   If any gate fails, do not proceed to the next phase — fix the gate
-   or kill the phase.
+**** Launch sequence
+     | Phase | Window   | Ship                                                         | Revenue signal                 |
+     |-------+----------+--------------------------------------------------------------+--------------------------------|
+     | A     | Week 1   | Free =/genre/roguelike-deckbuilder/= synthesis page            | None (traffic only)            |
+     | B     | Week 2-4 | Pre-order block on the synthesis page; Stripe Checkout       | Pre-orders are the real signal |
+     | C     | Week 4-8 | Polished RDB PDF; delivered to pre-order buyers + self-serve | First PDF revenue lands        |
 
-*** Phase 1 — Reports launch (weeks 1-4)
-    *Ship the first paid report. This is where the business becomes
-    real. Site is already public; do not broadcast-announce until sales
-    flow.*
+     Each phase's exit criteria gates the next. If Phase A traffic is
+     zero, do not open pre-orders — fix the positioning first. If
+     Phase B pre-orders are zero after two weeks of traffic, do not
+     commit 60 hours to the PDF — the positioning or the product-shape
+     is wrong.
 
-**** Prompts to land (priority order)
-1. [X] =scripts/prompts/audit-game-page-no-report-state.md= — verify per-game pages render rich indexable content even with no report. *Gates SEO discipline — don't index thin pages.*
-2. [X] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot, ClaudeBot, PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
-3. [X] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesizer. Content engine for reports; structured substrate for (Phase 3) NL chat.
-4. [ ] =scripts/prompts/genre-insights-page.md= — frontend =/genre/[slug]/insights=. Free preview + lead magnet for the paid report. Depends on (3).
-5. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + email capture + signed-S3 file delivery. *Replaces Cleeng + auth0 + /pro page from the prior plan.*
-6. [ ] =scripts/prompts/interactive-market-trends-homepage.md= — homepage that sells the reports (not the SaaS).
+**** Tier 1 products
+     | Product                              | Price  | Delivery                                        |
+     |--------------------------------------+--------+-------------------------------------------------|
+     | Genre Report — Indie tier            | $49    | Stripe → S3 signed URL PDF (delayed if pre-order) |
+     | Genre Report — Studio tier           | $149   | PDF + CSV dataset + 1-yr update access          |
+     | Genre Report — Publisher tier        | $499   | PDF + CSV + raw JSON + team license             |
+     | =/genre/[slug]/= synthesis page      | $0     | Free forever, SEO-indexed                       |
+     | All per-game pages                   | $0     | Free forever, SEO-indexed                       |
 
-    *Parallel / quality improvement, not blocking:*
-   - [ ] =scripts/prompts/decouple-sentiment-trend-matview.md=
+     All three paid tiers are *fully self-serve*. No "contact us"
+     button. No manual invoicing. No email scoping. Even the publisher
+     tier is Stripe-button-only.
 
-**** Operational work (runbook, not prompts)
-- [ ] Sign up at https://resend.com, add DKIM + SPF, verify sending from hello@steampulse.io
-- [ ] Sign up at https://plausible.io ($9/mo), add =steampulse.io=
-- [ ] Create Stripe account, enable Stripe Tax, create Products + Prices for the RDB report (indie/standard/studio tiers), configure webhook endpoint at =/api/stripe/webhook=, capture signing secret into SSM
-- [ ] Create S3 bucket =steampulse-reports-{env}= for the PDFs (versioning on, public access blocked, signed-URL delivery)
-- [ ] Run batch analysis on *141 roguelike-deckbuilder games* (~$141):
+**** Tier 1 prompts to land (execute in this order)
+     *Already shipped (prerequisites):*
+     1. [X] =scripts/prompts/audit-game-page-no-report-state.md= — per-game pages render rich indexable content even without a report.
+     2. [X] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot / ClaudeBot / PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
+     3. [X] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesiser. The synthesis content engine.
+
+     *Phase A — ship the free synthesis page (in this order):*
+     4. [ ] =scripts/prompts/simplify-ui-for-tier1.md= — *first.* Delete Pro plumbing (=usePro()=, =ProLockOverlay=, blur CSS), the Toolkit tree, enthusiast routes (=/trending=, =/new-releases=, =/compare=, =/explore=, =/pro=), and obsolete tests. Nav reduces to Reports · Browse · About. Creates the clean surface for the next two prompts.
+     5. [ ] =scripts/prompts/genre-insights-page.md= — *second.* Build the =/genre/[slug]/= synthesis page. All sections free; renders a pre-order / buy block when a =reports= row exists for the genre. This is the destination the landing page will link to.
+     6. [ ] =scripts/prompts/fix-landing-page.md= — *third.* Rebuild homepage so the primary CTA points at =/genre/roguelike-deckbuilder/=. Must land after the synthesis page exists (otherwise the CTA is a 404).
+
+     *Phase B — open pre-orders:*
+     7. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + signed-S3 delivery. Supports pre-order mode (=reports.published_at > now()= at purchase → delayed delivery; delivery sweep fires on =published_at= flip). Requires the synthesis page from (5) because the pre-order / buy block lives there.
+
+     *Phase C — PDF operational work:*
+     - No additional prompt. See "Phase C operational" below: editorial work on the PDF + uploading assets to S3 + flipping =reports.published_at= to =now()=.
+
+**** Phase A operational (Week 1)
+- [ ] Sign up at https://resend.com, verify sending domain
+- [ ] Sign up at https://plausible.io ($9/mo)
+- [ ] Run batch analysis on 141 roguelike-deckbuilder games (~$141 LLM):
   #+begin_src sql
   SELECT g.appid FROM games g
   JOIN game_tags gt ON gt.appid = g.appid
@@ -315,175 +170,128 @@ Pro boundary, pricing, and Pro feature list.
   WHERE t.slug = 'roguelike-deckbuilder' AND g.review_count >= 500
   ORDER BY g.review_count DESC;
   #+end_src
-- [ ] Run wedge synthesizer once for =roguelike-deckbuilder=. Inspect: quotes verbatim, friction shared (mention_count ≥ 3), benchmark games include Slay the Spire / Balatro / Inscryption / Monster Train / Dicey Dungeons, narrative readable. Iterate prompt 1-3 times (bump =prompt_version=).
-- [ ] *Curate the first PDF report* (~40-60 hours for Report #1; this is the unavoidable human labor, LLM produces synthesis not finished reports). Structure:
-  - Executive summary (3 pages — also the free email-gated lead magnet)
+- [ ] Run wedge synthesiser once for =roguelike-deckbuilder=; iterate prompt 1-3 times (bump =prompt_version=)
+- [ ] Ship =simplify-ui-for-tier1.md= (prompt 4) — clean surface
+- [ ] Ship =genre-insights-page.md= (prompt 5) — the =/genre/roguelike-deckbuilder/= synthesis page goes live
+- [ ] Ship =fix-landing-page.md= (prompt 6) — homepage CTA now points at the live synthesis page
+- [ ] Submit sitemap to Google Search Console + Bing Webmaster Tools
+
+**** Phase B operational (Week 2-4)
+- [ ] Stripe account + Products/Prices for RDB report (three tiers), webhook endpoint, signing secret in SSM
+- [ ] S3 bucket =steampulse-reports-{env}= (versioning on, public access blocked, signed-URL delivery)
+- [ ] Create =reports= catalog row for RDB with =published_at= set to the target PDF ship date (not now — future date makes it a pre-order)
+- [ ] Ship =stripe-checkout-report-delivery.md= (with pre-order mode)
+- [ ] Add pre-order block to =/genre/roguelike-deckbuilder/= (part of =genre-insights-page.md=)
+- [ ] Amplification event #1 (see "Tier 1 amplification" below) — seeds the pre-order funnel
+
+**** Phase C operational (Week 4-8)
+- [ ] *Curate the RDB PDF* (~60 hours — the unavoidable human work)
+  - Executive summary (3 pages)
   - Methodology + data caveats (2 pages)
-  - Cross-game synthesis: audience, friction, wishlist, monetization (8-12 pages)
-  - Benchmark game deep-dives: Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons (15-20 pages, 3-4 pages each)
+  - Cross-game synthesis: audience, friction, wishlist, monetisation (8-12 pages)
+  - Benchmark deep-dives: Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons (15-20 pages)
   - Strategic recommendations (3-4 pages)
   - Appendix: full game list, methodology details
   - Total: ~35-45 pages
-- [ ] Draft 3 wedge-anchored content pieces ("What 141 roguelike-deckbuilder reviews reveal about run length"). SEO fuel AND outreach material.
-- [ ] Submit sitemap to Google Search Console + Bing Webmaster Tools. Request indexing for top 10 pages.
+- [ ] Upload PDF + CSV + JSON assets to S3 at the paths referenced by the =reports= row
+- [ ] Flip =reports.published_at= to now — triggers the delivery sweep that emails signed URLs to all pre-order buyers
+- [ ] Self-serve checkout now delivers immediately for new buyers
 
-**** Phase 1 outreach (hand-crafted, not broadcast)
-- [ ] DM 15-25 *specific* indie devs in the roguelike-deckbuilder space. Send the free exec summary, ask for reaction. Template: "I made this thing about your genre, would love 3 min of honest reaction." Expect ~5 replies, 2 deeply useful.
-- [ ] Post the free exec summary to r/roguelikes as a *contribution, not a pitch*. Link in author bio only.
-- [ ] Share in 1-2 indie dev Discords you're already a member of (HTMAG, Indie Game Devs). *Do NOT create a SteamPulse Discord yet* — see "When to create a Discord" below.
-- [ ] Read every reply. Each is a research interview. Fix bugs within 24 h.
-- [ ] Verify AI crawlers: =curl -A "GPTBot" https://steampulse.io/games/440/team-fortress-2= returns 200.
+**** Tier 1 amplification (one event per phase — not a cadence)
+Phase A launch: optional soft seed. Page exists but doesn't need to
+be broadcast yet — let SEO start indexing.
+Phase B launch (when pre-order block is live): *ONE* of each, not all
+four every time a report ships.
+- [ ] *ONE* Reddit post to r/roguelikes or r/gamedev as a contribution (not a pitch)
+- [ ] *ONE* Bluesky thread leading with the most-surprising finding
+- [ ] *ONE* share in each indie dev community you already belong to
+- [ ] Verify AI crawlers: =curl -A "GPTBot" https://steampulse.io/games/440/= returns 200
 
-**** Phase 1 exit criteria
-- [ ] =/genre/roguelike-deckbuilder/insights= live, renders all free sections, cross-links to 5+ per-game pages work
-- [ ] =/reports= page live with RDB report available at $49 / $99 / $299
-- [ ] Stripe Checkout + S3 delivery works end-to-end (test mode AND live mode)
-- [ ] Exec-summary email capture → magic-link → upsell flow works
-- [ ] 10+ flagship game reports you'd show a stranger with pride
-- [ ] No-report game pages pass Lighthouse SEO ≥ 90
-- [ ] Plausible shows real visits; checkout events firing
-- [ ] 10+ report sales within 30 days OR ≥ 1 publisher inbound
+**** Tier 1 exit criteria
+     *Phase A complete when:*
+     - 141 RDB games have =GameReport= rows
+     - =mv_genre_synthesis= row exists for =roguelike-deckbuilder=
+     - =/genre/roguelike-deckbuilder/= renders all sections, fully free
+     - Lighthouse SEO ≥ 90, cross-links to ≥ 5 per-game pages working
+     - Nav simplified; Pro plumbing gone; landing page primary CTA points at the synthesis page
 
-**** If Phase 1 signal is weak
-- *< 5 sales after 2 weeks of outreach*: the exec summary or positioning is off. Talk to the people who DID buy — why them? Rethink before building Report #2.
-- *Loud qualitative response but no sales*: price or friction is the issue. Try a lower-cost CSV-only variant at $29, or a 3-page "teaser deck" at $15.
-- *Nothing lands*: the wedge may not work for this genre. Try one more (survival-crafting) before concluding the whole model is wrong.
+     *Phase B complete when:*
+     - Stripe Checkout + S3 pre-order flow works end-to-end (test mode AND live mode)
+     - Pre-order block visible on =/genre/roguelike-deckbuilder/=
+     - ≥ 1 pre-order lands (any tier)
+     - Plausible shows real visits; checkout events firing
 
-*** Phase 2 — Genre report portfolio (weeks 5-10, gated on Phase 1 pass)
-    *Only if Phase 1 gates pass. Prove the pipeline is repeatable and
-    start building a portfolio.*
+     *Phase C complete when:*
+     - RDB PDF shipped to S3, tier-split (indie / studio / publisher assets present)
+     - =published_at= flipped; delivery sweep fired; every pre-order buyer received their signed-URL email
+     - Self-serve checkout now delivers inline (not queued)
+     - Catalog-compound work begins — next genre's synthesis page becomes Phase A for Report #2
 
-- [ ] Pick next 2 genres from high-opportunity candidates (survival-crafting, visual-novel, horror, Soulslike). Target: one report per 3 weeks.
-- [ ] Run batch analysis for each (~$50-150 LLM cost per genre, depending on game count)
-- [ ] Produce + launch Reports #2 and #3
-- [ ] Report #2 curation target: ≤ 40 hours (exit gate)
-- [ ] Set up quarterly refresh cadence — past buyers get 50%-off upgrade to new edition
-- [ ] Start collecting "would pay for ongoing access" signal from buyers (post-purchase 1-question survey)
+*** Tier 2 — Gated (do NOT build until the gate fires)
 
-**** Phase 2 exit criteria
-- [ ] ≥ 30 total report sales across 3 genres
-- [ ] ≥ 1 publisher-tier inbound ask (validates the $1,499 tier)
-- [ ] Report #2 and #3 curation ≤ 40 hours each
-- [ ] ≥ 3 buyers asking about subscription / ongoing access → greenlight Phase 3
+    Every item below requires its numerical gate to fire before any
+    implementation work begins. No speculative building. Gates are
+    evaluated quarterly, honestly — "close enough" does not count. The
+    gate exists to protect the operator from themselves.
 
-*** Phase 3 — Pro subscription + NL chat (weeks 10-16, gated on Phase 2 pass)
-    *Only if Phase 2 gate fires. The retention + expansion play. Pro
-    is $25/mo, NOT the headline product — it's the toolkit layer on
-    top of the reports. Value prop: access all past/future reports +
-    ask your own questions via NL chat + text-to-SQL over the data.*
+**** Tier 2 add-ons and their gates
+     | Add-on                                         | Gate (must fire first)                                                    | Labour once built           |
+     |------------------------------------------------+---------------------------------------------------------------------------+-----------------------------|
+     | Dataset add-on ($99 CSV+JSON per report)       | 3+ buyer emails asking for raw data                                       | 1 week, then passive        |
+     | "Alert me when a new report drops" email list  | Monthly uniques > 3k                                                      | 2 days, then passive        |
+     | $49/yr All-Access Pass (catalog-wide)          | 5+ reports shipped AND 100+ unique buyers                                 | 1-2 weeks                   |
+     | "Genre Audit" self-serve SKU ($79)             | Catalog MRR > $3k/mo for 3 consecutive months                             | 1-2 weeks, then passive     |
+     | Weekly newsletter                              | Catalog MRR > $10k/mo for 3 consecutive months AND operator wants to write | 6-10 hr/week ongoing        |
+     | Course ($249 one-off)                          | Newsletter at 1k engaged subs AND ≥ 3 buyers explicitly asking            | 200+ hr upfront, then light |
+     | NL chat / SaaS Pro ($25/mo)                    | ≥ 5 paying buyers explicitly asking "can I pay for ongoing access?"       | Heavy eng + 24/7 support    |
 
-    *Architectural note: NL chat over pre-synthesized structured data
-    (GameReports + mv_genre_synthesis rows) is distinct from and
-    better than LEYWARE's RAG-over-raw-reviews approach for the
-    quantitative cross-game questions buyers actually have. Same moat
-    whether packaged as report or chat. Reuses the Stripe account +
-    webhook infra from Phase 1 — Stripe Subscription, not a new
-    payment stack.*
+     The gates are written here so future-me can't rationalise around
+     them. Revisit the list quarterly, not monthly. If a gate fires,
+     the add-on earns the right to ship. Otherwise, the add-on does
+     not exist.
 
-**** Prompts to land
-- [ ] =scripts/prompts/nl-chat-text-to-sql.md= (*to be written*) — NL chat + text-to-SQL over Postgres + structured GameReports + mv_genre_synthesis. Read-only role, statement timeout, query validator, SQL-visible toggle, Vanna.ai-style guided suggestions + chat UI.
-- [ ] =scripts/prompts/pro-subscription-tier.md= (*to be written*) — Stripe Subscription (distinct from one-off Checkout), Customer Portal for self-serve cancel, magic-link persistent auth, entitlement checks in API.
+**** Killed forever (not deferred — structurally incompatible with the operating principle)
+     - *1:1 consulting / custom gut-checks* — not sleep-compatible at any scale
+     - *Publisher manual-invoice custom briefs* — the self-serve $499 tier captures the value without the email dance
+     - *Discord community management* — permanent 24/7 obligation
+     - *Sponsorship / ad sales BD* — ongoing BD labour that never stops
+     - *Product Hunt pre-launch theatre* — wrong audience, zero sleep-value
+     - *Paid ads before measurable free→paid conversion data exists*
+     - *Per-game Pro gating of =dev_priorities=, =churn_triggers=, =player_wishlist=, audience overlap, or any other on-site content* — 100% of on-site content is free forever
+     - *Pro+ agency tier as a separate product* — folds into Studio/Publisher tiers on reports
+     - *Bedrock Knowledge Base / vector RAG* — architecturally ruled out; see =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw"
+     - *6,000-game catalog backfill* — depth-in-niche is the product, not coverage
 
-**** Phase 3 operational
-- [ ] Email existing report buyers first: "Pro subscription is live — $25/mo gives you chat access + all past/future reports. Try a 30-day trial."
-- [ ] Monitor first 10 Pro signups tightly — each is a manual bug hunt
-- [ ] Track exit-survey "why cancel" as structured data from day 1
+** Marketing copy — homepage + reports page
 
-**** Phase 3 exit criteria
-- [ ] NL chat + text-to-SQL works over RDB, Survival, Visual-Novel data
-- [ ] ≥ 20 Pro subs in first 30 days after launch (converted from report buyers)
-- [ ] Pro churn < 10%/month after month 3
-- [ ] Pro ARR ≥ $6k within 90 days
+   Rule: never say "AI" in headlines or CTAs. Show the output, not the
+   tech.
 
-*** Phase 4 — Publisher tier + affiliate side bet (ongoing, opportunistic)
-    *Pursue these in parallel after Phase 2, not sequentially. Gated on
-    specific signal, not time.*
+*** Homepage hero
+    - *Primary:* "Deep market reports for Steam game devs." / "Synthesised from every player review across an entire genre. Free previews, paid PDFs from $49."
+    - *Alt (dev-targeted for r/gamedev):* "Know your genre before you ship." / "Market reports that read every review of every competitor so you don't have to."
 
-**** Publisher tier ($1,499 standalone)
-- [ ] Add the $1,499 publisher tier to =/reports= page once 1 inbound publisher inquiry validates the price point.
-- [ ] Publisher tier is *not* self-serve — "contact for custom brief" button, manual invoicing. Custom data cuts included, 30-min strategy call, Excel data delivery. Filters price-shoppers, signals premium.
-- [ ] Target: 10 publishers × $1,499 = $15k from 10 conversations. This is where real revenue lives if it materialises.
+*** Reports page copy
+    - Lead with the single most surprising finding from the published report
+    - Show the full table of contents (buyers need to know what they get before paying)
+    - Include a 3-page sample PDF download (email capture)
+    - Three clear tiers with feature comparison; all three self-serve Stripe buttons
 
-**** Affiliate overlay side bet
-- [ ] Pitch ONE of Fanatical / GOG / Keymailer on: "we supply AI review summary on every product page, you take a 2% conversion lift, we take 0.3% of incremental GMV."
-- [ ] One email to the right person. 6-month BD cycle if they bite.
-- [ ] Potential payoff: $10-30k MRR passive. Do not let it distract from reports.
+*** Phrasing to avoid
+    - "AI-synthesised player intelligence" → "Player intelligence distilled from thousands of reviews"
+    - "AI-powered review analysis" → "Every review read, every pattern surfaced"
 
-**** Public amplification (only after Phase 2 revenue is live)
-- [ ] Create =@steampulse_io= Twitter/X account
-- [ ] Product Hunt launch (Tuesday is best; coordinate ~3 hunters in advance)
-- [ ] Show HN: "Cross-genre market reports for every major Steam genre"
-- [ ] Twitter threads leading with the most-surprising finding from each report; link the report page; tag relevant studio accounts; invite replies with a question at the end
-- [ ] r/gamedev post — competitive-research framing
-- [ ] r/indiegaming post — hidden-gems framing (different audience)
-
-**** Twitter thread template (per report)
-   #+begin_example
-   We read [N] player reviews across every [genre] game on Steam.
-   Here's what the genre as a whole tells us:
-   🟢 Top praise players share: [top_shared_strength]
-   🔴 Top complaint they share: [top_friction]
-   💡 Most requested missing feature: [top_wishlist]
-   Full report → steampulse.io/reports/[slug]
-   #+end_example
-
-**** Phase 4 exit criteria
-- [ ] ≥ 3 publisher-tier sales within 6 months of enabling the tier
-- [ ] Affiliate conversation yields either a closed deal or a definitive "no" from two platforms — no indefinite "maybe" dragging on
-
-*** What we are explicitly NOT doing
-- *$15/mo SaaS subscription as headline product.* Pivoted 2026-04-17 — the buying need is episodic, a sub fights GameDiscoverCo Plus + Claude at the price point.
-- *Cleeng integration / auth0 for payment + identity.* Replaced with Stripe Checkout for one-offs and Stripe Subscription + magic-links for Phase 3 Pro. Simpler stack.
-- *One-off per-game unlock ($3).* Rejected — see =scripts/prompts/monetization-strategy.md= Option C. Engineering-heavy; cannibalises reports; zero exclusivity for payer.
-- *Pro monthly token ledger.* Depended on the unlock flow above.
-- *Pro+ tier as a separate product.* Features previously scoped for Pro+ (export, API, multi-seat) fold into the report model naturally — CSV export is just a report format; API access is a $500/yr Pro+ add-on when signal fires; multi-seat is team licensing on Studio/Publisher report tiers.
-- *Launch-day theatre.* Each phase has its own validation gate; broadcast amplification (HN, PH, Twitter) comes in Phase 4 only, after Phase 2 revenue confirms the model.
-- *Ads.* Saturated audience; paid acquisition without product-market fit burns cash and teaches nothing.
-- *SteamPulse Discord.* Not until 50+ report buyers OR active Q&A traffic you can't handle via email.
-- *6,000-game backfill.* The product is depth in wedges + a report portfolio, not catalog coverage. (The "$20K backfill problem" was a false framing — see monetization-strategy.md.)
-- *Bedrock Knowledge Base / vector RAG.* Architecturally ruled out — see =ARCHITECTURE.org= → "Synthesize, don't retrieve-raw". Phase 3 NL chat uses text-to-SQL over pre-synthesized structured data, not RAG over raw reviews.
-- *Analytics-engine UI, full-text search.* Phase 3+ evaluation, not launch path.
-
-*** Marketing copy — for homepage + threads
-   *Rule: never say "AI" in headlines or CTAs. Show the output, not the tech.*
-
-**** Homepage hero (reports-forward)
-   - *Primary:* "Deep market reports for Steam game devs." / "Synthesised from every player review across an entire genre. Free previews, paid PDFs from $49."
-   - *Alt (dev-targeted for r/gamedev):* "Know your genre before you ship." / "Market reports that read every review of every competitor so you don't have to."
-   - *Alt (data/intelligence angle):* "The research tool Steam never built." / "Cross-game synthesis + ask-your-own questions (Pro, coming soon). Free previews available."
-
-**** Reports page copy
-   - Lead with the single most surprising finding from the published report
-   - Show the full table of contents (buyers need to know what they get before paying)
-   - Include a 3-page sample PDF download (email capture)
-   - Three clear tiers with feature comparison
-   - Publisher tier: "contact for custom brief" button only — no self-serve price
-
-**** Avoid
-   - "AI-synthesised player intelligence" → "Player intelligence distilled from thousands of reviews"
-   - "AI-powered review analysis" → "Every review read, every pattern surfaced"
-
-*** When to create a Discord (not yet)
-   Create a SteamPulse Discord only when:
-   - 50+ report buyers (warm community nucleus), OR
-   - Users are already asking each other questions you can't answer alone
-   A dead Discord with 12 members signals abandonment. Until then:
-   Twitter/X for async signal collection, Reddit for traffic spikes,
-   email for report updates and new-edition announcements.
-
-*** Cost summary
-- Phase 1 LLM budget: ~$141 (RDB analysis) + ~$5 (one genre synthesis) + ~$50 (prompt iteration) = ~$200
-- External services: Resend free tier + Plausible $9/mo + Stripe (2.9% + $0.30/sale) + S3 (negligible)
-- Report curation: 40-60 hours Report #1; ≤ 40 hours Reports #2+ (unavoidable human labor)
-- Ongoing LLM: matview refresh ~$5/mo per genre; NL chat ~$0.05/query (Phase 3 only)
-- Phase 3 subscription infra: Stripe Subscription uses same account as Phase 1 Checkout; no additional platform fee
-- *Total to launch Phase 1 (first revenue): under $250 + ~60 hours of curation*
-- *Total to Phase 3 ready: under $500 + ~140 hours of curation*
+** Cost summary
+   - Tier 1 LLM budget for Report #1: ~$141 (RDB analysis) + ~$5 (synthesis) + ~$50 (prompt iteration) = ~$200
+   - External services: Resend free tier + Plausible $9/mo + Stripe (2.9% + $0.30/sale) + S3 (negligible)
+   - Report curation: 60 hours Report #1; ≤ 40 hours Reports #2+ (unavoidable human labour)
+   - Ongoing LLM: matview refresh ~$5/month per genre. No query-time LLM cost in Tier 1.
+   - *Total to launch Report #1: under $250 + ~60 hours of curation*
 
 ** Documentation map
-   All project docs with a one-line summary. Start here when looking for
-   something; =CLAUDE.md= + =ARCHITECTURE.org= + this file are the three
-   load-bearing entry points.
+   Start here when looking for something; =CLAUDE.md= +
+   =ARCHITECTURE.org= + this file are the three load-bearing entry
+   points.
 
 *** Root-level
    - =CLAUDE.md= — Coding conventions + load-bearing architectural rules Claude Code must follow.
@@ -493,104 +301,71 @@ Pro boundary, pricing, and Pro feature list.
    - =steam-pulse-query.org= — Org-mode scratchpad of ad-hoc SQL queries against the production DB.
 
 *** =doc/= — architecture, reference, and operating docs
-   - =doc/references.org= — *Consolidated bibliography* of external research sources (competitors, Zukowski marketing, SEO, Karpathy LLM Wiki, tooling). Grouped by topic.
-   - =doc/top-100-questions.org= — 100 example natural-language questions + architectural coverage breakdown by bucket.
-   - =doc/strategic-questions.org= — The big strategic questions ("what genre to build", "what features players want") SteamPulse should answer for indie devs.
-   - =doc/multi-region-crawl.org= — Hub-and-spoke architecture for distributing Steam API calls across AWS regions (Phase 2, not yet live).
-   - =doc/analytics-pages-nav.org= — Where each chart lives in the UI (=/analytics=, game pages, genre pages, tag pages, developer pages).
+   - =doc/references.org= — Consolidated bibliography of external research sources.
+   - =doc/top-100-questions.org= — 100 example natural-language questions + architectural coverage breakdown.
+   - =doc/strategic-questions.org= — Strategic questions SteamPulse should answer for indie devs.
+   - =doc/multi-region-crawl.org= — Hub-and-spoke architecture for distributing Steam API calls across AWS regions.
+   - =doc/analytics-pages-nav.org= — Where each chart lives in the UI.
    - =doc/review-analysis-pipeline.md= — How reviews get processed into =GameReport= via the three-phase analyzer.
-   - =doc/prompt-strategy.org= — LLM prompt design strategy + iteration guide for the analyzer.
-   - =doc/frontend-architecture.md= — Canonical Next.js frontend decisions (component patterns, data fetching, ISR).
-   - =doc/steam-apis.org= — Steam API reference + which tables each endpoint populates.
-   - =doc/anthropic-rate-limits.md= — Current per-model rate limits + throughput planning notes.
-   - =doc/cloudwatch-queries.org= — Saved CloudWatch Logs Insights queries for debugging Lambdas.
-   - =doc/test_games.org= — Curated appid test set used for analyzer eval + spot-checking.
+   - =doc/prompt-strategy.org= — LLM prompt design strategy + iteration guide.
+   - =doc/frontend-architecture.md= — Canonical Next.js frontend decisions.
+   - =doc/steam-apis.org= — Steam API reference.
+   - =doc/anthropic-rate-limits.md= — Current per-model rate limits.
+   - =doc/cloudwatch-queries.org= — Saved CloudWatch Logs Insights queries.
+   - =doc/test_games.org= — Curated appid test set.
 
 *** =doc/runbooks/= — operational procedures
-   - =doc/runbooks/db-backup-restore.org= — Local Postgres backup/restore commands.
-   - =doc/runbooks/testing-frontendless.org= — Playwright smoke testing against staging without a local frontend.
-   - =doc/runbooks/prompt-eval-pipeline.org= — Running the analyzer eval suite locally + comparing prompt versions.
-   - =doc/runbooks/acm-cert-validation.org= — One-time ACM cert DNS-validation CNAME setup for production launch.
+   - =doc/runbooks/db-backup-restore.org=
+   - =doc/runbooks/testing-frontendless.org=
+   - =doc/runbooks/prompt-eval-pipeline.org=
+   - =doc/runbooks/acm-cert-validation.org=
 
-*** =doc/research/= — design research notes
-   - =doc/research/ux-ui-references.org= — UX / UI design references (Steam/GOG/itch.io, NN/g, Algolia, Baymard) + key takeaways.
-   - =doc/research/analytics-builder-lens.org= — Dashboard + charting UX research consulted for the Analytics Builder Lens prompt.
+*** =doc/research/=, =doc/sequences/=, =doc/skills/=
+   - =doc/research/ux-ui-references.org=, =doc/research/analytics-builder-lens.org=
+   - =doc/sequences/00_game_discovery.org=
+   - =doc/skills/steampulse-architecture/SKILL.md=, =doc/skills/steampulse-cdk/SKILL.md=
 
-*** =doc/sequences/= — sequence diagrams
-   - =doc/sequences/00_game_discovery.org= — Sequence diagram: game discovery crawl flow (more may be added as flows are documented).
+*** =scripts/prompts/= — implementation specs
+   Every discrete implementation prompt lives here. Active work is
+   tracked in Tier 1 above; already-shipped in =scripts/prompts/completed/=.
 
-*** =doc/skills/= — Claude Code skill configs
-   - =doc/skills/steampulse-architecture/SKILL.md= + =doc/skills/steampulse-cdk/SKILL.md= — Invocable Claude Code skills for architecture Q&A and CDK work.
-
-*** =scripts/prompts/= — implementation specs (active + historical)
-   Every discrete implementation prompt lives here. Active work is tracked in "Active Launch Plan" above; housekeeping/deferred in "Backlog"; already-shipped in =scripts/prompts/completed/=.
-
-   *Canonical strategic documents* (not implementation prompts — strategic direction that downstream prompts reference):
-   - =scripts/prompts/monetization-strategy.md= — Pricing + tier boundaries + conversion funnel. Staged: Free + Pro $15/mo at launch; Pro+ $40–50/mo gated on signal. $3 one-off unlock rejected. Anything about Free/Pro/pricing should cite or match this doc.
+   *Canonical strategic documents* (not implementation prompts):
+   - =scripts/prompts/monetization-strategy.md= — Two-tier catalog model: Tier 1 pricing + architecture; Tier 2 gates; kill-forever list. Anything about pricing should cite or match this doc.
 
 *** =memory/= (Claude's cross-conversation memory, personal)
-   - =~/.claude/projects/-Users-iganza-dev-git-saas-steam-pulse/memory/MEMORY.md= — Index of durable feedback rules + project state Claude loads into every session. Not checked into the repo.
+   - =~/.claude/projects/-Users-iganza-dev-git-saas-steam-pulse/memory/MEMORY.md= — Index of durable feedback rules + project state Claude loads into every session.
 
-** Backlog (prompts and standalone TODOs not on the phase-gated path)
-   *Organised by the phase that would pull them into the Active Launch
-   Plan. Items further down the stack are speculative — do not build
-   them before the gating phase fires.*
+** Backlog (non-blocking)
 
-*** Pre-existing bugs
-    *Surfaced by Copilot review on PR #97 (the PR #96 revert). All
-    six metadata-desync items (the original three plus three audit
-    follow-ups) ship in PR #98, so this subsection is no longer a
-    backlog item. See =scripts/prompts/fix-frontend-backend-metadata-desyncs.md=
-    for the full arc.*
-
-*** Dropped by the 2026-04-17 pivot (do NOT build these)
-    *Retired when the business pivoted from $15/mo SaaS to reports-led
-    hybrid. Files kept in =scripts/prompts/= for historical reference
-    only; do not resurrect without a new business-model change.*
-- [ ] =cleeng-integration.md= (written) — superseded by =stripe-checkout-report-delivery.md=.
-- [ ] =auth0-authentication.md= (pre-existing) — Phase 3 Pro uses magic-link auth + Stripe Customer Portal, not auth0.
-- [ ] =pricing-page.md= (unwritten) — superseded by =/reports= catalog page (part of =stripe-checkout-report-delivery.md=).
-- [ ] =pro-plus-export.md= / =pro-plus-api.md= / =report-export-premium.md= — the Pro+ tier concept is retired; CSV export folds into report formats, API access reappears only if Phase 3 Pro signal demands it.
-
-*** Needed for Phase 3 (Pro subscription + NL chat) — still to write
-- [ ] =nl-chat-text-to-sql.md= — NL chat + text-to-SQL over Postgres + GameReports + mv_genre_synthesis. Gated on Phase 2 pass.
-- [ ] =pro-subscription-tier.md= — Stripe Subscription + Customer Portal + magic-link persistent auth + entitlement checks. Gated on Phase 2 pass.
-
-*** Would strengthen Phase 1 if time allows (not blocking)
+*** Would strengthen Tier 1 if time allows (not blocking)
 - [ ] =game-details-metadata-card.md= — fields already in DB, need API + component. Adds depth to per-game pages → better indexable content.
 - [ ] =fix-just-added-steam-page-date.md= — migration + small code change. Minor trust/correctness fix.
 - [ ] BUG: "Recently Released" shows games released in 2027 — filter future =release_date=. Credibility fix.
-- [ ] Search: upgrade to =pg_trgm= for fuzzy/similarity-ranked search. Fuzzy matching for mis-spellings + better ranking. Useful once traffic picks up.
+- [ ] Search: upgrade to =pg_trgm= for fuzzy/similarity-ranked search.
 
 *** Infrastructure / reliability (pull in when friction appears)
-- [ ] =k6-perf-smoke-tests.md= — straightforward setup. Pull in before Phase 4 broadcast amplification.
+- [ ] =k6-perf-smoke-tests.md= — pull in before broader amplification.
 - [ ] =review-crawl-backfill.md= — index + repo method + handler action + EventBridge rule.
-- [ ] =full-text-search-reviews.md= — tsvector/tsquery + GIN index + endpoint. Phase 3+.
 
-*** Deferred / speculative (do not prioritise)
-- [ ] =explore-market-map-lens.md= — grid explorer, 8 panels. Pro tier depth; not launch-critical.
-- [ ] =explore-table-lens.md= — filterable data grid. Same.
-- [ ] =charting-library-evaluation.md= — evaluate switching charting library. Optimisation, not launch blocker.
-- [ ] =precompute-game-metrics-cache.md= — perf improvement, pull in if latency becomes user-visible.
+*** Speculative (do not prioritise — mostly Tier-2-gated)
+- [ ] =explore-market-map-lens.md=, =explore-table-lens.md= — toolkit depth, Tier 2 gated.
+- [ ] =charting-library-evaluation.md= — optimisation, not launch blocker.
+- [ ] =precompute-game-metrics-cache.md= — perf improvement if latency becomes user-visible.
+- [ ] =full-text-search-reviews.md= — Tier 2+.
 
 *** Docs / prompts housekeeping (mechanical; doesn't gate launch)
-    *Non-implementation docs mis-filed under =scripts/prompts/=. Move out
-    when convenient; none of this blocks Stage 0–4 work.*
-- [ ] Move to =doc/notes/= (or similar): =product-ideas.md= (running brainstorm), =data-intelligence-features.md= (feature ideas log), =landing-page-positioning.md= (messaging strategy doc, not a spec), =value-assessment.md= (Claude-analysis prompt, not a feature spec).
-- [ ] Revise or rewrite =prompt-eval-pipeline.md= — stale, assumes pre-data-source-clarity =GameReport= shape.
-- [ ] Delete =scripts/prompts/CLEANUP.md= once the items above are addressed (superseded by this section).
+- [ ] Move to =doc/notes/= (or similar): =product-ideas.md= (brainstorm), =data-intelligence-features.md= (feature ideas log), =landing-page-positioning.md= (messaging strategy doc), =value-assessment.md= (Claude-analysis prompt). These are notes, not implementation specs.
+- [ ] Revise or rewrite =prompt-eval-pipeline.md= — stale =GameReport= shape assumptions.
+- [ ] Delete =scripts/prompts/CLEANUP.md= once items above are addressed.
 
 *** Standalone TODOs (no prompt yet)
-- [ ] *Post-launch: Split nav into Browse vs Analyze.* The navbar mixes casual browse (Hidden Gems, New Releases, Trending — discovery, free, SEO) with analytical toolkit (filters, lenses, compare, market map — Pro). Wait until after launch + the ToolkitShell is fleshed out (already supports the split). Proposed: Browse (discovery), Analyze (toolkit workspace). Game pages stay in Browse with "Open in Toolkit" links.
-- [ ] *Wire toolkit filter bar into AnalyticsClient.* The /analytics page has 9 charts with granularity + genre filter via AnalyticsClient. Toolkit shell wraps it as the Trends lens. Need: connect the toolkit shell's genre/tag filter selections into AnalyticsClient's internal filter state.
-- [ ] *Wire SteamSpy tag fetching into the crawl pipeline.* Spoke handler =_process_tags=, ingest =_handle_tags=, and =tag_repo.upsert_tags()= are implemented but nothing triggers a "tags" SQS task — =CrawlService._ingest_app_data()= upserts genres/categories but never queues tags. =tags= and =game_tags= tables remain empty. Note: SteamSpy returns 403 from cloud IPs; PR #40 replaced with Steam store page scraping (=InitAppTagModal()= JS, age-gate cookies). See =steam_source.py get_player_tags()=.
-- [ ] *Leverage tag vote counts for deeper intelligence.* Player tag votes (e.g. Elden Ring "Souls-like" 7,399 / "Open World" 5,408) are a rich signal currently used only for ordering. Ideas: tag weight in LLM context, weighted tag similarity, tag-sentiment correlation, tag trend tracking over time, defining-vs-noise confidence thresholds, cross-tag analytics (Pro).
-- [ ] *Pro gating: backend auth + per-entity analytics fetch gating.* All per-game analytics endpoints fetched regardless of Pro status. When auth ships: backend middleware on Pro endpoints (403 for free), conditional fetches in =GameAnalyticsSection.tsx=, clamp =TopReviews= limit (3 free, 10+ Pro), same pattern for genre market analytics.
-- [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Switching requires updating CDK assertion matchers (resource IDs change with environment name). Low priority.
-- [ ] *BUG: "Recently Released" shows games released in 2027.* Filter out future =release_date= values.
-- [ ] *Search: upgrade to pg_trgm for fuzzy/similarity-ranked search.* Currently ILIKE with exact/prefix boost in ORDER BY. Switch to pg_trgm: add the extension, GIN index on =games.name=, use =similarity()= or =word_similarity()= for ranking. Properly ranks "Minato" above "Terminator" for "minato" without the prefix-boost hack, and handles misspellings.
+- [ ] *Post-launch: Split nav into Browse vs Analyze.* The navbar currently mixes casual browse (Hidden Gems, New Releases, Trending) with analytical toolkit (filters, lenses, compare). Game pages stay in Browse with "Open in Toolkit" links.
+- [ ] *Wire toolkit filter bar into AnalyticsClient.* The /analytics page's 9 charts have granularity + genre filter via AnalyticsClient; toolkit shell wraps it as Trends lens. Connect shell filter state → AnalyticsClient.
+- [ ] *Wire SteamSpy tag fetching into the crawl pipeline.* Spoke handler =_process_tags=, ingest =_handle_tags=, and =tag_repo.upsert_tags()= are implemented but nothing triggers a "tags" SQS task. =tags= and =game_tags= tables remain empty. SteamSpy returns 403 from cloud IPs; PR #40 replaced with Steam store page scraping (=InitAppTagModal()= JS, age-gate cookies). See =steam_source.py get_player_tags()=.
+- [ ] *Leverage tag vote counts for deeper intelligence.* Player tag votes (e.g. Elden Ring "Souls-like" 7,399 / "Open World" 5,408) are a rich signal currently used only for ordering. Ideas: tag weight in LLM context, weighted tag similarity, tag-sentiment correlation, tag trend tracking, defining-vs-noise confidence thresholds.
+- [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Low priority.
 
 *** Misc
-- [ ] Would it be nice if I could click on "Reviews", and I'm taken to page, or somehow shown the actual reviews?
-- [ ] If I click on price go right to a chart that somehow contextualizes the price in the genre of game?
-- [ ] Post-deploy (manual, not PR-blocking): Lighthouse SEO ≥ 90 and Google Rich Results test on a live no-report game URL. Run after merge + prod deploy; handled by the user, not tracked in the PR description.
+- [ ] Would it be nice if I could click on "Reviews" and be taken to a page showing them?
+- [ ] If I click on price, go to a chart contextualising the price in the genre?
+- [ ] Post-deploy (manual): Lighthouse SEO ≥ 90 and Google Rich Results test on a live no-report game URL.

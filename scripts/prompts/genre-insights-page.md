@@ -1,110 +1,181 @@
-# Genre insights page (frontend) — `/genre/[slug]/insights`
+# Genre synthesis page — `/genre/[slug]/`
+
+*Drop-in prompt for Claude Code in the SteamPulse project repo.*
+
+*The Phase-A and Phase-B surface of the Tier 1 launch.*
+
+---
 
 ## Context
 
-The user-facing surface of the Wedge Strategy
-(`steam-pulse.org` → "Wedge Strategy: Roguelike Deckbuilder Deep
-Coverage"). Reads from the synthesis row produced by
-`cross-genre-synthesizer-matview.md` — that prompt must ship first
-and have produced a row for at least `roguelike-deckbuilder` before
-this page goes live.
+The `/genre/[slug]/` page is the **free flagship artifact** of the
+two-tier catalog business model. It renders the Phase-4 cross-genre
+synthesis (`mv_genre_synthesis`) as an editorial-quality web page. It
+is:
 
-This is **the demo**. The page that gets tweeted, posted to
-r/gamedev, linked from the waitlist confirmation email, and indexed
-by Google for queries like "roguelike deckbuilder player feedback."
-SEO and shareability are first-class requirements, not afterthoughts.
+- The page the landing-page CTA points at
+- The page that gets shared on r/gamedev / Bluesky / indie Discords
+- The page that Google indexes for queries like *"roguelike deckbuilder player feedback"*
+- The page that hosts the **pre-order / buy** block for the paid PDF (Phase B)
+
+Depends on `cross-genre-synthesizer-matview.md` — that prompt must
+have shipped and produced an `mv_genre_synthesis` row for at least
+`roguelike-deckbuilder` before this page goes live.
+
+Every section on this page is free. There are no Pro tiers, no blur,
+no CTA overlays, no "upgrade to unlock" buttons. The paid product is
+the PDF, advertised in a single pre-order block; there is no
+on-page-content paywall.
+
+## Route
+
+**`frontend/app/genre/[slug]/page.tsx`** — a server component at the
+genre root. Replace whatever currently occupies this route. If an
+older "broader genre listing" page exists here, delete it; anything
+useful from it (game list, genre stats) folds into this page's
+sidebar.
+
+No `/insights` suffix. The synthesis page IS the genre page.
 
 ## What to do
 
-### 1. Route — `frontend/app/genre/[slug]/insights/page.tsx`
+### 1. Server component + data fetch
 
-New route, **separate from** the existing `/genre/[slug]/page.tsx`
-(which is the broader genre listing). The `/insights` suffix is the
-synthesis-driven editorial page.
+```tsx
+// frontend/app/genre/[slug]/page.tsx
+import { notFound } from 'next/navigation';
+import { getGenreInsights, getReportForGenre } from '@/lib/api';
 
-Server component. Fetches at request time via the existing API
-client in `frontend/lib/api.ts` (add a `getGenreInsights(slug)`
-helper). Uses Next.js `revalidate = 3600` for ISR — the underlying
-synthesis only changes weekly, but we want the page to pick up edits
-within the hour.
+export const revalidate = 3600;  // ISR — synthesis refreshes weekly
 
-Returns `notFound()` if the API returns 404.
+export default async function GenrePage({ params }: { params: { slug: string } }) {
+  const [insights, report] = await Promise.all([
+    getGenreInsights(params.slug),
+    getReportForGenre(params.slug),  // may return null
+  ]);
+  if (!insights) notFound();
+  // render...
+}
+```
 
-### 2. API client method — `frontend/lib/api.ts`
+### 2. API client — `frontend/lib/api.ts`
 
 ```ts
 export async function getGenreInsights(slug: string): Promise<GenreInsights | null>
+
+export async function getReportForGenre(slug: string): Promise<ReportSummary | null>
 ```
 
-Add `GenreInsights` to `frontend/lib/types.ts` mirroring the
-backend Pydantic `GenreSynthesis` shape exactly (don't drift —
-backend is source of truth).
+`ReportSummary` is a thin type holding what the pre-order block needs:
 
-### 3. Page sections (FREE tier, in order)
+```ts
+type ReportSummary = {
+  slug: string;                    // "rdb-2026-q2"
+  display_name: string;
+  tiers: { tier: 'indie' | 'studio' | 'publisher'; price_cents: number; stripe_price_id: string }[];
+  published_at: string;            // ISO; > now() ⇒ pre-order
+  is_pre_order: boolean;           // derived server-side: published_at > now()
+};
+```
 
-The page's `<main>` is a single column on mobile, two columns on
-desktop (insights main column + sticky sidebar with stats /
-methodology / share buttons).
+Mirror `GenreInsights` in `frontend/lib/types.ts` exactly matching the
+backend Pydantic `GenreSynthesis` shape. Backend is source of truth.
+
+Backend endpoint for report lookup: `GET /api/genres/{slug}/report` →
+returns the active `reports` row for that genre joined across its
+three tiers, or 404 if none exists. Owned by
+`stripe-checkout-report-delivery.md`'s scope; this prompt just
+consumes it.
+
+### 3. Page sections (in order, top to bottom)
+
+Single column on mobile. Two columns on desktop: main content + a
+sticky right sidebar with stats / methodology / share / buy block.
 
 **Header block** (above the fold):
-- `<h1>` — "What {Display Name} Players Want, Hate, and Praise"
-- One-paragraph `narrative_summary` from the synthesis row
-- "Last updated {computed_at}" + "Synthesized from {input_count} games"
-- Share buttons: Twitter, copy link, Reddit (r/gamedev, r/{genre})
+- `<h1>` — `"What {Display Name} Players Want, Hate, and Praise"`
+- Narrative summary paragraph from `insights.narrative_summary`
+- Meta line: `"Synthesised from {input_count} games · {total_reviews} reviews · last updated {computed_at}"`
+- Share buttons: Twitter/X, Bluesky, copy link, Reddit (`r/gamedev`, `r/{genre}`)
 
 **Top 10 Friction Points** (`<section>`):
 - Numbered list (`<ol>`)
-- Each item: title (h3), description (p), blockquote with quote +
-  link to the source game's `/games/[appid]/[slug]` page
-- Show `mention_count` as a small badge ("18 of 141 games")
+- Each item: title (`<h3>`), description, `<blockquote>` with verbatim quote + link to source game (`/games/[appid]/[slug]`)
+- `mention_count` badge — *"18 of 141 games"*
+- **All ten render. No truncation. No "unlock top 20" CTA.**
 
-**Top 5 Wishlist Features**:
-- Same shape as friction. Numbered list.
-- Frame as opportunities, not complaints — these are the gaps in
-  the genre.
+**Top 10 Wishlist Features**:
+- Same shape as friction.
+- Framed as opportunities, not complaints — the genre's gaps.
 
 **Benchmark Games** (`<section>`):
-- 5-card grid. Each card: cover image (from `games.header_image`),
-  game name, `why_benchmark` blurb, "View report →" link to
-  `/games/[appid]/[slug]`.
-- These are the most important cross-links for SEO. Use `<Link>`
-  not raw `<a>` so Next.js prefetches.
+- 5-card grid. Each card: cover image (`games.header_image`), game name, `why_benchmark` blurb, *"Read the per-game analysis →"* link to `/games/[appid]/[slug]`.
+- These are the most important internal cross-links for SEO. Use `<Link>` so Next.js prefetches.
 
 **Churn Wall**:
-- Single-stat callout. Big number (`typical_dropout_hour` formatted
-  as "~4 hours"), `primary_reason` underneath, blockquote with the
-  representative quote and link to source game.
+- Single-stat callout. Big number (`typical_dropout_hour` formatted as *"~4 hours"*), `primary_reason` underneath, blockquote with representative quote + link to source game.
 
-**Genre stats sidebar/footer**:
-- Game count, avg sentiment %, median review count, top 3
-  developers (by total review_count of their games in this genre).
-- Price distribution: small inline bar chart (or just "Most games
-  $X–$Y, median $Z"). Source: `analytics_repo` — already exists.
+**Dev Priorities table**:
+- All rows from `insights.dev_priorities`. Columns: action · why it matters · frequency · effort.
+- Plain HTML table. No filtering, no sorting, no pagination. The point is that the reader can see the whole list.
 
 **Methodology footer**:
-- 2-3 sentences explaining the synthesis (LLM-aggregated from N
-  games' reports, refreshed weekly, links to per-game pages for
-  full reviews). Trust signal.
-- "Notice an issue? Email feedback@steampulse.io"
+- 2–3 sentences explaining the synthesis (three-phase LLM pipeline, `mention_count ≥ 3` threshold, weekly refresh, links to per-game pages for full review context). Trust signal.
+- *"Notice an issue? Email feedback@steampulse.io"*
 
-### 4. PRO sections (UI shell only — V1 not gated)
+### 4. Pre-order / Buy block (the commerce surface)
 
-Per CLAUDE.md "No payment integration until explicitly planned" and
-the wedge spec "V1 placeholder UI only." Render these as visible
-sections with a "Pro" pill badge but without a paywall (V1 has
-`PRO_ENABLED=true` everywhere). When auth ships they'll be gated at
-the API; the frontend just consumes whatever the endpoint returns.
+Renders **only if** `report !== null` (i.e. a `reports` row exists for
+this genre). If `report === null`, the section is simply absent — the
+page is a pure research page.
 
-- **Full friction list** (top 20 not 10) — collapsible `<details>`
-  block under the top-10 list
-- **Per-game contribution drill-down** — a "Which games drove this?"
-  link on each insight that opens a modal listing the source appids
-- **Cross-genre comparison** — placeholder card linking to a future
-  `/genre/{slug}/compare` page, marked "Coming soon"
-- **`dev_priorities`** ranked table — frequency × effort matrix
+Two visual states depending on `report.is_pre_order`:
 
-Ship these as real components consuming real data from the V1 full
-payload. Don't stub them out.
+**Pre-order state** (`published_at > now()`):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Want this as a print-ready report?                         │
+│  {display_name} ships {formatted ship date}.                │
+│                                                             │
+│  Indie      $49   PDF                                       │
+│  Studio     $149  PDF + CSV dataset + 1-yr updates          │
+│  Publisher  $499  PDF + CSV + raw JSON + team license       │
+│                                                             │
+│  [ Pre-order Indie ]  [ Pre-order Studio ]  [ Pre-order Publisher ]│
+│                                                             │
+│  You'll receive a confirmation email now and the download   │
+│  link on ship date.                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Live state** (`published_at <= now()`):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Want this as a print-ready report?                         │
+│  {display_name} — available now.                            │
+│                                                             │
+│  Indie      $49   PDF                                       │
+│  Studio     $149  PDF + CSV dataset + 1-yr updates          │
+│  Publisher  $499  PDF + CSV + raw JSON + team license       │
+│                                                             │
+│  [ Buy Indie ]  [ Buy Studio ]  [ Buy Publisher ]           │
+│                                                             │
+│  Instant download link emailed on purchase.                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Each button `POST`s to `/api/checkout/start` with
+`{ report_slug, tier }` and redirects to the returned Stripe Checkout
+URL. See `stripe-checkout-report-delivery.md`.
+
+Place the block **above the methodology footer** (bottom of main
+column) and **in the sticky right sidebar** on desktop. Two
+placements; one block component.
+
+Voice on this block: matter-of-fact, no "Limited time!" or hype. The
+report ships when it ships; buyers who value print-ready get it.
 
 ### 5. SEO meta + structured data
 
@@ -113,103 +184,117 @@ In `generateMetadata()`:
 ```ts
 return {
   title: `${displayName}: What Players Want, Hate, and Praise | SteamPulse`,
-  description: narrative_summary.slice(0, 155),  // truncate for SERP
+  description: narrative_summary.slice(0, 155),  // SERP truncation
   openGraph: {
     title: ...,
     description: ...,
-    images: [`/og/genre/${slug}.png`],  // future: per-genre OG image
-    type: "article",
+    images: [`/og/genre/${slug}.png`],
+    type: 'article',
   },
-  alternates: { canonical: `https://steampulse.io/genre/${slug}/insights` },
+  alternates: { canonical: `https://steampulse.io/genre/${slug}/` },
 };
 ```
 
-In the page body, add JSON-LD `<script type="application/ld+json">`
-with `@type: Article`, `datePublished: computed_at`, `author: SteamPulse`,
-`about: {@type: VideoGameSeries, name: displayName}`. Schema.org
-markup helps Google understand the page is editorial content about
-a game category, not a product listing.
+In the page body, JSON-LD `<script type="application/ld+json">` with
+`@type: Article`, `datePublished: computed_at`,
+`author: { @type: Organization, name: "SteamPulse" }`,
+`about: { @type: VideoGameSeries, name: displayName }`. Signals to
+Google that the page is editorial content about a game category, not
+a product listing.
 
 ### 6. Navigation entry
 
-Add a "Genre Insights" link to the main nav under the existing
-genres dropdown. For V1 only `roguelike-deckbuilder` has a
-synthesis row — the dropdown should query the available syntheses
-via `GET /api/genres/insights/available` (new lightweight endpoint
-that returns `[{slug, display_name, computed_at}]` from the
-synthesis table). Don't show genres without a synthesis row.
+Add genre links to the **Browse** nav item (part of
+`fix-landing-page.md` / `simplify-ui-for-tier1.md`). Query available
+genres via `GET /api/genres/insights/available` — a lightweight
+endpoint returning `[{slug, display_name, computed_at, has_report}]`
+from the synthesis table. Don't show genres without a synthesis row.
 
-This unlocks the natural expansion — when broader Roguelike or
-Survival gets synthesized, it appears in the dropdown automatically.
+When more genres get synthesised, they appear in Browse automatically.
 
 ### 7. Tests — Playwright
 
-Per CLAUDE.md: "any frontend change that alters user-visible
-behaviour must include test updates in the same PR."
+New test file `frontend/tests/genre-page.spec.ts`:
 
-In `frontend/tests/`:
-
-- New test file `genre-insights.spec.ts`
-- Mock the API in `frontend/tests/fixtures/api-mock.ts` to return a
-  canned `GenreInsights` for `roguelike-deckbuilder`
+- Mock the API in `frontend/tests/fixtures/api-mock.ts` to return a canned `GenreInsights` for `roguelike-deckbuilder`
 - Tests:
   - Page renders with correct h1 and narrative summary
-  - All 10 friction points display
-  - All 5 benchmark game cards render with cover images
-  - Benchmark cards link to correct `/games/[appid]/[slug]` URLs
+  - All 10 friction points display (no truncation)
+  - All 10 wishlist items display
+  - All 5 benchmark game cards render with cover images + working `/games/[appid]/[slug]` links
   - Churn wall stat displays
+  - Dev priorities table renders all rows
   - Methodology footer displays
-  - Pro sections (full friction list, dev_priorities) render in V1
-  - 404 page when slug has no synthesis (mock API returns 404)
-- Update `frontend/tests/fixtures/mock-data.ts` with sample
-  `GenreInsights` payload
+  - **Pre-order block:** when mock `getReportForGenre` returns a row with future `published_at`, block renders with *"Pre-order"* buttons and ship date
+  - **Live block:** when mock returns a row with past `published_at`, block renders with *"Buy"* buttons
+  - **No-report state:** when mock returns null, no pre-order / buy block renders at all
+  - 404 when slug has no synthesis (mock API returns 404)
+- Update `frontend/tests/fixtures/mock-data.ts` with sample `GenreInsights` + `ReportSummary` payloads
 
 ### 8. Smoke test — `tests/smoke/`
 
-Add `tests/smoke/test_genre_insights.py`:
+Add `tests/smoke/test_genre_page.py`:
 - `GET /api/genres/roguelike-deckbuilder/insights` returns 200
-- Response shape matches `GenreInsights` (use Pydantic to validate)
-- Required fields populated: `narrative_summary` non-empty,
-  `friction_points` ≥ 10, `wishlist_items` ≥ 5, `benchmark_games` ≥ 5
+- Response shape matches `GenreSynthesis` Pydantic model
+- Required fields populated: `narrative_summary` non-empty, `friction_points ≥ 10`, `wishlist_items ≥ 10`, `benchmark_games ≥ 5`, `dev_priorities ≥ 3`
+- `GET /api/genres/roguelike-deckbuilder/report` returns 200 or 404 depending on seed state
 
 ## Verification
 
-1. `cd frontend && npm run dev` — visit
-   `http://localhost:3000/genre/roguelike-deckbuilder/insights`
-   against a local DB with a real synthesis row. Inspect every
-   section.
-2. **SEO check**: `view-source:` the page. Verify `<title>`,
-   `<meta name="description">`, `<link rel="canonical">`, OG tags,
-   and the JSON-LD script all populate correctly.
-3. **Mobile**: Chrome DevTools mobile emulation. Two-column layout
-   collapses to single column. Touch targets are large enough.
-4. **Cross-links**: click each benchmark game card → lands on the
-   correct `/games/[appid]/[slug]` page.
-5. **404 path**: visit `/genre/nonexistent-slug/insights` →
-   Next.js 404.
-6. **Lighthouse**: aim for ≥ 90 on all four categories. Slow LCP
-   usually means an image issue — use `next/image` for cover art.
-7. `cd frontend && npm run test:e2e` — Playwright passes.
-8. `poetry run pytest tests/smoke/test_genre_insights.py -v` —
-   smoke passes against staging once deployed.
+1. `cd frontend && npm run dev` — visit `http://localhost:3000/genre/roguelike-deckbuilder/` against a local DB with a real synthesis row. Inspect every section.
+2. **SEO check**: `view-source:` the page. Verify `<title>`, `<meta name="description">`, `<link rel="canonical">`, OG tags, and the JSON-LD script all populate correctly.
+3. **Mobile**: Chrome DevTools 375px width. Two-column layout collapses cleanly; pre-order block readable; touch targets ≥ 44px.
+4. **Cross-links**: click each benchmark game card → lands on correct `/games/[appid]/[slug]`.
+5. **404 path**: `/genre/nonexistent-slug/` → Next.js 404.
+6. **Pre-order state**: seed a `reports` row with future `published_at` → refresh page → block shows *"Pre-order"* buttons + ship date.
+7. **Live state**: flip `published_at` to past → refresh → block shows *"Buy"* buttons + *"available now"*.
+8. **No-report state**: delete the `reports` row → refresh → no block at all; the rest of the page renders unchanged.
+9. **Lighthouse** (mobile): Performance ≥ 90, Accessibility ≥ 95, SEO ≥ 90.
+10. `cd frontend && npm run test:e2e` — Playwright passes.
+11. `poetry run pytest tests/smoke/test_genre_page.py -v` — smoke passes against staging.
 
-## Out of scope (separate prompts later)
+## Out of scope
 
-- **Per-genre OG image generation** (Vercel OG / dynamic image
-  route) — placeholder static image acceptable for V1.
-- **Cross-genre comparison page** (`/genre/{slug}/compare`) —
-  needs the synthesizer to support comparing two rows.
-- **Pro paywall integration** — happens with auth0.
-- **Additional genres beyond roguelike-deckbuilder** — same page,
-  different slug. No code change needed; just produce more synthesis
-  rows.
+- **Per-genre OG image generation** (Vercel OG / dynamic image route) — placeholder static image acceptable. Spin off a separate prompt if it becomes a priority.
+- **Cross-genre comparison page** — Tier-2-gated speculative feature. Do not build.
+- **Filtering / sorting / search within the synthesis** — Tier-2-gated toolkit territory. Killed for Tier 1.
+- **Drill-down modal per friction item** — Tier-2-gated.
+- **Additional genres beyond `roguelike-deckbuilder` at launch** — same route, same component, different slug. No code change needed; just produce more synthesis rows.
+
+## Voice guardrails
+
+Same rules as `fix-landing-page.md` — use the forbidden-vocabulary
+list and preferred register from that prompt. Peer-to-peer, cited,
+anti-hype. Don't duplicate the list here.
 
 ## Rollout
 
-- Frontend deploys with the rest of the Next.js bundle via
-  `bash scripts/deploy.sh --env staging` (then `--env production`
-  once verified).
-- Soft-launch verification on staging URL before flipping production.
-- After production deploy: manually visit the page, copy the URL,
-  craft the Twitter thread / Reddit posts.
+- No users. No external traffic. No migration. Single PR, direct replace of whatever's at `/genre/[slug]/`.
+- No feature flag. No A/B.
+- After merge + prod deploy: manually visit the page, verify all three report-block states (pre-order / live / no-report) by flipping the seed row, craft the amplification posts (Reddit, Bluesky, community share).
 - No deploy from Claude — user runs the deploy script.
+
+## PR description template
+
+```
+## Summary
+Ship the free cross-genre synthesis page at /genre/[slug]/. Renders
+the full Phase-4 synthesis: narrative, top-10 friction, top-10
+wishlist, 5 benchmark games, churn wall, dev priorities. Conditionally
+renders a pre-order / buy block when a reports row exists for the
+genre.
+
+## Changes
+- frontend/app/genre/[slug]/page.tsx — server component, ISR 1h
+- frontend/lib/api.ts — getGenreInsights, getReportForGenre
+- frontend/lib/types.ts — GenreInsights, ReportSummary
+- frontend/components/genre/* — synthesis sections + pre-order block
+- frontend/tests/genre-page.spec.ts — Playwright coverage
+- tests/smoke/test_genre_page.py — staging smoke
+
+## Why
+The synthesis page is the flagship proof artifact of the Tier 1
+launch. It replaces the landing page's paid-funnel destination: the
+landing CTA points here, and this page hosts both the free research
+content and the pre-order / buy surface for the paid PDF.
+```

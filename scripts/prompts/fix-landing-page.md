@@ -1,192 +1,324 @@
-# Fix the landing page (focus + conversion hygiene)
+# Rebuild the landing page for Tier 1 (funnel to free synthesis page)
 
 *Drop-in prompt for Claude Code in the SteamPulse project repo.*
+
+*Companion to `simplify-ui-for-tier1.md` (broader UI cleanup) and
+`genre-insights-page.md` (the free synthesis page this one funnels to).*
 
 ---
 
 ## Context
 
-The SteamPulse landing page (example URL: https://d1mamturmn55fm.cloudfront.net/) currently tries to be three things simultaneously — a Steam catalog browser, a product showcase, and a developer tool landing — without committing to any. Visitors land with no clear path forward. This task converges the page on **one primary audience (indie Steam developers) and two primary actions** (read a sample report, join the newsletter).
+SteamPulse ships under the **two-tier catalog business model** with a
+**phased launch**:
 
-Positioning reference (locked, use verbatim where specified):
+- **Phase A** — free cross-genre synthesis page at `/genre/roguelike-deckbuilder/`. Ships Week 1. This is the proof artifact.
+- **Phase B** — pre-order block added to the synthesis page. Stripe Checkout captures $49/$149/$499 with delayed delivery. Ships Week 2–4.
+- **Phase C** — polished PDF ships; delivery worker fires for pre-order buyers; self-serve opens. Ships Week 4–8.
+
+The landing page exists to do **one thing**: send visitors to the
+free synthesis page. The synthesis page is where the proof lives and
+where the pre-order funnel (Phase B) and the PDF purchase funnel
+(Phase C) operate. The landing page does not handle commerce. It does
+not collect email. It does not promise a newsletter. It points one
+way: to the free analysis.
+
+```
+SEO (per-game pages + /genre/[slug]/)
+        ↓
+homepage hero CTA  ← THIS FILE
+        ↓
+/genre/roguelike-deckbuilder/   ← the free analysis page
+        ↓
+pre-order block on that page (Phase B+)
+        ↓
+Stripe Checkout → delivery worker → S3 signed URL
+```
+
+Everything on the homepage serves that arrow. Anything else gets cut.
+
+## Positioning (locked — use verbatim where specified)
 
 - **Tagline:** "Steam, decoded."
-- **Sub-line:** "Game intelligence for indie Steam devs. Per-game deep-dives and cross-genre reports — cited, and priced for a solo budget."
-- **Mission:** "Know before you commit. Game intelligence for indie Steam devs."
-- **Artifact name:** a SteamPulse report (no separate brand name).
-- **Primary audience:** solo and small-indie Steam game developers deciding what to build next.
-- **Not the audience:** Steam enthusiasts / players, AAA studios, publishers, mobile devs.
-
-## Why this matters
-
-The site has real strengths — the per-game report artifact (e.g. the Baldur's Gate 3 page) is genuinely differentiated. But the landing page dilutes that signal with enthusiast-shaped catalog feeds (Most Popular, Trending, New Releases, Hidden Gems) that a dev doesn't care about and that visibly duplicate SteamDB. Every element on the page should either (a) prove the product's unique value or (b) drive a conversion action. Anything that does neither is noise.
+- **Hero sub-line:** *"Deep market research for indie Steam devs. Every player review across an entire genre, synthesised into one cited page."*
+- **Mission line:** "Know before you commit."
+- **Artifact names:** the free page is *the analysis*; the paid PDF is *the report*.
+- **Primary audience:** solo and small-indie Steam game developers deciding what to build, launch, or patch next
+- **Not the audience:** Steam enthusiasts/players, AAA studios, mobile devs
 
 ## Goals (measurable)
 
-After this work, the landing page should:
+After this work, the landing page must:
 
-1. Have **one unambiguous primary action** above the fold (read a sample report), with **one secondary action** (newsletter signup).
-2. **Remove all AAA / multiplayer / enthusiast-browsing content** from the homepage.
-3. Make **"built for indie Steam devs"** explicit and visible in the hero.
-4. Feature **at least one complete sample SteamPulse report** prominently as proof.
-5. Preserve **SEO-valuable navigation** (genre / tag browsers) below the fold without letting them compete for hero attention.
-6. Reflect the locked brand voice — cited, peer-to-peer, anti-hype.
+1. Have **one primary CTA above the fold** — *"Read the Roguelike Deckbuilder analysis →"* linking to `/genre/roguelike-deckbuilder/`. No competing CTAs above the fold. No form, no email capture, no pricing button.
+2. Name the paid PDF **once** in the page body, as a sub-point on the way to the analysis page: *"A print-ready PDF ships [date] — pre-order from $49 on the analysis page."* Single mention. No dedicated pricing section on the landing page.
+3. Contain **zero newsletter signup, zero waitlist, zero Pro mention** anywhere on the page.
+4. Contain **zero AAA/enthusiast catalog feeds** — no Most Popular, Trending, New Releases, Hidden Gems, Just Analyzed, Top Rated.
+5. Make **"built for indie Steam devs"** explicit and visible in the hero.
+6. Preserve **SEO-valuable navigation** (browse by genre / tag) below the fold.
+7. Reflect the brand voice — cited, peer-to-peer, anti-hype.
+8. Render cleanly on mobile (375px). 83% of traffic is mobile and mobile converts worst — do not make it worse with overflow, tiny text, or stacked CTAs.
 
----
+## Hard deletes (remove from the page entirely — delete files, don't archive)
 
-## The four specific change buckets
+1. **"Most Popular" list** — surfaces AAA multiplayer (CS2, Dota 2). Zero indie-dev relevance.
+2. **"Top Rated" list** in its current composition.
+3. **"Hidden Gems" list** in its enthusiast-discovery framing.
+4. **"New on Steam" feed** of recently-released un-analysed games.
+5. **"Just Analyzed" feed** — internal admin signal.
+6. **"Trending" / "New Releases" nav links** — enthusiast verbs.
+7. **"Compare" nav link and any user-facing Compare UI** — killed in `simplify-ui-for-tier1.md`.
+8. **"For Developers" nav link** — the whole site is for devs now. Replace with **"Reports"** (→ `/reports`, the catalog page once it exists; before it exists the nav link can point at the RDB synthesis page directly).
+9. **"Join the Pro waitlist" CTA anywhere on the page** — no Pro tier exists, none is coming without a Tier 2 gate firing.
+10. **Newsletter signup form anywhere on the page** — weekly newsletter is Tier 2 gated. No promise of a thing that doesn't exist.
+11. **"Weekly Week in Genre" copy** — kill references throughout.
+12. **`/pro` page and any link to it** — the route is deleted in `simplify-ui-for-tier1.md`; here just remove every link.
+13. **Any pricing table / "Pricing" nav link / `$49 $149 $499` grid** on the landing page itself. Pricing is surfaced on the synthesis page next to the pre-order button, not as a standalone landing section.
 
-### Bucket 1 — KILL (remove entirely)
-
-These are enthusiast-shaped features that conflict with the dev-tool positioning. Delete their landing-page appearances (underlying routes can survive internally if useful for SEO, but they should NOT be linked from the homepage).
-
-1. **"Most Popular" list** (typically surfaces AAA multiplayer titles like CS2, Dota 2, PUBG). Zero indie-dev relevance. Remove.
-2. **"Top Rated" list** as currently composed (obscure games with scoring artifacts). Noise. Remove.
-3. **"Hidden Gems" list** in its current player-discovery framing. Remove (may return reframed in Bucket 4 as "Opportunity niches" — a different artifact).
-4. **"New on Steam" list of recently-released games with no analysis yet.** Showing un-analyzed games isn't what SteamPulse IS. Remove.
-5. **"Just Analyzed" feed.** Internal admin signal masquerading as content. Remove.
-6. **Top nav links: "Trending", "New Releases"** — enthusiast verbs. Remove from primary nav.
-7. **Top nav link: "Compare"** — either remove entirely, or reframe as "Competitive analysis" (dev-framed) in Bucket 2. Default: remove.
-
-**Acceptance:** none of the above appear anywhere on the landing page. If the underlying routes still serve SEO value, they're reachable from a sitemap or deep links but not from the nav or homepage surface.
-
-### Bucket 2 — REFRAME (keep concept, rewrite copy)
-
-1. **Hero sub-line** — currently player-facing ("Player intelligence across 100,000+ Steam games. What players love. What they hate. What they want next.")
-   - **Replace with verbatim:** *"Game intelligence for indie Steam devs. Per-game deep-dives and cross-genre reports — cited, and priced for a solo budget."*
-2. **"Explore" nav link** — rename to **"Find underserved genres"** OR remove. Current label is enthusiast-speak.
-3. **"For Developers →" nav label** — now that the entire site is for devs, this is redundant. Rename to **"Pricing"** (if a pricing page exists or is being added) OR **"Pro"** OR **"Get early access"**. Pick whichever matches the waitlist flow.
-4. **"Built for the people who make games" section** — keep the content, **move it up** to appear immediately after the hero. This is the strongest dev-tool signal on the site and it's currently buried. Also rename the section header to **"Built for indie Steam devs"** — more specific, better positioning discipline.
-5. **Game library / recent reports section** — replace the four current lists (Most Popular, Top Rated, Hidden Gems, New on Steam) with **a single section** titled **"Recent SteamPulse reports"** showing **6-8 indie games that have full LLM reports generated.** Examples to seed: Hollow Knight, Stardew Valley, Balatro, Vampire Survivors, Hades II, Dredge, Pizza Tower, Celeste. No AAA / multiplayer titles. This collapses four weak sections into one strong section.
-
-### Bucket 3 — KEEP (working, minor polish only)
-
-1. **Hero headline "Steam, decoded."** — locked, stays as-is.
-2. **"What You Get" 4-card section** (Player Sentiment, Competitive Intelligence, Market Intelligence, Deep Review Reports). Conceptually strong. Audit the copy for voice-rule compliance (see guardrails below) but the section structure stays.
-3. **Baldur's Gate 3 expanded deep-dive card** — the proof artifact embedded on the landing page. Critical. Keep. Consider pairing with one indie example (e.g., Balatro or Hollow Knight) so the proof spans audience ranges.
-4. **Sentiment Over Time chart** on the sample. Keep — dense, visual, proves the synthesis.
-5. **Audience Overlap block** on the sample. Differentiator — keep.
-6. **Market Trends section** (positively-rated releases over time). Keep — dev-relevant, not enthusiast noise.
-7. **"Join the Pro waitlist" CTA** — keep. Ensure it survives the restructure.
-8. **Browse by Genre + Browse by Tag** browsers at the bottom of the page. Keep as programmatic-SEO navigation. Below the fold — do not promote into hero territory.
-
-### Bucket 4 — ADD (missing)
-
-1. **Primary hero CTA: "Read a sample report →"** — links to a representative full SteamPulse report (e.g. `/games/{appid}/{slug}`). First, most visible button. Visitor should be able to see the artifact in one click.
-
-2. **Secondary hero CTA: newsletter signup (email capture).** Short form. Copy:
-   > *Weekly "Week in Genre" newsletter. Sub-genre sentiment movements and indie market signals, every Friday.*
-   > [email input] [Subscribe]
-   > *No spam. Unsubscribe anytime.*
-   Store submissions; fire a conversion analytics event. This is the dev-tool equivalent of GameDiscoverCo's single conversion path — the canonical adjacent brand.
-
-3. **"Know before you commit." mission line** — place as a visual break between the hero and the "Built for indie Steam devs" section. One sentence, large type, centered, no other chrome. Reinforces the brand directive.
-
-4. **"Who this is for" explicit callout** — one sentence near the top of the "Built for indie Steam devs" section:
-   > *Made for solo and indie Steam developers deciding what to build, launch, or patch next.*
-   Self-selection filter. Enthusiasts read it and leave. Devs read it and stay. That's correct.
-
-5. **"Who made this" founder signal** — avatar + one-sentence bio near the bottom of the page:
-   > *Built by a Steam dev on break from their own game. You can find me at [handle].*
-   Massive trust signal for the Marcus persona. Founder-led brand presence is a brand requirement, not a nice-to-have.
-
-6. **Indie pairing on the proof artifact** — if only the BG3 deep-dive is shown currently, add one indie title (Balatro, Hollow Knight, Vampire Survivors) as a toggled or side-by-side second example. Proves the artifact works for games an indie dev would actually try to learn from.
-
----
-
-## Proposed new page structure (top to bottom)
+## Page structure (top to bottom, final)
 
 ```
-1. HERO
+1. NAV (minimal)
+   Logo · Reports · Browse · About
+   (no Pro, no Compare, no Trending, no Developers)
+
+2. HERO (above fold; one primary CTA)
    Steam, decoded.
-   Game intelligence for indie Steam devs. Per-game deep-dives and
-   cross-genre reports — cited, and priced for a solo budget.
-   [Read a sample report →]   [Get the weekly newsletter →]
+   Deep market research for indie Steam devs. Every player review
+   across an entire genre, synthesised into one cited page.
 
-2. "Know before you commit." — 1-line mission statement, visual break
+   [ Read the Roguelike Deckbuilder analysis → ]
 
-3. BUILT FOR INDIE STEAM DEVS (formerly "Built for the people who make games")
+   Cited · 141 games · 930k+ reviews synthesised · Free to read
+
+3. MISSION BREAK (one line, visual pause)
+   Know before you commit.
+
+4. BUILT FOR INDIE STEAM DEVS
    Made for solo and indie Steam developers deciding what to build,
    launch, or patch next.
-   · Understand your players
-   · Know your competition
-   · Read the market
-   [Join the Pro waitlist →]
+   · Understand what your players actually say
+   · Know what the genre winners share in common
+   · See the churn, the wishlist, the friction — cited to reviews
 
-4. WHAT A STEAMPULSE REPORT LOOKS LIKE
-   Expanded deep-dive card (BG3 + one indie toggle)
-   Sentiment chart · Audience overlap · "Explore this game →"
+5. WHAT'S IN THE FREE ANALYSIS
+   (The proof. Preview the actual synthesis page.)
+   · Executive paragraph excerpt (first narrative_summary sentence
+     from the live mv_genre_synthesis row)
+   · One friction cluster with mention_count + representative quote
+     + source-game attribution (playtime hours + helpful votes)
+   · One benchmark game pull-quote (Slay the Spire / Balatro /
+     Inscryption)
+   · Dev priorities table preview (3 rows from the synthesis)
 
-5. WHAT YOU GET (4-card section from current page, audited for voice)
+   [ Read the full analysis → ]
+   (secondary micro-line:
+     "A print-ready PDF ships [date] — pre-order from $49 on the
+     analysis page.")
 
-6. RECENT STEAMPULSE REPORTS
-   6-8 indie games with full LLM reports
-   (replaces Most Popular, Top Rated, Hidden Gems, New on Steam)
+6. HOW THE ANALYSIS IS BUILT (methodology transparency)
+   Short paragraph:
+   "The analysis is built from the complete player-review corpus of
+   a single Steam niche (141 games, ≥500 reviews each, for the
+   Roguelike Deckbuilder edition). A three-phase LLM pipeline extracts
+   structured signals, merges per-game syntheses, and surfaces patterns
+   that show up in at least 3 games. Every claim traces back to a
+   specific review with a specific author, playtime, and helpful-vote
+   count."
+   [ Read the methodology → ] (links to /about or /methodology)
 
-7. MARKET TRENDS chart (kept from current page)
+7. RECENT ANALYSES
+   (At launch: one genre synthesis page. Grid designed for 4-8 as
+   catalog grows.)
+   Cards link to /genre/[slug]/. Each card:
+   genre · games analysed · narrative_summary first line · "Read →"
 
-8. WHO MADE THIS
-   Founder bio, one sentence, avatar
+8. BROWSE FREE PER-GAME BREAKDOWNS
+   (SEO substrate surfaced as credibility.)
+   6-8 indie games with full GameReport data. Suggested seeds:
+   Hollow Knight, Stardew Valley, Balatro, Vampire Survivors,
+   Hades II, Dredge, Pizza Tower, Celeste.
+   No AAA / multiplayer titles.
+   [ Browse all 141 Roguelike Deckbuilder games → ]
+   [ Browse all genres → ]
 
-9. DUAL CTA
-   Newsletter signup + Pro waitlist
+9. WHO MADE THIS (founder signal — required, not optional)
+   Avatar + one sentence:
+   "Built by a Steam dev on break from their own game. Find me at
+   [handle]."
 
-10. BROWSE BY GENRE (SEO navigation)
+10. FINAL CTA (single — same destination as hero)
+    [ Read the Roguelike Deckbuilder analysis → ]
+    free to read · no signup · pre-order the PDF from $49 if you
+    want it printable
 
-11. BROWSE BY TAG (SEO navigation)
+11. SEO NAVIGATION (below the fold)
+    Browse by Genre (programmatic SEO surface)
+    Browse by Tag (programmatic SEO surface)
 
 12. FOOTER
+    © SteamPulse · Methodology · Terms · Contact
+    (no social, no newsletter, no Discord, no community links —
+     none of those exist yet)
 ```
 
----
+## Specific component changes
 
-## Voice + tone guardrails (apply to all copy on the page)
+### Hero
 
-- **Never use:** AI-powered, AI-generated, AI-suggested, intelligent (as adjective), smart (as adjective), unlock, leverage, disrupt, revolutionize, game-changer, next-gen, empower, transform, actionable insights, seamless, cutting-edge, deep-dive (overused), ideate.
-- **Prefer:** research, synthesis, cited, data-backed, LLM-synthesized (only when technical transparency is required), pattern, signal, delta, cluster, methodology, benchmark, review mining.
-- **Register:** peer-to-peer. Marcus is a solo Steam dev. Write for him, not at him. No vendor-to-customer register.
-- **Tone:** cited, understated, honest under-claim. Anti-hype is a brand asset.
-- **No exclamation points. No stacked em dashes.**
+- Headline locked: **"Steam, decoded."**
+- Sub-line locked (verbatim): *"Deep market research for indie Steam devs. Every player review across an entire genre, synthesised into one cited page."*
+- Primary CTA: **"Read the Roguelike Deckbuilder analysis →"**. Links to `/genre/roguelike-deckbuilder/`. No trailing price. No "from $49" — the analysis is free; the price lives on the analysis page itself.
+- Below the CTA: one line of high-density trust markers. Use numbers from the real data, not rounded-up vanity numbers. Example (fill with real numbers once the analysis is run): *"Cited · 141 games · 930k+ reviews synthesised · Free to read"*.
+- No secondary CTA above the fold. Two above-fold CTAs halves conversion on the primary.
 
----
+### "What's in the free analysis" section (critical — this is the proof)
 
-## Non-goals (don't do these in this task)
+Preview the actual live synthesis content. Pull from the API
+(`GET /api/genres/roguelike-deckbuilder/insights`), not from hard-coded
+placeholders. Four concrete blocks:
 
-- Do not redesign the per-game report page (`/games/[appid]/[slug]`). That page is working. See the separate `fix-unanalyzed-page.md` task for the un-analyzed per-game tier.
-- Do not build the newsletter generation pipeline. This task only surfaces a signup form; pipeline implementation is a separate concern.
-- Do not add e-commerce / checkout. Pro tier remains a waitlist only at this stage.
-- Do not add login / user accounts.
-- Do not remove underlying backend routes (e.g. `/explore`, `/trending`) — only remove them from the landing page nav + surface. Deep links may survive for SEO if the team decides they're valuable.
-- Do not add comparison to competitors on the landing page (SteamDB / Gamalytic / GameDiscoverCo). The brand is understated, not confrontational.
+1. **Narrative excerpt** — first sentence of `narrative_summary`.
+2. **One friction cluster** — highest-`mention_count` item from `friction_points`. Show: title, mention_count badge ("18 of 141 games"), representative quote with attribution (source game + playtime hours + helpful votes).
+3. **One benchmark pull-quote** — a sentence from one of the top 3 `benchmark_games[].why_benchmark` entries, framed as a pull-quote.
+4. **Dev priorities preview** — first 3 rows from `dev_priorities`: action · why it matters · frequency · effort.
+
+Closing CTA in this section: **"Read the full analysis →"** linking
+to `/genre/roguelike-deckbuilder/`. Below that, *one* micro-line
+mentioning the PDF: *"A print-ready PDF ships [date] — pre-order from
+$49 on the analysis page."* That sentence is the only place on the
+landing page where price or PDF is named. Do not add a pricing section.
+
+If the synthesis row doesn't exist yet at implementation time, the
+section can render with placeholders flagged
+`// TODO: replace with live mv_genre_synthesis data when Phase A batch analysis lands`.
+But the component must consume the real API in production.
+
+### Nav simplification
+
+Four items total:
+
+```
+Logo · Reports · Browse · About
+```
+
+- `Reports` → `/reports` if the catalog page exists; otherwise `/genre/roguelike-deckbuilder/` (single report at launch).
+- `Browse` → the genre/tag hub. Reuse whatever exists; do not create a new route for this prompt.
+- `About` → `/about`. If the route doesn't exist, create a stub with methodology + founder bio. One page, static.
+
+### Methodology section
+
+Short paragraph (3–4 sentences) describing the three-phase pipeline
+in plain language. No "AI-powered." Key phrases to include: *every
+review*, *cited*, *three-phase synthesis*, *mention_count ≥ 3*, *quote
+traceability*. The goal is to communicate *craft* — not to brag about
+LLM tech.
+
+### Founder signal
+
+Non-negotiable for the Marcus persona. Peer-to-peer brand requires a
+visible human. One sentence, avatar, real handle. If the handle
+doesn't exist yet, create one before shipping; don't ship without.
+
+## What to KEEP (minor polish only)
+
+- **Hero headline "Steam, decoded."** — locked.
+- **Sentiment Over Time chart** (if already embedded as part of a synthesis preview component) — dense, visual, proves synthesis quality.
+- **Audience Overlap block** (same story — if used as a proof element) — differentiator.
+- **Market Trends section** (positively-rated releases over time) — dev-relevant. Position as context for reading analyses, not as a standalone feature.
+- **Browse by Genre + Browse by Tag** browsers at the bottom — programmatic SEO.
+
+## Voice + tone guardrails (apply to ALL copy on the page)
+
+### Never use
+
+`AI-powered` · `AI-generated` · `AI-suggested` · `intelligent` (adjective) · `smart` (adjective) · `unlock` · `leverage` · `disrupt` · `revolutionise` · `game-changer` · `next-gen` · `empower` · `transform` · `actionable insights` · `seamless` · `cutting-edge` · `deep-dive` (overused) · `ideate` · `robust` · `end-to-end` (unless technical) · `synergy` · `journey` · `solution` (as product noun) · exclamation points · stacked em-dashes.
+
+### Prefer
+
+`research` · `synthesis` · `cited` · `data-backed` · `LLM-synthesised` (only when technical transparency required) · `pattern` · `signal` · `delta` · `cluster` · `methodology` · `benchmark` · `review mining` · `friction` · `wishlist` · `churn` · `cohort`.
+
+### Register
+
+- Peer-to-peer. Marcus is a solo Steam dev. Write for him, not at him.
+- Anti-hype is a brand asset. Understate. Under-claim.
+- Cite specific numbers, not round vanity numbers. "141 games · 930k reviews" beats "thousands of games · millions of reviews."
+- No vendor-to-customer register. No "we're excited to announce." Ever.
+
+## Non-goals (explicitly out of scope)
+
+- Do NOT redesign the per-game report page (`/games/[appid]/[slug]`). Working. Out of scope.
+- Do NOT build the synthesis page itself — that's `genre-insights-page.md`.
+- Do NOT build the Stripe Checkout flow — that's `stripe-checkout-report-delivery.md`.
+- Do NOT add newsletter, Discord, community, waitlist, login, user accounts, or pricing sections. All Tier-2-gated, killed, or lifted to the synthesis page.
+- Do NOT add competitor comparison copy.
+- Do NOT add testimonials until they exist. Placeholder testimonials are worse than none.
+- Do NOT put Stripe buttons or price selectors on the landing page. Commerce happens on the synthesis page.
+
+## Implementation notes
+
+- Target: `frontend/app/page.tsx` and its immediate children under `frontend/components/home/`.
+- Delete components that render KILLed sections. No `_legacy`, no comments out, no deprecation shims.
+- The "What's in the free analysis" component consumes `getGenreInsights('roguelike-deckbuilder')` from `frontend/lib/api.ts` (same helper the synthesis page uses). Single data source.
+- Keep Next.js ISR / static generation. Hero is static; the synthesis-preview block is an async server component with a short revalidate window (match the synthesis page's ISR cadence).
+- Hero LCP budget: < 1.8s on mobile (Lighthouse).
 
 ## Verification
 
-After the changes, a cold visitor landing on the page should:
+### Acceptance tests (functional)
 
-1. Understand in **under 8 seconds** that this is a tool for indie Steam developers (not for players, not for AAA).
-2. See two clear action buttons above the fold: read a sample report, and subscribe to the newsletter.
-3. Encounter **zero** AAA multiplayer game listings anywhere on the page.
-4. Be able to reach a full SteamPulse report with one click.
-5. See the founder's name somewhere on the page before leaving.
-6. See genre / tag browsers if they scroll to the bottom (SEO navigation preserved).
+1. Landing page renders at `/` with hero headline "Steam, decoded." and the locked sub-line verbatim.
+2. Above-the-fold region contains exactly one primary CTA; that CTA links to `/genre/roguelike-deckbuilder/`.
+3. The "What's in the free analysis" section pulls live data from `/api/genres/roguelike-deckbuilder/insights` and renders the four blocks (narrative excerpt, friction cluster, benchmark pull-quote, dev priorities preview).
+4. Exactly **one** sentence on the page mentions the paid PDF + pre-order. Grep test: `rg 'pre-order' frontend/app/page.tsx` returns one occurrence.
+5. Grep of rendered HTML returns zero matches for: `newsletter`, `waitlist`, `Pro tier`, `Pro subscription`, `Discord`, `Most Popular`, `Trending`, `New Releases`, `Hidden Gems`, `Just Analyzed`, `For Developers`, `AI-powered`, `Upgrade to Pro`.
+6. Grep for the forbidden vocabulary list in `Voice + tone guardrails` → zero matches across landing-page copy.
+7. The final-CTA section links to the same destination as the hero (`/genre/roguelike-deckbuilder/`).
+8. Founder signal renders with an avatar and a non-empty bio sentence.
+9. Browse-by-genre and browse-by-tag navigation exists below the fold and resolves to working routes.
 
-Additional checks:
+### Acceptance tests (quality)
 
-- **Voice-rule lint:** zero instances of the forbidden vocabulary list anywhere in page copy.
-- **Mobile (375px width):** all sections stack cleanly, CTAs remain visible, no overflow.
-- **Analytics events fire** on both primary CTAs (sample-report click, newsletter subscribe).
-- **Automated HTML check:** verify the four removed lists (Most Popular, Top Rated, Hidden Gems, New on Steam) do not render any game cards on the homepage.
+10. Mobile (375px viewport): all sections stack cleanly, no horizontal overflow, hero CTA reachable in one tap, touch targets ≥ 44px.
+11. Lighthouse on `/` (mobile preset): **Performance ≥ 90, Accessibility ≥ 95, SEO ≥ 90**.
+12. No 404s / broken internal links from the rendered homepage.
+13. Time-to-understand test (manual, one cold reader): "Within 8 seconds, what is this site for, and what's the one thing to do?" Expected: "research analyses for indie Steam devs; read the Roguelike Deckbuilder analysis."
+
+### Acceptance tests (voice)
+
+14. Peer review pass: read aloud. Flag any sentence that sounds like marketing. Rewrite until it sounds like a dev explaining a tool to another dev at a conference bar.
+15. Specificity pass: every vague claim replaced with a specific number or cut.
 
 ## Rollout
 
-- Ship behind a feature flag `landing_page_v2` if the team wants to A/B the change. Otherwise direct deploy is acceptable — the current page has near-zero traffic pre-marketing.
-- The old sub-line and four lists can be removed immediately; no migration risk since none of them have accumulated external links or SEO weight yet.
+- No users. No external traffic. No migration. Single PR, direct replace.
+- No feature flag. No A/B. No gradual rollout.
+- After merge + prod deploy, submit updated sitemap to Google Search Console + Bing Webmaster Tools. Request re-indexing for `/`.
 
-## Why each change matters (for the PR description)
+## PR description template
 
-- **Kill enthusiast feeds:** page converges on one audience. Removes ~70% of surface area that was competing with the product's real value proposition.
-- **Reframe sub-line + nav labels:** explicit dev positioning. Enthusiasts self-filter out; devs self-filter in.
-- **Add dual CTA in hero:** collapses ambiguity. Every visitor has two clear actions instead of a page of drifting options.
-- **Move "Built for indie Steam devs" up:** strongest positioning content gets earned attention instead of being buried under catalog widgets.
-- **Collapse four lists into one "Recent reports":** replaces noise with proof. Quality of surface area goes up; quantity goes down.
-- **Add founder signal:** peer-to-peer brand is not a choice — it's structural. The brand depends on a visible human.
+```
+## Summary
+Rebuild the landing page around the phased Tier 1 launch. Single
+primary CTA → the free /genre/roguelike-deckbuilder/ analysis page.
+Commerce (pre-order + PDF) lives on the analysis page, not here.
+
+## Changes
+- Hero: single CTA → /genre/roguelike-deckbuilder/
+- "What's in the free analysis" proof section (live data from
+  /api/genres/[slug]/insights)
+- "How the analysis is built" methodology section
+- Founder signal (avatar + one-sentence bio)
+- One sentence mentions the paid PDF; no pricing section on landing
+- Deletes: Most Popular, Top Rated, Hidden Gems, New on Steam,
+  Just Analyzed, Trending/New Releases/Compare nav, For Developers
+  nav, Pro waitlist, newsletter signup, /pro links
+- Nav reduced to: Reports · Browse · About
+- Voice-rule lint pass across all copy
+
+## Why
+The landing page's only job is funnelling visitors to the free
+synthesis page. Commerce happens on that page (Phase B pre-order,
+Phase C PDF delivery). Anything on the landing page that competes
+with that arrow is cut.
+```

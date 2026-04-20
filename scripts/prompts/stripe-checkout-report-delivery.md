@@ -2,20 +2,41 @@
 
 ## Context
 
-Replaces the prior Cleeng subscription integration (`cleeng-integration.md`)
-and the `/pro` page as the payment/delivery path. Aligned with the
-reports-led business model (see `steam-pulse.org` → Active Launch
-Plan, and memory `project_business_model_2026.md`).
+Tier 1 payment + delivery engine for the self-serve genre PDF report
+catalog. Aligned with `steam-pulse.org` → Active Launch Plan and
+memory `project_business_model_2026.md`.
 
 Scope: **one-off purchases of genre market reports** delivered as
-PDF + optional CSV dataset via signed-S3 URL and magic-link reader
-access. Three self-serve tiers (indie $49, standard $99, studio $299)
-plus a contact-form publisher tier ($1,499 manual invoice).
+PDF + optional CSV dataset + optional raw JSON via signed-S3 URL
+and magic-link reader access. Three self-serve tiers:
 
-This prompt covers the end-to-end path from landing page → Stripe
-Checkout → webhook → entitlement → email → re-download. It does NOT
-cover the Phase-3 Pro subscription with NL chat — that lives in a
-future `pro-subscription-nl-chat.md` once Phase 2 gates pass.
+- **Indie — $49** — PDF only
+- **Studio — $149** — PDF + CSV dataset + 1-year update access
+- **Publisher — $499** — PDF + CSV + raw JSON + team license
+
+All three tiers are fully self-serve Stripe buttons. No contact form,
+no manual invoicing, no email scoping — the operating principle
+(sleep test) requires it. See the "Killed forever" list in
+`steam-pulse.org` if tempted to add a manual-invoice path.
+
+This prompt covers the end-to-end path from the genre synthesis page
+→ Stripe Checkout → webhook → entitlement → email → re-download.
+
+**Pre-order mode.** A `reports` row with `published_at > now()` is a
+pre-order. Stripe Checkout still runs immediately; the purchase row
+is written; the receipt email says *"thanks, shipping [date]"* and
+does **not** include a signed S3 URL. When `published_at` reaches
+`now()` (the operator flips the date once the PDF is uploaded), a
+delivery sweep sends the signed URL to every un-delivered purchase.
+A `reports` row with `published_at <= now()` delivers inline on
+checkout, same email template minus the shipping-date phrasing.
+
+No separate pre-order SKU, no separate Stripe product, no waitlist
+abstraction. The pre-order / live distinction is derived from the
+`published_at` column, nothing else.
+
+Any future subscription / NL chat / audit-SKU work is Tier-2-gated
+and does not belong here (see `monetization-strategy.md`).
 
 ## What to do
 
@@ -30,19 +51,22 @@ CREATE TABLE IF NOT EXISTS reports (
     genre_slug TEXT NOT NULL,                   -- "roguelike-deckbuilder"
     edition TEXT NOT NULL,                      -- "2026-Q2"
     display_name TEXT NOT NULL,                 -- "Roguelike Deckbuilder Market Report — Q2 2026"
-    tier TEXT NOT NULL,                         -- "indie" | "standard" | "studio" | "publisher"
+    tier TEXT NOT NULL,                         -- "indie" | "studio" | "publisher"
     price_cents INTEGER NOT NULL,
     stripe_price_id TEXT NOT NULL,              -- Stripe Price object (pre-created in dashboard)
     pdf_s3_key TEXT NOT NULL,                   -- "reports/rdb-2026-q2/indie.pdf"
     csv_s3_key TEXT NOT NULL DEFAULT '',        -- "" if tier doesn't include CSV
+    json_s3_key TEXT NOT NULL DEFAULT '',       -- "" unless publisher tier
     published_at TIMESTAMPTZ NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT true,
-    CONSTRAINT reports_tier_valid CHECK (tier IN ('indie','standard','studio','publisher'))
+    CONSTRAINT reports_tier_valid CHECK (tier IN ('indie','studio','publisher'))
 );
 CREATE INDEX IF NOT EXISTS reports_genre_edition_idx ON reports(genre_slug, edition);
 
 -- Each successful purchase is one row. Buyer keyed by email (no
 -- user accounts — magic-link access via email).
+-- delivered_at = NULL means the signed-URL email has not been sent
+-- yet (pre-order: waiting for reports.published_at to land).
 CREATE TABLE IF NOT EXISTS report_purchases (
     id BIGSERIAL PRIMARY KEY,
     email TEXT NOT NULL,
@@ -52,11 +76,14 @@ CREATE TABLE IF NOT EXISTS report_purchases (
     amount_paid_cents INTEGER NOT NULL,
     tier TEXT NOT NULL,
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    delivered_at TIMESTAMPTZ,
     last_downloaded_at TIMESTAMPTZ,
     download_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS report_purchases_email_idx ON report_purchases(email);
 CREATE INDEX IF NOT EXISTS report_purchases_report_slug_idx ON report_purchases(report_slug);
+CREATE INDEX IF NOT EXISTS report_purchases_undelivered_idx
+    ON report_purchases(report_slug) WHERE delivered_at IS NULL;
 
 -- Lead magnet email capture (executive-summary PDF download).
 -- Separate from report_purchases because leads haven't paid.
@@ -90,7 +117,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Literal
 
-Tier = Literal["indie", "standard", "studio", "publisher"]
+Tier = Literal["indie", "studio", "publisher"]
 
 class ReportRow(BaseModel):
     slug: str
@@ -114,6 +141,7 @@ class ReportPurchaseRow(BaseModel):
     amount_paid_cents: int
     tier: Tier
     purchased_at: datetime
+    delivered_at: datetime | None   # None until the signed-URL email is sent
     last_downloaded_at: datetime | None
     download_count: int
 
@@ -146,7 +174,9 @@ used).
   `library_layer/repositories/report_purchase_repo.py`:
   - `insert(row) -> int` — returns id
   - `get_by_session_id(stripe_checkout_session_id) -> ReportPurchaseRow | None`
-  - `list_by_email(email) -> list[ReportPurchaseRow]`
+  - `list_by_email(email) -> list[ReportPurchaseRow]` — only rows where `delivered_at IS NOT NULL` (undelivered pre-orders are not claimable yet)
+  - `list_undelivered_for_live_reports() -> list[ReportPurchaseRow]` — JOIN against `reports` WHERE `reports.published_at <= now() AND report_purchases.delivered_at IS NULL`. Used by the delivery sweep.
+  - `mark_delivered(id)` — sets `delivered_at = now()`
   - `mark_downloaded(id)` — bump `last_downloaded_at` + `download_count`
 
 - `LeadRepository`:
@@ -179,23 +209,54 @@ def create_checkout_session(
 def handle_checkout_session_completed(self, *, event: stripe.Event) -> None:
     """Webhook handler. Idempotent on stripe_checkout_session_id.
     1. Verify event signature with webhook secret.
-    2. Extract email, report_slug, amount_paid from metadata.
-    3. Insert report_purchase row. Skip silently on duplicate session_id.
-    4. Send receipt email via Resend with:
-       - a magic-link to the download page (30 min TTL)
-       - tax receipt text
-       - "what you'll receive" expectations block
+    2. Extract email, report_slug, tier, amount_paid from metadata.
+    3. Insert report_purchase row with delivered_at = NULL. Skip
+       silently on duplicate session_id.
+    4. Look up the reports row. Branch on published_at:
+       - If published_at <= now(): report is LIVE.
+         Call deliver_now(purchase) inline — sends signed-URL email
+         via Resend, sets delivered_at = now().
+       - If published_at > now(): report is a PRE-ORDER.
+         Send shipping-notice email via Resend with published_at
+         (no signed URL, no magic-link — nothing to download yet).
+         Leave delivered_at = NULL.
     5. Return 200 to Stripe."""
+
+def deliver_now(self, *, purchase: ReportPurchaseRow) -> None:
+    """Used by both the live-checkout path and the delivery sweep.
+    1. Create magic-link token (30 min TTL).
+    2. Send receipt + download email via Resend, with:
+       - magic-link to /reports/access?token=...
+       - tax receipt text
+       - what-you-got list per tier (PDF / PDF+CSV / PDF+CSV+JSON)
+    3. Set delivered_at = now() on the purchase row."""
+
+def sweep_pre_order_deliveries(self) -> int:
+    """Called by the delivery-sweep EventBridge rule (daily).
+    Also callable on-demand from the admin CLI once published_at is
+    flipped on a report.
+
+    1. purchase_repo.list_undelivered_for_live_reports() → rows where
+       the report is now live but the buyer hasn't received their link.
+    2. For each row: deliver_now(purchase).
+    3. Return the count of deliveries fired.
+
+    Idempotent: deliver_now sets delivered_at, so a re-run emails no
+    one twice."""
 
 def generate_download_urls(
     self, *, purchase: ReportPurchaseRow
 ) -> dict[str, str]:
-    """Returns {'pdf': signed_url, 'csv': signed_url | ''}. S3 signed
-    URL, 15-min TTL. Caller is responsible for bumping download_count."""
+    """Returns {'pdf': signed_url, 'csv': signed_url | '', 'json': signed_url | ''}.
+    S3 signed URL, 15-min TTL. Caller is responsible for bumping
+    download_count. Raises if purchase.delivered_at IS NULL (pre-order
+    not yet fulfilled)."""
 
 def request_magic_link(self, *, email: str, purpose: str) -> None:
-    """Creates a magic-link token, emails it via Resend. Always
-    returns 200 even if email has no purchases (no account enumeration)."""
+    """Creates a magic-link token for any delivered purchase this email
+    owns, emails it via Resend. Always returns 200 even if email has no
+    purchases OR only un-delivered pre-orders (no account enumeration,
+    no "your pre-order ships on…" leak to a non-buyer)."""
 ```
 
 ### 5. Lambda handlers
@@ -232,37 +293,42 @@ def download_report(token: str, report_slug: str) -> RedirectResponse:
     """Consumes magic-link token. Validates token + purchase ownership.
     Bumps download_count. 302 to signed S3 URL. Token is
     one-use; returns 410 Gone after first consumption."""
-
-@app.post("/api/publisher/inquiry")
-def publisher_inquiry(body: PublisherInquiryRequest) -> EmptyResponse:
-    """body: {email, studio_name, genre, use_case, notes}
-    Records in a simple `publisher_inquiries` table (optional to add);
-    sends notification email to operator via Resend. Manual followup
-    and invoicing — no self-serve checkout for $1,499 tier."""
 ```
+
+The publisher tier is self-serve at $499 — there is **no** inquiry
+endpoint, lead form, or contact button. All three tiers flow through
+the same `/api/reports/checkout` path. Do not add a manual-invoicing
+code path.
 
 Keep these thin — service layer does the real work.
 
 ### 6. Frontend — Next.js pages
 
-New pages under `frontend/src/app/reports/`:
+The commerce surface is the **genre synthesis page** (`/genre/[slug]/`,
+owned by `genre-insights-page.md`). That page renders a pre-order /
+buy block when a `reports` row exists for the genre. Tier selection
+and Stripe Checkout kick off from there.
 
-- `/reports` — catalog page. Lists active reports grouped by genre.
-  Each card: display_name, 3-sentence summary, tier pricing, "buy" CTA.
-  Free executive-summary download CTA separate (email capture only).
-- `/reports/[slug]` — individual report landing page. Full table of
-  contents, 3-page sample PDF download, tier comparison matrix,
-  methodology + data caveats. Buy buttons post to `/api/checkout/start`
-  and redirect to returned Stripe URL.
+Supporting pages under `frontend/app/`:
+
+- `/reports` — catalog page. Lists every active `reports` row grouped
+  by genre. Each card: display_name, narrative summary one-liner, tier
+  price range (e.g. "$49 – $499"), `published_at` status ("ships
+  [date]" if pre-order, "available now" otherwise), link to the
+  synthesis page (not directly to Stripe — the synthesis page is the
+  funnel step).
 - `/reports/success` — post-checkout thank-you. Reads `session_id`
-  query param, shows "check your email for the download link."
+  query param. If the report is live, shows "check your email for the
+  download link." If the report is a pre-order, shows "check your
+  email for your pre-order confirmation; the report ships [date]."
 - `/reports/access` — magic-link entry. Takes `?token=...`, redirects
   to `/api/reports/download` on page load, shows spinner + fallback
   email-entry form.
-- `/publisher` — publisher tier inquiry form (no self-serve checkout).
 
-The genre-insights pages (`/genre/[slug]/insights`) gain a "Buy the
-full report" CTA in every section after a 3-sentence preview.
+No `/publisher` page. No inquiry form. The publisher tier is a
+self-serve Stripe button on the synthesis page, same as indie and
+studio. If a publisher wants a custom cut, they can buy and email —
+that's bonus, not built-in.
 
 ### 7. CDK wiring — `infra/stacks/`
 
@@ -277,8 +343,14 @@ full report" CTA in every section after a 3-sentence preview.
   SDK-signed URLs — direct is simpler for Phase 1).
 - New Lambda `StripeWebhookFunction` with API Gateway binding at
   `/api/stripe/webhook`. 30s timeout. Minimal memory (512MB).
+- New Lambda `DeliverySweepFunction` wired to a daily EventBridge
+  rule + manual invoke (for use when the operator flips a report's
+  `published_at` after uploading the PDF). Calls
+  `ReportPurchaseService.sweep_pre_order_deliveries()`. 60s timeout,
+  512MB memory.
 - Extend existing API Lambda IAM to read the SSM params above and
-  read from the reports bucket (signed URL generation needs `s3:GetObject`).
+  read from the reports bucket (signed URL generation needs
+  `s3:GetObject`).
 - EventBridge daily rule calling a small `MagicLinkPruneLambda` to
   delete expired tokens.
 - No CloudFormation output needed beyond the SSM params (frontend
@@ -292,8 +364,8 @@ Operator does this manually in the Stripe dashboard — not in code:
 - Create **Products** for each report (one Product per report
   edition), and **Prices** per tier:
   - `rdb-2026-q2 / indie` — $49 one-time
-  - `rdb-2026-q2 / standard` — $99 one-time
-  - `rdb-2026-q2 / studio` — $299 one-time
+  - `rdb-2026-q2 / studio` — $149 one-time
+  - `rdb-2026-q2 / publisher` — $499 one-time
 - Record each `price_id` in the `reports` table via an ops script
   `scripts/ops/seed_report_catalog.py`.
 - Configure Checkout branding (logo, colors).
@@ -301,78 +373,105 @@ Operator does this manually in the Stripe dashboard — not in code:
   `https://steampulse.io/api/stripe/webhook`, listening for
   `checkout.session.completed` only. Capture the signing secret
   into the SSM param above.
-- Enable **Customer Portal** (needed for Phase 3 Pro; harmless to
-  enable now for refund handling).
+- Enable **Customer Portal** — harmless default for refund handling
+  even on one-off purchases.
 
-### 9. Receipt + download email (Resend)
+### 9. Email templates (Resend)
 
-Template lives in `library_layer/email_templates/report_receipt.py`
-as a module constant (Jinja2 or plain f-string; mirror existing email
-patterns). Fields: buyer name (optional), report display_name, tier,
-amount paid, tax amount, magic-link URL with 30-min TTL, what-to-expect
-block, support email.
+Templates live in `library_layer/email_templates/` as module constants
+(Jinja2 or plain f-string; mirror existing email patterns). Two
+templates are needed:
 
-### 10. Abandonment + re-engagement (Phase 1.5, not launch)
+**`report_receipt_live.py`** — sent when the purchase is for a live
+(already-published) report. Fields: buyer name (optional), report
+display_name, tier, amount paid, tax amount, magic-link URL (30-min
+TTL), what-to-expect block, support email.
 
-After Phase 1 ships and some sales come through, add:
-- Stripe Checkout `abandoned_checkout` webhook → queued re-engagement
-  email at T+1h, T+24h (per Stripe's best-practice cadence).
-- Lead-drip sequence: exec-summary download → T+3d educational email
-  → T+7d "here's the full report" pitch.
+**`report_receipt_preorder.py`** — sent when the purchase is for a
+pre-order. Fields: buyer name, report display_name, tier, amount paid,
+tax amount, `published_at` formatted as a human-readable ship date,
+what-to-expect block ("you'll receive a download link on [date]"),
+support email. **No magic-link, no signed URL** — there is nothing to
+download yet.
 
-Both use Resend + a small `EngagementLambda` scheduled by EventBridge.
-Defer until Phase 1 proves sales work.
+When the delivery sweep fires for a pre-order purchase, use
+`report_receipt_live.py` with a slight copy variant ("your report is
+ready" instead of "thanks for your purchase"). Keep it as a third
+template `report_receipt_ship.py` rather than branching inside the
+live template.
 
 ## Verification
 
 1. **Migration applies**: `bash scripts/dev/migrate.sh`; `\d reports`,
    `\d report_purchases`, `\d leads`, `\d magic_link_tokens` all show
-   expected schema.
+   expected schema. `report_purchases.delivered_at` exists and is
+   nullable.
 2. **Catalog seed**: `python scripts/ops/seed_report_catalog.py` upserts
    the RDB report rows tied to real Stripe Price IDs.
 3. **Stripe webhook signature verification**: integration test posts a
    tampered payload → handler returns 400.
-4. **Happy path**: seed a Stripe test-mode Price, call
-   `/api/checkout/start`, complete checkout in Stripe test mode,
-   confirm webhook fires, row lands in `report_purchases`, receipt
-   email sent to Resend (mock in test, real in staging), magic-link
-   redeems to signed S3 URL once and errors on second use.
-5. **Idempotency**: replay the same `checkout.session.completed`
+4. **Live-report happy path**: seed a `reports` row with
+   `published_at = now() - '1 day'`. Call `/api/checkout/start`,
+   complete checkout in Stripe test mode. Assert: `report_purchases`
+   row written with `delivered_at ≈ now()`. Receipt email sent via
+   Resend (mock in test). Magic-link redeems to signed S3 URL once
+   and errors on second use.
+5. **Pre-order happy path**: seed a `reports` row with
+   `published_at = now() + '14 days'`. Complete checkout. Assert:
+   `report_purchases` row written with `delivered_at = NULL`.
+   Pre-order receipt email sent (no magic-link). Magic-link endpoint
+   called with this buyer's email returns 200 with no Resend call.
+6. **Delivery sweep**: with the pre-order row from (5) in place, flip
+   the `reports.published_at` to `now() - '1 second'`. Invoke
+   `DeliverySweepFunction` manually. Assert: ship-notice email sent
+   via Resend. `delivered_at` set. Magic-link endpoint now returns
+   the signed URL on request. Re-running the sweep emails nobody
+   (idempotency).
+7. **Idempotency**: replay the same `checkout.session.completed`
    event → second call is a no-op (UNIQUE on
    `stripe_checkout_session_id`). No duplicate receipt email.
-6. **Magic-link expiry**: create a token with TTL -1 min; consume
+8. **Magic-link expiry**: create a token with TTL -1 min; consume
    returns 410.
-7. **No-account enumeration**: `/api/reports/magic-link` with a
-   never-seen email returns 200 with no Resend call.
-8. **Rate limiting**: hitting `/api/checkout/start` 20 times in 60s
-   from one IP returns 429 after the threshold.
-9. **Publisher inquiry**: posting to `/api/publisher/inquiry` stores
-   row and sends operator notification.
-10. `poetry run pytest -v && poetry run ruff check .`
+9. **No-account enumeration**: `/api/reports/magic-link` with a
+   never-seen email returns 200 with no Resend call. Same for an
+   email with only un-delivered pre-orders.
+10. **Rate limiting**: hitting `/api/checkout/start` 20 times in 60s
+    from one IP returns 429 after the threshold.
+11. `poetry run pytest -v && poetry run ruff check .`
 
-## Out of scope (separate prompts later)
+## Out of scope
 
-- **Refund handling UI.** Stripe Customer Portal + manual refund for
-  V1; automated refund workflow later if volume justifies.
-- **Phase 3 Pro subscription** (`pro-subscription-nl-chat.md` to be
-  written). Different code path (Stripe Subscription + Customer
-  Portal + magic-link persistent session rather than one-time token).
-- **Upgrade between tiers** (indie → studio for the same report).
-  Phase 2 feature; Stripe supports `mode: "payment"` + manual
-  credit for V1.
-- **CSV-only purchase tier** ($29 data-only). Add once signal shows
-  dataset-only buyers exist.
-- **Team / multi-seat licensing**. Publisher-tier feature; handled
-  manually for V1.
-- **Affiliate / referral tracking**. Not yet.
-- **Tax receipts in multiple languages / jurisdictions**. Stripe Tax
-  handles remittance; localized invoicing is post-Phase-3.
+Everything below is either Tier-2-gated or killed. Do not build any
+of these as part of this prompt.
+
+- **Subscription / NL chat / Pro tier** — Tier 2 gated (see
+  `monetization-strategy.md`). No Stripe Subscription code path in
+  Tier 1.
+- **Upgrade between tiers** (indie → studio on the same report) —
+  handled manually via Stripe dashboard if a buyer asks; not a
+  product feature.
+- **Dataset-only SKU ($99 CSV+JSON add-on)** — Tier 2 gated (3+
+  buyer emails required before building).
+- **"Genre Audit" self-serve SKU ($79)** — Tier 2 gated (catalog
+  MRR > $3k/mo × 3 months required).
+- **All-Access Pass ($49/yr)** — Tier 2 gated (5+ reports shipped).
+- **Refund automation** — manual via Stripe dashboard for Tier 1;
+  volume doesn't justify automation.
+- **Abandoned-checkout re-engagement / lead drip sequences** — no
+  newsletter at launch; defer indefinitely.
+- **Affiliate / referral tracking** — not built.
+- **Multi-seat / team licensing beyond the publisher tier's built-in
+  10 seats** — handled by operator email for now.
 
 ## Rollout
 
-- One migration. One new Lambda (`StripeWebhookFunction`). Extensions
-  to the existing API Lambda. One new S3 bucket. No Cleeng, no auth0.
+- One migration. Two new Lambdas (`StripeWebhookFunction`,
+  `DeliverySweepFunction`). Extensions to the existing API Lambda.
+  One new S3 bucket. No redirects, no migration, no legacy
+  compatibility.
 - No deploy from Claude — user runs `bash scripts/deploy.sh` and the
   Stripe dashboard setup themselves.
-- After deploy, seed the catalog, fire a Stripe test-mode purchase end
-  to end, switch webhook to live mode, publish `/reports` page.
+- After deploy: seed the catalog with the RDB row (`published_at` set
+  to the future ship date for pre-order mode), fire a Stripe
+  test-mode purchase end-to-end in both live-report and pre-order
+  configurations, switch webhook to live mode.

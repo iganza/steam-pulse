@@ -6,11 +6,17 @@ import { parseLocalDate, formatDate } from "@/lib/format";
 import type { ReviewStats } from "@/lib/types";
 
 interface QuickStatsProps {
-  /** Steam's total review count — shown in the Reviews tile when there's
-   *  no analyzed count to prefer. */
+  /** English-preferred review count (`review_count_english ?? review_count`).
+   *  Used as the Reviews tile's main value only when `reviewCountEnglish` is
+   *  null — in that case the "en" suffix is suppressed because the fallback
+   *  may be the all-language total. Also feeds MarketReach and the JSON-LD
+   *  aggregateRating count, so its semantics must stay stable. */
   reviewCount: number | null;
-  /** LLM-ingested English review count. When non-null it takes precedence
-   *  over `reviewCount` in the Reviews tile and shows an "en" suffix. */
+  /** Steam's English-only review count from game metadata. Takes precedence
+   *  over `reviewCount` as the main value and drives the "en" suffix. */
+  reviewCountEnglish: number | null;
+  /** Count of reviews our pipeline ingested. Rendered only as the
+   *  "N analyzed" subtitle — never as the main tile value. */
   totalReviewsAnalyzed: number | null;
   releaseDate?: string;
   price: string;
@@ -44,6 +50,7 @@ const TILE_STYLE = {
 
 export function QuickStats({
   reviewCount,
+  reviewCountEnglish,
   totalReviewsAnalyzed,
   releaseDate,
   price,
@@ -54,9 +61,9 @@ export function QuickStats({
   reviewsCompletedAt,
   metaCrawledAt,
 }: QuickStatsProps) {
-  const reviewsValue = totalReviewsAnalyzed ?? reviewCount;
-  const showEnSuffix = totalReviewsAnalyzed != null;
-  const showAnalyzedSuffix = reviewCount != null && totalReviewsAnalyzed != null;
+  const reviewsValue = reviewCountEnglish ?? reviewCount;
+  const showEnSuffix = reviewCountEnglish != null;
+  const showAnalyzedSuffix = totalReviewsAnalyzed != null;
   const reviewsTs = formatDate(reviewCrawledAt ?? reviewsCompletedAt);
   const metaTs = formatDate(metaCrawledAt);
   // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.

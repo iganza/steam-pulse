@@ -472,21 +472,27 @@ def _sns_record(inner: dict, arn: str) -> dict:
 
 
 def test_parse_explicit_metadata_task() -> None:
-    req = parse_spoke_request(_sqs_record({"appid": 440, "task": "metadata"}), review_limit=5000)
+    req, source = parse_spoke_request(
+        _sqs_record({"appid": 440, "task": "metadata"}), review_limit=5000
+    )
     assert req is not None
     assert req.appid == 440
     assert req.task == "metadata"
+    assert source is None
 
 
 def test_parse_explicit_tags_task() -> None:
-    req = parse_spoke_request(_sqs_record({"appid": 440, "task": "tags"}), review_limit=5000)
+    req, source = parse_spoke_request(
+        _sqs_record({"appid": 440, "task": "tags"}), review_limit=5000
+    )
     assert req is not None
     assert req.appid == 440
     assert req.task == "tags"
+    assert source is None
 
 
 def test_parse_explicit_reviews_with_target() -> None:
-    req = parse_spoke_request(
+    req, _ = parse_spoke_request(
         _sqs_record({"appid": 730, "task": "reviews", "cursor": "abc", "target": 3000}),
         review_limit=5000,
     )
@@ -497,7 +503,7 @@ def test_parse_explicit_reviews_with_target() -> None:
 
 
 def test_parse_reviews_defaults_target_to_limit() -> None:
-    req = parse_spoke_request(
+    req, _ = parse_spoke_request(
         _sqs_record({"appid": 730, "task": "reviews"}),
         review_limit=5000,
     )
@@ -506,7 +512,7 @@ def test_parse_reviews_defaults_target_to_limit() -> None:
 
 
 def test_parse_reviews_zero_target_returns_none() -> None:
-    req = parse_spoke_request(
+    req, _ = parse_spoke_request(
         _sqs_record({"appid": 730, "task": "reviews", "target": 0}),
         review_limit=5000,
     )
@@ -515,7 +521,7 @@ def test_parse_reviews_zero_target_returns_none() -> None:
 
 def test_parse_sns_app_crawl_infers_metadata() -> None:
     arn = "arn:aws:sqs:us-east-1:123:steampulse-staging-app-crawl"
-    req = parse_spoke_request(
+    req, _ = parse_spoke_request(
         _sns_record({"event_type": "game-discovered", "appid": 999}, arn=arn),
         review_limit=5000,
     )
@@ -526,7 +532,7 @@ def test_parse_sns_app_crawl_infers_metadata() -> None:
 
 def test_parse_sns_review_crawl_infers_reviews() -> None:
     arn = "arn:aws:sqs:us-east-1:123:steampulse-staging-review-crawl"
-    req = parse_spoke_request(
+    req, _ = parse_spoke_request(
         _sns_record(
             {
                 "event_type": "game-metadata-ready",
@@ -540,6 +546,16 @@ def test_parse_sns_review_crawl_infers_reviews() -> None:
     )
     assert req is not None
     assert req.task == "reviews"
+
+
+def test_parse_surfaces_source_tag() -> None:
+    """Refresh-enqueued messages carry `source='refresh'` — the parser returns it."""
+    req, source = parse_spoke_request(
+        _sqs_record({"appid": 440, "task": "metadata", "source": "refresh"}),
+        review_limit=5000,
+    )
+    assert req is not None
+    assert source == "refresh"
 
 
 def test_parse_unknown_arn_no_task_raises() -> None:

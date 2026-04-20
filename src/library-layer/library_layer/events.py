@@ -179,7 +179,25 @@ class AnalysisRequest(BaseSqsMessage):
     message_type: SqsMessageType = "analysis_request"
     appid: int
     mode: AnalysisMode = "realtime"
-    reason: str | None = None  # "bulk_seed" | "stale_refresh" | "admin_reanalyze" | ...
+    reason: str | None = None  # "bulk_seed" | "admin_reanalyze" | ...
+
+
+# --- Review crawl dispatch messages ---
+
+
+class ReviewCrawlMessage(BaseModel):
+    """Body sent to ReviewCrawlQ to kick off a review crawl for one appid.
+
+    `source` is informational — the primary crawler's `_dispatch_to_spoke`
+    logs it so dashboards can attribute queue volume to new-game onboarding
+    vs tier-driven refresh. It does NOT gate analysis: the SQS → spoke →
+    `ingest_spoke_reviews` path never calls `_trigger_analysis` regardless
+    of source. Analysis is only reachable via the direct-invoke `crawl_reviews`
+    path, which takes its own `trigger_analysis` kwarg.
+    """
+
+    appid: int
+    source: Literal["new_game", "refresh"] = "new_game"
 
 
 # --- Phase-4 genre synthesis messages ---

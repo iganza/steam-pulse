@@ -13,11 +13,16 @@ class CatalogEntry(BaseModel):
     name: str
     meta_status: str = "pending"
     meta_crawled_at: datetime | None = None
+    review_crawled_at: datetime | None = None
     review_count: int | None = None
     reviews_completed_at: datetime | None = None
     discovered_at: datetime | None = None
     steam_last_modified: datetime | None = None
     price_change_number: int | None = None
+    # Populated only by CatalogRepository.find_due_meta / find_due_reviews
+    # so downstream enqueue logs can emit per-tier counts without re-deriving.
+    # 0=S, 1=A, 2=B, 3=C (C excluded from review refresh).
+    tier_rank: int | None = None
 
     @property
     def review_not_started(self) -> bool:

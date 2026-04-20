@@ -110,6 +110,9 @@ def _test_config(**overrides: Any) -> SteamPulseConfig:
         "REVIEW_ELIGIBILITY_THRESHOLD": 500,
     }
     defaults.update(overrides)
+    # Keep tier-B threshold in lock-step with REVIEW_ELIGIBILITY_THRESHOLD
+    # (enforced by the config validator) unless the caller explicitly set it.
+    defaults.setdefault("REFRESH_TIER_B_REVIEW_COUNT", defaults["REVIEW_ELIGIBILITY_THRESHOLD"])
     return SteamPulseConfig(**defaults)
 
 
@@ -862,6 +865,7 @@ def test_catalog_refresh_publishes_discovered_events(
                 http_client=http_client,
                 sqs_client=_mock_sqs(),
                 app_crawl_queue_url="https://sqs.fake/app-crawl",
+                review_crawl_queue_url="https://sqs.fake/review-crawl",
                 steam_api_key="test-key",
                 sns_client=sns,
                 config=config,
@@ -899,6 +903,7 @@ def test_catalog_refresh_publishes_completion(
                 http_client=http_client,
                 sqs_client=_mock_sqs(),
                 app_crawl_queue_url="https://sqs.fake/app-crawl",
+                review_crawl_queue_url="https://sqs.fake/review-crawl",
                 steam_api_key="test-key",
                 sns_client=sns,
                 config=config,

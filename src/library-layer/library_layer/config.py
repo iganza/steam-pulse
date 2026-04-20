@@ -115,6 +115,79 @@ class SteamPulseConfig(BaseSettings):
     REVIEW_LIMIT: int = 10_000  # Default cap for automated (SQS-driven) crawls.
     # Operators can override per-invocation via direct invoke.
 
+    # ── Tiered refresh scheduling ─────────────────────────────────────────────
+    # Tier intervals (days). Each game's "due" time is computed as
+    #   last_crawled_at + tier_interval
+    #   + (abs(hashtext(appid::text)::bigint) % tier_interval_seconds)
+    # so work is smeared evenly across the window rather than firing on a boundary.
+    # Metadata covers S/A/B/C; reviews cover S/A/B only (tier C excluded).
+    REFRESH_META_TIER_S_DAYS: int = 2
+    REFRESH_META_TIER_A_DAYS: int = 7
+    REFRESH_META_TIER_B_DAYS: int = 21
+    REFRESH_META_TIER_C_DAYS: int = 90
+    REFRESH_REVIEWS_TIER_S_DAYS: int = 1
+    REFRESH_REVIEWS_TIER_A_DAYS: int = 3
+    REFRESH_REVIEWS_TIER_B_DAYS: int = 14
+
+    # Tier membership review-count thresholds (first match wins).
+    #   S: review_count >= REFRESH_TIER_S_REVIEW_COUNT
+    #   A: coming_soon OR EA genre OR review_count >= REFRESH_TIER_A_REVIEW_COUNT
+    #   B: review_count >= REFRESH_TIER_B_REVIEW_COUNT
+    #   C: everything else
+    # The B threshold MUST equal REVIEW_ELIGIBILITY_THRESHOLD — a game is in
+    # tier B precisely when it becomes analysis-eligible, so the two thresholds
+    # are logically one knob. The validator below enforces this; override
+    # BOTH via env if you want to shift the eligibility bar.
+    REFRESH_TIER_S_REVIEW_COUNT: int = 10_000
+    REFRESH_TIER_A_REVIEW_COUNT: int = 1_000
+    REFRESH_TIER_B_REVIEW_COUNT: int = 50
+
+    # Hourly dispatcher batch sizes. Sized against measured tier populations
+    # (meta demand ~486/hr, review demand ~402/hr) with ~20–25% headroom.
+    # Comfortably under Steam's ~57k/day per-IP appdetails ceiling.
+    REFRESH_META_BATCH_LIMIT: int = 600
+    REFRESH_REVIEWS_BATCH_LIMIT: int = 500
+
+    @model_validator(mode="after")
+    def _validate_refresh_tier_config(self) -> Self:
+        """Guard against env overrides that would break the dispatcher SQL.
+
+        Tier day intervals must be >= 1 — zero/negative makes the SMEAR term
+        `hashtext(appid) % (days*86400)` divide-by-zero at runtime, taking the
+        hourly dispatcher down. Thresholds and batch limits must be positive.
+        """
+        day_fields = (
+            "REFRESH_META_TIER_S_DAYS",
+            "REFRESH_META_TIER_A_DAYS",
+            "REFRESH_META_TIER_B_DAYS",
+            "REFRESH_META_TIER_C_DAYS",
+            "REFRESH_REVIEWS_TIER_S_DAYS",
+            "REFRESH_REVIEWS_TIER_A_DAYS",
+            "REFRESH_REVIEWS_TIER_B_DAYS",
+        )
+        positive_fields = (
+            "REFRESH_TIER_S_REVIEW_COUNT",
+            "REFRESH_TIER_A_REVIEW_COUNT",
+            "REFRESH_TIER_B_REVIEW_COUNT",
+            "REFRESH_META_BATCH_LIMIT",
+            "REFRESH_REVIEWS_BATCH_LIMIT",
+        )
+        for name in day_fields:
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be >= 1 (divide-by-zero risk in smear SQL)")
+        for name in positive_fields:
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be > 0")
+        if self.REFRESH_TIER_B_REVIEW_COUNT != self.REVIEW_ELIGIBILITY_THRESHOLD:
+            raise ValueError(
+                "REFRESH_TIER_B_REVIEW_COUNT "
+                f"({self.REFRESH_TIER_B_REVIEW_COUNT}) must equal "
+                f"REVIEW_ELIGIBILITY_THRESHOLD ({self.REVIEW_ELIGIBILITY_THRESHOLD}) — "
+                "tier B is defined as the analysis-eligibility threshold; "
+                "override both together to shift the bar."
+            )
+        return self
+
     # ── Three-phase analyzer tuning knobs ───────────────────────────────────
     # These are the SINGLE place default values live for the realtime and
     # batch analysis pipelines. Every downstream function requires these to

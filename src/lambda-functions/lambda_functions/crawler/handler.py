@@ -28,7 +28,8 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
-    StaleRefreshRequest,
+    RefreshMetaRequest,
+    RefreshReviewsRequest,
     DirectRequest,
     parse_spoke_request,
     spoke_index_for_appid,
@@ -100,6 +101,7 @@ _catalog_service = CatalogService(
     http_client=httpx.Client(timeout=30.0),
     sqs_client=_sqs,
     app_crawl_queue_url=_app_crawl_queue_url,
+    review_crawl_queue_url=_review_queue_url,
     sns_client=_sns,
     config=_crawler_config,
     steam_api_key=_steam_api_key,
@@ -137,7 +139,7 @@ def _dispatch_to_spoke(record: dict) -> None:
     if not _spoke_sqs_targets:
         raise RuntimeError("No spoke targets configured — cannot dispatch")
 
-    req = parse_spoke_request(record, review_limit=_crawler_config.REVIEW_LIMIT)
+    req, source = parse_spoke_request(record, review_limit=_crawler_config.REVIEW_LIMIT)
     if req is None:
         logger.info("Skipping dispatch (budget exhausted)", extra={"record": record["messageId"]})
         return
@@ -145,7 +147,10 @@ def _dispatch_to_spoke(record: dict) -> None:
     logger.append_keys(appid=req.appid, task=req.task)
     idx = spoke_index_for_appid(req.appid, len(_spoke_sqs_targets))
     queue_url, sqs_client = _spoke_sqs_targets[idx]
-    logger.info("Dispatching to spoke queue", extra={"queue_url": queue_url})
+    logger.info(
+        "Dispatching to spoke queue",
+        extra={"queue_url": queue_url, "source": source},
+    )
 
     sqs_client.send_message(QueueUrl=queue_url, MessageBody=req.model_dump_json())
     metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
@@ -207,11 +212,26 @@ def handler(event: dict, context: LambdaContext) -> dict:
                     value=result.get("enqueued", 0),
                 )
                 return result
-            case StaleRefreshRequest():
-                count = _catalog_service.enqueue_stale(limit=req.limit)
-                logger.info("stale_refresh complete", extra={"appids": count})
-                metrics.add_metric(name="StaleMetaEnqueued", unit=MetricUnit.Count, value=count)
-                return {"stale_enqueued": count}
+            case RefreshMetaRequest():
+                count = _catalog_service.enqueue_refresh_meta(limit=req.limit)
+                logger.info(
+                    "refresh_meta complete",
+                    extra={"enqueued": count, "limit": req.limit},
+                )
+                metrics.add_metric(
+                    name="RefreshMetaEnqueued", unit=MetricUnit.Count, value=count
+                )
+                return {"enqueued": count, "limit": req.limit}
+            case RefreshReviewsRequest():
+                count = _catalog_service.enqueue_refresh_reviews(limit=req.limit)
+                logger.info(
+                    "refresh_reviews complete",
+                    extra={"enqueued": count, "limit": req.limit},
+                )
+                metrics.add_metric(
+                    name="RefreshReviewsEnqueued", unit=MetricUnit.Count, value=count
+                )
+                return {"enqueued": count, "limit": req.limit}
 
     # 3. SQS event (app-crawl / review-crawl) — dispatch to spoke Lambdas
     if "Records" in event:

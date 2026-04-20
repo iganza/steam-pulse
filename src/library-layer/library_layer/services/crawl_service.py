@@ -177,8 +177,17 @@ class CrawlService:
         appid: int,
         dry_run: bool = False,
         max_reviews: int | None = MAX_REVIEWS_DEFAULT,
+        *,
+        trigger_analysis: bool = True,
     ) -> int:
         """Fetch reviews from Steam. Bulk upsert to DB. Trigger Step Functions.
+
+        Set trigger_analysis=False when this is a refresh-driven crawl that
+        should NOT kick off a ~$1 Step Functions analysis execution. New-game
+        onboarding keeps the default True. Refresh uses the SQS/spoke path
+        (which routes through ingest_spoke_reviews and never calls
+        _trigger_analysis anyway), so this kwarg is the safeguard for the
+        direct-invoke path only.
 
         Returns:
             Number of reviews upserted.
@@ -211,7 +220,8 @@ class CrawlService:
         if has_ea_review and not getattr(game, "has_early_access_reviews", False):
             self._game_repo.set_has_early_access_reviews(appid)
 
-        self._trigger_analysis(appid, game_name)
+        if trigger_analysis:
+            self._trigger_analysis(appid, game_name)
 
         # Publish reviews-ready event
         try:

@@ -2,16 +2,49 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.events import CatalogRefreshCompleteEvent, GameDiscoveredEvent
+from library_layer.events import (
+    CatalogRefreshCompleteEvent,
+    GameDiscoveredEvent,
+    ReviewCrawlMessage,
+)
+from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.sqs import send_sqs_batch
+
+# CatalogEntry.tier_rank → tier label for per-tier dispatch log breakdowns.
+_TIER_RANK_LABELS = {0: "S", 1: "A", 2: "B", 3: "C"}
+
+
+def _dispatched_by_tier(entries: list[CatalogEntry]) -> dict[str, int]:
+    """Count entries per tier label for observability.
+
+    `unknown` surfaces entries whose `tier_rank` didn't map to a known
+    label (either NULL/unset or an out-of-range value) — if this ever
+    shows up non-zero in logs, it points at a repo/query bug worth
+    investigating rather than silently hiding.
+    """
+    counts: Counter[str] = Counter()
+    for e in entries:
+        label = _TIER_RANK_LABELS.get(e.tier_rank, "unknown")
+        counts[label] += 1
+    return {label: counts.get(label, 0) for label in ("S", "A", "B", "C", "unknown")}
+
+
+def _oldest_due_age_hours(timestamps: list[datetime | None]) -> float | None:
+    """Return age (in hours) of the oldest non-null timestamp. None if all null."""
+    non_null = [t for t in timestamps if t is not None]
+    if not non_null:
+        return None
+    delta = datetime.now(tz=UTC) - min(non_null)
+    return round(delta.total_seconds() / 3600, 1)
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 
@@ -27,6 +60,7 @@ class CatalogService:
         http_client: httpx.Client,
         sqs_client: Any,
         app_crawl_queue_url: str,
+        review_crawl_queue_url: str,
         sns_client: Any,
         config: SteamPulseConfig,
         steam_api_key: str,
@@ -37,6 +71,7 @@ class CatalogService:
         self._http = http_client
         self._sqs = sqs_client
         self._app_crawl_queue_url = app_crawl_queue_url
+        self._review_crawl_queue_url = review_crawl_queue_url
         self._steam_api_key = steam_api_key
         self._sns = sns_client
         self._config = config
@@ -114,28 +149,67 @@ class CatalogService:
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         return len(pending)
 
-    def enqueue_stale(self, limit: int = 2000) -> int:
-        """Find games with stale metadata and enqueue both metadata + tags re-crawl.
+    def enqueue_refresh_meta(self, limit: int) -> int:
+        """Enqueue the next batch of tier-due metadata refreshes.
 
-        Enqueues two messages per stale appid (task=metadata, task=tags) so
-        meta_crawled_at and tags_crawled_at both advance on the same re-crawl cycle.
-        Returns the number of appids enqueued (not the number of messages).
+        Two messages per appid (task=metadata, task=tags) so meta_crawled_at
+        and tags_crawled_at advance together. Returns the appid count.
         """
-        stale = self._catalog_repo.find_stale_meta(limit=limit)
-        if not stale:
-            logger.info("No stale games to re-crawl")
+        due = self._catalog_repo.find_due_meta(limit=limit, config=self._config)
+        if not due:
+            logger.info("No metadata due for refresh")
             return 0
 
+        # `source="refresh"` lets `_dispatch_to_spoke` log queue volume
+        # attribution consistently with enqueue_refresh_reviews below.
         messages: list[dict] = []
-        for entry in stale:
-            messages.append({"appid": entry.appid, "task": "metadata"})
-            messages.append({"appid": entry.appid, "task": "tags"})
+        for entry in due:
+            messages.append({"appid": entry.appid, "task": "metadata", "source": "refresh"})
+            messages.append({"appid": entry.appid, "task": "tags", "source": "refresh"})
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         logger.info(
-            "Stale metadata enqueued",
-            extra={"appids": len(stale), "messages": len(messages)},
+            "refresh_meta enqueued",
+            extra={
+                "enqueued": len(due),
+                "messages": len(messages),
+                "limit": limit,
+                "oldest_due_age_hours": _oldest_due_age_hours(
+                    [e.meta_crawled_at for e in due]
+                ),
+                "dispatched_by_tier": _dispatched_by_tier(due),
+            },
         )
-        return len(stale)
+        return len(due)
+
+    def enqueue_refresh_reviews(self, limit: int) -> int:
+        """Enqueue the next batch of tier-due review refreshes.
+
+        One ReviewCrawlMessage per appid, tagged source='refresh'. Goes to
+        ReviewCrawlQ → _dispatch_to_spoke → spoke Lambda → ingest_spoke_reviews
+        (which never triggers analysis). Returns the appid count.
+        """
+        due = self._catalog_repo.find_due_reviews(limit=limit, config=self._config)
+        if not due:
+            logger.info("No reviews due for refresh")
+            return 0
+
+        messages = [
+            ReviewCrawlMessage(appid=e.appid, source="refresh").model_dump()
+            for e in due
+        ]
+        send_sqs_batch(self._sqs, self._review_crawl_queue_url, messages)
+        logger.info(
+            "refresh_reviews enqueued",
+            extra={
+                "enqueued": len(due),
+                "limit": limit,
+                "oldest_due_age_hours": _oldest_due_age_hours(
+                    [e.review_crawled_at for e in due]
+                ),
+                "dispatched_by_tier": _dispatched_by_tier(due),
+            },
+        )
+        return len(due)
 
     def status(self) -> dict:
         """Return counts per status from catalog_repo.status_summary()."""

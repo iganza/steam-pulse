@@ -1,6 +1,11 @@
 """Tests for CatalogRepository."""
 
+from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
+
+
+def _config() -> SteamPulseConfig:
+    return SteamPulseConfig()
 
 
 def _entries(n: int = 3) -> list[dict]:
@@ -103,40 +108,34 @@ def _set_meta_crawled_at(catalog_repo: CatalogRepository, appid: int, days_ago: 
     catalog_repo.conn.commit()
 
 
-def test_find_stale_meta_tier3_default(catalog_repo: CatalogRepository) -> None:
-    catalog_repo.bulk_upsert([{"appid": 7001, "name": "A"}, {"appid": 7002, "name": "B"}])
-    catalog_repo.set_meta_status(7001, "done")
-    catalog_repo.set_meta_status(7002, "done")
-    _set_meta_crawled_at(catalog_repo, 7001, days_ago=40)  # stale tier 3
-    _set_meta_crawled_at(catalog_repo, 7002, days_ago=5)  # fresh
-    stale = catalog_repo.find_stale_meta(limit=10)
-    appids = [e.appid for e in stale]
-    assert 7001 in appids
-    assert 7002 not in appids
-
-
-def test_find_stale_meta_nulls_first(catalog_repo: CatalogRepository) -> None:
-    catalog_repo.bulk_upsert([{"appid": 7100, "name": "Legacy"}])
-    # Legacy row: set meta_status='done' but keep meta_crawled_at NULL
+def _set_review_crawled_at(
+    catalog_repo: CatalogRepository, appid: int, days_ago: int
+) -> None:
     with catalog_repo.conn.cursor() as cur:
         cur.execute(
-            "UPDATE app_catalog SET meta_status='done', meta_crawled_at=NULL WHERE appid = 7100"
+            "UPDATE app_catalog SET review_crawled_at = NOW() - (%s || ' days')::interval WHERE appid = %s",
+            (days_ago, appid),
         )
     catalog_repo.conn.commit()
-    stale = catalog_repo.find_stale_meta(limit=10)
-    assert 7100 in [e.appid for e in stale]
 
 
-def _seed_game_row(catalog_repo: CatalogRepository, appid: int, coming_soon: bool = False) -> None:
-    """Insert a minimal `games` row so the LEFT JOIN in find_stale_meta has data."""
+def _seed_game_row(
+    catalog_repo: CatalogRepository,
+    appid: int,
+    coming_soon: bool = False,
+    review_count: int = 0,
+) -> None:
+    """Insert a minimal `games` row for the JOIN in tiered refresh queries."""
     with catalog_repo.conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO games (appid, name, slug, type, coming_soon)
-            VALUES (%s, %s, %s, 'game', %s)
-            ON CONFLICT (appid) DO UPDATE SET coming_soon = EXCLUDED.coming_soon
+            INSERT INTO games (appid, name, slug, type, coming_soon, review_count)
+            VALUES (%s, %s, %s, 'game', %s, %s)
+            ON CONFLICT (appid) DO UPDATE SET
+                coming_soon = EXCLUDED.coming_soon,
+                review_count = EXCLUDED.review_count
             """,
-            (appid, f"Game {appid}", f"game-{appid}", coming_soon),
+            (appid, f"Game {appid}", f"game-{appid}", coming_soon, review_count),
         )
     catalog_repo.conn.commit()
 
@@ -154,76 +153,206 @@ def _attach_genre(catalog_repo: CatalogRepository, appid: int, genre_id: int) ->
     catalog_repo.conn.commit()
 
 
-def test_find_stale_meta_tier1_early_access(catalog_repo: CatalogRepository) -> None:
-    # EA game (genre 70) crawled 8d ago — should be stale (tier 1: 7d)
-    catalog_repo.bulk_upsert([{"appid": 7300, "name": "EA Game"}])
-    catalog_repo.set_meta_status(7300, "done")
-    _seed_game_row(catalog_repo, 7300)
-    _attach_genre(catalog_repo, 7300, 70)
-    _set_meta_crawled_at(catalog_repo, 7300, days_ago=8)
-
-    # Non-EA game crawled 8d ago — NOT yet stale (tier 3 needs 30d)
-    catalog_repo.bulk_upsert([{"appid": 7301, "name": "Old Game"}])
-    catalog_repo.set_meta_status(7301, "done")
-    _set_meta_crawled_at(catalog_repo, 7301, days_ago=8)
-
-    appids = [e.appid for e in catalog_repo.find_stale_meta(limit=10)]
-    assert 7300 in appids
-    assert 7301 not in appids
+# ── find_due_meta ────────────────────────────────────────────────────────────
 
 
-def test_find_stale_meta_tier1_coming_soon(catalog_repo: CatalogRepository) -> None:
+def test_find_due_meta_s_tier_due_past_window(catalog_repo: CatalogRepository) -> None:
+    """S-tier games (>=10k reviews) become due after ~2 days + smear."""
+    catalog_repo.bulk_upsert([{"appid": 7001, "name": "Blockbuster"}])
+    catalog_repo.set_meta_status(7001, "done")
+    _seed_game_row(catalog_repo, 7001, review_count=50_000)
+    _set_meta_crawled_at(catalog_repo, 7001, days_ago=5)  # well past 2d + 2d max smear
+
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7001 in appids
+
+
+def test_find_due_meta_s_tier_fresh_not_due(catalog_repo: CatalogRepository) -> None:
+    """S-tier crawled < tier window ago is not due even without smear."""
+    catalog_repo.bulk_upsert([{"appid": 7002, "name": "Blockbuster"}])
+    catalog_repo.set_meta_status(7002, "done")
+    _seed_game_row(catalog_repo, 7002, review_count=50_000)
+    _set_meta_crawled_at(catalog_repo, 7002, days_ago=1)  # inside 2d window
+
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7002 not in appids
+
+
+def test_find_due_meta_a_tier_coming_soon(catalog_repo: CatalogRepository) -> None:
+    """coming_soon=TRUE puts a game in A-tier (7d window) regardless of review count."""
     catalog_repo.bulk_upsert([{"appid": 7400, "name": "Upcoming"}])
     catalog_repo.set_meta_status(7400, "done")
-    _seed_game_row(catalog_repo, 7400, coming_soon=True)
-    _set_meta_crawled_at(catalog_repo, 7400, days_ago=8)
+    _seed_game_row(catalog_repo, 7400, coming_soon=True, review_count=0)
+    _set_meta_crawled_at(catalog_repo, 7400, days_ago=20)  # past 7d + 7d max smear
 
-    assert 7400 in [e.appid for e in catalog_repo.find_stale_meta(limit=10)]
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7400 in appids
 
 
-def test_find_stale_meta_tier2_popular(catalog_repo: CatalogRepository) -> None:
-    # Popular game (review_count >= 1000) crawled 8d ago — stale (tier 2: 7d)
-    catalog_repo.bulk_upsert([{"appid": 7500, "name": "Popular"}])
-    catalog_repo.set_meta_status(7500, "done", review_count=1500)
-    _set_meta_crawled_at(catalog_repo, 7500, days_ago=8)
+def test_find_due_meta_a_tier_ea_genre(catalog_repo: CatalogRepository) -> None:
+    """EA genre (id=70) puts a game in A-tier."""
+    catalog_repo.bulk_upsert([{"appid": 7300, "name": "EA Game"}])
+    catalog_repo.set_meta_status(7300, "done")
+    _seed_game_row(catalog_repo, 7300, review_count=10)
+    _attach_genre(catalog_repo, 7300, 70)
+    _set_meta_crawled_at(catalog_repo, 7300, days_ago=20)
 
-    # Unpopular game same age — not stale (tier 3 needs 30d)
-    catalog_repo.bulk_upsert([{"appid": 7501, "name": "Niche"}])
-    catalog_repo.set_meta_status(7501, "done", review_count=10)
-    _set_meta_crawled_at(catalog_repo, 7501, days_ago=8)
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7300 in appids
 
-    appids = [e.appid for e in catalog_repo.find_stale_meta(limit=10)]
+
+def test_find_due_meta_b_tier_eligible_vs_c_tier_tail(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """B-tier (>=50 reviews) due at 21d; C-tier long tail needs 90d."""
+    catalog_repo.bulk_upsert(
+        [{"appid": 7500, "name": "Mid"}, {"appid": 7501, "name": "Tail"}]
+    )
+    catalog_repo.set_meta_status(7500, "done")
+    catalog_repo.set_meta_status(7501, "done")
+    _seed_game_row(catalog_repo, 7500, review_count=200)  # B
+    _seed_game_row(catalog_repo, 7501, review_count=5)  # C
+    _set_meta_crawled_at(catalog_repo, 7500, days_ago=45)  # past 21d + 21d smear
+    _set_meta_crawled_at(catalog_repo, 7501, days_ago=45)  # still inside 90d C window
+
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
     assert 7500 in appids
     assert 7501 not in appids
 
 
-def test_find_stale_meta_priority_ordering(catalog_repo: CatalogRepository) -> None:
-    # Tier 3 (oldest), tier 2, tier 1 — should be returned in priority order regardless of age
+def test_find_due_meta_nulls_first(catalog_repo: CatalogRepository) -> None:
+    """Legacy rows with NULL meta_crawled_at refresh immediately."""
+    catalog_repo.bulk_upsert([{"appid": 7100, "name": "Legacy"}])
+    catalog_repo.set_meta_status(7100, "done")
+    _seed_game_row(catalog_repo, 7100, review_count=100)
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET meta_crawled_at=NULL WHERE appid = 7100")
+    catalog_repo.conn.commit()
+
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7100 in appids
+
+
+def test_find_due_meta_tier_ranking_s_before_a_before_b(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Result order: S tier → A tier → B tier (by tier_rank)."""
     catalog_repo.bulk_upsert(
         [
-            {"appid": 7600, "name": "Old Niche"},
+            {"appid": 7600, "name": "Tail"},
             {"appid": 7601, "name": "Popular"},
-            {"appid": 7602, "name": "EA"},
+            {"appid": 7602, "name": "Blockbuster"},
         ]
     )
-    catalog_repo.set_meta_status(7600, "done", review_count=10)
-    catalog_repo.set_meta_status(7601, "done", review_count=2000)
+    catalog_repo.set_meta_status(7600, "done")
+    catalog_repo.set_meta_status(7601, "done")
     catalog_repo.set_meta_status(7602, "done")
-    _seed_game_row(catalog_repo, 7602)
-    _attach_genre(catalog_repo, 7602, 70)
-    _set_meta_crawled_at(catalog_repo, 7600, days_ago=60)  # tier 3
-    _set_meta_crawled_at(catalog_repo, 7601, days_ago=10)  # tier 2
-    _set_meta_crawled_at(catalog_repo, 7602, days_ago=10)  # tier 1
+    _seed_game_row(catalog_repo, 7600, review_count=100)  # B
+    _seed_game_row(catalog_repo, 7601, review_count=2_000)  # A
+    _seed_game_row(catalog_repo, 7602, review_count=50_000)  # S
+    for appid in (7600, 7601, 7602):
+        _set_meta_crawled_at(catalog_repo, appid, days_ago=180)  # everyone due
 
-    appids = [e.appid for e in catalog_repo.find_stale_meta(limit=10)]
-    # Tier 1 first, then tier 2, then tier 3
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
     assert appids.index(7602) < appids.index(7601) < appids.index(7600)
 
 
-def test_find_stale_meta_respects_limit(catalog_repo: CatalogRepository) -> None:
+def test_find_due_meta_respects_limit(catalog_repo: CatalogRepository) -> None:
     catalog_repo.bulk_upsert([{"appid": 7200 + i, "name": f"G{i}"} for i in range(5)])
     for i in range(5):
-        catalog_repo.set_meta_status(7200 + i, "done")
-        _set_meta_crawled_at(catalog_repo, 7200 + i, days_ago=60)
-    stale = catalog_repo.find_stale_meta(limit=3)
-    assert len(stale) == 3
+        appid = 7200 + i
+        catalog_repo.set_meta_status(appid, "done")
+        _seed_game_row(catalog_repo, appid, review_count=100)
+        _set_meta_crawled_at(catalog_repo, appid, days_ago=180)
+    due = catalog_repo.find_due_meta(limit=3, config=_config())
+    assert len(due) == 3
+
+
+def test_find_due_meta_smear_spreads_due_times(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Deterministic smear: games with identical tier+crawl-time are NOT all due simultaneously.
+
+    With S-tier (2d window) and meta_crawled_at exactly 2d ago, the hash-based
+    offset pushes each game's due time into [now, now+2d]. Some subset is due
+    (hash bucket in [0, ~0s]), the rest aren't yet. Compared to the old
+    un-smeared query which would return all 10, the smeared query returns fewer.
+    """
+    appids = list(range(8000, 8020))  # 20 games, diverse appids → diverse hashes
+    catalog_repo.bulk_upsert([{"appid": a, "name": f"G{a}"} for a in appids])
+    for appid in appids:
+        catalog_repo.set_meta_status(appid, "done")
+        _seed_game_row(catalog_repo, appid, review_count=50_000)  # all S tier
+        _set_meta_crawled_at(catalog_repo, appid, days_ago=2)  # exactly at window boundary
+
+    due = catalog_repo.find_due_meta(limit=100, config=_config())
+    # With 20 appids and a 2d smear window, very nearly zero should be due
+    # at exactly last_crawl + window. Without smearing, all 20 would be due.
+    assert len(due) < len(appids)
+
+
+# ── find_due_reviews ─────────────────────────────────────────────────────────
+
+
+def test_find_due_reviews_excludes_tier_c(catalog_repo: CatalogRepository) -> None:
+    """Games with review_count < B-tier threshold (50) never appear in review refresh."""
+    catalog_repo.bulk_upsert([{"appid": 8100, "name": "LowSignal"}])
+    catalog_repo.set_meta_status(8100, "done")
+    _seed_game_row(catalog_repo, 8100, review_count=10)  # tier C
+    # Even with NULL review_crawled_at, it must not appear
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET review_crawled_at=NULL WHERE appid = 8100")
+    catalog_repo.conn.commit()
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8100 not in appids
+
+
+def test_find_due_reviews_excludes_coming_soon(catalog_repo: CatalogRepository) -> None:
+    """Unreleased games skip review refresh — they get reviews after launch naturally."""
+    catalog_repo.bulk_upsert([{"appid": 8200, "name": "PreRelease"}])
+    catalog_repo.set_meta_status(8200, "done")
+    _seed_game_row(catalog_repo, 8200, coming_soon=True, review_count=200)
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET review_crawled_at=NULL WHERE appid = 8200")
+    catalog_repo.conn.commit()
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8200 not in appids
+
+
+def test_find_due_reviews_s_tier_due(catalog_repo: CatalogRepository) -> None:
+    """S-tier review window is 1 day."""
+    catalog_repo.bulk_upsert([{"appid": 8300, "name": "Popular"}])
+    catalog_repo.set_meta_status(8300, "done")
+    _seed_game_row(catalog_repo, 8300, review_count=50_000)
+    _set_review_crawled_at(catalog_repo, 8300, days_ago=3)  # past 1d + 1d smear
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8300 in appids
+
+
+def test_find_due_reviews_b_tier_fresh_not_due(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """B-tier review window is 14 days — a 10-day-old crawl is not yet due."""
+    catalog_repo.bulk_upsert([{"appid": 8400, "name": "Mid"}])
+    catalog_repo.set_meta_status(8400, "done")
+    _seed_game_row(catalog_repo, 8400, review_count=100)
+    _set_review_crawled_at(catalog_repo, 8400, days_ago=10)  # inside 14d window
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8400 not in appids
+
+
+def test_find_due_reviews_nulls_first(catalog_repo: CatalogRepository) -> None:
+    """Eligible games with NULL review_crawled_at get picked up immediately."""
+    catalog_repo.bulk_upsert([{"appid": 8500, "name": "Legacy"}])
+    catalog_repo.set_meta_status(8500, "done")
+    _seed_game_row(catalog_repo, 8500, review_count=200)
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET review_crawled_at=NULL WHERE appid = 8500")
+    catalog_repo.conn.commit()
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8500 in appids

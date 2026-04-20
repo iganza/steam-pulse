@@ -40,13 +40,22 @@ class CatalogRefreshRequest(BaseModel):
     action: Literal["catalog_refresh"]
 
 
-class StaleRefreshRequest(BaseModel):
-    action: Literal["stale_refresh"]
-    limit: int = 2000
+class RefreshMetaRequest(BaseModel):
+    action: Literal["refresh_meta"]
+    limit: int = 600
+
+
+class RefreshReviewsRequest(BaseModel):
+    action: Literal["refresh_reviews"]
+    limit: int = 500
 
 
 DirectRequest = Annotated[
-    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest | StaleRefreshRequest,
+    CrawlAppsRequest
+    | CrawlReviewsRequest
+    | CatalogRefreshRequest
+    | RefreshMetaRequest
+    | RefreshReviewsRequest,
     Field(discriminator="action"),
 ]
 
@@ -130,20 +139,25 @@ class TagsSpokeResult(BaseModel):
 SpokeRequest = MetadataSpokeRequest | ReviewSpokeRequest | TagsSpokeRequest
 
 
-def parse_spoke_request(record: dict, *, review_limit: int) -> SpokeRequest | None:
-    """Parse an SQS record into a typed spoke request.
+def parse_spoke_request(
+    record: dict, *, review_limit: int
+) -> tuple[SpokeRequest | None, str | None]:
+    """Parse an SQS record into (spoke_request, source).
 
     Handles SNS envelope unwrapping, task resolution, and review
-    cursor/target normalization.
+    cursor/target normalization. The body is parsed exactly once; `source`
+    is an observability tag (`"new_game"` | `"refresh"` | None) surfaced
+    alongside the request so the dispatcher doesn't re-parse.
 
-    Returns None if the message should be skipped (e.g. zero review budget).
-    Raises ValueError for unrecognized messages.
+    Returns (None, source) if the message should be skipped (e.g. zero review
+    budget). Raises ValueError for unrecognized messages.
     """
     body = json.loads(record["body"])
     if body.get("Type") == "Notification":
         body = json.loads(body["Message"])
 
     appid = int(body["appid"])
+    source = body.get("source")
 
     # Direct SQS messages carry an explicit "task" field.
     # SNS-routed domain events (game-discovered, game-metadata-ready) don't —
@@ -162,7 +176,7 @@ def parse_spoke_request(record: dict, *, review_limit: int) -> SpokeRequest | No
 
     match task:
         case "tags":
-            return TagsSpokeRequest(appid=appid)
+            return TagsSpokeRequest(appid=appid), source
         case "reviews":
             cursor = body.get("cursor") or "*"
             started_at = body.get("started_at") or datetime.now(tz=UTC).isoformat()
@@ -170,7 +184,7 @@ def parse_spoke_request(record: dict, *, review_limit: int) -> SpokeRequest | No
             if target_raw is None:
                 target = review_limit
             elif target_raw <= 0:
-                return None
+                return None, source
             else:
                 target = target_raw
             return ReviewSpokeRequest(
@@ -178,8 +192,8 @@ def parse_spoke_request(record: dict, *, review_limit: int) -> SpokeRequest | No
                 cursor=cursor,
                 target=target,
                 started_at=started_at,
-            )
+            ), source
         case "metadata":
-            return MetadataSpokeRequest(appid=appid)
+            return MetadataSpokeRequest(appid=appid), source
         case _:
             raise ValueError(f"Unknown task: {task!r} for appid={appid}")

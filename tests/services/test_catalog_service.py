@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 
 import httpx
 from library_layer.config import SteamPulseConfig
+from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.catalog_repo import CatalogRepository
-from library_layer.services.catalog_service import CatalogService
+from library_layer.services.catalog_service import CatalogService, _dispatched_by_tier
 from moto import mock_aws
 
 
@@ -50,12 +51,14 @@ def _make_service(
     api_key: str = "test-key",
     sns_client: object | None = None,
     config: SteamPulseConfig | None = None,
+    review_queue_url: str | None = None,
 ) -> CatalogService:
     return CatalogService(
         catalog_repo=catalog_repo,
         http_client=http_client,
         sqs_client=sqs_client,
         app_crawl_queue_url=queue_url,
+        review_crawl_queue_url=review_queue_url or queue_url,
         sns_client=sns_client or _mock_sns(),
         config=config or _test_config(),
         steam_api_key=api_key,
@@ -167,35 +170,162 @@ def test_status_returns_counts(
     assert status["meta"]["pending"] >= 2
 
 
+def _seed_game_for_tier(
+    catalog_repo: CatalogRepository,
+    appid: int,
+    review_count: int,
+    coming_soon: bool = False,
+) -> None:
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO games (appid, name, slug, type, coming_soon, review_count)
+            VALUES (%s, %s, %s, 'game', %s, %s)
+            ON CONFLICT (appid) DO UPDATE SET
+                coming_soon = EXCLUDED.coming_soon,
+                review_count = EXCLUDED.review_count
+            """,
+            (appid, f"Game {appid}", f"game-{appid}", coming_soon, review_count),
+        )
+    catalog_repo.conn.commit()
+
+
 @mock_aws
-def test_enqueue_stale_sends_metadata_and_tags(
+def test_enqueue_refresh_meta_sends_metadata_and_tags(
     catalog_repo: CatalogRepository,
 ) -> None:
     import boto3
 
     sqs = boto3.client("sqs", region_name="us-east-1")
-    queue_url = sqs.create_queue(QueueName="app-crawl-stale")["QueueUrl"]
+    queue_url = sqs.create_queue(QueueName="app-crawl-refresh")["QueueUrl"]
 
     catalog_repo.bulk_upsert([{"appid": 800 + i, "name": f"S{i}"} for i in range(2)])
     for i in range(2):
-        catalog_repo.set_meta_status(800 + i, "done")
+        appid = 800 + i
+        catalog_repo.set_meta_status(appid, "done")
+        _seed_game_for_tier(catalog_repo, appid, review_count=100)  # B tier
     with catalog_repo.conn.cursor() as cur:
         cur.execute(
-            "UPDATE app_catalog SET meta_crawled_at = NOW() - INTERVAL '40 days' "
+            "UPDATE app_catalog SET meta_crawled_at = NOW() - INTERVAL '180 days' "
             "WHERE appid IN (800, 801)"
         )
     catalog_repo.conn.commit()
 
     with httpx.Client() as http_client:
         svc = _make_service(catalog_repo, sqs, queue_url, http_client)
-        count = svc.enqueue_stale(limit=10)
+        count = svc.enqueue_refresh_meta(limit=10)
 
     assert count == 2
 
-    # 2 appids x 2 tasks (metadata + tags) = 4 messages
+    # 2 appids × 2 tasks (metadata + tags) = 4 messages
     import json as _json
 
     resp = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
     received = [_json.loads(m["Body"]) for m in resp.get("Messages", [])]
     tasks = sorted(m["task"] for m in received)
     assert tasks == ["metadata", "metadata", "tags", "tags"]
+    # Every scheduled-refresh message must carry source='refresh' so the
+    # dispatcher's queue-volume attribution matches the review path.
+    assert all(m.get("source") == "refresh" for m in received)
+
+
+@mock_aws
+def test_enqueue_refresh_reviews_tags_source_refresh(
+    catalog_repo: CatalogRepository,
+) -> None:
+    import boto3
+
+    sqs = boto3.client("sqs", region_name="us-east-1")
+    app_q = sqs.create_queue(QueueName="app-crawl-refresh-rev")["QueueUrl"]
+    rev_q = sqs.create_queue(QueueName="review-crawl-refresh")["QueueUrl"]
+
+    catalog_repo.bulk_upsert([{"appid": 900 + i, "name": f"R{i}"} for i in range(2)])
+    for i in range(2):
+        appid = 900 + i
+        catalog_repo.set_meta_status(appid, "done")
+        _seed_game_for_tier(catalog_repo, appid, review_count=5_000)  # A tier, not coming_soon
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_catalog SET review_crawled_at = NOW() - INTERVAL '30 days' "
+            "WHERE appid IN (900, 901)"
+        )
+    catalog_repo.conn.commit()
+
+    with httpx.Client() as http_client:
+        svc = _make_service(
+            catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q
+        )
+        count = svc.enqueue_refresh_reviews(limit=10)
+
+    assert count == 2
+
+    import json as _json
+
+    resp = sqs.receive_message(QueueUrl=rev_q, MaxNumberOfMessages=10)
+    received = [_json.loads(m["Body"]) for m in resp.get("Messages", [])]
+    assert len(received) == 2
+    # Each message must be tagged source='refresh' so the dispatcher logs it
+    # and dashboards can attribute queue volume.
+    for msg in received:
+        assert msg["source"] == "refresh"
+        assert msg["appid"] in {900, 901}
+
+
+@mock_aws
+def test_enqueue_refresh_reviews_skips_coming_soon(
+    catalog_repo: CatalogRepository,
+) -> None:
+    import boto3
+
+    sqs = boto3.client("sqs", region_name="us-east-1")
+    app_q = sqs.create_queue(QueueName="app-crawl-cs-skip")["QueueUrl"]
+    rev_q = sqs.create_queue(QueueName="review-crawl-cs-skip")["QueueUrl"]
+
+    catalog_repo.bulk_upsert([{"appid": 950, "name": "Upcoming"}])
+    catalog_repo.set_meta_status(950, "done")
+    _seed_game_for_tier(catalog_repo, 950, review_count=500, coming_soon=True)
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET review_crawled_at = NULL WHERE appid = 950")
+    catalog_repo.conn.commit()
+
+    with httpx.Client() as http_client:
+        svc = _make_service(
+            catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q
+        )
+        count = svc.enqueue_refresh_reviews(limit=10)
+
+    assert count == 0
+
+
+def _stub_entry(appid: int, tier_rank: int | None) -> CatalogEntry:
+    return CatalogEntry(appid=appid, name=f"Game {appid}", tier_rank=tier_rank)
+
+
+def test_dispatched_by_tier_counts_each_tier() -> None:
+    entries = [
+        _stub_entry(1, 0),  # S
+        _stub_entry(2, 0),  # S
+        _stub_entry(3, 1),  # A
+        _stub_entry(4, 2),  # B
+        _stub_entry(5, 2),  # B
+        _stub_entry(6, 3),  # C
+    ]
+    assert _dispatched_by_tier(entries) == {
+        "S": 2,
+        "A": 1,
+        "B": 2,
+        "C": 1,
+        "unknown": 0,
+    }
+
+
+def test_dispatched_by_tier_surfaces_unknown_ranks() -> None:
+    """Unexpected tier_rank values show up in the 'unknown' bucket, not silently dropped."""
+    entries = [
+        _stub_entry(1, 0),  # S
+        _stub_entry(2, 99),  # out-of-range
+        _stub_entry(3, None),  # NULL from DB
+    ]
+    result = _dispatched_by_tier(entries)
+    assert result["S"] == 1
+    assert result["unknown"] == 2

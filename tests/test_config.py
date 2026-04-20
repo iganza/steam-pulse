@@ -48,6 +48,53 @@ def test_model_for_returns_configured_model() -> None:
     config = SteamPulseConfig(**_ALL_REQUIRED)
     assert config.model_for("chunking") == "anthropic.claude-haiku-test-v1:0"
     assert config.model_for("summarizer") == "anthropic.claude-sonnet-test-v1:0"
+
+
+def test_refresh_tier_zero_days_rejected() -> None:
+    """Zero day intervals would cause divide-by-zero in the smear SQL."""
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(**_ALL_REQUIRED, REFRESH_META_TIER_S_DAYS=0)
+    assert "REFRESH_META_TIER_S_DAYS" in str(exc.value)
+
+
+def test_refresh_tier_negative_days_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(**_ALL_REQUIRED, REFRESH_REVIEWS_TIER_A_DAYS=-1)
+    assert "REFRESH_REVIEWS_TIER_A_DAYS" in str(exc.value)
+
+
+def test_refresh_batch_limit_zero_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(**_ALL_REQUIRED, REFRESH_META_BATCH_LIMIT=0)
+    assert "REFRESH_META_BATCH_LIMIT" in str(exc.value)
+
+
+def test_refresh_tier_b_must_match_review_eligibility_threshold() -> None:
+    """Tier B is defined as the analysis-eligibility bar — drift breaks the invariant."""
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(
+            **_ALL_REQUIRED,
+            REFRESH_TIER_B_REVIEW_COUNT=75,  # REVIEW_ELIGIBILITY_THRESHOLD defaults to 50
+        )
+    msg = str(exc.value)
+    assert "REFRESH_TIER_B_REVIEW_COUNT" in msg
+    assert "REVIEW_ELIGIBILITY_THRESHOLD" in msg
+
+
+def test_refresh_tier_b_matches_when_overridden_together() -> None:
+    """Shifting the eligibility bar works when both thresholds move together."""
+    cfg = SteamPulseConfig(
+        **_ALL_REQUIRED,
+        REVIEW_ELIGIBILITY_THRESHOLD=100,
+        REFRESH_TIER_B_REVIEW_COUNT=100,
+    )
+    assert cfg.REVIEW_ELIGIBILITY_THRESHOLD == 100
+    assert cfg.REFRESH_TIER_B_REVIEW_COUNT == 100
+
+
+def test_model_for_returns_configured_model_for_genre_synthesis() -> None:
+    """model_for() resolves the genre-synthesis task configured in _ALL_REQUIRED."""
+    config = SteamPulseConfig(**_ALL_REQUIRED)
     assert config.model_for("genre_synthesis") == "anthropic.claude-sonnet-test-v1:0"
 
 

@@ -23,6 +23,8 @@ Usage:
   poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
   poetry run python scripts/sp.py queue tags <appid...>      # publish tag backfill for specific games
   poetry run python scripts/sp.py queue tags --all           # all games for Steam tag crawl
+  poetry run python scripts/sp.py queue refresh-meta [--limit N]     # tier-due metadata + tags
+  poetry run python scripts/sp.py queue refresh-reviews [--limit N]  # tier-due review refresh
 
   poetry run python scripts/sp.py db init [--env staging|production]
   poetry run python scripts/sp.py db status [--env staging|production]
@@ -468,13 +470,54 @@ def _pending_meta(n: int) -> list[int]:
     return [e.appid for e in entries]
 
 
-def _stale_meta(n: int) -> list[int]:
+def _due_meta(n: int, config: SteamPulseConfig | None = None) -> list[int]:
+    """Return appids whose metadata refresh slot has come due (dry-run).
+
+    Pass `config` when calling from a deployed-command code path (`queue …`);
+    in those contexts `.env` isn't auto-loaded, so constructing `SteamPulseConfig()`
+    implicitly would fail on missing required fields. For local Python helpers
+    the default `SteamPulseConfig()` works because module init sets dummy env vars.
+    """
+    config = config or SteamPulseConfig()
     conn, _, catalog_repo, _, _ = _get_repos()
     try:
-        entries = catalog_repo.find_stale_meta(limit=n)
+        entries = catalog_repo.find_due_meta(limit=n, config=config)
     finally:
         conn.close()
     return [e.appid for e in entries]
+
+
+def _due_reviews(n: int, config: SteamPulseConfig | None = None) -> list[int]:
+    """Return appids whose review refresh slot has come due (dry-run)."""
+    config = config or SteamPulseConfig()
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        entries = catalog_repo.find_due_reviews(limit=n, config=config)
+    finally:
+        conn.close()
+    return [e.appid for e in entries]
+
+
+def refresh_meta_once(limit: int | None = None) -> list[int]:
+    """Operator dry-run: appids the hourly meta-refresh dispatcher would enqueue.
+
+    Defaults `limit` to `SteamPulseConfig.REFRESH_META_BATCH_LIMIT` so local
+    dry-runs stay aligned with the deployed EventBridge rule payload.
+
+    Use from a shell to sanity-check the tier query before flipping the
+    EventBridge rule to enabled=True:
+        poetry run python -c "from scripts.sp import refresh_meta_once; print(refresh_meta_once(limit=5))"
+    """
+    if limit is None:
+        limit = SteamPulseConfig().REFRESH_META_BATCH_LIMIT
+    return _due_meta(limit)
+
+
+def refresh_reviews_once(limit: int | None = None) -> list[int]:
+    """Operator dry-run: appids the hourly review-refresh dispatcher would enqueue."""
+    if limit is None:
+        limit = SteamPulseConfig().REFRESH_REVIEWS_BATCH_LIMIT
+    return _due_reviews(limit)
 
 
 def _eligible_reviews(n: int) -> list[int]:
@@ -637,8 +680,14 @@ def cmd_queue(
     dry_run: bool,
     env: str = "staging",
     max_reviews: int | None = None,
+    source: str | None = None,
 ) -> None:
-    """Publish appids to deployed SQS queues for the spoke pipeline to process."""
+    """Publish appids to deployed SQS queues for the spoke pipeline to process.
+
+    `source` is written into each message body (e.g. "refresh" for tier-driven
+    refresh). The primary crawler's dispatch handler logs this so dashboards
+    can attribute queue volume to new-game onboarding vs tiered refresh.
+    """
     config = SteamPulseConfig.for_environment(env)
 
     if task in ("metadata", "tags"):
@@ -651,11 +700,15 @@ def cmd_queue(
     _info(f"Publishing {len(appids)} appids → {label}")
     if max_reviews is not None:
         _info(f"  max_reviews={max_reviews}")
+    if source is not None:
+        _info(f"  source={source}")
 
     def _make_body(appid: int) -> dict:
         body: dict = {"appid": appid, "task": task}
         if task == "reviews" and max_reviews is not None:
             body["target"] = max_reviews
+        if source is not None:
+            body["source"] = source
         return body
 
     if dry_run:
@@ -1200,14 +1253,37 @@ def _build_parser() -> argparse.ArgumentParser:
     qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qt.add_argument("--dry-run", action="store_true")
 
-    qs = qu_sub.add_parser(
-        "stale",
-        help="Re-crawl stale metadata — enqueues metadata + tags tasks",
+    # Argparse defaults are literals, not SteamPulseConfig() lookups, because
+    # this parser is also built for deployed commands (`queue`, `db`, `spokes`,
+    # `logs`, `batch`, `dispatch`) where `.env` is not auto-loaded and module
+    # init does NOT inject dummy infra defaults. Instantiating SteamPulseConfig
+    # at parser-build time would crash even `--help`. The actual dispatcher
+    # resolves env-specific defaults via SteamPulseConfig.for_environment(env).
+    qrm = qu_sub.add_parser(
+        "refresh-meta",
+        help="Tier-due metadata refresh — enqueues metadata + tags tasks",
     )
-    qs.add_argument(
-        "--limit", type=int, default=2000, metavar="N", help="Max appids to enqueue (default: 2000)"
+    qrm.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max appids to enqueue (default: SteamPulseConfig.REFRESH_META_BATCH_LIMIT)",
     )
-    qs.add_argument("--dry-run", action="store_true")
+    qrm.add_argument("--dry-run", action="store_true")
+
+    qrr = qu_sub.add_parser(
+        "refresh-reviews",
+        help="Tier-due review refresh — enqueues review-crawl tasks",
+    )
+    qrr.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max appids to enqueue (default: SteamPulseConfig.REFRESH_REVIEWS_BATCH_LIMIT)",
+    )
+    qrr.add_argument("--dry-run", action="store_true")
 
     # ── logs (query spoke logs across regions)
     lg = sub.add_parser("logs", help="Query spoke logs across all regions")
@@ -1303,11 +1379,19 @@ def main() -> None:
             if args.all_games:
                 appids = _all_games(args.limit or 200_000)
             cmd_queue("tags", appids, args.dry_run, args.env)
-        elif args.queue_cmd == "stale":
-            stale_ids = _stale_meta(args.limit)
-            _info(f"Found {len(stale_ids)} stale appids")
-            cmd_queue("metadata", stale_ids, args.dry_run, args.env)
-            cmd_queue("tags", stale_ids, args.dry_run, args.env)
+        elif args.queue_cmd == "refresh-meta":
+            env_config = SteamPulseConfig.for_environment(args.env)
+            limit = args.limit if args.limit is not None else env_config.REFRESH_META_BATCH_LIMIT
+            due_ids = _due_meta(limit, config=env_config)
+            _info(f"Found {len(due_ids)} tier-due appids for metadata refresh")
+            cmd_queue("metadata", due_ids, args.dry_run, args.env, source="refresh")
+            cmd_queue("tags", due_ids, args.dry_run, args.env, source="refresh")
+        elif args.queue_cmd == "refresh-reviews":
+            env_config = SteamPulseConfig.for_environment(args.env)
+            limit = args.limit if args.limit is not None else env_config.REFRESH_REVIEWS_BATCH_LIMIT
+            due_ids = _due_reviews(limit, config=env_config)
+            _info(f"Found {len(due_ids)} tier-due appids for review refresh")
+            cmd_queue("reviews", due_ids, args.dry_run, args.env, source="refresh")
 
     elif args.cmd == "logs":
         if args.logs_cmd == "errors":

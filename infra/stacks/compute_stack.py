@@ -618,11 +618,14 @@ class ComputeStack(cdk.Stack):
             )
         )
 
-        # EventBridge fallback — refresh every 6 hours
+        # EventBridge fallback — refresh every 6 hours.
+        # Staging: schedule disabled by convention (no cron in non-prod envs).
+        # Staging operators refresh matviews ad-hoc via sp.py.
         events.Rule(
             self,
             "MatviewRefreshSchedule",
             schedule=events.Schedule.rate(cdk.Duration.hours(6)),
+            enabled=config.is_production,
         ).add_target(events_targets.LambdaFunction(matview_refresh_fn))
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
@@ -832,11 +835,12 @@ class ComputeStack(cdk.Stack):
 
         # Hourly catalog refresh — fetches Steam GetAppList, upserts new apps,
         # and enqueues any pending metadata crawls.
+        # Prod-only: no cron in staging (catalog discovery is ad-hoc via sp.py).
         catalog_rule = events.Rule(
             self,
             "CatalogRefreshRule",
             schedule=events.Schedule.rate(cdk.Duration.hours(1)),
-            enabled=True,
+            enabled=config.is_production,
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
@@ -844,13 +848,13 @@ class ComputeStack(cdk.Stack):
         # batch of tier-due metadata / review crawls. Work is smeared
         # deterministically across each tier's refresh window via
         # hashtext(appid) so load is smooth instead of spiking at boundaries.
-        # Both rules ship `enabled=False` — flip on manually after review.
+        # Prod-only: no cron in staging (ad-hoc refresh via sp.py).
         refresh_meta_rule = events.Rule(
             self,
             "RefreshMetaRule",
             schedule=events.Schedule.rate(cdk.Duration.hours(1)),
             description="Hourly tiered metadata refresh dispatcher",
-            enabled=False,
+            enabled=config.is_production,
         )
         refresh_meta_rule.add_target(
             events_targets.LambdaFunction(
@@ -869,7 +873,7 @@ class ComputeStack(cdk.Stack):
             "RefreshReviewsRule",
             schedule=events.Schedule.rate(cdk.Duration.hours(1)),
             description="Hourly tiered review refresh dispatcher",
-            enabled=False,
+            enabled=config.is_production,
         )
         refresh_reviews_rule.add_target(
             events_targets.LambdaFunction(

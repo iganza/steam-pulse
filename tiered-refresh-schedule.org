@@ -1,0 +1,167 @@
+#+TITLE: Tiered Refresh Schedule — Quick Reference
+#+DATE: 2026-04-20
+#+OPTIONS: toc:nil num:nil
+
+Hourly dispatcher that smears work across each tier's refresh window via
+=hashtext(appid)=. No daily peaks, no weekly peaks — behavior is flat.
+
+* Tiers (first match wins)
+
+| Tier | Membership                                                 | Meta    | Reviews |
+|------+------------------------------------------------------------+---------+---------|
+| S    | review_count ≥ 10,000                                      | 2 days  | 1 day   |
+| A    | coming_soon OR EA genre OR review_count ≥ 1,000            | 7 days  | 3 days  |
+| B    | review_count ≥ 50                                          | 21 days | 14 days |
+| C    | everything else                                            | 90 days | —       |
+
+Reviews additionally exclude =coming_soon= (no reviews to refresh yet).
+
+* Catalog populations (measured pre-ship)
+
+| Tier  | Meta-eligible | Review-eligible            |
+|-------+---------------+----------------------------|
+| S     | ~1,900        | ~1,900                     |
+| A     | ~60,000       | ~17,000 (excl. unreleased) |
+| B     | ~28,000       | ~28,000                    |
+| C     | ~68,000       | 0                          |
+| *Total* | *~158k*         | *~47k*                       |
+
+* Per-game refresh frequency
+
+How often a single game in each tier gets re-crawled:
+
+| Tier | Meta / week | Reviews / week |
+|------+-------------+----------------|
+| S    | 3.5         | 7.0            |
+| A    | 1.0         | 2.3            |
+| B    | 0.33        | 0.5            |
+| C    | 0.078       | 0              |
+
+So an S-tier blockbuster refreshes metadata ~every 2 days and reviews daily;
+a long-tail C-tier game's metadata gets touched once every ~3 months.
+
+* Catalog-wide dispatch volume
+
+** Steady-state per hour (measured)
+
+| Kind    | Demand | Dispatcher cap | Headroom |
+|---------+--------+----------------+----------|
+| Meta    | ~486   | 600            | ~19%     |
+| Reviews | ~402   | 500            | ~20%     |
+
+** Rolled up by day / week
+
+| Kind    | /hour | /day    | /week     |
+|---------+-------+---------+-----------|
+| Meta    | 486   | 11,664  | 81,648    |
+| Reviews | 402   | 9,648   | 67,536    |
+| *Total* | *888* | *21,312* | *149,184* |
+
+So, **~21k refresh messages per day**, **~149k per week**, split roughly 55/45
+between metadata and reviews. Every message fans out to the spoke pipeline
+(per-region Lambda + ingest).
+
+* Hourly dispatch (what it looks like all week)
+
+Two EventBridge rules fire every hour, independently:
+
+- =RefreshMetaRule=    → crawler Lambda → =enqueue_refresh_meta(limit=600)=
+- =RefreshReviewsRule= → crawler Lambda → =enqueue_refresh_reviews(limit=500)=
+
+The dispatcher sorts due candidates by tier_rank (S=0 → C=3), so S always wins
+when batch headroom is tight. Within a tier, oldest-due-first.
+
+#+begin_src text
+Hour:   00  01  02  03  04  05  06  07  08  09  10  11  12  13  14  15  16  17  18  19  20  21  22  23
+Meta:  ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇ ▇▇▇   (~486/hr)
+Rev:   ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇  ▇▇    (~402/hr)
+#+end_src
+
+Smearing is =hash(appid) mod window_seconds=, so within each tier window the
+due-times are uniformly distributed. No Monday-morning spike, no midnight
+batch. Hour-by-hour shape = flat, day-by-day shape = flat.
+
+* What to watch
+
+The dispatcher logs one line per hour per kind:
+
+#+begin_src text
+refresh_meta enqueued    enqueued=486 limit=600 oldest_due_age_hours=3.2 dispatched_by_tier={S:11, A:357, B:87, C:31, unknown:0}
+refresh_reviews enqueued enqueued=402 limit=500 oldest_due_age_hours=8.1 dispatched_by_tier={S:79, A:239, B:84, C:0,  unknown:0}
+#+end_src
+
+- =enqueued= near =limit= for multiple hours → demand outgrowing capacity.
+- =oldest_due_age_hours= climbing day-over-day → we're falling behind; raise
+  =REFRESH_{META,REVIEWS}_BATCH_LIMIT= in config.
+- =dispatched_by_tier= mix drifting toward S+A only → B/C getting starved;
+  same remedy.
+- Any non-zero =unknown= → repo/query bug, investigate.
+
+* Status commands (quick reference)
+
+** Primary check — dispatcher activity
+
+#+begin_src sh
+poetry run python scripts/logs.py refresh --env production
+#+end_src
+
+Shows every hourly =refresh_meta enqueued= / =refresh_reviews enqueued= line
+with =enqueued=, =limit=, =oldest_due_age_hours=, =dispatched_by_tier=. Run
+this first. Run it a few times a day in the first week after enablement to
+confirm steady-state.
+
+** Complementary checks
+
+#+begin_src sh
+# Catalog-wide counts (pending/done/failed per phase)
+poetry run python scripts/sp.py catalog status --env production
+
+# Dry-run the dispatcher selection query (no SQS publish)
+poetry run python scripts/sp.py queue refresh-meta --dry-run --env production
+poetry run python scripts/sp.py queue refresh-reviews --dry-run --env production
+
+# Review crawl progress at the appid level
+poetry run python scripts/logs.py review-complete --env production
+poetry run python scripts/logs.py review-dispatch --env production
+
+# Spoke health across regions
+poetry run python scripts/sp.py spokes status --env production
+
+# Confirm the EventBridge rules are actually enabled
+aws events list-rules --name-prefix Refresh --profile <prod-profile>
+#+end_src
+
+** DB-level backlog view
+
+Shows each tier's population and how stale it currently is — useful if
+=oldest_due_age_hours= starts climbing and you want to see *which* tier is
+responsible.
+
+#+begin_src sql
+SELECT
+  CASE
+    WHEN g.review_count >= 10000 THEN 'S'
+    WHEN g.coming_soon OR gg.genre_id IS NOT NULL OR g.review_count >= 1000 THEN 'A'
+    WHEN g.review_count >= 50 THEN 'B'
+    ELSE 'C'
+  END AS tier,
+  COUNT(*) AS games,
+  MIN(ac.meta_crawled_at) AS oldest_meta,
+  MIN(ac.review_crawled_at) AS oldest_review,
+  AVG(EXTRACT(EPOCH FROM NOW() - ac.meta_crawled_at) / 86400)::int AS avg_meta_age_days
+FROM app_catalog ac
+JOIN games g ON g.appid = ac.appid
+LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
+WHERE ac.meta_status = 'done'
+GROUP BY tier
+ORDER BY tier;
+#+end_src
+
+Run via: =poetry run python scripts/sp.py db query --env production --sql "…"=
+
+* Environment gating
+
+Schedules only fire in production. Staging deploys the same CDK stack but
+every =events.Rule= is =enabled=config.is_production= → disabled in staging.
+Ad-hoc testing in staging uses =sp.py= (direct Lambda invoke or SQS publish)
+instead of the EventBridge rule.

@@ -140,7 +140,10 @@ class CrawlSpokeStack(cdk.Stack):
             role=role,
             timeout=cdk.Duration.minutes(10),
             memory_size=256,
-            tracing=lambda_.Tracing.ACTIVE,
+            # X-Ray disabled on spokes — high-volume simple Steam fetchers where
+            # CloudWatch logs + Lambda duration/error metrics give enough signal.
+            # Keep ACTIVE on crawler/ingest where cross-service traces matter.
+            tracing=lambda_.Tracing.DISABLED,
             recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
                 self,

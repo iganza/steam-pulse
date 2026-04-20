@@ -18,7 +18,6 @@ import { IntelligenceCards } from "@/components/home/IntelligenceCards";
 import { GameShowcase } from "@/components/home/GameShowcase";
 import type { ShowcaseGame } from "@/components/home/GameShowcase";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
-import { ForDevelopers } from "@/components/home/ForDevelopers";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game, TagGroup } from "@/lib/types";
@@ -173,7 +172,7 @@ export default async function HomePage() {
       label: "New on Steam",
       icon: <Sparkles className="w-4 h-4" style={{ color: "var(--teal)" }} />,
       games: newGames,
-      seeAll: "/new-releases",
+      seeAll: "/search?sort=release_date",
     },
   ];
 
@@ -275,9 +274,6 @@ export default async function HomePage() {
             </div>
           </section>
         )}
-
-        {/* For Developers */}
-        <ForDevelopers />
 
         {/* Browse by Genre */}
         {genreList.length > 0 && (

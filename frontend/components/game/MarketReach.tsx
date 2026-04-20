@@ -10,7 +10,6 @@ interface MarketReachProps {
   // "insufficient_reviews" | "free_to_play" | "missing_price" | "excluded_type" | null
   reason: string | null;
   reviewCount: number;
-  isPro: boolean;
 }
 
 // ±50% confidence band — matches the documented Boxleiter v1 precision.
@@ -95,23 +94,16 @@ function Stat({
   label,
   value,
   formatter,
-  isPro,
 }: {
   label: string;
   value: number;
   formatter: (n: number) => string;
-  isPro: boolean;
 }) {
-  // Point estimate with the ±50% range exposed as a title tooltip.
-  // Rounding is applied to the point (≈) AND to the range endpoints so the
-  // hover value stays coarse too.
   const point = roundToSigFigs(value);
   const low = roundToSigFigs(value * (1 - CONFIDENCE));
   const high = roundToSigFigs(value * (1 + CONFIDENCE));
   const rangeTooltip = `Range: ${formatter(low)} – ${formatter(high)} (±50%)`;
 
-  // Labels and confidence pills remain fully readable on the free tier —
-  // only the numeric estimate is blurred + hidden from screen readers.
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -120,19 +112,10 @@ function Stat({
         </span>
         <ConfidencePill />
       </div>
-      <p
-        className={
-          isPro
-            ? "font-mono text-lg font-medium"
-            : "font-mono text-lg font-medium blur-sm pointer-events-none select-none"
-        }
-        aria-hidden={!isPro}
-        title={isPro ? rangeTooltip : undefined}
-      >
+      <p className="font-mono text-lg font-medium" title={rangeTooltip}>
         <span className="text-muted-foreground mr-0.5">≈</span>
         {formatter(point)}
       </p>
-      {!isPro && <span className="sr-only">{label} available with Pro.</span>}
     </div>
   );
 }
@@ -143,7 +126,6 @@ export function MarketReach({
   method,
   reason,
   reviewCount,
-  isPro,
 }: MarketReachProps) {
   const hasEstimate = estimatedOwners != null && estimatedRevenueUsd != null;
 
@@ -168,13 +150,11 @@ export function MarketReach({
                 label="Estimated owners"
                 value={estimatedOwners!}
                 formatter={formatOwners}
-                isPro={isPro}
               />
               <Stat
                 label="Estimated gross revenue"
                 value={estimatedRevenueUsd!}
                 formatter={formatRevenue}
-                isPro={isPro}
               />
             </div>
             <div className="mt-4 flex items-center gap-3 flex-wrap">
@@ -184,25 +164,6 @@ export function MarketReach({
                 Gross revenue before Steam&rsquo;s 30% cut, refunds, and regional pricing.
               </p>
             </div>
-            {!isPro && (
-              // Inline CTA (not an absolute overlay) so labels, confidence
-              // pills, method pill, and explainer all remain readable.
-              <div className="mt-4 flex items-center gap-3">
-                <Link
-                  href="/pro"
-                  data-testid="market-reach-cta"
-                  aria-label="Market reach estimate — unlock with Pro"
-                  className="text-sm font-mono px-4 py-1.5 rounded-full transition-colors"
-                  style={{
-                    background: "rgba(45,185,212,0.15)",
-                    color: "var(--teal)",
-                    border: "1px solid rgba(45,185,212,0.3)",
-                  }}
-                >
-                  Unlock with Pro →
-                </Link>
-              </div>
-            )}
           </>
         )}
       </div>

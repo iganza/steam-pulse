@@ -163,14 +163,6 @@ export default async function DeveloperPage({ params }: Props) {
             No games found for this developer.
           </p>
         )}
-
-        {/* Pro CTA */}
-        <p className="mt-12 text-sm text-muted-foreground text-center">
-          Want a competitive analysis across all games in this developer&apos;s primary genre?{" "}
-          <Link href="/pro" className="font-mono hover:text-foreground transition-colors" style={{ color: "var(--teal)" }}>
-            Developer Intelligence (Pro) &rarr;
-          </Link>
-        </p>
       </div>
     </div>
   );

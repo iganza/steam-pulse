@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, FileText, Gem, TrendingUp, Sparkles, Compass, Swords, X, Menu } from "lucide-react";
+import { ChevronDown, FileText, Gem, Info, X, Menu } from "lucide-react";
 import type { Genre, TagGroup } from "@/lib/types";
 import { SearchAutocomplete } from "./SearchAutocomplete";
 
@@ -165,28 +165,10 @@ export function Navbar() {
             <FileText className="w-3 h-3" /> Reports
           </Link>
           <Link
-            href="/new-releases"
+            href="/about"
             className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Sparkles className="w-3 h-3" /> New Releases
-          </Link>
-          <Link
-            href="/trending"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <TrendingUp className="w-3 h-3" /> Trending
-          </Link>
-          <Link
-            href="/explore"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Compass className="w-3 h-3" /> Explore
-          </Link>
-          <Link
-            href="/compare"
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Swords className="w-3 h-3" /> Compare
+            <Info className="w-3 h-3" /> About
           </Link>
         </div>
 
@@ -200,15 +182,6 @@ export function Navbar() {
             inputClassName="w-full pl-8 pr-3 py-1.5 rounded-lg bg-card border border-border text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-teal-400/30 transition-all"
           />
         </form>
-
-        {/* For Developers */}
-        <Link
-          href="/pro"
-          className="hidden md:block flex-shrink-0 text-sm font-mono tracking-widest hover:text-foreground transition-colors"
-          style={{ color: "var(--teal)" }}
-        >
-          For Developers &rarr;
-        </Link>
 
         {/* Mobile menu toggle */}
         <button
@@ -235,13 +208,9 @@ export function Navbar() {
             />
           </form>
           <div className="space-y-1">
-            <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Browse All Games</Link>
             <Link href="/reports" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Reports</Link>
-            <Link href="/new-releases" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">New Releases</Link>
-            <Link href="/trending" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Trending</Link>
-            <Link href="/explore" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Explore</Link>
-            <Link href="/compare" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Compare</Link>
-            <Link href="/pro" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base" style={{ color: "var(--teal)" }}>For Developers &rarr;</Link>
+            <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Browse All Games</Link>
+            <Link href="/about" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">About</Link>
           </div>
         </div>
       )}

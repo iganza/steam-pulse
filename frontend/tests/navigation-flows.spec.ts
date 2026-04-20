@@ -38,23 +38,9 @@ test.describe('User journeys', () => {
     await expect(page).toHaveURL(/\/genre\/action/)
   })
 
-  test('/trending page loads', async ({ page }) => {
+  test('/about page loads', async ({ page }) => {
     await mockAllApiRoutes(page)
-    await page.goto('/trending')
-    await expect(page.getByRole('heading', { name: /trending/i })).toBeVisible()
-  })
-
-  test('/new-releases page loads with three lens tabs', async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.goto('/new-releases')
-    await expect(page.getByTestId('lens-released')).toBeVisible()
-    await expect(page.getByTestId('lens-upcoming')).toBeVisible()
-    await expect(page.getByTestId('lens-added')).toBeVisible()
-  })
-
-  test('/pro page loads', async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.goto('/pro')
-    await expect(page.getByRole('heading', { name: /join the waitlist/i })).toBeVisible()
+    await page.goto('/about')
+    await expect(page.getByRole('heading', { name: /about steampulse/i })).toBeVisible()
   })
 })

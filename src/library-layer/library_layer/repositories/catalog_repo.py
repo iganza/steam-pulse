@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import psycopg2.extras
+from library_layer.config import SteamPulseConfig
 from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.base import BaseRepository
 
@@ -75,41 +76,133 @@ class CatalogRepository(BaseRepository):
         rows = self._fetchall(sql, params)
         return [CatalogEntry.model_validate(dict(r)) for r in rows]
 
-    def find_stale_meta(self, limit: int = 2000) -> list[CatalogEntry]:
-        """Return catalog entries whose metadata is stale and should be re-crawled.
+    def find_due_meta(
+        self, limit: int, config: SteamPulseConfig
+    ) -> list[CatalogEntry]:
+        """Return catalog entries whose metadata refresh window has elapsed.
 
-        Priority tiers (ordered most to least urgent):
-          1. Early Access / coming-soon games → stale after 7 days
-          2. Popular games (review_count >= 1000) → stale after 7 days
-          3. Everything else with meta_status='done' → stale after 30 days
+        Tiers (first match wins): S (top popularity) → A (EA/coming-soon/popular)
+        → B (analysis-eligible) → C (long tail). Each tier has its own cadence.
 
-        NULLS FIRST ensures legacy rows (no meta_crawled_at) get refreshed first.
+        Deterministic smearing: a game's due time is offset into its tier's
+        window by `hashtext(appid::text) % window_seconds`, so work spreads
+        evenly instead of spiking at every tier boundary. Same appid always
+        hashes to the same slot — no "due / not due" oscillation.
+
+        NULLS FIRST ensures legacy rows (no meta_crawled_at) refresh first.
         """
+        s_secs = config.REFRESH_META_TIER_S_DAYS * 86400
+        a_secs = config.REFRESH_META_TIER_A_DAYS * 86400
+        b_secs = config.REFRESH_META_TIER_B_DAYS * 86400
+        c_secs = config.REFRESH_META_TIER_C_DAYS * 86400
         rows = self._fetchall(
             """
-            SELECT ac.* FROM app_catalog ac
-            LEFT JOIN games g ON g.appid = ac.appid
-            LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
-            WHERE ac.meta_status = 'done'
-              AND (
-                ((g.coming_soon = TRUE OR gg.genre_id IS NOT NULL)
-                  AND (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '7 days'))
-                OR
-                (ac.review_count >= 1000
-                  AND (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '7 days'))
-                OR
-                (ac.meta_crawled_at IS NULL OR ac.meta_crawled_at < NOW() - INTERVAL '30 days')
-              )
-            ORDER BY
-              CASE
-                WHEN g.coming_soon = TRUE OR gg.genre_id IS NOT NULL THEN 0
-                WHEN ac.review_count >= 1000 THEN 1
-                ELSE 2
-              END,
-              ac.meta_crawled_at ASC NULLS FIRST
-            LIMIT %s
+            WITH tiered AS (
+              SELECT
+                ac.*,
+                CASE
+                  WHEN g.review_count >= %(s_threshold)s THEN %(s_secs)s
+                  WHEN g.coming_soon = TRUE
+                    OR gg.genre_id IS NOT NULL
+                    OR g.review_count >= %(a_threshold)s THEN %(a_secs)s
+                  WHEN g.review_count >= %(b_threshold)s THEN %(b_secs)s
+                  ELSE %(c_secs)s
+                END AS window_secs,
+                CASE
+                  WHEN g.review_count >= %(s_threshold)s THEN 0
+                  WHEN g.coming_soon = TRUE
+                    OR gg.genre_id IS NOT NULL
+                    OR g.review_count >= %(a_threshold)s THEN 1
+                  WHEN g.review_count >= %(b_threshold)s THEN 2
+                  ELSE 3
+                END AS tier_rank
+              FROM app_catalog ac
+              JOIN games g ON g.appid = ac.appid
+              LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
+              WHERE ac.meta_status = 'done'
+            )
+            SELECT * FROM tiered
+            WHERE
+              meta_crawled_at IS NULL
+              OR meta_crawled_at
+                 + (window_secs * INTERVAL '1 second')
+                 + ((abs(hashtext(appid::text)) %% window_secs) * INTERVAL '1 second')
+                 < NOW()
+            ORDER BY tier_rank, meta_crawled_at ASC NULLS FIRST
+            LIMIT %(limit)s
             """,
-            (limit,),
+            {
+                "s_threshold": config.REFRESH_TIER_S_REVIEW_COUNT,
+                "a_threshold": config.REFRESH_TIER_A_REVIEW_COUNT,
+                "b_threshold": config.REFRESH_TIER_B_REVIEW_COUNT,
+                "s_secs": s_secs,
+                "a_secs": a_secs,
+                "b_secs": b_secs,
+                "c_secs": c_secs,
+                "limit": limit,
+            },
+        )
+        return [CatalogEntry.model_validate(dict(r)) for r in rows]
+
+    def find_due_reviews(
+        self, limit: int, config: SteamPulseConfig
+    ) -> list[CatalogEntry]:
+        """Return catalog entries whose review refresh window has elapsed.
+
+        Same tier + smearing shape as find_due_meta, but:
+          - Operates on review_crawled_at
+          - Tier C excluded (no review refresh — low-signal long tail)
+          - coming_soon=TRUE excluded (no reviews to refresh until launch;
+            release detection happens via metadata crawl, and the game
+            naturally enters review refresh once review_count crosses the
+            B-tier threshold)
+        """
+        s_secs = config.REFRESH_REVIEWS_TIER_S_DAYS * 86400
+        a_secs = config.REFRESH_REVIEWS_TIER_A_DAYS * 86400
+        b_secs = config.REFRESH_REVIEWS_TIER_B_DAYS * 86400
+        rows = self._fetchall(
+            """
+            WITH tiered AS (
+              SELECT
+                ac.*,
+                CASE
+                  WHEN g.review_count >= %(s_threshold)s THEN %(s_secs)s
+                  WHEN gg.genre_id IS NOT NULL
+                    OR g.review_count >= %(a_threshold)s THEN %(a_secs)s
+                  ELSE %(b_secs)s
+                END AS window_secs,
+                CASE
+                  WHEN g.review_count >= %(s_threshold)s THEN 0
+                  WHEN gg.genre_id IS NOT NULL
+                    OR g.review_count >= %(a_threshold)s THEN 1
+                  ELSE 2
+                END AS tier_rank
+              FROM app_catalog ac
+              JOIN games g ON g.appid = ac.appid
+              LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
+              WHERE ac.meta_status = 'done'
+                AND g.coming_soon = FALSE
+                AND g.review_count >= %(b_threshold)s
+            )
+            SELECT * FROM tiered
+            WHERE
+              review_crawled_at IS NULL
+              OR review_crawled_at
+                 + (window_secs * INTERVAL '1 second')
+                 + ((abs(hashtext(appid::text)) %% window_secs) * INTERVAL '1 second')
+                 < NOW()
+            ORDER BY tier_rank, review_crawled_at ASC NULLS FIRST
+            LIMIT %(limit)s
+            """,
+            {
+                "s_threshold": config.REFRESH_TIER_S_REVIEW_COUNT,
+                "a_threshold": config.REFRESH_TIER_A_REVIEW_COUNT,
+                "b_threshold": config.REFRESH_TIER_B_REVIEW_COUNT,
+                "s_secs": s_secs,
+                "a_secs": a_secs,
+                "b_secs": b_secs,
+                "limit": limit,
+            },
         )
         return [CatalogEntry.model_validate(dict(r)) for r in rows]
 

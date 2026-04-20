@@ -840,18 +840,40 @@ class ComputeStack(cdk.Stack):
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
-        # Daily stale metadata refresh — re-crawls games whose metadata/tags
-        # are past their freshness tier (EA 7d, popular 7d, rest 30d).
-        stale_refresh_rule = events.Rule(
+        # Tiered refresh scheduling — hourly dispatcher picks up the next
+        # batch of tier-due metadata / review crawls. Work is smeared
+        # deterministically across each tier's refresh window via
+        # hashtext(appid) so load is smooth instead of spiking at boundaries.
+        # Both rules ship `enabled=False` — flip on manually after review.
+        refresh_meta_rule = events.Rule(
             self,
-            "StaleMetaRefreshRule",
-            schedule=events.Schedule.rate(cdk.Duration.days(1)),
-            enabled=True,
+            "RefreshMetaRule",
+            schedule=events.Schedule.rate(cdk.Duration.hours(1)),
+            description="Hourly tiered metadata refresh dispatcher",
+            enabled=False,
         )
-        stale_refresh_rule.add_target(
+        refresh_meta_rule.add_target(
             events_targets.LambdaFunction(
                 crawler_fn,
-                event=events.RuleTargetInput.from_object({"action": "stale_refresh"}),
+                event=events.RuleTargetInput.from_object(
+                    {"action": "refresh_meta", "limit": 600}
+                ),
+            )
+        )
+
+        refresh_reviews_rule = events.Rule(
+            self,
+            "RefreshReviewsRule",
+            schedule=events.Schedule.rate(cdk.Duration.hours(1)),
+            description="Hourly tiered review refresh dispatcher",
+            enabled=False,
+        )
+        refresh_reviews_rule.add_target(
+            events_targets.LambdaFunction(
+                crawler_fn,
+                event=events.RuleTargetInput.from_object(
+                    {"action": "refresh_reviews", "limit": 500}
+                ),
             )
         )
 

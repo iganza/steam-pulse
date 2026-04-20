@@ -255,6 +255,89 @@ def test_crawl_reviews_stores_reviews(
     assert review_repo.count_by_appid(440) == 4
 
 
+def test_crawl_reviews_triggers_analysis_by_default(
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+    catalog_repo: CatalogRepository,
+    tag_repo: TagRepository,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Default new-game path must call Step Functions (preserves existing behavior)."""
+    import boto3
+    import httpx as _httpx
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-analysis-on")["QueueUrl"]
+
+        game_repo.ensure_stub(440)
+
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEWS_RESPONSE,
+        )
+
+        sfn = MagicMock()
+        sfn.start_execution.return_value = {"executionArn": "arn:test"}
+
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+            sfn_arn="arn:aws:states:us-east-1:123456789012:stateMachine:test",
+            sfn_client=sfn,
+        )
+        svc.crawl_reviews(440)
+
+    sfn.start_execution.assert_called_once()
+
+
+def test_crawl_reviews_refresh_skips_analysis(
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+    catalog_repo: CatalogRepository,
+    tag_repo: TagRepository,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """trigger_analysis=False prevents the ~$1 Step Functions execution."""
+    import boto3
+    import httpx as _httpx
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-q-analysis-off")["QueueUrl"]
+
+        game_repo.ensure_stub(440)
+
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/440"),
+            json=REVIEWS_RESPONSE,
+        )
+
+        sfn = MagicMock()
+
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+            sfn_arn="arn:aws:states:us-east-1:123456789012:stateMachine:test",
+            sfn_client=sfn,
+        )
+        svc.crawl_reviews(440, trigger_analysis=False)
+
+    sfn.start_execution.assert_not_called()
+
+
 def test_crawl_reviews_deduplicates(
     game_repo: GameRepository,
     review_repo: ReviewRepository,

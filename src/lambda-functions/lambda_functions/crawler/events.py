@@ -40,13 +40,22 @@ class CatalogRefreshRequest(BaseModel):
     action: Literal["catalog_refresh"]
 
 
-class StaleRefreshRequest(BaseModel):
-    action: Literal["stale_refresh"]
-    limit: int = 2000
+class RefreshMetaRequest(BaseModel):
+    action: Literal["refresh_meta"]
+    limit: int = 600
+
+
+class RefreshReviewsRequest(BaseModel):
+    action: Literal["refresh_reviews"]
+    limit: int = 500
 
 
 DirectRequest = Annotated[
-    CrawlAppsRequest | CrawlReviewsRequest | CatalogRefreshRequest | StaleRefreshRequest,
+    CrawlAppsRequest
+    | CrawlReviewsRequest
+    | CatalogRefreshRequest
+    | RefreshMetaRequest
+    | RefreshReviewsRequest,
     Field(discriminator="action"),
 ]
 

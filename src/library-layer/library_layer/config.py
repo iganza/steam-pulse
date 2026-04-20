@@ -115,6 +115,34 @@ class SteamPulseConfig(BaseSettings):
     REVIEW_LIMIT: int = 10_000  # Default cap for automated (SQS-driven) crawls.
     # Operators can override per-invocation via direct invoke.
 
+    # ── Tiered refresh scheduling ─────────────────────────────────────────────
+    # Tier intervals (days). Each game's "due" time is computed as
+    #   last_crawled_at + tier_interval + (hash(appid) % tier_interval_seconds)
+    # so work is smeared evenly across the window rather than firing on a boundary.
+    # Metadata covers S/A/B/C; reviews cover S/A/B only (tier C excluded).
+    REFRESH_META_TIER_S_DAYS: int = 2
+    REFRESH_META_TIER_A_DAYS: int = 7
+    REFRESH_META_TIER_B_DAYS: int = 21
+    REFRESH_META_TIER_C_DAYS: int = 90
+    REFRESH_REVIEWS_TIER_S_DAYS: int = 1
+    REFRESH_REVIEWS_TIER_A_DAYS: int = 3
+    REFRESH_REVIEWS_TIER_B_DAYS: int = 14
+
+    # Tier membership review-count thresholds (first match wins).
+    #   S: review_count >= REFRESH_TIER_S_REVIEW_COUNT
+    #   A: coming_soon OR EA genre OR review_count >= REFRESH_TIER_A_REVIEW_COUNT
+    #   B: review_count >= REFRESH_TIER_B_REVIEW_COUNT (== REVIEW_ELIGIBILITY_THRESHOLD)
+    #   C: everything else
+    REFRESH_TIER_S_REVIEW_COUNT: int = 10_000
+    REFRESH_TIER_A_REVIEW_COUNT: int = 1_000
+    REFRESH_TIER_B_REVIEW_COUNT: int = 50
+
+    # Hourly dispatcher batch sizes. Sized against measured tier populations
+    # (meta demand ~486/hr, review demand ~402/hr) with ~20–25% headroom.
+    # Comfortably under Steam's ~57k/day per-IP appdetails ceiling.
+    REFRESH_META_BATCH_LIMIT: int = 600
+    REFRESH_REVIEWS_BATCH_LIMIT: int = 500
+
     # ── Three-phase analyzer tuning knobs ───────────────────────────────────
     # These are the SINGLE place default values live for the realtime and
     # batch analysis pipelines. Every downstream function requires these to

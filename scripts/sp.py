@@ -23,6 +23,8 @@ Usage:
   poetry run python scripts/sp.py queue reviews --eligible    # all eligible from app_catalog
   poetry run python scripts/sp.py queue tags <appid...>      # publish tag backfill for specific games
   poetry run python scripts/sp.py queue tags --all           # all games for Steam tag crawl
+  poetry run python scripts/sp.py queue refresh-meta [--limit N]     # tier-due metadata + tags
+  poetry run python scripts/sp.py queue refresh-reviews [--limit N]  # tier-due review refresh
 
   poetry run python scripts/sp.py db init [--env staging|production]
   poetry run python scripts/sp.py db status [--env staging|production]
@@ -468,13 +470,41 @@ def _pending_meta(n: int) -> list[int]:
     return [e.appid for e in entries]
 
 
-def _stale_meta(n: int) -> list[int]:
+def _due_meta(n: int) -> list[int]:
+    """Return appids whose metadata refresh slot has come due (dry-run)."""
+    config = SteamPulseConfig()
     conn, _, catalog_repo, _, _ = _get_repos()
     try:
-        entries = catalog_repo.find_stale_meta(limit=n)
+        entries = catalog_repo.find_due_meta(limit=n, config=config)
     finally:
         conn.close()
     return [e.appid for e in entries]
+
+
+def _due_reviews(n: int) -> list[int]:
+    """Return appids whose review refresh slot has come due (dry-run)."""
+    config = SteamPulseConfig()
+    conn, _, catalog_repo, _, _ = _get_repos()
+    try:
+        entries = catalog_repo.find_due_reviews(limit=n, config=config)
+    finally:
+        conn.close()
+    return [e.appid for e in entries]
+
+
+def refresh_meta_once(limit: int = 600) -> list[int]:
+    """Operator dry-run: appids the hourly meta-refresh dispatcher would enqueue.
+
+    Use from a shell to sanity-check the tier query before flipping the
+    EventBridge rule to enabled=True:
+        poetry run python -c "from scripts.sp import refresh_meta_once; print(refresh_meta_once(limit=5))"
+    """
+    return _due_meta(limit)
+
+
+def refresh_reviews_once(limit: int = 500) -> list[int]:
+    """Operator dry-run: appids the hourly review-refresh dispatcher would enqueue."""
+    return _due_reviews(limit)
 
 
 def _eligible_reviews(n: int) -> list[int]:
@@ -1200,14 +1230,23 @@ def _build_parser() -> argparse.ArgumentParser:
     qt.add_argument("--limit", type=int, metavar="N", help="Limit --all to N entries")
     qt.add_argument("--dry-run", action="store_true")
 
-    qs = qu_sub.add_parser(
-        "stale",
-        help="Re-crawl stale metadata — enqueues metadata + tags tasks",
+    qrm = qu_sub.add_parser(
+        "refresh-meta",
+        help="Tier-due metadata refresh — enqueues metadata + tags tasks",
     )
-    qs.add_argument(
-        "--limit", type=int, default=2000, metavar="N", help="Max appids to enqueue (default: 2000)"
+    qrm.add_argument(
+        "--limit", type=int, default=600, metavar="N", help="Max appids to enqueue (default: 600)"
     )
-    qs.add_argument("--dry-run", action="store_true")
+    qrm.add_argument("--dry-run", action="store_true")
+
+    qrr = qu_sub.add_parser(
+        "refresh-reviews",
+        help="Tier-due review refresh — enqueues review-crawl tasks",
+    )
+    qrr.add_argument(
+        "--limit", type=int, default=500, metavar="N", help="Max appids to enqueue (default: 500)"
+    )
+    qrr.add_argument("--dry-run", action="store_true")
 
     # ── logs (query spoke logs across regions)
     lg = sub.add_parser("logs", help="Query spoke logs across all regions")
@@ -1303,11 +1342,15 @@ def main() -> None:
             if args.all_games:
                 appids = _all_games(args.limit or 200_000)
             cmd_queue("tags", appids, args.dry_run, args.env)
-        elif args.queue_cmd == "stale":
-            stale_ids = _stale_meta(args.limit)
-            _info(f"Found {len(stale_ids)} stale appids")
-            cmd_queue("metadata", stale_ids, args.dry_run, args.env)
-            cmd_queue("tags", stale_ids, args.dry_run, args.env)
+        elif args.queue_cmd == "refresh-meta":
+            due_ids = _due_meta(args.limit)
+            _info(f"Found {len(due_ids)} tier-due appids for metadata refresh")
+            cmd_queue("metadata", due_ids, args.dry_run, args.env)
+            cmd_queue("tags", due_ids, args.dry_run, args.env)
+        elif args.queue_cmd == "refresh-reviews":
+            due_ids = _due_reviews(args.limit)
+            _info(f"Found {len(due_ids)} tier-due appids for review refresh")
+            cmd_queue("reviews", due_ids, args.dry_run, args.env)
 
     elif args.cmd == "logs":
         if args.logs_cmd == "errors":

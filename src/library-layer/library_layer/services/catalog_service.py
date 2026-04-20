@@ -8,7 +8,11 @@ from typing import Any
 import httpx
 from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
-from library_layer.events import CatalogRefreshCompleteEvent, GameDiscoveredEvent
+from library_layer.events import (
+    CatalogRefreshCompleteEvent,
+    GameDiscoveredEvent,
+    ReviewCrawlMessage,
+)
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.sqs import send_sqs_batch
@@ -27,6 +31,7 @@ class CatalogService:
         http_client: httpx.Client,
         sqs_client: Any,
         app_crawl_queue_url: str,
+        review_crawl_queue_url: str,
         sns_client: Any,
         config: SteamPulseConfig,
         steam_api_key: str,
@@ -37,6 +42,7 @@ class CatalogService:
         self._http = http_client
         self._sqs = sqs_client
         self._app_crawl_queue_url = app_crawl_queue_url
+        self._review_crawl_queue_url = review_crawl_queue_url
         self._steam_api_key = steam_api_key
         self._sns = sns_client
         self._config = config
@@ -114,28 +120,56 @@ class CatalogService:
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
         return len(pending)
 
-    def enqueue_stale(self, limit: int = 2000) -> int:
-        """Find games with stale metadata and enqueue both metadata + tags re-crawl.
+    def enqueue_refresh_meta(self, limit: int) -> int:
+        """Enqueue the next batch of tier-due metadata refreshes.
 
-        Enqueues two messages per stale appid (task=metadata, task=tags) so
-        meta_crawled_at and tags_crawled_at both advance on the same re-crawl cycle.
-        Returns the number of appids enqueued (not the number of messages).
+        Two messages per appid (task=metadata, task=tags) so meta_crawled_at
+        and tags_crawled_at advance together. Returns the appid count.
         """
-        stale = self._catalog_repo.find_stale_meta(limit=limit)
-        if not stale:
-            logger.info("No stale games to re-crawl")
+        due = self._catalog_repo.find_due_meta(limit=limit, config=self._config)
+        if not due:
+            logger.info("No metadata due for refresh")
             return 0
 
         messages: list[dict] = []
-        for entry in stale:
+        for entry in due:
             messages.append({"appid": entry.appid, "task": "metadata"})
             messages.append({"appid": entry.appid, "task": "tags"})
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
+        oldest = min((e.meta_crawled_at for e in due if e.meta_crawled_at), default=None)
         logger.info(
-            "Stale metadata enqueued",
-            extra={"appids": len(stale), "messages": len(messages)},
+            "refresh_meta enqueued",
+            extra={
+                "appids": len(due),
+                "messages": len(messages),
+                "limit": limit,
+                "oldest_crawled_at": oldest.isoformat() if oldest else None,
+            },
         )
-        return len(stale)
+        return len(due)
+
+    def enqueue_refresh_reviews(self, limit: int) -> int:
+        """Enqueue the next batch of tier-due review refreshes.
+
+        One ReviewCrawlMessage per appid, tagged source='refresh'. Goes to
+        ReviewCrawlQ → _dispatch_to_spoke → spoke Lambda → ingest_spoke_reviews
+        (which never triggers analysis). Returns the appid count.
+        """
+        due = self._catalog_repo.find_due_reviews(limit=limit, config=self._config)
+        if not due:
+            logger.info("No reviews due for refresh")
+            return 0
+
+        messages = [
+            ReviewCrawlMessage(appid=e.appid, source="refresh").model_dump()
+            for e in due
+        ]
+        send_sqs_batch(self._sqs, self._review_crawl_queue_url, messages)
+        logger.info(
+            "refresh_reviews enqueued",
+            extra={"appids": len(due), "limit": limit},
+        )
+        return len(due)
 
     def status(self) -> dict:
         """Return counts per status from catalog_repo.status_summary()."""

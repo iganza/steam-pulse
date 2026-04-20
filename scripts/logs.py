@@ -173,16 +173,19 @@ fields @timestamp, message, appid, game_name, error
 """,
         "columns": ["@timestamp", "message", "appid", "game_name", "error"],
     },
-    "stale-refresh": {
-        "description": "Stale metadata re-crawl runs",
+    "refresh": {
+        "description": "Tiered refresh dispatcher runs (metadata + reviews)",
         "log_group": "crawler",
         "query": """
-fields @timestamp, message, appids
-| filter message = "stale_refresh complete" or message like /stale/
+fields @timestamp, message, enqueued, limit
+| filter message = "refresh_meta complete"
+    or message = "refresh_reviews complete"
+    or message = "refresh_meta enqueued"
+    or message = "refresh_reviews enqueued"
 | sort @timestamp desc
 | limit 30
 """,
-        "columns": ["@timestamp", "message", "appids"],
+        "columns": ["@timestamp", "message", "enqueued", "limit"],
     },
     # ── Review Crawl ──────────────────────────────────────────────────────────
     "review-dispatch": {

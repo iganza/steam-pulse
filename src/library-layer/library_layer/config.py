@@ -144,6 +144,38 @@ class SteamPulseConfig(BaseSettings):
     REFRESH_META_BATCH_LIMIT: int = 600
     REFRESH_REVIEWS_BATCH_LIMIT: int = 500
 
+    @model_validator(mode="after")
+    def _validate_refresh_tier_config(self) -> Self:
+        """Guard against env overrides that would break the dispatcher SQL.
+
+        Tier day intervals must be >= 1 — zero/negative makes the SMEAR term
+        `hashtext(appid) % (days*86400)` divide-by-zero at runtime, taking the
+        hourly dispatcher down. Thresholds and batch limits must be positive.
+        """
+        day_fields = (
+            "REFRESH_META_TIER_S_DAYS",
+            "REFRESH_META_TIER_A_DAYS",
+            "REFRESH_META_TIER_B_DAYS",
+            "REFRESH_META_TIER_C_DAYS",
+            "REFRESH_REVIEWS_TIER_S_DAYS",
+            "REFRESH_REVIEWS_TIER_A_DAYS",
+            "REFRESH_REVIEWS_TIER_B_DAYS",
+        )
+        positive_fields = (
+            "REFRESH_TIER_S_REVIEW_COUNT",
+            "REFRESH_TIER_A_REVIEW_COUNT",
+            "REFRESH_TIER_B_REVIEW_COUNT",
+            "REFRESH_META_BATCH_LIMIT",
+            "REFRESH_REVIEWS_BATCH_LIMIT",
+        )
+        for name in day_fields:
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be >= 1 (divide-by-zero risk in smear SQL)")
+        for name in positive_fields:
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be > 0")
+        return self
+
     # ── Three-phase analyzer tuning knobs ───────────────────────────────────
     # These are the SINGLE place default values live for the realtime and
     # batch analysis pipelines. Every downstream function requires these to

@@ -166,31 +166,35 @@ immediately (it sorts `NULLS FIRST`), so no data is orphaned.
 
 ### 4. No-LLM-from-refresh safeguard
 
-Add an explicit parameter to `CrawlService.crawl_reviews()`:
+The review crawl pipeline has two entry points, and analysis triggering
+differs between them:
 
-```python
-def crawl_reviews(
-    self,
-    appid: int,
-    game_name: str,
-    *,
-    trigger_analysis: bool = True,  # preserves existing first-crawl behavior
-) -> None:
-    ...
-    if trigger_analysis:
-        self._trigger_analysis(appid, game_name)
-```
+1. **SQS → spoke → `ingest_spoke_reviews()`** (the primary path for both
+   new-game onboarding and tier-driven refresh). This path **never** calls
+   `_trigger_analysis()` — the method is only reachable via `crawl_reviews()`.
+   Safe by construction, regardless of message source.
 
-Refresh-driven review crawls call with `trigger_analysis=False`. The SNS
-event-driven first-crawl path (new games) keeps the default `True` so
-nothing about new-game onboarding changes. This is a function parameter,
-not a runtime feature flag — consistent with the "no flags" rule.
+2. **Direct-invoke `crawl_reviews()`** (used by `sp.py` operator commands
+   and test fixtures). This path *does* call `_trigger_analysis()`. To make
+   the no-LLM-from-refresh invariant total, add a `trigger_analysis` kwarg:
 
-The refresh enqueue goes to the **same** `ReviewCrawlQ`, so we need a way
-for the ingest handler to know to pass `trigger_analysis=False` when the
-message is refresh-sourced. Simplest: extend `ReviewCrawlMessage` (already
-exists in `library_layer/utils/events.py` per `review-crawl-backfill.md`)
-with a `source` discriminator:
+   ```python
+   def crawl_reviews(
+       self,
+       appid: int,
+       *,
+       trigger_analysis: bool = True,  # preserves existing first-crawl behavior
+   ) -> int:
+       ...
+       if trigger_analysis:
+           self._trigger_analysis(appid, game_name)
+   ```
+
+   Direct-invoke refresh paths pass `trigger_analysis=False`. New-game
+   onboarding keeps the default `True`.
+
+For **observability** (not gating), add a `source` discriminator on
+`ReviewCrawlMessage` in `src/library-layer/library_layer/events.py`:
 
 ```python
 class ReviewCrawlMessage(BaseModel):
@@ -198,21 +202,30 @@ class ReviewCrawlMessage(BaseModel):
     source: Literal["new_game", "refresh"] = "new_game"
 ```
 
+The primary crawler's `_dispatch_to_spoke` reads this field from the SQS
+body and logs it, so dashboards can attribute queue volume to new-game
+onboarding vs tier-driven refresh. It does NOT gate analysis — the ingest
+path is safe without it.
+
 Per `feedback_subclass_typing.md` — this is a simple flag on a single
 model, not a subclass discriminator, so `Literal` + default is the right
 shape.
 
 ### 5. Observability
 
-Three things to log/emit so we can tell the scheduler is working without
-sitting on the dashboard:
+Two log-level observability items (CloudWatch metric dimensions are
+deferred — see "Out of scope"):
 
-- Per dispatch: `logger.info("refresh_meta dispatched", enqueued=N, limit=L, oldest_due_age_hours=H)` where `H` is `now() - min(meta_crawled_at)` of the batch. When `H` starts drifting upward over days, we're falling behind and need to raise the limit.
-- Per tier: `dispatched_by_tier={S: n, A: n, B: n, C: n}` — validates the smearing is working (tiers should be roughly proportional to their populations scaled by refresh rate).
-- CloudWatch metric dimension `tier` on the existing crawl metrics, so the dashboard can break out spoke latency by tier later without a second pass.
+- Per dispatch: `logger.info("refresh_meta enqueued", enqueued=N, limit=L, oldest_due_age_hours=H, dispatched_by_tier={S, A, B, C})` where `H` is `now() - min(meta_crawled_at)` of the batch. When `H` starts drifting upward over days, we're falling behind and need to raise the limit.
+- `dispatched_by_tier` validates smearing is working (tiers should be roughly proportional to their populations scaled by refresh rate).
 
-Dashboard wiring is out of scope — metrics just need to be emitted so a
-future `monitor-refresh-scheduler.md` follow-up has them to hang alarms on.
+The review equivalent is the same shape: `"refresh_reviews enqueued"` with
+`oldest_due_age_hours` computed from `review_crawled_at`. To emit
+`dispatched_by_tier`, the repository surfaces `tier_rank` on the returned
+`CatalogEntry` rows so the service layer doesn't re-derive tier in Python.
+
+Dashboard wiring (alarms, panels) is out of scope — logs-only gives a
+future `monitor-refresh-scheduler.md` follow-up a stable signal to bind to.
 
 ---
 
@@ -234,6 +247,12 @@ future `monitor-refresh-scheduler.md` follow-up has them to hang alarms on.
 - **Per-tier queue partitioning**. One metadata queue, one review queue
   (the ones we already have). Tier information is used only for dispatch
   prioritization, not queue routing.
+- **CloudWatch metric dimension `tier`** on existing crawl metrics.
+  Emitting a `tier` dimension from the spoke/ingest Lambdas would require
+  threading tier context through SQS messages down to the spoke's metric
+  calls — out of scope for v1. Tier info is logged at enqueue time; any
+  future dashboard can break out spoke latency by appid if needed by
+  joining to the catalog tier CASE at query time.
 
 ---
 
@@ -405,23 +424,34 @@ refresh_reviews_rule = events.Rule(
 refresh_reviews_rule.add_target(events_targets.LambdaFunction(
     crawler_fn,
     event=events.RuleTargetInput.from_object(
-        {"action": "refresh_reviews", "limit": 100}
+        {"action": "refresh_reviews", "limit": 500}
     ),
 ))
 ```
 
 ### 10. `scripts/sp.py` — operator shortcuts
 
-`scripts/sp.py` — add two helpers so the user can dry-run the dispatcher
-without enabling the rule:
+`scripts/sp.py` — add two helpers so the user can dry-run the dispatcher's
+**selection query** (no SQS publish) before enabling the rule:
 
 ```python
-def refresh_meta_once(limit: int = 200) -> int: ...
-def refresh_reviews_once(limit: int = 100) -> int: ...
+def refresh_meta_once(limit: int | None = None) -> list[int]: ...
+def refresh_reviews_once(limit: int | None = None) -> list[int]: ...
 ```
 
-Both instantiate the services and call `enqueue_refresh_*`. Useful for the
-bake-in period after deploy and before flipping the EventBridge switch on.
+These return the appid list that `find_due_meta` / `find_due_reviews`
+would hand the dispatcher — useful for sanity-checking the tier query
+against the local dev DB before flipping the EventBridge switch on. They
+do NOT publish to SQS. For a real enqueue dry-run against deployed
+infrastructure use:
+
+```bash
+poetry run python scripts/sp.py queue refresh-meta --env staging --dry-run
+poetry run python scripts/sp.py queue refresh-reviews --env staging --dry-run
+```
+
+`limit` defaults to `SteamPulseConfig.REFRESH_{META,REVIEWS}_BATCH_LIMIT`
+so local dry-runs match the deployed rule payload.
 
 ### 11. Tests
 

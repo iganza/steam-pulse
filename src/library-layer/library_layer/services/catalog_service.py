@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,9 +14,31 @@ from library_layer.events import (
     GameDiscoveredEvent,
     ReviewCrawlMessage,
 )
+from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.sqs import send_sqs_batch
+
+# CatalogEntry.tier_rank → tier label for per-tier dispatch log breakdowns.
+_TIER_RANK_LABELS = {0: "S", 1: "A", 2: "B", 3: "C"}
+
+
+def _dispatched_by_tier(entries: list[CatalogEntry]) -> dict[str, int]:
+    """Count entries per tier label for observability."""
+    counts: Counter[str] = Counter()
+    for e in entries:
+        if e.tier_rank is not None:
+            counts[_TIER_RANK_LABELS.get(e.tier_rank, "?")] += 1
+    return {label: counts.get(label, 0) for label in ("S", "A", "B", "C")}
+
+
+def _oldest_due_age_hours(timestamps: list[datetime | None]) -> float | None:
+    """Return age (in hours) of the oldest non-null timestamp. None if all null."""
+    non_null = [t for t in timestamps if t is not None]
+    if not non_null:
+        return None
+    delta = datetime.now(tz=UTC) - min(non_null)
+    return round(delta.total_seconds() / 3600, 1)
 
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 
@@ -136,14 +159,16 @@ class CatalogService:
             messages.append({"appid": entry.appid, "task": "metadata"})
             messages.append({"appid": entry.appid, "task": "tags"})
         send_sqs_batch(self._sqs, self._app_crawl_queue_url, messages)
-        oldest = min((e.meta_crawled_at for e in due if e.meta_crawled_at), default=None)
         logger.info(
             "refresh_meta enqueued",
             extra={
                 "enqueued": len(due),
                 "messages": len(messages),
                 "limit": limit,
-                "oldest_crawled_at": oldest.isoformat() if oldest else None,
+                "oldest_due_age_hours": _oldest_due_age_hours(
+                    [e.meta_crawled_at for e in due]
+                ),
+                "dispatched_by_tier": _dispatched_by_tier(due),
             },
         )
         return len(due)
@@ -167,7 +192,14 @@ class CatalogService:
         send_sqs_batch(self._sqs, self._review_crawl_queue_url, messages)
         logger.info(
             "refresh_reviews enqueued",
-            extra={"enqueued": len(due), "limit": limit},
+            extra={
+                "enqueued": len(due),
+                "limit": limit,
+                "oldest_due_age_hours": _oldest_due_age_hours(
+                    [e.review_crawled_at for e in due]
+                ),
+                "dispatched_by_tier": _dispatched_by_tier(due),
+            },
         )
         return len(due)
 

@@ -680,8 +680,14 @@ def cmd_queue(
     dry_run: bool,
     env: str = "staging",
     max_reviews: int | None = None,
+    source: str | None = None,
 ) -> None:
-    """Publish appids to deployed SQS queues for the spoke pipeline to process."""
+    """Publish appids to deployed SQS queues for the spoke pipeline to process.
+
+    `source` is written into each message body (e.g. "refresh" for tier-driven
+    refresh). The primary crawler's dispatch handler logs this so dashboards
+    can attribute queue volume to new-game onboarding vs tiered refresh.
+    """
     config = SteamPulseConfig.for_environment(env)
 
     if task in ("metadata", "tags"):
@@ -694,11 +700,15 @@ def cmd_queue(
     _info(f"Publishing {len(appids)} appids → {label}")
     if max_reviews is not None:
         _info(f"  max_reviews={max_reviews}")
+    if source is not None:
+        _info(f"  source={source}")
 
     def _make_body(appid: int) -> dict:
         body: dict = {"appid": appid, "task": task}
         if task == "reviews" and max_reviews is not None:
             body["target"] = max_reviews
+        if source is not None:
+            body["source"] = source
         return body
 
     if dry_run:
@@ -1374,14 +1384,14 @@ def main() -> None:
             limit = args.limit if args.limit is not None else env_config.REFRESH_META_BATCH_LIMIT
             due_ids = _due_meta(limit, config=env_config)
             _info(f"Found {len(due_ids)} tier-due appids for metadata refresh")
-            cmd_queue("metadata", due_ids, args.dry_run, args.env)
-            cmd_queue("tags", due_ids, args.dry_run, args.env)
+            cmd_queue("metadata", due_ids, args.dry_run, args.env, source="refresh")
+            cmd_queue("tags", due_ids, args.dry_run, args.env, source="refresh")
         elif args.queue_cmd == "refresh-reviews":
             env_config = SteamPulseConfig.for_environment(args.env)
             limit = args.limit if args.limit is not None else env_config.REFRESH_REVIEWS_BATCH_LIMIT
             due_ids = _due_reviews(limit, config=env_config)
             _info(f"Found {len(due_ids)} tier-due appids for review refresh")
-            cmd_queue("reviews", due_ids, args.dry_run, args.env)
+            cmd_queue("reviews", due_ids, args.dry_run, args.env, source="refresh")
 
     elif args.cmd == "logs":
         if args.logs_cmd == "errors":

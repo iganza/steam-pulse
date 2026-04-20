@@ -55,6 +55,7 @@ interface GameReportClientProps {
   tags?: string[];
   shortDesc?: string;
   reviewCount?: number;
+  reviewCountEnglish?: number | null;
   deckCompatibility?: number | null;
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
   isEarlyAccess?: boolean;
@@ -110,6 +111,7 @@ export function GameReportClient({
   tags,
   shortDesc,
   reviewCount,
+  reviewCountEnglish,
   deckCompatibility,
   deckTestResults,
   isEarlyAccess,
@@ -275,6 +277,7 @@ export function GameReportClient({
 
         <QuickStats
           reviewCount={reviewCount ?? null}
+          reviewCountEnglish={reviewCountEnglish ?? null}
           totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
           releaseDate={releaseDate}
           price={price}

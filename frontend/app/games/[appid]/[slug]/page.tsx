@@ -97,6 +97,7 @@ export default async function GameReportPage({ params }: Props) {
     tags?: string[];
     shortDesc?: string;
     reviewCount?: number;
+    reviewCountEnglish?: number | null;
     deckCompatibility?: number | null;
     deckTestResults?: Array<{ display_type: number; loc_token: string }>;
     isEarlyAccess?: boolean;
@@ -145,6 +146,7 @@ export default async function GameReportPage({ params }: Props) {
       if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
       const englishAlignedCount = g.review_count_english ?? g.review_count;
       if (englishAlignedCount != null) gameData.reviewCount = englishAlignedCount;
+      if (g.review_count_english != null) gameData.reviewCountEnglish = g.review_count_english;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
@@ -283,6 +285,7 @@ export default async function GameReportPage({ params }: Props) {
           tags={gameData.tags ?? []}
           shortDesc={gameData.shortDesc}
           reviewCount={gameData.reviewCount}
+          reviewCountEnglish={gameData.reviewCountEnglish}
           deckCompatibility={gameData.deckCompatibility}
           deckTestResults={gameData.deckTestResults}
           isEarlyAccess={gameData.isEarlyAccess}

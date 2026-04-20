@@ -132,8 +132,12 @@ class SteamPulseConfig(BaseSettings):
     # Tier membership review-count thresholds (first match wins).
     #   S: review_count >= REFRESH_TIER_S_REVIEW_COUNT
     #   A: coming_soon OR EA genre OR review_count >= REFRESH_TIER_A_REVIEW_COUNT
-    #   B: review_count >= REFRESH_TIER_B_REVIEW_COUNT (== REVIEW_ELIGIBILITY_THRESHOLD)
+    #   B: review_count >= REFRESH_TIER_B_REVIEW_COUNT
     #   C: everything else
+    # The B threshold MUST equal REVIEW_ELIGIBILITY_THRESHOLD — a game is in
+    # tier B precisely when it becomes analysis-eligible, so the two thresholds
+    # are logically one knob. The validator below enforces this; override
+    # BOTH via env if you want to shift the eligibility bar.
     REFRESH_TIER_S_REVIEW_COUNT: int = 10_000
     REFRESH_TIER_A_REVIEW_COUNT: int = 1_000
     REFRESH_TIER_B_REVIEW_COUNT: int = 50
@@ -174,6 +178,14 @@ class SteamPulseConfig(BaseSettings):
         for name in positive_fields:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be > 0")
+        if self.REFRESH_TIER_B_REVIEW_COUNT != self.REVIEW_ELIGIBILITY_THRESHOLD:
+            raise ValueError(
+                "REFRESH_TIER_B_REVIEW_COUNT "
+                f"({self.REFRESH_TIER_B_REVIEW_COUNT}) must equal "
+                f"REVIEW_ELIGIBILITY_THRESHOLD ({self.REVIEW_ELIGIBILITY_THRESHOLD}) — "
+                "tier B is defined as the analysis-eligibility threshold; "
+                "override both together to shift the bar."
+            )
         return self
 
     # ── Three-phase analyzer tuning knobs ───────────────────────────────────

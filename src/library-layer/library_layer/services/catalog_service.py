@@ -24,12 +24,18 @@ _TIER_RANK_LABELS = {0: "S", 1: "A", 2: "B", 3: "C"}
 
 
 def _dispatched_by_tier(entries: list[CatalogEntry]) -> dict[str, int]:
-    """Count entries per tier label for observability."""
+    """Count entries per tier label for observability.
+
+    `unknown` surfaces entries whose `tier_rank` didn't map to a known
+    label (either NULL/unset or an out-of-range value) — if this ever
+    shows up non-zero in logs, it points at a repo/query bug worth
+    investigating rather than silently hiding.
+    """
     counts: Counter[str] = Counter()
     for e in entries:
-        if e.tier_rank is not None:
-            counts[_TIER_RANK_LABELS.get(e.tier_rank, "?")] += 1
-    return {label: counts.get(label, 0) for label in ("S", "A", "B", "C")}
+        label = _TIER_RANK_LABELS.get(e.tier_rank, "unknown")
+        counts[label] += 1
+    return {label: counts.get(label, 0) for label in ("S", "A", "B", "C", "unknown")}
 
 
 def _oldest_due_age_hours(timestamps: list[datetime | None]) -> float | None:

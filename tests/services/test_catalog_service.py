@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 
 import httpx
 from library_layer.config import SteamPulseConfig
+from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.catalog_repo import CatalogRepository
-from library_layer.services.catalog_service import CatalogService
+from library_layer.services.catalog_service import CatalogService, _dispatched_by_tier
 from moto import mock_aws
 
 
@@ -291,3 +292,37 @@ def test_enqueue_refresh_reviews_skips_coming_soon(
         count = svc.enqueue_refresh_reviews(limit=10)
 
     assert count == 0
+
+
+def _stub_entry(appid: int, tier_rank: int | None) -> CatalogEntry:
+    return CatalogEntry(appid=appid, name=f"Game {appid}", tier_rank=tier_rank)
+
+
+def test_dispatched_by_tier_counts_each_tier() -> None:
+    entries = [
+        _stub_entry(1, 0),  # S
+        _stub_entry(2, 0),  # S
+        _stub_entry(3, 1),  # A
+        _stub_entry(4, 2),  # B
+        _stub_entry(5, 2),  # B
+        _stub_entry(6, 3),  # C
+    ]
+    assert _dispatched_by_tier(entries) == {
+        "S": 2,
+        "A": 1,
+        "B": 2,
+        "C": 1,
+        "unknown": 0,
+    }
+
+
+def test_dispatched_by_tier_surfaces_unknown_ranks() -> None:
+    """Unexpected tier_rank values show up in the 'unknown' bucket, not silently dropped."""
+    entries = [
+        _stub_entry(1, 0),  # S
+        _stub_entry(2, 99),  # out-of-range
+        _stub_entry(3, None),  # NULL from DB
+    ]
+    result = _dispatched_by_tier(entries)
+    assert result["S"] == 1
+    assert result["unknown"] == 2

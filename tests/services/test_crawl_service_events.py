@@ -110,6 +110,9 @@ def _test_config(**overrides: Any) -> SteamPulseConfig:
         "REVIEW_ELIGIBILITY_THRESHOLD": 500,
     }
     defaults.update(overrides)
+    # Keep tier-B threshold in lock-step with REVIEW_ELIGIBILITY_THRESHOLD
+    # (enforced by the config validator) unless the caller explicitly set it.
+    defaults.setdefault("REFRESH_TIER_B_REVIEW_COUNT", defaults["REVIEW_ELIGIBILITY_THRESHOLD"])
     return SteamPulseConfig(**defaults)
 
 

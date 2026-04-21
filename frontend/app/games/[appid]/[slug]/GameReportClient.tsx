@@ -38,6 +38,8 @@ import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSectio
 import { RequestAnalysis } from "@/components/game/RequestAnalysis";
 import { RelatedAnalyzedGames } from "@/components/game/RelatedAnalyzedGames";
 import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
+import { AuthorByline } from "@/components/shared/AuthorByline";
+import { AUTHOR_NAME, METHODOLOGY_PATH } from "@/lib/author";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -256,6 +258,7 @@ export function GameReportClient({
                 })()}
               </span>
             </div>
+            <AuthorByline className="mt-3 text-xs font-mono uppercase tracking-widest text-muted-foreground" />
           </section>
         )}
 
@@ -691,6 +694,28 @@ export function GameReportClient({
                 </span>
               )}
             </div>
+          )}
+          {report && (
+            <p
+              className="mt-4 text-sm text-muted-foreground leading-relaxed italic"
+              data-testid="methodology-footer"
+            >
+              This page was synthesised by the SteamPulse three-phase pipeline
+              {report.total_reviews_analyzed != null ? (
+                <>
+                  {" "}({report.total_reviews_analyzed.toLocaleString()} reviews
+                  analysed across chunk → merge → synthesise phases)
+                </>
+              ) : null}
+              , reviewed and curated by {AUTHOR_NAME}. See the{" "}
+              <Link
+                href={METHODOLOGY_PATH}
+                className="underline underline-offset-2 hover:text-foreground transition-colors"
+              >
+                methodology
+              </Link>{" "}
+              for the full pipeline and quote-traceability rules.
+            </p>
           )}
           <div className={report ? "mt-4" : ""}>
             <a

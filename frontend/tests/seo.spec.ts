@@ -24,9 +24,30 @@ test('game page has OG image and canonical', async ({ page }) => {
       (el) => el.textContent ?? ''
     )
   )
-  const videoGameScript = jsonLds.find((s) => s.includes('VideoGame'))
-  expect(videoGameScript).toBeDefined()
-  expect(JSON.parse(videoGameScript ?? '{}')).toMatchObject({ '@type': 'VideoGame' })
+  const parsedJsonLds = jsonLds
+    .map((s) => {
+      try {
+        return JSON.parse(s)
+      } catch {
+        return null
+      }
+    })
+    .filter((v): v is Record<string, unknown> => v !== null)
+  const videoGame = parsedJsonLds.find((obj) => obj['@type'] === 'VideoGame')
+  expect(videoGame).toBeDefined()
+  expect(videoGame).toMatchObject({ '@type': 'VideoGame' })
+
+  // Article JSON-LD names a human author for the Google March-2026 AI-content
+  // signal. Only emitted when a SteamPulse report exists for the game.
+  const article = parsedJsonLds.find((obj) => obj['@type'] === 'Article')
+  expect(article).toBeDefined()
+  expect(article).toMatchObject({
+    '@type': 'Article',
+    author: { '@type': 'Person', name: 'Ivan Z. Ganza' },
+  })
+  expect((article as { author: { url: string } }).author.url).toBe(
+    'https://steampulse.io/about'
+  )
 })
 
 test('genre page has OG tags', async ({ page }) => {

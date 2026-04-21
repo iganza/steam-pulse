@@ -4,6 +4,7 @@ import { getGameReport, getRelatedAnalyzedGames } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import type { RelatedAnalyzedGame } from "@/lib/types";
 import { GameReportClient } from "./GameReportClient";
+import { AUTHOR_NAME, ABOUT_URL } from "@/lib/author";
 
 interface Props {
   params: Promise<{ appid: string; slug: string }>;
@@ -262,12 +263,53 @@ export default async function GameReportPage({ params }: Props) {
       : {}),
   };
 
+  // Editorial Article schema — emitted only when a SteamPulse report exists.
+  // Names a human author so Google's March-2026 AI-content update counts the
+  // page as "AI-assisted" (reviewed by a named editor) rather than
+  // "mass-produced AI content."
+  const articleJsonLd = report
+    ? {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": `${report.game_name}: Player Sentiment Analysis`,
+        "mainEntityOfPage": canonicalUrl,
+        ...(report.last_analyzed
+          ? {
+              "datePublished": report.last_analyzed,
+              "dateModified": report.last_analyzed,
+            }
+          : {}),
+        "author": {
+          "@type": "Person",
+          "name": AUTHOR_NAME,
+          "url": ABOUT_URL,
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "SteamPulse",
+          "url": "https://steampulse.io",
+        },
+        "about": {
+          "@type": "VideoGame",
+          "name": report.game_name,
+        },
+        ...(report.one_liner ? { "description": report.one_liner } : {}),
+        "image": headerImage,
+      }
+    : null;
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      {articleJsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+        />
+      )}
       <main>
         <GameReportClient
           report={report}

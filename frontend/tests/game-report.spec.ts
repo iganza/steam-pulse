@@ -66,6 +66,28 @@ test.describe('Game report page — analyzed game', () => {
     await expect(page.getByText(/Analyzed \d+[mhd] ago/)).toBeVisible()
   })
 
+  test('named-author byline renders under the Verdict with methodology link', async ({ page }) => {
+    // Google March-2026 AI-content signal: every LLM-synthesised page needs a
+    // visible human byline linking to the methodology anchor.
+    const byline = page.getByTestId('author-byline')
+    await expect(byline).toBeVisible()
+    await expect(byline).toContainText(/Analysis by Ivan Z\. Ganza/)
+    const methodologyLink = byline.getByRole('link', { name: /methodology/i })
+    await expect(methodologyLink).toHaveAttribute('href', '/about#methodology')
+  })
+
+  test('footer methodology paragraph names the author and review count', async ({ page }) => {
+    const footer = page.getByTestId('methodology-footer')
+    await expect(footer).toBeVisible()
+    // MOCK_REPORT.total_reviews_analyzed = 2000 per fixtures.
+    await expect(footer).toContainText(/2,000 reviews analysed/)
+    await expect(footer).toContainText(/reviewed and curated by Ivan Z\. Ganza/)
+    await expect(footer.getByRole('link', { name: /methodology/i })).toHaveAttribute(
+      'href',
+      '/about#methodology',
+    )
+  })
+
   test('hero renders Steam chip with review_score_desc', async ({ page }) => {
     // The hero badge block replaces the old `report.overall_sentiment` pill
     // with a Steam-attributed chip reading "Steam · {review_score_desc}".

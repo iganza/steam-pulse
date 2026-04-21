@@ -441,46 +441,7 @@ class ComputeStack(cdk.Stack):
                 iam.PolicyStatement(
                     actions=["sqs:SendMessage"],
                     resources=spoke_queue_arns,
-                )
-            )
-
-        # ── Ingest Lambda (spoke results → DB) ────────────────────────────
-        ingest_fn = PythonFunction(
-            self,
-            "SpokeIngestFn",
-            entry="src/lambda-functions",
-            index="lambda_functions/crawler/ingest_handler.py",
-            handler="handler",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            layers=[library_layer],
-            role=crawler_role,
-            vpc=vpc,
-            vpc_subnets=private_subnets,
-            security_groups=[intra_sg],
-            timeout=cdk.Duration.minutes(15),
-            memory_size=1024,
-            tracing=lambda_.Tracing.ACTIVE,
-            recursive_loop=lambda_.RecursiveLoop.ALLOW,
-            log_group=logs.LogGroup(
-                self,
-                "SpokeIngestLogs",
-                log_group_name=f"/steampulse/{env}/ingest",
-                retention=logs.RetentionDays.ONE_MONTH,
-                removal_policy=cdk.RemovalPolicy.DESTROY,
-            ),
-            environment=config.to_lambda_env(
-                POWERTOOLS_SERVICE_NAME="spoke-ingest",
-                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
-                SPOKE_CRAWL_QUEUE_URLS=spoke_crawl_queue_urls,
-            ),
-        )
-        cdk.Tags.of(ingest_fn).add("steampulse:service", "ingest")
-        cdk.Tags.of(ingest_fn).add("steampulse:tier", "critical")
-
-        ingest_fn.add_event_source(
-            event_sources.SqsEventSource(
-                spoke_results_queue,
-                batch_size=100,
+                                batch_size=40,
                 max_batching_window=cdk.Duration.seconds(5),
                 max_concurrency=6,
                 report_batch_item_failures=True,

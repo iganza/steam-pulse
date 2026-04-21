@@ -88,7 +88,6 @@ class GenreSynthesisRepository(BaseRepository):
                     row.computed_at,
                 ),
             )
-        self.conn.commit()
 
     def touch_computed_at(self, slug: str, *, at: datetime) -> None:
         """Update only the computed_at timestamp on an existing row.
@@ -103,7 +102,6 @@ class GenreSynthesisRepository(BaseRepository):
                 "UPDATE mv_genre_synthesis SET computed_at = %s WHERE slug = %s",
                 (at, slug),
             )
-        self.conn.commit()
 
     def find_stale(self, max_age_days: int) -> list[str]:
         """Return slugs whose synthesis is older than max_age_days.

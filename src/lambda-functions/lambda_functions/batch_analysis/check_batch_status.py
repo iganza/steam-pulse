@@ -15,7 +15,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.llm import resolve_anthropic_api_key
 from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, transaction
 
 logger = Logger(service="batch-check-status")
 tracer = Tracer(service="batch-check-status")
@@ -99,11 +99,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # fail the polling loop if Postgres is unavailable.
     try:
         if result["status"] == "Running":
-            _batch_exec_repo.mark_running(job_id)
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_running(job_id)
         elif result["status"] == "Failed":
-            _batch_exec_repo.mark_failed(
-                job_id, failure_reason=result["message"] or result["raw"] or "unknown"
-            )
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_failed(
+                    job_id, failure_reason=result["message"] or result["raw"] or "unknown"
+                )
     except Exception:
         logger.exception(
             "batch_execution_tracking_update_failed",

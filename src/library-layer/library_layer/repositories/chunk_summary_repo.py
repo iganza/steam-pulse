@@ -11,7 +11,6 @@ import json
 import psycopg2.extras
 from library_layer.models.analyzer_models import RichChunkSummary
 from library_layer.repositories.base import BaseRepository
-from library_layer.utils.db import retry_on_transient_db_error
 
 
 class ChunkSummaryRepository(BaseRepository):
@@ -38,7 +37,6 @@ class ChunkSummaryRepository(BaseRepository):
             (appid, prompt_version),
         )
 
-    @retry_on_transient_db_error()
     def insert(
         self,
         appid: int,
@@ -89,7 +87,6 @@ class ChunkSummaryRepository(BaseRepository):
                 ),
             )
             row_id = int(cur.fetchone()["id"])
-        self.conn.commit()
         return row_id
 
     def delete_by_appid(self, appid: int) -> int:
@@ -97,5 +94,4 @@ class ChunkSummaryRepository(BaseRepository):
         with self.conn.cursor() as cur:
             cur.execute("DELETE FROM chunk_summaries WHERE appid = %s", (appid,))
             deleted = cur.rowcount
-        self.conn.commit()
         return deleted

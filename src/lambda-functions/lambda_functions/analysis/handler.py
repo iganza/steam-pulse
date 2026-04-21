@@ -27,7 +27,7 @@ from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.chunking import dataset_reference_time
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, transaction
 from library_layer.utils.events import EventPublishError, publish_event
 
 from .events import AnalyzeRequest
@@ -146,7 +146,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     )
 
     if temporal.review_velocity_lifetime is not None:
-        _game_repo.update_velocity_cache(req.appid, temporal.review_velocity_lifetime)
+        with transaction(get_conn()):
+            _game_repo.update_velocity_cache(req.appid, temporal.review_velocity_lifetime)
 
     try:
         publish_event(

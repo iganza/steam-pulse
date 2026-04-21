@@ -19,11 +19,11 @@ import gzip
 import logging
 import os
 import re
-from typing import IO, Iterator  # IO used in _execute_dump signature
+from collections.abc import Iterator  # IO used in _execute_dump signature
+from typing import IO
 
 import boto3  # type: ignore[import-untyped]
 import psycopg2
-
 from library_layer.utils.db import get_conn
 
 logger = logging.getLogger("db-loader")
@@ -37,7 +37,7 @@ _ALLOWED_KEY_PREFIXES = ("db-snapshots/", "db-dumps/")
 
 
 class _CopyStream:
-    """File-like adapter that streams COPY data from the dump line iterator.
+    r"""File-like adapter that streams COPY data from the dump line iterator.
 
     Passes lines to psycopg2 copy_expert() on demand — avoids buffering the
     entire COPY block in memory, which matters for large tables (games, reports).

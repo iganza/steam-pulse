@@ -102,9 +102,9 @@ def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Temp
     template.has_resource_properties(
         "AWS::Lambda::EventSourceMapping",
         {
-            "BatchSize": 100,
+            "BatchSize": 40,
             "MaximumBatchingWindowInSeconds": 5,
-            "ScalingConfig": {"MaximumConcurrency": 6},
+            "ScalingConfig": {"MaximumConcurrency": 12},
             "FunctionResponseTypes": ["ReportBatchItemFailures"],
         },
     )

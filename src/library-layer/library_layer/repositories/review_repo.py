@@ -62,7 +62,6 @@ class ReviewRepository(BaseRepository):
                 rows,
                 page_size=500,
             )
-        self.conn.commit()
         return len(rows)
 
     def count_by_appid(self, appid: int) -> int:

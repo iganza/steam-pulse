@@ -20,7 +20,7 @@ from aws_lambda_powertools.utilities.batch import (
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, transaction
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 from pydantic import TypeAdapter, ValidationError
 
@@ -28,9 +28,9 @@ from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
+    DirectRequest,
     RefreshMetaRequest,
     RefreshReviewsRequest,
-    DirectRequest,
     parse_spoke_request,
     spoke_index_for_appid,
 )
@@ -165,7 +165,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # 1. EventBridge scheduled trigger
     if event.get("source") == "aws.events":
         logger.info("EventBridge trigger — running catalog refresh")
-        result = _catalog_service.refresh()
+        with transaction(get_conn()):
+            result = _catalog_service.refresh()
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
         metrics.add_metric(
             name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0)
@@ -186,7 +187,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
         match req:
             case CrawlAppsRequest():
                 logger.append_keys(appid=req.appid, task="metadata")
-                ok = _crawl_service.crawl_app(req.appid)
+                with transaction(get_conn()):
+                    ok = _crawl_service.crawl_app(req.appid)
                 logger.info("crawl_app complete", extra={"appid": req.appid, "success": ok})
                 metrics.add_metric(
                     name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0
@@ -194,12 +196,14 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 logger.append_keys(appid=req.appid, task="reviews")
-                n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
+                with transaction(get_conn()):
+                    n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
                 logger.info("crawl_reviews complete", extra={"appid": req.appid, "upserted": n})
                 metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
-                result = _catalog_service.refresh()
+                with transaction(get_conn()):
+                    result = _catalog_service.refresh()
                 logger.info("catalog_refresh complete", extra={**result})
                 metrics.add_metric(
                     name="CatalogAppsDiscovered",

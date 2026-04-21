@@ -33,6 +33,7 @@ from library_layer.repositories.genre_synthesis_repo import (
 )
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.tag_repo import TagRepository
+from library_layer.utils.db import transaction
 
 logger = Logger()
 
@@ -161,7 +162,8 @@ class GenreSynthesisService:
         existing = self._synthesis_repo.get_by_slug(slug)
         if existing is not None and existing.input_hash == input_hash:
             now = datetime.now(UTC)
-            self._synthesis_repo.touch_computed_at(slug, at=now)
+            with transaction(self._synthesis_repo.conn):
+                self._synthesis_repo.touch_computed_at(slug, at=now)
             logger.info(
                 "genre_synthesis_cache_hit",
                 extra={"slug": slug, "input_hash": input_hash},
@@ -222,7 +224,8 @@ class GenreSynthesisService:
             median_review_count=median_review_count,
             computed_at=datetime.now(UTC),
         )
-        self._synthesis_repo.upsert(row)
+        with transaction(self._synthesis_repo.conn):
+            self._synthesis_repo.upsert(row)
         logger.info(
             "genre_synthesis_complete",
             extra={"slug": slug, "input_hash": input_hash},

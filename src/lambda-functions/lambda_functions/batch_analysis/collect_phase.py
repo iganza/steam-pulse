@@ -55,7 +55,7 @@ from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.merged_summary_repo import MergedSummaryRepository
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, run_with_retrying_transaction, transaction
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
 
@@ -156,14 +156,17 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
                 )
                 dropped_ids.append(record_id)
                 continue
-            _chunk_repo.insert(
-                appid,
-                chunk_index,
-                chunk_hash,
-                review_count,
-                summary,
-                model_id=model_id,
-                prompt_version=CHUNK_PROMPT_VERSION,
+            run_with_retrying_transaction(
+                _chunk_repo.conn,
+                lambda chunk_index=chunk_index, chunk_hash=chunk_hash, review_count=review_count, summary=summary: _chunk_repo.insert(
+                    appid,
+                    chunk_index,
+                    chunk_hash,
+                    review_count,
+                    summary,
+                    model_id=model_id,
+                    prompt_version=CHUNK_PROMPT_VERSION,
+                ),
             )
             persisted += 1
 
@@ -199,17 +202,18 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
         # Always record token usage and cost first — even if every record
         # failed validation, the API consumed tokens and we need the cost.
         try:
-            _batch_exec_repo.mark_completed(
-                job_id,
-                succeeded_count=persisted,
-                failed_count=failed_count,
-                failed_record_ids=all_failed_ids,
-                input_tokens=collect_result.input_tokens,
-                output_tokens=collect_result.output_tokens,
-                cache_read_tokens=collect_result.cache_read_tokens,
-                cache_write_tokens=collect_result.cache_write_tokens,
-                estimated_cost_usd=Decimal(str(round(cost, 4))),
-            )
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_completed(
+                    job_id,
+                    succeeded_count=persisted,
+                    failed_count=failed_count,
+                    failed_record_ids=all_failed_ids,
+                    input_tokens=collect_result.input_tokens,
+                    output_tokens=collect_result.output_tokens,
+                    cache_read_tokens=collect_result.cache_read_tokens,
+                    cache_write_tokens=collect_result.cache_write_tokens,
+                    estimated_cost_usd=Decimal(str(round(cost, 4))),
+                )
         except Exception:
             logger.exception(
                 "batch_execution_mark_completed_failed",
@@ -225,7 +229,8 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
                 f"({persisted} persisted) for appid={appid}"
             )
             try:
-                _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
+                with transaction(_get_batch_conn()):
+                    _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
             except Exception:
                 logger.exception(
                     "batch_execution_mark_failed_failed",
@@ -234,10 +239,11 @@ def _collect_chunk(appid: int, backend: AnthropicBatchBackend, job_id: str) -> d
             raise RuntimeError(reason)
     except Exception as exc:
         try:
-            _batch_exec_repo.mark_failed(
-                job_id,
-                failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
-            )
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_failed(
+                    job_id,
+                    failure_reason=f"Chunk collect failed for appid={appid}: {exc}",
+                )
         except Exception:
             logger.exception(
                 "batch_execution_mark_failed_failed",
@@ -324,14 +330,17 @@ def _collect_merge(
             summary.merge_level = merge_level
             summary.chunks_merged = len(source_chunk_ids)
             summary.source_chunk_ids = source_chunk_ids
-            row_id = _merge_repo.insert(
-                appid,
-                merge_level,
-                summary,
-                source_chunk_ids,
-                len(source_chunk_ids),
-                model_id=model_id,
-                prompt_version=MERGE_PROMPT_VERSION,
+            row_id = run_with_retrying_transaction(
+                _merge_repo.conn,
+                lambda summary=summary, source_chunk_ids=source_chunk_ids: _merge_repo.insert(
+                    appid,
+                    merge_level,
+                    summary,
+                    source_chunk_ids,
+                    len(source_chunk_ids),
+                    model_id=model_id,
+                    prompt_version=MERGE_PROMPT_VERSION,
+                ),
             )
             persisted_by_index[group_index] = row_id
 
@@ -385,17 +394,18 @@ def _collect_merge(
             cache_write_tokens=collect_result.cache_write_tokens,
         )
         try:
-            _batch_exec_repo.mark_completed(
-                job_id,
-                succeeded_count=len(persisted_by_index),
-                failed_count=failed_count,
-                failed_record_ids=all_failed_ids,
-                input_tokens=collect_result.input_tokens,
-                output_tokens=collect_result.output_tokens,
-                cache_read_tokens=collect_result.cache_read_tokens,
-                cache_write_tokens=collect_result.cache_write_tokens,
-                estimated_cost_usd=Decimal(str(round(cost, 4))),
-            )
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_completed(
+                    job_id,
+                    succeeded_count=len(persisted_by_index),
+                    failed_count=failed_count,
+                    failed_record_ids=all_failed_ids,
+                    input_tokens=collect_result.input_tokens,
+                    output_tokens=collect_result.output_tokens,
+                    cache_read_tokens=collect_result.cache_read_tokens,
+                    cache_write_tokens=collect_result.cache_write_tokens,
+                    estimated_cost_usd=Decimal(str(round(cost, 4))),
+                )
         except Exception:
             logger.exception(
                 "batch_execution_mark_completed_failed",
@@ -408,7 +418,8 @@ def _collect_merge(
                 f"failed ({len(persisted_by_index)} persisted) for appid={appid}"
             )
             try:
-                _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
+                with transaction(_get_batch_conn()):
+                    _batch_exec_repo.mark_failed(job_id, failure_reason=reason)
             except Exception:
                 logger.exception(
                     "batch_execution_mark_failed_failed",
@@ -420,10 +431,11 @@ def _collect_merge(
     except Exception as exc:
         if not already_failed:
             try:
-                _batch_exec_repo.mark_failed(
-                    job_id,
-                    failure_reason=f"Merge collect failed for appid={appid}: {exc}",
-                )
+                with transaction(_get_batch_conn()):
+                    _batch_exec_repo.mark_failed(
+                        job_id,
+                        failure_reason=f"Merge collect failed for appid={appid}: {exc}",
+                    )
             except Exception:
                 logger.exception(
                     "batch_execution_mark_failed_failed",
@@ -507,17 +519,18 @@ def _collect_synthesis(
         cache_write_tokens=collect_result.cache_write_tokens,
     )
     try:
-        _batch_exec_repo.mark_completed(
-            job_id,
-            succeeded_count=len(collect_result.results),
-            failed_count=len(collect_result.failed_ids),
-            failed_record_ids=collect_result.failed_ids,
-            input_tokens=collect_result.input_tokens,
-            output_tokens=collect_result.output_tokens,
-            cache_read_tokens=collect_result.cache_read_tokens,
-            cache_write_tokens=collect_result.cache_write_tokens,
-            estimated_cost_usd=Decimal(str(round(cost, 4))),
-        )
+        with transaction(_get_batch_conn()):
+            _batch_exec_repo.mark_completed(
+                job_id,
+                succeeded_count=len(collect_result.results),
+                failed_count=len(collect_result.failed_ids),
+                failed_record_ids=collect_result.failed_ids,
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
+                estimated_cost_usd=Decimal(str(round(cost, 4))),
+            )
     except Exception:
         logger.exception(
             "batch_execution_mark_completed_failed",
@@ -551,13 +564,17 @@ def _collect_synthesis(
         payload["pipeline_version"] = PIPELINE_VERSION
         payload["merged_summary_id"] = merged_summary_id
         payload["chunk_count"] = chunk_count
-        _report_repo.upsert(payload)
+        run_with_retrying_transaction(
+            _report_repo.conn,
+            lambda: _report_repo.upsert(payload),
+        )
     except Exception as exc:
         try:
-            _batch_exec_repo.mark_failed(
-                job_id,
-                failure_reason=f"Synthesis collect failed for appid={appid}: {exc}",
-            )
+            with transaction(_get_batch_conn()):
+                _batch_exec_repo.mark_failed(
+                    job_id,
+                    failure_reason=f"Synthesis collect failed for appid={appid}: {exc}",
+                )
         except Exception:
             logger.exception(
                 "batch_execution_mark_failed_failed",

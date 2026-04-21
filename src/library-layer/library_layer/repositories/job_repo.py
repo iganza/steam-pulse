@@ -32,4 +32,3 @@ class JobRepository(BaseRepository):
                 """,
                 (job_id, status, appid),
             )
-        self.conn.commit()

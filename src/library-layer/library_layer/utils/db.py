@@ -3,9 +3,9 @@
 import json
 import logging
 import os
-from collections.abc import Callable
-from functools import wraps
-from typing import Any
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from typing import Any, TypeVar
 
 import psycopg2
 import psycopg2.errors
@@ -172,62 +172,57 @@ def _is_transient_write_error(exc: BaseException) -> bool:
     )
 
 
-def _rollback_before_retry(retry_state: RetryCallState) -> None:
-    # SerializationFailure / DeadlockDetected abort the active psycopg2
-    # transaction — without an explicit ROLLBACK the next attempt hits
-    # "current transaction is aborted" (a ProgrammingError, which is NOT
-    # retried). The health-check path in get_conn() short-circuits on
-    # non-IDLE transaction status, so it cannot recover an aborted tx
-    # on its own.
-    if not retry_state.args:
-        return
-    self_obj = retry_state.args[0]
+T = TypeVar("T")
+
+
+@contextmanager
+def transaction(conn: psycopg2.extensions.connection) -> Iterator[None]:
+    """Commit on clean exit, rollback on exception.
+
+    Handlers own the transaction boundary; repository write methods no
+    longer commit themselves. Wrap each business unit-of-work in one
+    `with transaction(get_conn()):` block so a handler's 3–5 repo calls
+    close with a single commit (one WAL fsync) instead of N.
+    """
     try:
-        conn = getattr(self_obj, "conn", None)
+        yield
     except Exception:
-        return
-    if conn is None:
-        return
-    try:
         conn.rollback()
-    except Exception:
-        pass
+        raise
+    else:
+        conn.commit()
 
 
-def retry_on_transient_db_error(max_attempts: int = 3) -> Callable[..., Any]:
-    """Decorator that retries a DB write on transient errors only.
-
-    Transient (retried): OperationalError, SerializationFailure, DeadlockDetected.
-    Permanent (re-raised): IntegrityError, ProgrammingError, DataError.
-
-    Before each retry, calls `self.conn.rollback()` if the wrapped callable
-    is a bound method on a BaseRepository-style object, so transactions
-    aborted by SerializationFailure/DeadlockDetected are reset.
+def run_with_retrying_transaction(
+    conn: psycopg2.extensions.connection,
+    fn: Callable[[], T],
+    max_attempts: int = 3,
+) -> T:
+    """Run `fn` inside a transaction(conn), retrying the whole unit-of-work
+    on transient DB errors (SerializationFailure, DeadlockDetected,
+    OperationalError). `fn` must be idempotent — the entire body replays
+    on retry. Use when a handler touches multiple idempotent upserts and
+    wants resilience without the correctness hazard of per-method retry
+    (which would roll back earlier writes in the same transaction).
     """
 
-    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        def _before_sleep(retry_state: RetryCallState) -> None:
-            _rollback_before_retry(retry_state)
-            exc = retry_state.outcome.exception() if retry_state.outcome else None
-            logger.warning(
-                "db_write_retry fn=%s attempt=%d exc=%s",
-                fn.__name__,
-                retry_state.attempt_number,
-                exc,
-            )
+    def _before_sleep(retry_state: RetryCallState) -> None:
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        logger.warning(
+            "db_tx_retry attempt=%d exc=%s",
+            retry_state.attempt_number,
+            exc,
+        )
 
-        wrapped = retry(
-            retry=retry_if_exception(_is_transient_write_error),
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=0.5, min=0.5, max=2) + wait_random(0, 0.25),
-            before_sleep=_before_sleep,
-            reraise=True,
-        )(fn)
+    @retry(
+        retry=retry_if_exception(_is_transient_write_error),
+        stop=stop_after_attempt(max_attempts),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2) + wait_random(0, 0.25),
+        before_sleep=_before_sleep,
+        reraise=True,
+    )
+    def _attempt() -> T:
+        with transaction(conn):
+            return fn()
 
-        @wraps(fn)
-        def inner(*args: Any, **kwargs: Any) -> Any:
-            return wrapped(*args, **kwargs)
-
-        return inner
-
-    return decorator
+    return _attempt()

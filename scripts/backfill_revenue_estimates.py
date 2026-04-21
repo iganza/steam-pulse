@@ -46,7 +46,7 @@ from library_layer.models.game import Game
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.revenue_estimator import METHOD_VERSION, compute_estimate
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, transaction
 
 
 def _iter_candidate_appids(
@@ -184,21 +184,21 @@ def main() -> None:
         if not args.dry_run and batch_updates:
             # One bulk UPDATE + one commit per batch instead of per row.
             try:
-                game_repo.bulk_update_revenue_estimates(batch_updates)
+                with transaction(game_repo.conn):
+                    game_repo.bulk_update_revenue_estimates(batch_updates)
                 updated += len(batch_updates)
             except psycopg2.errors.NumericValueOutOfRange:
                 # Fall back to per-row so one bogus estimate doesn't kill the batch.
-                game_repo.conn.rollback()
                 print(
                     "  WARN: numeric overflow in batch — retrying row-by-row",
                     flush=True,
                 )
                 for row in batch_updates:
                     try:
-                        game_repo.bulk_update_revenue_estimates([row])
+                        with transaction(game_repo.conn):
+                            game_repo.bulk_update_revenue_estimates([row])
                         updated += 1
                     except psycopg2.errors.NumericValueOutOfRange:
-                        game_repo.conn.rollback()
                         reasons["_overflow_skipped"] += 1
                         print(
                             f"  WARN: skipping appid={row[0]} — revenue estimate "

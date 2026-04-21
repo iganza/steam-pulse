@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg2.extras
 from library_layer.config import SteamPulseConfig
@@ -58,7 +58,6 @@ class CatalogRepository(BaseRepository):
                 fetch=True,
             )
             new_rows = sum(1 for row in result if row["inserted"])
-        self.conn.commit()
         return new_rows
 
     def find_by_appid(self, appid: int) -> CatalogEntry | None:
@@ -226,7 +225,6 @@ class CatalogRepository(BaseRepository):
                 """,
                 (appid, f"App {appid}", status, review_count),
             )
-        self.conn.commit()
 
     def mark_reviews_complete(self, appid: int, completed_at: datetime | None = None) -> None:
         """Record that all reviews have been fetched for this game.
@@ -235,7 +233,7 @@ class CatalogRepository(BaseRepository):
         from the early-stop batch) instead of NOW(). This avoids a gap where reviews posted
         *during* a long-running crawl would be skipped on the next re-crawl.
         """
-        ts = completed_at or datetime.now(tz=timezone.utc)
+        ts = completed_at or datetime.now(tz=UTC)
         with self.conn.cursor() as cur:
             cur.execute(
                 """UPDATE app_catalog
@@ -245,7 +243,6 @@ class CatalogRepository(BaseRepository):
                    WHERE appid = %s""",
                 (ts, appid),
             )
-        self.conn.commit()
 
     def get_reviews_completed_at(self, appid: int) -> datetime | None:
         """Return when reviews were last fully exhausted. None = never completed."""
@@ -261,7 +258,6 @@ class CatalogRepository(BaseRepository):
                 "UPDATE app_catalog SET tags_crawled_at = NOW() WHERE appid = %s",
                 (appid,),
             )
-        self.conn.commit()
 
     def mark_reviews_crawled(self, appid: int) -> None:
         """Set review_crawled_at = NOW() for the given appid."""
@@ -270,7 +266,6 @@ class CatalogRepository(BaseRepository):
                 "UPDATE app_catalog SET review_crawled_at = NOW() WHERE appid = %s",
                 (appid,),
             )
-        self.conn.commit()
 
     def status_summary(self) -> dict:
         """Return counts grouped by meta_status."""

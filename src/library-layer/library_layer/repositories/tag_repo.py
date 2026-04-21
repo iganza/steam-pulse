@@ -114,7 +114,6 @@ class TagRepository(BaseRepository):
                         "DELETE FROM game_tags WHERE appid = %s AND tag_id != ALL(%s)",
                         (aid, tids),
                     )
-        self.conn.commit()
 
     def upsert_genres(self, appid: int, genres: list[dict]) -> None:
         """Upsert genres and game_genre associations (delete-and-replace).
@@ -155,7 +154,6 @@ class TagRepository(BaseRepository):
                     """,
                     (appid, genre_id),
                 )
-        self.conn.commit()
 
     def upsert_categories(self, appid: int, categories: list[dict]) -> None:
         """Upsert category associations for a game (delete-and-replace).
@@ -190,7 +188,6 @@ class TagRepository(BaseRepository):
                     """,
                     (appid, cat_id, cat_name),
                 )
-        self.conn.commit()
 
     def find_tags_for_game(self, appid: int) -> list[dict]:
         rows = self._fetchall(

@@ -12,7 +12,7 @@ Routes on message["task"]:
 import gzip
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import httpx
@@ -39,10 +39,8 @@ from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
-from library_layer.utils.db import get_conn
-
+from library_layer.utils.db import get_conn, transaction
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
-
 
 logger = Logger(service="spoke-ingest")
 tracer = Tracer(service="spoke-ingest")
@@ -137,10 +135,6 @@ def _ingest_record(record: dict) -> None:
             raise ValueError(f"Unknown task: {task}")
     except Exception:
         logger.exception("Record processing failed", extra={"appid": appid, "task": task})
-        try:
-            get_conn().rollback()
-        except Exception:
-            pass
         raise
 
 
@@ -148,7 +142,8 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not msg.success:
         # Permanent failure (e.g. game delisted) — log and skip, don't retry.
         logger.warning("Spoke reported metadata failure", extra={"appid": msg.appid, "error": msg.error})
-        _catalog_repo.set_meta_status(msg.appid, "failed")
+        with transaction(get_conn()):
+            _catalog_repo.set_meta_status(msg.appid, "failed")
         return
 
     appid = msg.appid
@@ -157,12 +152,19 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not s3_key:
         raise ValueError(f"success=True but s3_key missing: task=metadata appid={appid}")
 
-    response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
+    try:
+        response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
+    except _s3.exceptions.NoSuchKey:
+        # Record is a duplicate redelivery — the prior delivery completed all
+        # side effects (DB upsert, SQS re-queue, S3 delete). Silently succeed.
+        logger.info("Skipping already-processed record", extra={"appid": appid, "s3_key": s3_key})
+        return
     data = json.loads(gzip.decompress(response["Body"].read()))
 
-    success = _crawl_service.ingest_spoke_metadata(appid, data)
-    if not success:
-        raise RuntimeError(f"Metadata ingest failed for appid={appid}")
+    with transaction(get_conn()):
+        success = _crawl_service.ingest_spoke_metadata(appid, data)
+        if not success:
+            raise RuntimeError(f"Metadata ingest failed for appid={appid}")
     logger.info("Ingested metadata", extra={"appid": appid})
     metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
 
@@ -178,27 +180,36 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
 
     if not msg.s3_key:
         logger.info("No tag data available", extra={"appid": msg.appid})
-        _catalog_repo.mark_tags_crawled(msg.appid)
+        with transaction(get_conn()):
+            _catalog_repo.mark_tags_crawled(msg.appid)
         return
 
-    response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
+    try:
+        response = _s3.get_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
+    except _s3.exceptions.NoSuchKey:
+        logger.info(
+            "Skipping already-processed record",
+            extra={"appid": msg.appid, "s3_key": msg.s3_key},
+        )
+        return
     data = json.loads(gzip.decompress(response["Body"].read()))
 
     tags = data.get("tags") or []
     if tags:
-        _tag_repo.upsert_tags(
-            [
-                {
-                    "appid": msg.appid,
-                    "name": t["name"],
-                    "votes": t["votes"],
-                    "tagid": t.get("tagid"),
-                }
-                for t in tags
-            ]
-        )
+        with transaction(get_conn()):
+            _tag_repo.upsert_tags(
+                [
+                    {
+                        "appid": msg.appid,
+                        "name": t["name"],
+                        "votes": t["votes"],
+                        "tagid": t.get("tagid"),
+                    }
+                    for t in tags
+                ]
+            )
+            _catalog_repo.mark_tags_crawled(msg.appid)
         logger.info("Tags upserted", extra={"appid": msg.appid, "count": len(tags)})
-        _catalog_repo.mark_tags_crawled(msg.appid)
 
     metrics.add_metric(name="TagsIngested", unit=MetricUnit.Count, value=len(tags))
     _s3.delete_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
@@ -222,86 +233,92 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # Spoke sends success=True with no s3_key when Steam returns zero
         # reviews for the game. Mark crawled and move on — same pattern as tags.
         logger.info("No review data available", extra={"appid": appid})
-        _catalog_repo.mark_reviews_crawled(appid)
+        with transaction(get_conn()):
+            _catalog_repo.mark_reviews_crawled(appid)
         return
 
-    response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
+    try:
+        response = _s3.get_object(Bucket=_assets_bucket_name, Key=s3_key)
+    except _s3.exceptions.NoSuchKey:
+        logger.info("Skipping already-processed record", extra={"appid": appid, "s3_key": s3_key})
+        return
     data = json.loads(gzip.decompress(response["Body"].read()))
 
-    upserted = _crawl_service.ingest_spoke_reviews(appid, data)
-    logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
-    metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
+    # One DB unit-of-work: upsert reviews + flip catalog watermarks together.
+    # SQS re-queue (else branch) and S3 delete must happen AFTER commit, so
+    # they stay outside the transaction.
+    with transaction(get_conn()):
+        upserted = _crawl_service.ingest_spoke_reviews(appid, data)
+        logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
+        metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
-    # Termination + re-queue logic — must complete before S3 delete.
-    # If any of these raise (DB hiccup, SQS failure), the SQS record retries
-    # and the S3 object is still available. Delete only on full success.
-
-    # Early-stop: on re-crawls (reviews_completed_at IS NOT NULL), Steam returns
-    # newest reviews first. Once min(batch.timestamp_created) predates our last
-    # completed crawl we've covered the entire gap of new reviews — stop early.
-    reviews_completed_at = _catalog_repo.get_reviews_completed_at(appid)
-    min_batch_ts = min((r.get("timestamp_created", 0) for r in data), default=0)
-    early_stop = (
-        reviews_completed_at is not None
-        and min_batch_ts > 0
-        and datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) < reviews_completed_at
-    )
-
-    total_fetched = _review_repo.count_by_appid(appid)
-    # `target` means "remaining reviews to fetch in this chain" — decremented by batch count
-    # each hop so the spoke can limit its final batch to exactly what's left.
-    # target_hit fires when this batch consumed the last of the budget.
-    target_hit = msg.target is not None and msg.target <= msg.count
-    exhausted = msg.next_cursor is None
-
-    if exhausted or early_stop:
-        # On early-stop, use the batch boundary as the watermark so that reviews
-        # posted *during* this crawl are not skipped on the next re-crawl.
-        # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
-        # we have every review up to this moment).
-        boundary = datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
-        _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
-        _catalog_repo.mark_reviews_crawled(appid)
-        if early_stop:
-            logger.info(
-                "Reviews complete",
-                extra={
-                    "appid": appid,
-                    "reason": "early_stop",
-                    "total": total_fetched,
-                    "batch_count": msg.count,
-                    "min_batch_ts": datetime.fromtimestamp(
-                        min_batch_ts, tz=timezone.utc
-                    ).isoformat()
-                    if min_batch_ts
-                    else None,
-                    "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
-                },
-            )
-        else:
-            logger.info(
-                "Reviews complete",
-                extra={
-                    "appid": appid,
-                    "reason": "exhausted",
-                    "total": total_fetched,
-                    "batch_count": msg.count,
-                },
-            )
-    elif target_hit:
-        # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
-        _catalog_repo.mark_reviews_complete(appid, completed_at=None)
-        _catalog_repo.mark_reviews_crawled(appid)
-        logger.info(
-            "Reviews complete",
-            extra={
-                "appid": appid,
-                "reason": "target_hit",
-                "batch_count": msg.count,
-                "target": msg.target,
-            },
+        # Early-stop: on re-crawls (reviews_completed_at IS NOT NULL), Steam returns
+        # newest reviews first. Once min(batch.timestamp_created) predates our last
+        # completed crawl we've covered the entire gap of new reviews — stop early.
+        reviews_completed_at = _catalog_repo.get_reviews_completed_at(appid)
+        min_batch_ts = min((r.get("timestamp_created", 0) for r in data), default=0)
+        early_stop = (
+            reviews_completed_at is not None
+            and min_batch_ts > 0
+            and datetime.fromtimestamp(min_batch_ts, tz=UTC) < reviews_completed_at
         )
-    else:
+
+        # `target` means "remaining reviews to fetch in this chain" — decremented by batch count
+        # each hop so the spoke can limit its final batch to exactly what's left.
+        # target_hit fires when this batch consumed the last of the budget.
+        target_hit = msg.target is not None and msg.target <= msg.count
+        exhausted = msg.next_cursor is None
+
+        if exhausted or early_stop:
+            # On early-stop, use the batch boundary as the watermark so that reviews
+            # posted *during* this crawl are not skipped on the next re-crawl.
+            # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
+            # we have every review up to this moment).
+            boundary = datetime.fromtimestamp(min_batch_ts, tz=UTC) if early_stop else None
+            _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
+            _catalog_repo.mark_reviews_crawled(appid)
+            if early_stop:
+                logger.info(
+                    "Reviews complete",
+                    extra={
+                        "appid": appid,
+                        "reason": "early_stop",
+                        "batch_count": msg.count,
+                        "min_batch_ts": datetime.fromtimestamp(
+                            min_batch_ts, tz=UTC
+                        ).isoformat()
+                        if min_batch_ts
+                        else None,
+                        "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
+                    },
+                )
+            else:
+                logger.info(
+                    "Reviews complete",
+                    extra={
+                        "appid": appid,
+                        "reason": "exhausted",
+                        "batch_count": msg.count,
+                    },
+                )
+        elif target_hit:
+            # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
+            _catalog_repo.mark_reviews_complete(appid, completed_at=None)
+            _catalog_repo.mark_reviews_crawled(appid)
+            logger.info(
+                "Reviews complete",
+                extra={
+                    "appid": appid,
+                    "reason": "target_hit",
+                    "batch_count": msg.count,
+                    "target": msg.target,
+                },
+            )
+
+    # Commit done. Side effects below must not run before commit.
+    # If SQS or S3 here fails, the SQS record retries; DB writes are idempotent
+    # and S3 object is still available (delete is the last step).
+    if not (exhausted or early_stop or target_hit):
         # More to fetch — re-queue directly to the spoke's SQS queue,
         # bypassing the primary crawler dispatcher entirely.
         new_remaining = msg.target - msg.count if msg.target is not None else None
@@ -318,12 +335,10 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             "Re-queued for next batch",
             extra={
                 "appid": appid,
-                "total_so_far": total_fetched,
                 "remaining": new_remaining,
                 "cursor": msg.next_cursor,
                 "queue_url": queue_url,
             },
         )
 
-    # Delete only after all DB/SQS work succeeds — safe to lose on retry
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)

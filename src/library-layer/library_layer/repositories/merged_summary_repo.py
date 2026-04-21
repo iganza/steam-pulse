@@ -14,7 +14,6 @@ import json
 import psycopg2.extras
 from library_layer.models.analyzer_models import MergedSummary
 from library_layer.repositories.base import BaseRepository
-from library_layer.utils.db import retry_on_transient_db_error
 
 
 class MergedSummaryRepository(BaseRepository):
@@ -79,7 +78,6 @@ class MergedSummaryRepository(BaseRepository):
             (appid, prompt_version, sorted_ids),
         )
 
-    @retry_on_transient_db_error()
     def insert(
         self,
         appid: int,
@@ -121,12 +119,10 @@ class MergedSummaryRepository(BaseRepository):
                 ),
             )
             row_id = int(cur.fetchone()["id"])
-        self.conn.commit()
         return row_id
 
     def delete_by_appid(self, appid: int) -> int:
         with self.conn.cursor() as cur:
             cur.execute("DELETE FROM merged_summaries WHERE appid = %s", (appid,))
             deleted = cur.rowcount
-        self.conn.commit()
         return deleted

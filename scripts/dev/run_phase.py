@@ -69,7 +69,7 @@ from library_layer.repositories.report_repo import ReportRepository  # noqa: E40
 from library_layer.repositories.review_repo import ReviewRepository  # noqa: E402
 from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
 from library_layer.utils.chunking import dataset_reference_time  # noqa: E402
-from library_layer.utils.db import get_conn  # noqa: E402
+from library_layer.utils.db import get_conn, transaction  # noqa: E402
 
 _PHASES = ("chunk", "merge", "synthesis")
 
@@ -637,7 +637,8 @@ def main() -> None:
     payload["pipeline_version"] = PIPELINE_VERSION
     payload["chunk_count"] = len(chunk_summaries)
     payload["merged_summary_id"] = merge_id
-    report_repo.upsert(payload)
+    with transaction(report_repo.conn):
+        report_repo.upsert(payload)
     print(f"\n✔ Report upserted. pipeline_version={PIPELINE_VERSION}")
 
     if not args.no_dump:

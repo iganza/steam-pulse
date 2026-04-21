@@ -18,7 +18,6 @@ class WaitlistRepository(BaseRepository):
                 (email,),
             )
             inserted = cur.rowcount > 0
-        self.conn.commit()
         return inserted
 
     def count(self) -> int:

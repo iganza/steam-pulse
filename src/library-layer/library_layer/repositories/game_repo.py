@@ -7,7 +7,6 @@ from typing import ClassVar
 
 import psycopg2
 from aws_lambda_powertools import Logger
-
 from library_layer.models.game import Game
 from library_layer.repositories.base import BaseRepository
 from library_layer.repositories.tag_repo import TAG_CATEGORY_ORDER
@@ -117,7 +116,6 @@ class GameRepository(BaseRepository):
         """
         with self.conn.cursor() as cur:
             cur.execute(sql, game_data)
-        self.conn.commit()
 
     # SELECT shared between find_by_appid and find_by_slug — joins app_catalog so that
     # callers (notably the /api/games/{appid}/report endpoint) can surface per-source
@@ -221,7 +219,6 @@ class GameRepository(BaseRepository):
                     appid,
                 ),
             )
-        self.conn.commit()
 
     def ensure_stub(self, appid: int, name: str | None = None) -> None:
         """Insert a minimal stub row if the game does not exist yet (FK safety).
@@ -240,7 +237,6 @@ class GameRepository(BaseRepository):
                 """,
                 (appid, stub_name, stub_slug),
             )
-        self.conn.commit()
 
     @staticmethod
     def _build_game_filters(
@@ -711,7 +707,6 @@ class GameRepository(BaseRepository):
                 """,
                 (owners, revenue_usd, persisted_method, persisted_reason, appid),
             )
-        self.conn.commit()
 
     def bulk_update_revenue_estimates(
         self,
@@ -761,28 +756,31 @@ class GameRepository(BaseRepository):
                 payload,
                 template="(%s::bigint, %s::numeric, %s::text, %s::text, %s::int)",
             )
-        self.conn.commit()
 
     def set_has_early_access_reviews(self, appid: int) -> None:
         """One-way latch: mark that this game has EA reviews. No-op if already TRUE.
 
         Best-effort: gracefully handles missing column during the
         post-deploy/pre-migration window before migration 0046 is applied.
+        Uses a SAVEPOINT so an UndefinedColumn error does not poison the
+        caller's transaction (which holds concurrent review upserts).
         """
-        try:
-            with self.conn.cursor() as cur:
+        with self.conn.cursor() as cur:
+            cur.execute("SAVEPOINT set_has_ea_reviews")
+            try:
                 cur.execute(
                     "UPDATE games SET has_early_access_reviews = TRUE "
                     "WHERE appid = %s AND has_early_access_reviews = FALSE",
                     (appid,),
                 )
-            self.conn.commit()
-        except psycopg2.errors.UndefinedColumn:
-            self.conn.rollback()
-            logger.warning(
-                "has_early_access_reviews column not yet available",
-                extra={"appid": appid},
-            )
+            except psycopg2.errors.UndefinedColumn:
+                cur.execute("ROLLBACK TO SAVEPOINT set_has_ea_reviews")
+                logger.warning(
+                    "has_early_access_reviews column not yet available",
+                    extra={"appid": appid},
+                )
+            else:
+                cur.execute("RELEASE SAVEPOINT set_has_ea_reviews")
 
     def update_velocity_cache(self, appid: int, velocity_lifetime: float) -> None:
         """Cache lifetime review velocity for list-page sort/filter."""
@@ -794,4 +792,3 @@ class GameRepository(BaseRepository):
                    WHERE appid = %s""",
                 (velocity_lifetime, appid),
             )
-        self.conn.commit()

@@ -18,7 +18,6 @@ class AnalysisRequestRepository(BaseRepository):
         with self.conn.cursor() as cur:
             cur.execute(sql, (appid, email))
             inserted = cur.rowcount > 0
-        self.conn.commit()
         return inserted
 
     def count_for_appid(self, *, appid: int) -> int:

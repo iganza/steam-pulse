@@ -26,7 +26,7 @@ from library_layer.services.analytics_service import AnalyticsService
 from library_layer.services.catalog_report_service import CatalogReportService
 from library_layer.services.new_releases_service import NewReleasesService
 from library_layer.services.new_releases_service import Window as NewReleasesWindow
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, transaction
 from pydantic import BaseModel, EmailStr
 
 logger = Logger(service="api")
@@ -785,9 +785,10 @@ async def catalog_coming_soon(
 @app.post("/api/reports/request-analysis")
 async def request_analysis(body: AnalysisRequestBody) -> dict:
     normalized_email = body.email.strip().lower()
-    return _catalog_report_service.request_analysis(
-        appid=body.appid, email=normalized_email,
-    )
+    with transaction(get_conn()):
+        return _catalog_report_service.request_analysis(
+            appid=body.appid, email=normalized_email,
+        )
 
 
 @app.get("/api/reports/request-count/{appid}")
@@ -803,7 +804,8 @@ async def report_request_count(appid: int) -> JSONResponse:
 async def join_waitlist(body: WaitlistRequest) -> dict:
     """Add an email to the waitlist and enqueue a confirmation email."""
     normalized_email = body.email.strip().lower()
-    inserted = _waitlist_repo.add(normalized_email)
+    with transaction(get_conn()):
+        inserted = _waitlist_repo.add(normalized_email)
     if not inserted:
         # Already on the waitlist — return 200 so the UI shows success.
         return {"status": "already_registered"}

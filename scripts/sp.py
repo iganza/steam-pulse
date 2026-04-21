@@ -94,6 +94,8 @@ if _cmd not in _DEPLOYED_COMMANDS and _cmd not in {"analyze", "seed"}:
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
+from datetime import UTC
+
 from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
 from library_layer.repositories.game_repo import GameRepository  # noqa: E402
@@ -102,6 +104,7 @@ from library_layer.repositories.review_repo import ReviewRepository  # noqa: E40
 from library_layer.repositories.tag_repo import TagRepository  # noqa: E402
 from library_layer.services.crawl_service import CrawlService  # noqa: E402
 from library_layer.steam_source import DirectSteamSource  # noqa: E402
+from library_layer.utils.db import transaction  # noqa: E402
 
 try:
     from rich.console import Console
@@ -220,7 +223,7 @@ def _build_crawl_service(
 
 def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[dict]:
     """Return [{appid, name, steam_last_modified, price_change_number}, ...] from IStoreService/GetAppList (cursor-paginated)."""
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
 
     if not api_key:
         raise ValueError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
@@ -239,7 +242,7 @@ def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[di
                 "appid": a["appid"],
                 "name": a.get("name", ""),
                 "steam_last_modified": (
-                    datetime.fromtimestamp(a["last_modified"], tz=_tz.utc)
+                    datetime.fromtimestamp(a["last_modified"], tz=UTC)
                     if a.get("last_modified")
                     else None
                 ),
@@ -282,7 +285,8 @@ def cmd_catalog_update(dry_run: bool, limit: int | None) -> None:
 
     conn, _, catalog_repo, _, _ = _get_repos()
     try:
-        new_rows = catalog_repo.bulk_upsert(apps)
+        with transaction(conn):
+            new_rows = catalog_repo.bulk_upsert(apps)
     finally:
         conn.close()
     _ok(f"Upserted {len(apps):,} apps — {new_rows:,} new, {len(apps) - new_rows:,} existing")
@@ -372,14 +376,15 @@ def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
     try:
         svc = _build_crawl_service(c, client)
         if phase == "metadata":
-            result = svc.crawl_app(appid)
+            with transaction(c):
+                result = svc.crawl_app(appid)
             return "done" if result else "skipped"
         else:
-            n = svc.crawl_reviews(appid)
-            if n >= 0:
-                CatalogRepository(lambda: c).mark_reviews_complete(appid)
-                return "done"
-            return "skipped"
+            with transaction(c):
+                n = svc.crawl_reviews(appid)
+                if n >= 0:
+                    CatalogRepository(lambda: c).mark_reviews_complete(appid)
+            return "done" if n >= 0 else "skipped"
     except Exception as exc:
         _warn(f"appid={appid} error: {exc}")
         return "failed"

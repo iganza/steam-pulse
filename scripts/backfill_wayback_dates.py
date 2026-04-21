@@ -23,10 +23,14 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import psycopg2
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_REPO_ROOT, "src", "library-layer"))
+from library_layer.utils.db import transaction  # noqa: E402
 
 CDX_URL = "https://web.archive.org/cdx/search/cdx"
 RATE_LIMIT = 0.5  # seconds between requests (2 req/sec)
@@ -41,7 +45,7 @@ def log(msg: str) -> None:
 
 def parse_wayback_timestamp(ts: str) -> datetime:
     """Parse Wayback CDX timestamp (YYYYMMDDHHmmss) to UTC datetime."""
-    return datetime.strptime(ts, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    return datetime.strptime(ts, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
 
 
 def fetch_earliest_snapshot(client: httpx.Client, appid: int) -> datetime | None:
@@ -96,13 +100,12 @@ def get_appids(conn: psycopg2.extensions.connection, *, start_from: int, limit: 
 
 def update_discovered_at(conn: psycopg2.extensions.connection, appid: int, dt: datetime) -> int:
     """Update discovered_at only if the Wayback date is older. Returns rows affected."""
-    with conn.cursor() as cur:
+    with transaction(conn), conn.cursor() as cur:
         cur.execute(
             "UPDATE app_catalog SET discovered_at = %s WHERE appid = %s AND discovered_at > %s",
             (dt, appid, dt),
         )
         updated = cur.rowcount
-    conn.commit()
     return updated
 
 

@@ -11,7 +11,6 @@ This Lambda is in the VPC with DB access. No public exposure.
 import psycopg2.sql
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
-
 from library_layer.utils.db import get_conn
 
 logger = Logger(service="admin")

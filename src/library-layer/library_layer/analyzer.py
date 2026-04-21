@@ -35,6 +35,7 @@ from library_layer.utils.chunking import (
     compute_chunk_hash,
     stratified_chunk_reviews,
 )
+from library_layer.utils.db import run_with_retrying_transaction
 from library_layer.utils.scores import (
     compute_hidden_gem_score as _compute_hidden_gem_score,
 )
@@ -882,24 +883,32 @@ def run_chunk_phase(
         if not isinstance(response, RichChunkSummary):
             raise TypeError(f"backend returned {type(response).__name__} for a chunking request")
         chunk_index, chunk_hash, chunk_size = pending_meta[idx]
-        row_id = chunk_repo.insert(
-            appid,
-            chunk_index,
-            chunk_hash,
-            chunk_size,
-            response,
-            model_id=model_id,
-            prompt_version=CHUNK_PROMPT_VERSION,
-            # Store the sum of all input billables (new + cache write +
-            # cache read). The cost estimator treats this as full-rate
-            # input, which overestimates slightly on cache-heavy runs
-            # (cache reads are billed ~10% of full rate). Good enough
-            # for "am I spending $5 or $50" precision.
-            input_tokens=(
-                usage.input_tokens + usage.cache_write_tokens + usage.cache_read_tokens
+        # Each chunk insert is its own transaction + retry: a transient DB
+        # hiccup on chunk N must not discard the LLM work done on chunks
+        # 0..N-1 (which may have already been persisted this run) and must
+        # not force re-running the LLM for chunk N. The method is idempotent
+        # (ON CONFLICT on appid+chunk_hash+prompt_version), so replay is safe.
+        row_id = run_with_retrying_transaction(
+            chunk_repo.conn,
+            lambda: chunk_repo.insert(
+                appid,
+                chunk_index,
+                chunk_hash,
+                chunk_size,
+                response,
+                model_id=model_id,
+                prompt_version=CHUNK_PROMPT_VERSION,
+                # Store the sum of all input billables (new + cache write +
+                # cache read). The cost estimator treats this as full-rate
+                # input, which overestimates slightly on cache-heavy runs
+                # (cache reads are billed ~10% of full rate). Good enough
+                # for "am I spending $5 or $50" precision.
+                input_tokens=(
+                    usage.input_tokens + usage.cache_write_tokens + usage.cache_read_tokens
+                ),
+                output_tokens=usage.output_tokens,
+                latency_ms=usage.latency_ms,
             ),
-            output_tokens=usage.output_tokens,
-            latency_ms=usage.latency_ms,
         )
         summaries_by_index[chunk_index] = response
         ids_by_index[chunk_index] = row_id
@@ -1008,14 +1017,17 @@ def run_merge_phase(
                 cached_id,
             )
         merged = promote_single_chunk(chunk_summaries[0], source_chunk_id=chunk_ids[0])
-        row_id = merge_repo.insert(
-            appid,
-            0,  # merge_level=0 distinguishes promotion from LLM-produced merges
-            merged,
-            [chunk_ids[0]],
-            1,
-            model_id="python-promotion",
-            prompt_version=MERGE_PROMPT_VERSION,
+        row_id = run_with_retrying_transaction(
+            merge_repo.conn,
+            lambda: merge_repo.insert(
+                appid,
+                0,  # merge_level=0 distinguishes promotion from LLM-produced merges
+                merged,
+                [chunk_ids[0]],
+                1,
+                model_id="python-promotion",
+                prompt_version=MERGE_PROMPT_VERSION,
+            ),
         )
         logger.info(
             "merge_phase_single_chunk_promoted",
@@ -1105,17 +1117,20 @@ def run_merge_phase(
             response.chunks_merged = len(mg.source_chunk_ids)
             response.source_chunk_ids = mg.source_chunk_ids
             u = merge_usage[0]
-            row_id = merge_repo.insert(
-                appid,
-                level,
-                response,
-                mg.source_chunk_ids,
-                len(mg.source_chunk_ids),
-                model_id=model_id,
-                prompt_version=MERGE_PROMPT_VERSION,
-                input_tokens=u.input_tokens + u.cache_write_tokens + u.cache_read_tokens,
-                output_tokens=u.output_tokens,
-                latency_ms=u.latency_ms,
+            row_id = run_with_retrying_transaction(
+                merge_repo.conn,
+                lambda mg=mg, response=response, u=u: merge_repo.insert(
+                    appid,
+                    level,
+                    response,
+                    mg.source_chunk_ids,
+                    len(mg.source_chunk_ids),
+                    model_id=model_id,
+                    prompt_version=MERGE_PROMPT_VERSION,
+                    input_tokens=u.input_tokens + u.cache_write_tokens + u.cache_read_tokens,
+                    output_tokens=u.output_tokens,
+                    latency_ms=u.latency_ms,
+                ),
             )
             next_inputs.append(merged_as_chunk_like(response))
             next_source_sets.append(mg.source_chunk_ids)
@@ -1308,7 +1323,10 @@ def analyze_game(
     report_payload["pipeline_version"] = PIPELINE_VERSION
     report_payload["chunk_count"] = len(chunk_summaries)
     report_payload["merged_summary_id"] = merged_summary_id
-    report_repo.upsert(report_payload)
+    run_with_retrying_transaction(
+        report_repo.conn,
+        lambda: report_repo.upsert(report_payload),
+    )
 
     elapsed_ms = round((time.monotonic() - t_start) * 1000)
     logger.info(

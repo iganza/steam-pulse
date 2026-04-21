@@ -130,6 +130,11 @@ def refresh_matviews(db_conn: Any) -> Any:
     must call this after seeding: ``refresh_matviews()``
     """
     def _refresh() -> None:
+        # Repos no longer auto-commit (handlers own the tx boundary now).
+        # Tests that seed via repo methods without a transaction() wrapper
+        # leave an open tx — commit here so the matview refresh sees the
+        # setup data and so autocommit can be toggled without error.
+        db_conn.commit()
         prev = db_conn.autocommit
         db_conn.autocommit = True
         try:

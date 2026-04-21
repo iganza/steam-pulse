@@ -11,7 +11,6 @@ import psycopg2.extras
 from aws_lambda_powertools import Logger
 from library_layer.models.batch_execution import BatchExecution
 from library_layer.repositories.base import BaseRepository
-from library_layer.utils.db import retry_on_transient_db_error
 
 logger = Logger()
 
@@ -62,7 +61,6 @@ class BatchExecutionRepository(BaseRepository):
                 ),
             )
             row_id = int(cur.fetchone()["id"])
-        self.conn.commit()
         return row_id
 
     def mark_running(self, batch_id: str) -> None:
@@ -86,9 +84,7 @@ class BatchExecutionRepository(BaseRepository):
                     "batch_execution_mark_running_noop",
                     extra={"batch_id": batch_id},
                 )
-        self.conn.commit()
 
-    @retry_on_transient_db_error()
     def mark_completed(
         self,
         batch_id: str,
@@ -139,9 +135,7 @@ class BatchExecutionRepository(BaseRepository):
                     "batch_execution_mark_completed_noop",
                     extra={"batch_id": batch_id},
                 )
-        self.conn.commit()
 
-    @retry_on_transient_db_error()
     def mark_failed(self, batch_id: str, *, failure_reason: str) -> None:
         """Mark a batch as failed with a reason.
 
@@ -167,7 +161,6 @@ class BatchExecutionRepository(BaseRepository):
                     "batch_execution_mark_failed_noop",
                     extra={"batch_id": batch_id, "failure_reason": failure_reason},
                 )
-        self.conn.commit()
 
     def _rows_to_models(self, rows: list[dict]) -> list[BatchExecution]:
         return [BatchExecution.model_validate(dict(r)) for r in rows]

@@ -112,7 +112,7 @@ from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.utils.chunking import dataset_reference_time
-from library_layer.utils.db import get_conn
+from library_layer.utils.db import get_conn, run_with_retrying_transaction, transaction
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
 
 logger = Logger(service="batch-prepare-phase")
@@ -238,17 +238,18 @@ def _prepare_chunk(appid: int, backend: AnthropicBatchBackend, execution_id: str
     job_id = backend.submit(prepared, task="chunking", phase=f"chunk-{appid}")
 
     try:
-        _batch_exec_repo.insert(
-            execution_id=execution_id,
-            appid=appid,
-            phase="chunk",
-            backend=_config.LLM_BACKEND,
-            batch_id=job_id,
-            model_id=_config.model_for("chunking"),
-            request_count=len(pending),
-            pipeline_version=PIPELINE_VERSION,
-            prompt_version=CHUNK_PROMPT_VERSION,
-        )
+        with transaction(_get_batch_conn()):
+            _batch_exec_repo.insert(
+                execution_id=execution_id,
+                appid=appid,
+                phase="chunk",
+                backend=_config.LLM_BACKEND,
+                batch_id=job_id,
+                model_id=_config.model_for("chunking"),
+                request_count=len(pending),
+                pipeline_version=PIPELINE_VERSION,
+                prompt_version=CHUNK_PROMPT_VERSION,
+            )
     except Exception:
         logger.exception(
             "batch_execution_tracking_insert_failed",
@@ -329,14 +330,17 @@ def _prepare_merge(
             return _skip_result(int(cached_promotion["id"]))
 
         merged = promote_single_chunk(summaries[0], source_chunk_id=chunk_ids[0])
-        row_id = _merge_repo.insert(
-            appid,
-            0,
-            merged,
-            [chunk_ids[0]],
-            1,
-            model_id="python-promotion",
-            prompt_version=MERGE_PROMPT_VERSION,
+        row_id = run_with_retrying_transaction(
+            _merge_repo.conn,
+            lambda: _merge_repo.insert(
+                appid,
+                0,
+                merged,
+                [chunk_ids[0]],
+                1,
+                model_id="python-promotion",
+                prompt_version=MERGE_PROMPT_VERSION,
+            ),
         )
         logger.info(
             "merge_prepare_single_chunk_promoted",
@@ -533,17 +537,18 @@ def _submit_merge_batch(
     job_id = backend.submit(prepared, task="merging", phase=f"merge-{appid}-L{merge_level}")
 
     try:
-        _batch_exec_repo.insert(
-            execution_id=execution_id,
-            appid=appid,
-            phase=f"merge-L{merge_level}",
-            backend=_config.LLM_BACKEND,
-            batch_id=job_id,
-            model_id=_config.model_for("merging"),
-            request_count=len(pending_requests),
-            pipeline_version=PIPELINE_VERSION,
-            prompt_version=MERGE_PROMPT_VERSION,
-        )
+        with transaction(_get_batch_conn()):
+            _batch_exec_repo.insert(
+                execution_id=execution_id,
+                appid=appid,
+                phase=f"merge-L{merge_level}",
+                backend=_config.LLM_BACKEND,
+                batch_id=job_id,
+                model_id=_config.model_for("merging"),
+                request_count=len(pending_requests),
+                pipeline_version=PIPELINE_VERSION,
+                prompt_version=MERGE_PROMPT_VERSION,
+            )
     except Exception:
         logger.exception(
             "batch_execution_tracking_insert_failed",
@@ -670,17 +675,18 @@ def _prepare_synthesis(
     job_id = backend.submit(prepared, task="summarizer", phase=f"synth-{appid}")
 
     try:
-        _batch_exec_repo.insert(
-            execution_id=execution_id,
-            appid=appid,
-            phase="synthesis",
-            backend=_config.LLM_BACKEND,
-            batch_id=job_id,
-            model_id=_config.model_for("summarizer"),
-            request_count=1,
-            pipeline_version=PIPELINE_VERSION,
-            prompt_version=SYNTHESIS_PROMPT_VERSION,
-        )
+        with transaction(_get_batch_conn()):
+            _batch_exec_repo.insert(
+                execution_id=execution_id,
+                appid=appid,
+                phase="synthesis",
+                backend=_config.LLM_BACKEND,
+                batch_id=job_id,
+                model_id=_config.model_for("summarizer"),
+                request_count=1,
+                pipeline_version=PIPELINE_VERSION,
+                prompt_version=SYNTHESIS_PROMPT_VERSION,
+            )
     except Exception:
         logger.exception(
             "batch_execution_tracking_insert_failed",

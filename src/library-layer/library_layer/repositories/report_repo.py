@@ -6,13 +6,11 @@ import json
 
 from library_layer.models.report import Report
 from library_layer.repositories.base import BaseRepository
-from library_layer.utils.db import retry_on_transient_db_error
 
 
 class ReportRepository(BaseRepository):
     """CRUD operations for the reports table."""
 
-    @retry_on_transient_db_error()
     def upsert(self, report: dict) -> None:
         """Insert or update a report by appid.
 
@@ -84,7 +82,6 @@ class ReportRepository(BaseRepository):
                 f"UPDATE games SET {', '.join(score_sets)} WHERE appid = %s",
                 score_vals,
             )
-        self.conn.commit()
 
     def find_by_appid(self, appid: int) -> Report | None:
         row = self._fetchone("SELECT * FROM reports WHERE appid = %s", (appid,))

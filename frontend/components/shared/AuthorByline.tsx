@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { AUTHOR_NAME, METHODOLOGY_PATH } from "@/lib/author";
 

@@ -39,7 +39,7 @@ import { RequestAnalysis } from "@/components/game/RequestAnalysis";
 import { RelatedAnalyzedGames } from "@/components/game/RelatedAnalyzedGames";
 import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
 import { AuthorByline } from "@/components/shared/AuthorByline";
-import { AUTHOR_NAME } from "@/lib/author";
+import { AUTHOR_NAME, METHODOLOGY_PATH } from "@/lib/author";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -709,7 +709,7 @@ export function GameReportClient({
               ) : null}
               , reviewed and curated by {AUTHOR_NAME}. See the{" "}
               <Link
-                href="/about#methodology"
+                href={METHODOLOGY_PATH}
                 className="underline underline-offset-2 hover:text-foreground transition-colors"
               >
                 methodology

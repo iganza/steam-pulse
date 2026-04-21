@@ -20,45 +20,50 @@ class ReviewRepository(BaseRepository):
         """
         if not reviews:
             return 0
-        upserted = 0
+        from psycopg2.extras import execute_values
+
+        rows = [
+            (
+                r["appid"],
+                r["steam_review_id"],
+                r.get("author_steamid"),
+                r["voted_up"],
+                r.get("playtime_hours", 0),
+                r.get("body", ""),
+                r.get("posted_at"),
+                r.get("language"),
+                r.get("votes_helpful", 0),
+                r.get("votes_funny", 0),
+                r.get("written_during_early_access", False),
+                r.get("received_for_free", False),
+            )
+            for r in reviews
+        ]
         with self.conn.cursor() as cur:
-            for r in reviews:
-                cur.execute(
-                    """
-                    INSERT INTO reviews (
-                        appid, steam_review_id, author_steamid, voted_up, playtime_hours,
-                        body, posted_at, language, votes_helpful, votes_funny,
-                        written_during_early_access, received_for_free
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (steam_review_id) DO UPDATE SET
-                        voted_up                    = EXCLUDED.voted_up,
-                        playtime_hours              = EXCLUDED.playtime_hours,
-                        body                        = EXCLUDED.body,
-                        author_steamid              = EXCLUDED.author_steamid,
-                        language                    = EXCLUDED.language,
-                        votes_helpful               = EXCLUDED.votes_helpful,
-                        votes_funny                 = EXCLUDED.votes_funny,
-                        written_during_early_access = EXCLUDED.written_during_early_access,
-                        received_for_free           = EXCLUDED.received_for_free
-                    """,
-                    (
-                        r["appid"],
-                        r["steam_review_id"],
-                        r.get("author_steamid"),
-                        r["voted_up"],
-                        r.get("playtime_hours", 0),
-                        r.get("body", ""),
-                        r.get("posted_at"),
-                        r.get("language"),
-                        r.get("votes_helpful", 0),
-                        r.get("votes_funny", 0),
-                        r.get("written_during_early_access", False),
-                        r.get("received_for_free", False),
-                    ),
-                )
-                upserted += 1
+            execute_values(
+                cur,
+                """
+                INSERT INTO reviews (
+                    appid, steam_review_id, author_steamid, voted_up, playtime_hours,
+                    body, posted_at, language, votes_helpful, votes_funny,
+                    written_during_early_access, received_for_free
+                ) VALUES %s
+                ON CONFLICT (steam_review_id) DO UPDATE SET
+                    voted_up                    = EXCLUDED.voted_up,
+                    playtime_hours              = EXCLUDED.playtime_hours,
+                    body                        = EXCLUDED.body,
+                    author_steamid              = EXCLUDED.author_steamid,
+                    language                    = EXCLUDED.language,
+                    votes_helpful               = EXCLUDED.votes_helpful,
+                    votes_funny                 = EXCLUDED.votes_funny,
+                    written_during_early_access = EXCLUDED.written_during_early_access,
+                    received_for_free           = EXCLUDED.received_for_free
+                """,
+                rows,
+                page_size=500,
+            )
         self.conn.commit()
-        return upserted
+        return len(rows)
 
     def count_by_appid(self, appid: int) -> int:
         row = self._fetchone("SELECT COUNT(*) AS cnt FROM reviews WHERE appid = %s", (appid,))

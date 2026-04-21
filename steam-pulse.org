@@ -169,14 +169,15 @@
      1. [X] =scripts/prompts/audit-game-page-no-report-state.md= — per-game pages render rich indexable content even without a report.
      2. [X] =scripts/prompts/soft-launch-seo-discipline.md= — =robots.txt= (allow GPTBot / ClaudeBot / PerplexityBot), dynamic sitemap, site-wide JSON-LD, canonical tags, OG/Twitter defaults.
      3. [X] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesiser. The synthesis content engine.
+     4. [X] =scripts/prompts/simplify-ui-for-tier1.md= — Pro plumbing, Toolkit tree, enthusiast routes, and obsolete tests deleted. Nav reduced to Reports · Browse · About. Clean surface.
 
      *Phase A — ship the free synthesis page (in this order):*
-     4. [ ] =scripts/prompts/simplify-ui-for-tier1.md= — *first.* Delete Pro plumbing (=usePro()=, =ProLockOverlay=, blur CSS), the Toolkit tree, enthusiast routes (=/trending=, =/new-releases=, =/compare=, =/explore=, =/pro=), and obsolete tests. Nav reduces to Reports · Browse · About. Creates the clean surface for the next two prompts.
-     5. [ ] =scripts/prompts/genre-insights-page.md= — *second.* Build the =/genre/[slug]/= synthesis page. All sections free; renders a pre-order / buy block when a =reports= row exists for the genre. This is the destination the landing page will link to.
-     6. [ ] =scripts/prompts/fix-landing-page.md= — *third.* Rebuild homepage so the primary CTA points at =/genre/roguelike-deckbuilder/=. Must land after the synthesis page exists (otherwise the CTA is a 404).
+     1. [ ] =scripts/prompts/simplify-ui-tier1-followup.md= — *first.* SEO hardening on top of the simplified surface: shared =AUTHOR_NAME= + =AuthorByline= component (=frontend/lib/author.ts= / =frontend/components/shared/=), named-author byline + methodology footer + schema.org =Article= JSON-LD on every per-game page (Google March 2026 core-update signal for LLM-generated content), new static =/about= page with methodology + founder bio where every byline link resolves, provisional nav target for "Reports" until =/reports= ships, sitemap emits the post-refactor route set. **Must land first** because (2) and (3) import =AuthorByline=.
+     2. [ ] =scripts/prompts/genre-insights-page.md= — *second.* Build the =/genre/[slug]/= synthesis page as a **curated preview** (author byline + editorial intro + top-5 friction + top-3 wishlist + 3 benchmark cards + churn stat with one-line interpretation + 2-row dev priorities teaser). Renders a pre-order / buy block when a =reports= row exists. Adds =mv_genre_synthesis.editorial_intro= + =churn_interpretation= columns (human-written, operator-populated).
+     3. [ ] =scripts/prompts/fix-landing-page.md= — *third.* Rebuild homepage so the primary CTA points at =/genre/roguelike-deckbuilder/=. Must land after the synthesis page exists (otherwise the CTA is a 404).
 
      *Phase B — open pre-orders:*
-     7. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + signed-S3 delivery. Supports pre-order mode (=reports.published_at > now()= at purchase → delayed delivery; delivery sweep fires on =published_at= flip). Requires the synthesis page from (5) because the pre-order / buy block lives there.
+     4. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + signed-S3 delivery. Supports pre-order mode (=reports.published_at > now()= at purchase → delayed delivery; delivery sweep fires on =published_at= flip). Requires the synthesis page from Phase A step 2 because the pre-order / buy block lives there.
 
      *Phase C — PDF operational work:*
      - No additional prompt. See "Phase C operational" below: editorial work on the PDF + uploading assets to S3 + flipping =reports.published_at= to =now()=.
@@ -193,9 +194,10 @@
   ORDER BY g.review_count DESC;
   #+end_src
 - [ ] Run wedge synthesiser once for =roguelike-deckbuilder=; iterate prompt 1-3 times (bump =prompt_version=)
-- [ ] Ship =simplify-ui-for-tier1.md= (prompt 4) — clean surface
-- [ ] Ship =genre-insights-page.md= (prompt 5) — the =/genre/roguelike-deckbuilder/= synthesis page goes live
-- [ ] Ship =fix-landing-page.md= (prompt 6) — homepage CTA now points at the live synthesis page
+- [ ] Ship =simplify-ui-tier1-followup.md= (Phase A prompt 1) — shared =AuthorByline= + =/about= + per-game SEO hardening
+- [ ] Ship =genre-insights-page.md= (Phase A prompt 2) — the =/genre/roguelike-deckbuilder/= curated synthesis page goes live
+- [ ] Write editorial_intro (200–300 words) + churn_interpretation (one line) for the RDB synthesis row
+- [ ] Ship =fix-landing-page.md= (Phase A prompt 3) — homepage CTA now points at the live synthesis page
 - [ ] Submit sitemap to Google Search Console + Bing Webmaster Tools
 
 **** Phase B operational (Week 2-4)

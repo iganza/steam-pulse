@@ -441,7 +441,7 @@ class ComputeStack(cdk.Stack):
                 iam.PolicyStatement(
                     actions=["sqs:SendMessage"],
                     resources=spoke_queue_arns,
-                
+                )
             )
 
         # ── Ingest Lambda (spoke results → DB) ────────────────────────────
@@ -458,7 +458,7 @@ class ComputeStack(cdk.Stack):
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(15),
-            memory_size=256,
+            memory_size=1024,
             tracing=lambda_.Tracing.ACTIVE,
             recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
@@ -482,7 +482,7 @@ class ComputeStack(cdk.Stack):
                 spoke_results_queue,
                 batch_size=100,
                 max_batching_window=cdk.Duration.seconds(5),
-                max_concurrency=4,
+                max_concurrency=6,
                 report_batch_item_failures=True,
             )
         )

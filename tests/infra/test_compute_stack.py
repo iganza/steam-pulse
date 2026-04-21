@@ -104,7 +104,7 @@ def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Temp
         {
             "BatchSize": 100,
             "MaximumBatchingWindowInSeconds": 5,
-            "ScalingConfig": {"MaximumConcurrency": 2},
+            "ScalingConfig": {"MaximumConcurrency": 6},
             "FunctionResponseTypes": ["ReportBatchItemFailures"],
         },
     )

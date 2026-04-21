@@ -4,13 +4,14 @@ import type { GameBasics } from "./gameBasics";
 
 interface Props {
   items: WishlistItem[];
-  totalCount: number;
+  gameCount: number;
   games: Record<number, GameBasics>;
 }
 
-export function WishlistList({ items, totalCount, games }: Props) {
+export function WishlistList({ items, gameCount, games }: Props) {
   const preview = items.slice(0, 3);
-  const remaining = Math.max(0, totalCount - preview.length);
+  // Remaining = wishlist clusters beyond the preview, not games in the cohort.
+  const remaining = Math.max(0, items.length - preview.length);
 
   return (
     <section className="mb-16" data-testid="wishlist-list">
@@ -33,7 +34,7 @@ export function WishlistList({ items, totalCount, games }: Props) {
                 <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
                   <h3 className="font-serif text-lg font-semibold">{item.title}</h3>
                   <span className="text-xs font-mono whitespace-nowrap" style={{ color: "var(--muted-foreground)" }}>
-                    {item.mention_count} of {totalCount} games
+                    {item.mention_count} of {gameCount} games
                   </span>
                 </div>
                 <p className="text-base mb-3 leading-relaxed">{item.description}</p>

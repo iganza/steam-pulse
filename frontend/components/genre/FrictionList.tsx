@@ -4,13 +4,15 @@ import type { GameBasics } from "./gameBasics";
 
 interface Props {
   items: FrictionPoint[];
-  totalCount: number;
+  gameCount: number;
   games: Record<number, GameBasics>;
 }
 
-export function FrictionList({ items, totalCount, games }: Props) {
+export function FrictionList({ items, gameCount, games }: Props) {
   const preview = items.slice(0, 5);
-  const remaining = Math.max(0, totalCount - preview.length);
+  // "X more in the PDF" is a count of clusters beyond the preview, not a
+  // game count — keep the cohort size (gameCount) separate from this.
+  const remaining = Math.max(0, items.length - preview.length);
 
   return (
     <section className="mb-16" data-testid="friction-list">
@@ -39,7 +41,7 @@ export function FrictionList({ items, totalCount, games }: Props) {
                     className="text-xs font-mono whitespace-nowrap"
                     style={{ color: "var(--muted-foreground)" }}
                   >
-                    {item.mention_count} of {totalCount} games
+                    {item.mention_count} of {gameCount} games
                   </span>
                 </div>
                 <p className="text-base mb-3 leading-relaxed">{item.description}</p>

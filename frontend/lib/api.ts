@@ -427,17 +427,20 @@ export async function getGenreInsights(slug: string): Promise<GenreInsights | nu
 
 /** GET /api/genres/{slug}/report — paid-PDF report summary.
  *
- * Endpoint ships with stripe-checkout-report-delivery.md; absent today.
- * Any non-200 (including "endpoint not wired yet") resolves to null so the
- * pre-order/buy block simply doesn't render until the Stripe prompt lands.
+ * Endpoint ships with stripe-checkout-report-delivery.md; until then,
+ * FastAPI returns 404 for the unwired route. 404 and 501 resolve to null
+ * so the pre-order/buy block simply doesn't render. 5xx and network
+ * errors are rethrown so real production failures stay visible in logs
+ * instead of being silently suppressed into a missing buy block.
  */
 export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
   try {
     return await apiFetch<ReportSummary>(`/api/genres/${encodeURIComponent(slug)}/report`, {
       next: { revalidate: 300, tags: [`genre-report-${slug}`] },
     });
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 501)) return null;
+    throw err;
   }
 }
 

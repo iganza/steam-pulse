@@ -14,7 +14,6 @@ export function EditorialIntro({ insights, shareUrl }: Props) {
     month: "long",
     day: "numeric",
   });
-  const totalReviews = insights.median_review_count * insights.input_count;
 
   return (
     <header className="mb-12">
@@ -37,7 +36,7 @@ export function EditorialIntro({ insights, shareUrl }: Props) {
         className="mt-6 text-xs font-mono uppercase tracking-widest"
         style={{ color: "var(--muted-foreground)" }}
       >
-        Synthesised from {insights.input_count} games · {totalReviews.toLocaleString()}+ reviews · last updated {updated}
+        Synthesised from {insights.input_count} games · median {insights.median_review_count.toLocaleString()} reviews/game · last updated {updated}
       </p>
 
       <div className="mt-6">

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getGenreInsights, getReportForGenre, getGameReport } from "@/lib/api";
-import { AUTHOR_NAME } from "@/lib/author";
+import { AUTHOR_NAME, ABOUT_URL } from "@/lib/author";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { EditorialIntro } from "@/components/genre/EditorialIntro";
 import { FrictionList } from "@/components/genre/FrictionList";
@@ -96,7 +96,9 @@ export default async function GenrePage({ params }: Props) {
     headline: `What ${insights.display_name} Players Want, Hate, and Praise`,
     datePublished: insights.computed_at,
     dateModified: insights.computed_at,
-    author: { "@type": "Organization", name: "SteamPulse", url: "https://steampulse.io" },
+    // author = named human expert (Google 2026 AI-content signal); publisher
+    // = the org. Mirrors the games/[appid]/[slug] JSON-LD shape.
+    author: { "@type": "Person", name: AUTHOR_NAME, url: ABOUT_URL },
     publisher: {
       "@type": "Organization",
       name: "SteamPulse",
@@ -105,7 +107,6 @@ export default async function GenrePage({ params }: Props) {
     about: { "@type": "VideoGameSeries", name: insights.display_name },
     mainEntityOfPage: shareUrl,
     description: truncate(insights.narrative_summary, 300),
-    creator: { "@type": "Person", name: AUTHOR_NAME },
   };
 
   return (
@@ -130,13 +131,13 @@ export default async function GenrePage({ params }: Props) {
 
               <FrictionList
                 items={insights.synthesis.friction_points}
-                totalCount={insights.input_count}
+                gameCount={insights.input_count}
                 games={games}
               />
 
               <WishlistList
                 items={insights.synthesis.wishlist_items}
-                totalCount={insights.input_count}
+                gameCount={insights.input_count}
                 games={games}
               />
 

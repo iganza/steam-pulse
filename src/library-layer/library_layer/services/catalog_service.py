@@ -16,6 +16,7 @@ from library_layer.events import (
 )
 from library_layer.models.catalog import CatalogEntry
 from library_layer.repositories.catalog_repo import CatalogRepository
+from library_layer.utils.db import transaction
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.sqs import send_sqs_batch
 
@@ -79,9 +80,15 @@ class CatalogService:
         self._system_events_topic_arn = system_events_topic_arn
 
     def refresh(self) -> dict:
-        """Fetch GetAppList, bulk upsert new entries, enqueue all pending."""
+        """Fetch GetAppList, bulk upsert new entries, enqueue all pending.
+
+        Tx is narrowed to just the `bulk_upsert`: Steam HTTP (`_fetch_app_list`),
+        SQS enqueue, and SNS publish all happen outside the DB tx so the
+        transaction never spans external side effects.
+        """
         apps = self._fetch_app_list()
-        new_rows = self._catalog_repo.bulk_upsert(apps)
+        with transaction(self._catalog_repo.conn):
+            new_rows = self._catalog_repo.bulk_upsert(apps)
         enqueued = self.enqueue_pending()
         logger.info(
             "Catalog refresh complete",

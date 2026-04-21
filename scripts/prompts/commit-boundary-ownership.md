@@ -176,11 +176,13 @@ caller once the caller wraps in `transaction()`.
    - RDS `CommitLatency` / `WriteIOPS` drop proportional to the fewer
      commit calls. (Aurora/RDS emits `CommitLatency` sparingly on
      t4g-class; `WriteIOPS` is the more reliable proxy.)
-   - No increase in `db_write_retry` log lines
-     (`src/library-layer/library_layer/utils/db.py:213`) — the
-     `retry_on_transient_db_error` decorator's rollback helper
-     (`_rollback_before_retry`) continues to work because the
-     transaction boundary just moved up, not away.
+   - No increase in `db_tx_retry` log lines emitted by
+     `run_with_retrying_transaction` in
+     `src/library-layer/library_layer/utils/db.py` — the retry
+     boundary moved up from per-repo-method (the removed
+     `retry_on_transient_db_error` decorator) to per-unit-of-work,
+     so a transient failure replays the whole idempotent block
+     rather than a single statement inside an aborted tx.
 
 ## Risk
 

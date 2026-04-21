@@ -376,13 +376,15 @@ def _crawl_one(appid: int, phase: str, client: httpx.Client) -> str:
     try:
         svc = _build_crawl_service(c, client)
         if phase == "metadata":
-            with transaction(c):
-                result = svc.crawl_app(appid)
+            # CrawlService.crawl_app owns its own narrow tx internally.
+            result = svc.crawl_app(appid)
             return "done" if result else "skipped"
         else:
-            with transaction(c):
-                n = svc.crawl_reviews(appid)
-                if n >= 0:
+            # CrawlService.crawl_reviews owns its tx internally; the
+            # mark_reviews_complete step below is a separate tiny tx.
+            n = svc.crawl_reviews(appid)
+            if n >= 0:
+                with transaction(c):
                     CatalogRepository(lambda: c).mark_reviews_complete(appid)
             return "done" if n >= 0 else "skipped"
     except Exception as exc:

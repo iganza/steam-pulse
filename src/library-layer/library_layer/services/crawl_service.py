@@ -20,6 +20,7 @@ from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
+from library_layer.utils.db import transaction
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.slugify import slugify
 from library_layer.utils.time import unix_to_datetime
@@ -124,6 +125,11 @@ class CrawlService:
     def crawl_app(self, appid: int, dry_run: bool = False) -> bool:
         """Fetch app details + review summary from Steam. Upsert to DB. Enqueue review crawl if eligible.
 
+        Transaction boundary is narrow on purpose: Steam HTTP calls, S3
+        archiving, and SNS publishes all happen OUTSIDE the DB tx so the
+        tx never spans external side effects and never holds open for
+        seconds across slow Steam responses.
+
         Returns:
             True on success, False on failure (Steam API error or not found).
         """
@@ -131,19 +137,22 @@ class CrawlService:
             details = self._steam.get_app_details(appid)
         except SteamAPIError as exc:
             logger.error("Steam app_details error", extra={"appid": appid, "error": str(exc)})
-            self._catalog_repo.set_meta_status(appid, "failed")
+            with transaction(self._catalog_repo.conn):
+                self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
         if not details:
             logger.info("App not found on Steam — skipping", extra={"appid": appid})
-            self._catalog_repo.set_meta_status(appid, "skipped")
+            with transaction(self._catalog_repo.conn):
+                self._catalog_repo.set_meta_status(appid, "skipped")
             return False
 
         try:
             summary = self._steam.get_review_summary(appid)
         except SteamAPIError as exc:
             logger.error("Steam review_summary error", extra={"appid": appid, "error": str(exc)})
-            self._catalog_repo.set_meta_status(appid, "failed")
+            with transaction(self._catalog_repo.conn):
+                self._catalog_repo.set_meta_status(appid, "failed")
             return False
 
         try:
@@ -163,11 +172,15 @@ class CrawlService:
         # Load existing row BEFORE upsert for state comparison (events)
         existing = self._game_repo.find_by_appid(appid)
 
-        game_data = self._ingest_app_data(appid, details, summary, deck_compat)
-        if not game_data:
-            return False
+        with transaction(self._game_repo.conn):
+            game_data = self._ingest_app_data(appid, details, summary, deck_compat)
+            if not game_data:
+                return False
 
-        # ── Publish domain events (only in direct crawl path) ─────────────
+        # After commit: S3 archive + SNS events.
+        self._archive_to_s3(
+            f"app-details/{appid}/{date.today().isoformat()}.json.gz", details
+        )
         self._publish_crawl_app_events(appid, game_data, existing)
 
         return True
@@ -213,12 +226,15 @@ class CrawlService:
         game_name: str = game.name if game else f"App {appid}"
 
         reviews_to_upsert = _normalize_reviews(appid, raw_reviews)
-        upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
-        logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
-
         has_ea_review = any(r.get("written_during_early_access") for r in reviews_to_upsert)
-        if has_ea_review and not getattr(game, "has_early_access_reviews", False):
-            self._game_repo.set_has_early_access_reviews(appid)
+
+        # Narrow DB tx: just the bulk upsert + optional EA flag. Steam HTTP
+        # already done above; SFN trigger + SNS publish happen after commit.
+        with transaction(self._review_repo.conn):
+            upserted = self._review_repo.bulk_upsert(reviews_to_upsert)
+            if has_ea_review and not getattr(game, "has_early_access_reviews", False):
+                self._game_repo.set_has_early_access_reviews(appid)
+        logger.info("Reviews upserted", extra={"appid": appid, "upserted": upserted})
 
         if trigger_analysis:
             self._trigger_analysis(appid, game_name)
@@ -243,6 +259,8 @@ class CrawlService:
         """Ingest metadata fetched by a spoke Lambda.
 
         Writes app data to DB and publishes the same domain events as crawl_app.
+        DB writes run inside a narrow internal transaction so S3 archive and
+        SNS publishes happen after commit, not spanning the tx.
 
         Args:
             appid: Steam app ID
@@ -261,10 +279,14 @@ class CrawlService:
 
         existing = self._game_repo.find_by_appid(appid)
 
-        game_data = self._ingest_app_data(appid, details, summary, deck_compat)
-        if not game_data:
-            return False
+        with transaction(self._game_repo.conn):
+            game_data = self._ingest_app_data(appid, details, summary, deck_compat)
+            if not game_data:
+                return False
 
+        self._archive_to_s3(
+            f"app-details/{appid}/{date.today().isoformat()}.json.gz", details
+        )
         self._publish_crawl_app_events(appid, game_data, existing)
 
         return True
@@ -273,6 +295,9 @@ class CrawlService:
         """Ingest reviews fetched by a spoke Lambda.
 
         DB write only — no SNS events, no Step Functions trigger.
+        Does NOT open its own transaction: the handler composes this with
+        terminal `mark_reviews_complete` / `mark_reviews_crawled` calls in
+        one unit of work and owns the tx boundary.
 
         Returns:
             Number of reviews upserted.
@@ -302,9 +327,11 @@ class CrawlService:
     ) -> dict | None:
         """Write pre-fetched Steam app data to DB.
 
-        Called by crawl_app() and ingest_spoke_metadata().
-        Pure DB write: game upsert, tags, catalog status, S3 archive.
-        Does NOT publish SNS events or trigger Step Functions.
+        Called by crawl_app() and ingest_spoke_metadata(). Pure DB writes:
+        game upsert, tags, categories, catalog status. S3 archive and SNS
+        events are the caller's responsibility so this helper can be safely
+        executed inside a `transaction(...)` block without spanning non-DB
+        side effects.
 
         Returns:
             The game_data dict on success, None on failure.
@@ -421,8 +448,6 @@ class CrawlService:
             "done",
             review_count=total_reviews_all,
         )
-
-        self._archive_to_s3(f"app-details/{appid}/{date.today().isoformat()}.json.gz", details)
 
         return game_data
 

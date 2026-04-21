@@ -177,20 +177,29 @@ T = TypeVar("T")
 
 @contextmanager
 def transaction(conn: psycopg2.extensions.connection) -> Iterator[None]:
-    """Commit on clean exit, rollback on exception.
+    """Commit on clean exit, rollback on any exception — including commit-time.
 
     Handlers own the transaction boundary; repository write methods no
     longer commit themselves. Wrap each business unit-of-work in one
-    `with transaction(get_conn()):` block so a handler's 3–5 repo calls
+    `with transaction(get_conn()):` block so a handler's 3-5 repo calls
     close with a single commit (one WAL fsync) instead of N.
+
+    The commit is inside the try block so a SerializationFailure or
+    OperationalError at commit time triggers rollback and re-raises,
+    leaving the connection in a clean state instead of an aborted tx
+    that would poison the next caller.
     """
     try:
         yield
-    except Exception:
-        conn.rollback()
-        raise
-    else:
         conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            # Rollback itself failed (dead connection). Don't mask the
+            # original exception with the rollback error.
+            pass
+        raise
 
 
 def run_with_retrying_transaction(

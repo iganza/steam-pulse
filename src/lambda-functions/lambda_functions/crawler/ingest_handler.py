@@ -161,10 +161,10 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
         return
     data = json.loads(gzip.decompress(response["Body"].read()))
 
-    with transaction(get_conn()):
-        success = _crawl_service.ingest_spoke_metadata(appid, data)
-        if not success:
-            raise RuntimeError(f"Metadata ingest failed for appid={appid}")
+    # ingest_spoke_metadata owns its own narrow transaction internally.
+    success = _crawl_service.ingest_spoke_metadata(appid, data)
+    if not success:
+        raise RuntimeError(f"Metadata ingest failed for appid={appid}")
     logger.info("Ingested metadata", extra={"appid": appid})
     metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
 
@@ -245,12 +245,11 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     data = json.loads(gzip.decompress(response["Body"].read()))
 
     # One DB unit-of-work: upsert reviews + flip catalog watermarks together.
-    # SQS re-queue (else branch) and S3 delete must happen AFTER commit, so
-    # they stay outside the transaction.
+    # Success logs + metrics emit AFTER commit so a rollback doesn't leave
+    # inaccurate "Reviews ingested/complete" signals in logs/CloudWatch.
+    # SQS re-queue (else branch) and S3 delete also stay outside the tx.
     with transaction(get_conn()):
         upserted = _crawl_service.ingest_spoke_reviews(appid, data)
-        logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
-        metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
         # Early-stop: on re-crawls (reviews_completed_at IS NOT NULL), Steam returns
         # newest reviews first. Once min(batch.timestamp_created) predates our last
@@ -277,48 +276,51 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             boundary = datetime.fromtimestamp(min_batch_ts, tz=UTC) if early_stop else None
             _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
             _catalog_repo.mark_reviews_crawled(appid)
-            if early_stop:
-                logger.info(
-                    "Reviews complete",
-                    extra={
-                        "appid": appid,
-                        "reason": "early_stop",
-                        "batch_count": msg.count,
-                        "min_batch_ts": datetime.fromtimestamp(
-                            min_batch_ts, tz=UTC
-                        ).isoformat()
-                        if min_batch_ts
-                        else None,
-                        "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
-                    },
-                )
-            else:
-                logger.info(
-                    "Reviews complete",
-                    extra={
-                        "appid": appid,
-                        "reason": "exhausted",
-                        "batch_count": msg.count,
-                    },
-                )
         elif target_hit:
             # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
             _catalog_repo.mark_reviews_complete(appid, completed_at=None)
             _catalog_repo.mark_reviews_crawled(appid)
+
+    # Commit done. Emit success signals + side effects below.
+    logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
+    metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
+
+    if exhausted or early_stop:
+        if early_stop:
             logger.info(
                 "Reviews complete",
                 extra={
                     "appid": appid,
-                    "reason": "target_hit",
+                    "reason": "early_stop",
                     "batch_count": msg.count,
-                    "target": msg.target,
+                    "min_batch_ts": datetime.fromtimestamp(
+                        min_batch_ts, tz=UTC
+                    ).isoformat()
+                    if min_batch_ts
+                    else None,
+                    "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,
                 },
             )
-
-    # Commit done. Side effects below must not run before commit.
-    # If SQS or S3 here fails, the SQS record retries; DB writes are idempotent
-    # and S3 object is still available (delete is the last step).
-    if not (exhausted or early_stop or target_hit):
+        else:
+            logger.info(
+                "Reviews complete",
+                extra={
+                    "appid": appid,
+                    "reason": "exhausted",
+                    "batch_count": msg.count,
+                },
+            )
+    elif target_hit:
+        logger.info(
+            "Reviews complete",
+            extra={
+                "appid": appid,
+                "reason": "target_hit",
+                "batch_count": msg.count,
+                "target": msg.target,
+            },
+        )
+    else:
         # More to fetch — re-queue directly to the spoke's SQS queue,
         # bypassing the primary crawler dispatcher entirely.
         new_remaining = msg.target - msg.count if msg.target is not None else None

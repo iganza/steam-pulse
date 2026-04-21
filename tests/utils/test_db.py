@@ -108,6 +108,29 @@ def test_transaction_rolls_back_on_exception() -> None:
     mock_conn.commit.assert_not_called()
 
 
+def test_transaction_rolls_back_on_commit_failure() -> None:
+    """SerializationFailure/OperationalError at commit time must rollback and re-raise."""
+    mock_conn = MagicMock(spec=psycopg2.extensions.connection)
+    mock_conn.commit.side_effect = psycopg2.errors.SerializationFailure(
+        "could not serialize access due to concurrent update"
+    )
+    with pytest.raises(psycopg2.errors.SerializationFailure):
+        with transaction(mock_conn):
+            pass
+    mock_conn.commit.assert_called_once_with()
+    mock_conn.rollback.assert_called_once_with()
+
+
+def test_transaction_does_not_mask_original_error_when_rollback_fails() -> None:
+    """If rollback itself raises (dead connection), the original exception reaches the caller."""
+    mock_conn = MagicMock(spec=psycopg2.extensions.connection)
+    mock_conn.rollback.side_effect = psycopg2.InterfaceError("connection already closed")
+    with pytest.raises(RuntimeError, match="original"):
+        with transaction(mock_conn):
+            raise RuntimeError("original")
+    mock_conn.rollback.assert_called_once_with()
+
+
 def test_run_with_retrying_transaction_retries_transient_operational_error() -> None:
     mock_conn = MagicMock(spec=psycopg2.extensions.connection)
     calls: list[int] = []

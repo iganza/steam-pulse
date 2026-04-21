@@ -95,3 +95,16 @@ def test_compute_stack_grants_sns_publish(template: assertions.Template) -> None
             break
 
     assert sns_publish_found, "No IAM policy grants sns:Publish"
+
+
+def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Template) -> None:
+    """Spoke ingest uses larger SQS batches with a short batching window."""
+    template.has_resource_properties(
+        "AWS::Lambda::EventSourceMapping",
+        {
+            "BatchSize": 100,
+            "MaximumBatchingWindowInSeconds": 5,
+            "ScalingConfig": {"MaximumConcurrency": 2},
+            "FunctionResponseTypes": ["ReportBatchItemFailures"],
+        },
+    )

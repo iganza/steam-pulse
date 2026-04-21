@@ -441,7 +441,7 @@ class ComputeStack(cdk.Stack):
                 iam.PolicyStatement(
                     actions=["sqs:SendMessage"],
                     resources=spoke_queue_arns,
-                )
+                
             )
 
         # ── Ingest Lambda (spoke results → DB) ────────────────────────────
@@ -480,8 +480,9 @@ class ComputeStack(cdk.Stack):
         ingest_fn.add_event_source(
             event_sources.SqsEventSource(
                 spoke_results_queue,
-                batch_size=10,
-                max_concurrency=2,
+                batch_size=100,
+                max_batching_window=cdk.Duration.seconds(5),
+                max_concurrency=4,
                 report_batch_item_failures=True,
             )
         )

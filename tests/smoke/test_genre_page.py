@@ -4,7 +4,7 @@ Extends test_genre_insights.py with the page-level population thresholds
 (friction >= 10, wishlist >= 10, benchmarks >= 5, dev_priorities >= 3) and
 with the pre-order/buy report endpoint. The report endpoint is owned by
 `stripe-checkout-report-delivery.md` and may not be deployed yet — any of
-200, 404, or 501 is accepted, since the page renders gracefully with
+200, 404, 405, or 501 is accepted, since the page renders gracefully with
 `report === null`.
 """
 

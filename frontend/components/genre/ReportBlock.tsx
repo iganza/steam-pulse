@@ -21,8 +21,16 @@ const TIER_DESC: Record<ReportTier, string> = {
 };
 
 function formatPrice(cents: number): string {
-  const dollars = Math.round(cents / 100);
-  return `$${dollars}`;
+  // Whole-dollar prices render without trailing .00 to match the prompt's
+  // $49/$149/$499 layout; non-whole amounts show both dollars and cents so
+  // Stripe-configured odd prices don't silently round up in the UI.
+  const hasCents = cents % 100 !== 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
 }
 
 function formatShipDate(iso: string): string {

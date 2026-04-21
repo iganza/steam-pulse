@@ -205,10 +205,9 @@ const MOCK_TAG_TREND = {
 }
 
 // Genre synthesis — shape matches mv_genre_synthesis + GenreSynthesis.
-// Kept deliberately terse (3 items per list) so pages render cleanly in
-// smoke tests; the full 10/10/5 payload lives in tests/fixtures/mock-data.ts
-// and is also inlined here so Playwright's SSR path can render it without
-// importing TS.
+// The full 10-friction / 10-wishlist / 5-benchmark / 5-priority payload is
+// inlined here (paralleling tests/fixtures/mock-data.ts) so Playwright's SSR
+// path can render it without importing TS.
 const MOCK_GENRE_SYNTHESIS = {
   slug: 'roguelike-deckbuilder',
   display_name: 'Roguelike Deckbuilder',

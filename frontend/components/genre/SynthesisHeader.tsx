@@ -1,20 +1,14 @@
 import { ShareButtons } from "./ShareButtons";
+import { formatDate } from "@/lib/format";
+import { genrePageUrl } from "./url";
 import type { GenreSynthesisRow } from "@/lib/types";
 
 interface Props {
   row: GenreSynthesisRow;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 export function SynthesisHeader({ row }: Props) {
-  const pageUrl = `https://steampulse.io/genre/${row.slug}/`;
+  const pageUrl = genrePageUrl(row.slug);
   const title = `What ${row.display_name} Players Want, Hate, and Praise`;
 
   return (

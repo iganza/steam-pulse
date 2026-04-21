@@ -430,19 +430,23 @@ export async function getGenreInsights(slug: string): Promise<GenreSynthesisRow 
 /** GET /api/genres/{slug}/report — pre-order / buy summary for the paid PDF.
  *
  * Owned by stripe-checkout-report-delivery.md; endpoint may not exist yet.
- * Any non-200 (including 404 for "no report row" and 404 for "route not
- * implemented") collapses to `null` so the page hides the commerce block
- * without a redesign when the Stripe prompt lands.
+ * Only the "endpoint absent / no row" statuses (404, 405, 501) collapse to
+ * `null` so the commerce block is quietly hidden. Real errors (5xx, auth,
+ * schema) are re-thrown so a production outage can't silently remove the
+ * paywall from the page.
  */
+const REPORT_NOT_AVAILABLE_STATUSES = new Set([404, 405, 501]);
+
 export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
   try {
     return await apiFetch<ReportSummary>(`/api/genres/${slug}/report`, {
       next: { revalidate: 3600, tags: [`genre-report-${slug}`] },
     });
   } catch (e) {
-    if (e instanceof ApiError) return null;
-    // Network/timeout errors also collapse — the block is optional.
-    return null;
+    if (e instanceof ApiError && REPORT_NOT_AVAILABLE_STATUSES.has(e.status)) {
+      return null;
+    }
+    throw e;
   }
 }
 

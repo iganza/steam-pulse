@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { WishlistItem } from "@/lib/types";
-import { slugifyName } from "./slugify";
+import { slugify } from "@/lib/format";
 
 interface Props {
   items: WishlistItem[];
@@ -24,7 +24,7 @@ export function WishlistItems({ items, inputCount, appidToName }: Props) {
       <ol className="space-y-8 list-none p-0">
         {items.map((item, i) => {
           const sourceName = appidToName?.[item.source_appid];
-          const sourceSlug = sourceName ? slugifyName(sourceName) : "game";
+          const sourceSlug = sourceName ? slugify(sourceName) || "game" : "game";
           const sourceHref = `/games/${item.source_appid}/${sourceSlug}`;
           return (
             <li key={`${item.title}-${i}`} className="grid grid-cols-[2.5rem_1fr] gap-4">

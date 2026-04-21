@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { BenchmarkGame } from "@/lib/types";
-import { slugifyName } from "./slugify";
+import { slugify } from "@/lib/format";
 
 interface Props {
   items: BenchmarkGame[];
@@ -22,7 +22,7 @@ export function BenchmarkGames({ items }: Props) {
       </p>
       <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 list-none p-0">
         {items.map((game) => {
-          const slug = slugifyName(game.name);
+          const slug = slugify(game.name) || "game";
           const href = `/games/${game.appid}/${slug}`;
           const coverImage = `https://cdn.akamai.steamstatic.com/steam/apps/${game.appid}/header.jpg`;
           return (

@@ -10,6 +10,13 @@ import { ChurnWall } from "@/components/genre/ChurnWall";
 import { DevPrioritiesTable } from "@/components/genre/DevPrioritiesTable";
 import { MethodologyFooter } from "@/components/genre/MethodologyFooter";
 import { ReportBlock } from "@/components/genre/ReportBlock";
+import { genrePageUrl } from "@/components/genre/url";
+
+// Escape `<` in a JSON string so LLM-authored content like `</script>` inside
+// any field can't break out of the <script type="application/ld+json"> tag.
+function safeJsonLd(obj: unknown): string {
+  return JSON.stringify(obj).replace(/</g, "\\u003c");
+}
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -28,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
   const title = `${row.display_name}: What Players Want, Hate, and Praise | SteamPulse`;
   const description = row.narrative_summary.slice(0, 155);
-  const canonical = `https://steampulse.io/genre/${slug}/`;
+  const canonical = genrePageUrl(slug);
   return {
     title,
     description,
@@ -50,11 +57,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function GenrePage({ params }: Props) {
   const { slug } = await params;
-  const [row, report] = await Promise.all([
-    getGenreInsights(slug),
-    getReportForGenre(slug),
-  ]);
+  // Fetch insights first — if the slug is unknown we 404 without paying for
+  // a second round trip to the optional report endpoint.
+  const row = await getGenreInsights(slug);
   if (!row) notFound();
+  const report = await getReportForGenre(slug);
 
   // Partial lookup so blockquote attributions can name the source game when
   // it's also one of the benchmark games. Friction/wishlist/churn may
@@ -88,7 +95,7 @@ export default async function GenrePage({ params }: Props) {
     },
     mainEntityOfPage: {
       "@type": "WebPage",
-      "@id": `https://steampulse.io/genre/${slug}/`,
+      "@id": genrePageUrl(slug),
     },
   };
 
@@ -96,7 +103,7 @@ export default async function GenrePage({ params }: Props) {
     <div className="min-h-screen bg-background">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         <Breadcrumbs

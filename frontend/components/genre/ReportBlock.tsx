@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatDate } from "@/lib/format";
 import type { ReportSummary, ReportTier } from "@/lib/types";
 
 interface Props {
@@ -31,14 +32,6 @@ function formatPrice(cents: number): string {
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: 2,
   }).format(cents / 100);
-}
-
-function formatShipDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 }
 
 export function ReportBlock({ report, placement }: Props) {
@@ -96,7 +89,7 @@ export function ReportBlock({ report, placement }: Props) {
       <p className="text-sm text-foreground/75 mb-5">
         {isPreOrder ? (
           <>
-            {report.display_name} ships {formatShipDate(report.published_at)}.
+            {report.display_name} ships {formatDate(report.published_at)}.
           </>
         ) : (
           <>{report.display_name} — available now.</>

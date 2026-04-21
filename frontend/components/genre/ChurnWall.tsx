@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ChurnInsight } from "@/lib/types";
-import { slugifyName } from "./slugify";
+import { slugify } from "@/lib/format";
 
 interface Props {
   churn: ChurnInsight;
@@ -18,7 +18,7 @@ function formatHour(h: number): string {
 
 export function ChurnWall({ churn, appidToName }: Props) {
   const sourceName = appidToName?.[churn.source_appid];
-  const sourceSlug = sourceName ? slugifyName(sourceName) : "game";
+  const sourceSlug = sourceName ? slugify(sourceName) || "game" : "game";
   const sourceHref = `/games/${churn.source_appid}/${sourceSlug}`;
 
   return (

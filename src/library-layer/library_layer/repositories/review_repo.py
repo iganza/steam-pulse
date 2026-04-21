@@ -58,15 +58,27 @@ class ReviewRepository(BaseRepository):
                     votes_funny                 = EXCLUDED.votes_funny,
                     written_during_early_access = EXCLUDED.written_during_early_access,
                     received_for_free           = EXCLUDED.received_for_free
-                WHERE reviews.voted_up                    IS DISTINCT FROM EXCLUDED.voted_up
-                   OR reviews.playtime_hours              IS DISTINCT FROM EXCLUDED.playtime_hours
-                   OR reviews.body                        IS DISTINCT FROM EXCLUDED.body
-                   OR reviews.author_steamid              IS DISTINCT FROM EXCLUDED.author_steamid
-                   OR reviews.language                    IS DISTINCT FROM EXCLUDED.language
-                   OR reviews.votes_helpful               IS DISTINCT FROM EXCLUDED.votes_helpful
-                   OR reviews.votes_funny                 IS DISTINCT FROM EXCLUDED.votes_funny
-                   OR reviews.written_during_early_access IS DISTINCT FROM EXCLUDED.written_during_early_access
-                   OR reviews.received_for_free           IS DISTINCT FROM EXCLUDED.received_for_free
+                WHERE (
+                    reviews.voted_up,
+                    reviews.playtime_hours,
+                    reviews.body,
+                    reviews.author_steamid,
+                    reviews.language,
+                    reviews.votes_helpful,
+                    reviews.votes_funny,
+                    reviews.written_during_early_access,
+                    reviews.received_for_free
+                ) IS DISTINCT FROM (
+                    EXCLUDED.voted_up,
+                    EXCLUDED.playtime_hours,
+                    EXCLUDED.body,
+                    EXCLUDED.author_steamid,
+                    EXCLUDED.language,
+                    EXCLUDED.votes_helpful,
+                    EXCLUDED.votes_funny,
+                    EXCLUDED.written_during_early_access,
+                    EXCLUDED.received_for_free
+                )
                 """,
                 rows,
                 page_size=500,

@@ -204,6 +204,92 @@ const MOCK_TAG_TREND = {
   growth_rate: 1.89, peak_year: 2023, total_games: 520,
 }
 
+// Genre synthesis — shape matches mv_genre_synthesis + GenreSynthesis.
+// Kept deliberately terse (3 items per list) so pages render cleanly in
+// smoke tests; the full 10/10/5 payload lives in tests/fixtures/mock-data.ts
+// and is also inlined here so Playwright's SSR path can render it without
+// importing TS.
+const MOCK_GENRE_SYNTHESIS = {
+  slug: 'roguelike-deckbuilder',
+  display_name: 'Roguelike Deckbuilder',
+  input_appids: [646570, 2379780, 1092790, 1102190, 1385380],
+  input_count: 141,
+  prompt_version: 'v1',
+  input_hash: 'mockhash' + '0'.repeat(56) + 'dead',
+  narrative_summary:
+    'Roguelike deckbuilders live or die on the strength of their card interactions and the fairness of their runs. Players return for the combo-chasing and the small moments of "wait, that works?" — and they churn when randomness feels stacked against them or when the endgame thins out.',
+  avg_positive_pct: 88.4,
+  median_review_count: 2100,
+  computed_at: '2026-04-18T14:00:00Z',
+  synthesis: {
+    narrative_summary:
+      'Roguelike deckbuilders live or die on the strength of their card interactions and the fairness of their runs. Players return for the combo-chasing and the small moments of "wait, that works?" — and they churn when randomness feels stacked against them or when the endgame thins out.',
+    friction_points: [
+      { title: 'RNG feels punishing in early runs', description: 'Variance decides early runs before the player has agency.', representative_quote: 'Lost three runs in a row to bad opening draws before the game felt playable.', source_appid: 646570, mention_count: 42 },
+      { title: 'Unlock grind gates the real game', description: 'New players bounce off when core cards sit behind progression hours.', representative_quote: 'The first 10 hours are basically a tutorial.', source_appid: 2379780, mention_count: 36 },
+      { title: 'UI tooltips are inconsistent', description: 'Card text and relic interactions are occasionally ambiguous.', representative_quote: 'Had to Google what this relic does mid-run.', source_appid: 1092790, mention_count: 28 },
+      { title: 'Endgame thins out', description: 'Post-final-boss content feels like reruns with bigger numbers.', representative_quote: 'Post-ascension content felt like the same fight with bigger numbers.', source_appid: 1102190, mention_count: 25 },
+      { title: 'Boss balance varies wildly', description: 'Specific bosses are unfair to certain archetypes.', representative_quote: 'If you build the wrong deck for this boss, there is nothing you can do.', source_appid: 646570, mention_count: 22 },
+      { title: 'Balance patches break existing strategies', description: 'Mains churn when nerfs land without compensatory buffs.', representative_quote: 'They nerfed my favourite deck into uselessness.', source_appid: 1385380, mention_count: 19 },
+      { title: 'Run length forces commitment', description: 'Players cannot fit a run into a lunch break.', representative_quote: 'A single run is 90 minutes.', source_appid: 1102190, mention_count: 18 },
+      { title: 'Card rewards feel samey', description: 'After the first ascension, new cards feel like stat checks.', representative_quote: 'By ascension 15 I was taking cards because of numbers, not ideas.', source_appid: 646570, mention_count: 16 },
+      { title: 'Steam Deck text is tiny', description: 'Handheld players call out unreadable card fonts.', representative_quote: 'The text is legible on a 4K monitor and unreadable on Steam Deck.', source_appid: 2379780, mention_count: 14 },
+      { title: 'No cloud save parity across platforms', description: 'Progress does not follow players across devices.', representative_quote: 'Bought it twice. Still cannot continue my run across devices.', source_appid: 2379780, mention_count: 12 },
+    ],
+    wishlist_items: [
+      { title: 'Daily challenge with shared seeds', description: 'Fixed-seed run so friends can compare outcomes.', representative_quote: 'I want to see what my friends did with the same hand today.', source_appid: 2379780, mention_count: 38 },
+      { title: 'Deck-building sandbox mode', description: 'Free deck construction against set encounters.', representative_quote: 'Let me build the broken deck I dream about.', source_appid: 646570, mention_count: 33 },
+      { title: 'Run history and stats screen', description: 'Per-run stats: damage, picks, clears.', representative_quote: 'I want to see why my best win was actually my best win.', source_appid: 1102190, mention_count: 27 },
+      { title: 'Steam Workshop for community decks', description: 'Official mod support so community content survives patches.', representative_quote: 'Community mods keep the game alive. Let us install them cleanly.', source_appid: 646570, mention_count: 24 },
+      { title: 'Difficulty modifiers a la nuzlocke', description: 'Player-driven constraints for self-imposed challenge.', representative_quote: 'Let me say "no healing this run" and track it.', source_appid: 1092790, mention_count: 22 },
+      { title: 'Co-op or shared-seed multiplayer', description: 'Two players comparing choices in real time.', representative_quote: 'My partner and I would play this every night if there was co-op.', source_appid: 1385380, mention_count: 20 },
+      { title: 'Accessibility: colourblind card rarity', description: 'Rarity colours rely on red/green.', representative_quote: 'I cannot tell uncommon from rare without hovering.', source_appid: 2379780, mention_count: 17 },
+      { title: 'More character variety', description: 'New protagonists with distinct mechanics.', representative_quote: 'Love the game. Still the same two characters.', source_appid: 646570, mention_count: 15 },
+      { title: 'Expanded lore and world-building', description: 'More narrative reward for heavy players.', representative_quote: 'I have 300 hours and still do not know who the boss is.', source_appid: 1092790, mention_count: 13 },
+      { title: 'Tournament and ranked mode', description: 'Structured ladder on shared seeds.', representative_quote: 'Tournaments already happen unofficially. Bake them in.', source_appid: 1385380, mention_count: 11 },
+    ],
+    benchmark_games: [
+      { appid: 646570, name: 'Slay the Spire', why_benchmark: 'The category shape-definer. Every deckbuilder after it is compared to its card-relic-boss loop.' },
+      { appid: 2379780, name: 'Balatro', why_benchmark: 'Broke the genre mainstream. Its joker-stacking loop is the new reference point.' },
+      { appid: 1092790, name: 'Inscryption', why_benchmark: 'Showed that narrative framing can carry a deckbuilder to genre-averse audiences.' },
+      { appid: 1102190, name: 'Monster Train', why_benchmark: 'Layered board state adds depth without alienating newcomers.' },
+      { appid: 1385380, name: 'Across the Obelisk', why_benchmark: 'Proved the genre has room for synchronous co-op.' },
+    ],
+    churn_insight: {
+      typical_dropout_hour: 4,
+      primary_reason:
+        'Players hit an early run where RNG appears decisive, conclude the game is unfair, and refund before the deckbuilding system reveals itself.',
+      representative_quote: 'Four hours in and I lost three runs to opening hands I could not play. Refunded.',
+      source_appid: 646570,
+    },
+    dev_priorities: [
+      { action: 'Tune opening-run variance and telegraph it in the tutorial', why_it_matters: 'Stops the first-four-hour churn cliff.', frequency: 42, effort: 'medium' },
+      { action: 'Add a daily-challenge mode with shared seeds', why_it_matters: 'Converts lapsed players into daily returners.', frequency: 38, effort: 'low' },
+      { action: 'Build a deck-sandbox for experimentation', why_it_matters: 'Retains high-engagement theorycrafters.', frequency: 33, effort: 'medium' },
+      { action: 'Add per-run telemetry and a history screen', why_it_matters: 'Feeds the community content flywheel.', frequency: 27, effort: 'low' },
+      { action: 'Steam Workshop / official mod support', why_it_matters: 'Halves friction for the next 100 community decks.', frequency: 24, effort: 'high' },
+    ],
+  },
+}
+
+const MOCK_REPORT_SUMMARY_PREORDER = {
+  slug: 'rdb-2026-q2',
+  display_name: 'Roguelike Deckbuilder — 2026 Q2 Edition',
+  tiers: [
+    { tier: 'indie', price_cents: 4900, stripe_price_id: 'price_mock_indie' },
+    { tier: 'studio', price_cents: 14900, stripe_price_id: 'price_mock_studio' },
+    { tier: 'publisher', price_cents: 49900, stripe_price_id: 'price_mock_publisher' },
+  ],
+  published_at: '2099-06-01T00:00:00Z',
+  is_pre_order: true,
+}
+
+const MOCK_REPORT_SUMMARY_LIVE = {
+  ...MOCK_REPORT_SUMMARY_PREORDER,
+  published_at: '2020-01-01T00:00:00Z',
+  is_pre_order: false,
+}
+
 const MOCK_DEVELOPER_PORTFOLIO = {
   developer: 'Valve', developer_slug: 'valve',
   summary: {
@@ -437,9 +523,32 @@ const server = createServer((req, res) => {
     return respond(res, 200, MOCK_DEVELOPER_PORTFOLIO)
   }
 
-  // Genres
+  // Paid-report summary — must come BEFORE the generic /api/genres handler
+  // so `/api/genres/{slug}/report` does not get swallowed by the list route.
+  // Slug-routed so each Playwright test exercises a distinct state without
+  // racing Next.js ISR. Endpoint is owned by stripe-checkout-report-delivery.md.
+  const reportMatch = path.match(/^\/api\/genres\/([^/]+)\/report$/)
+  if (reportMatch) {
+    const slug = reportMatch[1]
+    if (slug === 'rdb-preorder') return respond(res, 200, MOCK_REPORT_SUMMARY_PREORDER)
+    if (slug === 'rdb-live') return respond(res, 200, MOCK_REPORT_SUMMARY_LIVE)
+    return respond(res, 404, { error: 'no_report', code: 'not_found', slug })
+  }
+
+  // Genres list
   if (path.startsWith('/api/genres')) {
     return respond(res, 200, MOCK_GENRES)
+  }
+
+  // Genre synthesis (Phase-4 LLM output) — registered before the generic
+  // /api/tags route so `/api/tags/{slug}/insights` is not swallowed.
+  const insightsMatch = path.match(/^\/api\/tags\/([^/]+)\/insights$/)
+  if (insightsMatch) {
+    const slug = insightsMatch[1]
+    if (slug === 'unseeded-genre-slug') {
+      return respond(res, 404, { error: 'no_synthesis', code: 'not_found', slug })
+    }
+    return respond(res, 200, { ...MOCK_GENRE_SYNTHESIS, slug })
   }
 
   // Tag trend (before wildcard tags route)

@@ -149,9 +149,9 @@
      3. [X] =scripts/prompts/cross-genre-synthesizer-matview.md= — backend Phase-4 synthesiser. The synthesis content engine.
 
      *Phase A — ship the free synthesis page (in this order):*
-     4. [ ] =scripts/prompts/simplify-ui-for-tier1.md= — *first.* Delete Pro plumbing (=usePro()=, =ProLockOverlay=, blur CSS), the Toolkit tree, enthusiast routes (=/trending=, =/new-releases=, =/compare=, =/explore=, =/pro=), and obsolete tests. Nav reduces to Reports · Browse · About. Creates the clean surface for the next two prompts.
-     5. [ ] =scripts/prompts/genre-insights-page.md= — *second.* Build the =/genre/[slug]/= synthesis page. All sections free; renders a pre-order / buy block when a =reports= row exists for the genre. This is the destination the landing page will link to.
-     6. [ ] =scripts/prompts/fix-landing-page.md= — *third.* Rebuild homepage so the primary CTA points at =/genre/roguelike-deckbuilder/=. Must land after the synthesis page exists (otherwise the CTA is a 404).
+     1. [X] =scripts/prompts/simplify-ui-for-tier1.md= — *first.* Delete Pro plumbing (=usePro()=, =ProLockOverlay=, blur CSS), the Toolkit tree, enthusiast routes (=/trending=, =/new-releases=, =/compare=, =/explore=, =/pro=), and obsolete tests. Nav reduces to Reports · Browse · About. Creates the clean surface for the next two prompts.
+     2. [ ] =scripts/prompts/genre-insights-page.md= — *second.* Build the =/genre/[slug]/= synthesis page. All sections free; renders a pre-order / buy block when a =reports= row exists for the genre. This is the destination the landing page will link to.
+     3. [ ] =scripts/prompts/fix-landing-page.md= — *third.* Rebuild homepage so the primary CTA points at =/genre/roguelike-deckbuilder/=. Must land after the synthesis page exists (otherwise the CTA is a 404).
 
      *Phase B — open pre-orders:*
      7. [ ] =scripts/prompts/stripe-checkout-report-delivery.md= — Stripe Checkout + signed-S3 delivery. Supports pre-order mode (=reports.published_at > now()= at purchase → delayed delivery; delivery sweep fires on =published_at= flip). Requires the synthesis page from (5) because the pre-order / buy block lives there.

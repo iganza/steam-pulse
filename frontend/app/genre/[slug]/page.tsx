@@ -1,117 +1,180 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import { getGames, getGenres, getPricePositioning, getReleaseTiming, getPlatformGaps } from "@/lib/api";
-import { GameCard } from "@/components/game/GameCard";
+import { notFound } from "next/navigation";
+import { getGenreInsights, getReportForGenre } from "@/lib/api";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { SearchClient } from "@/app/search/SearchClient";
-import { PricePositioning } from "@/components/analytics/PricePositioning";
-import { ReleaseTiming } from "@/components/analytics/ReleaseTiming";
-import { PlatformGaps } from "@/components/analytics/PlatformGaps";
-import type { Game, Genre } from "@/lib/types";
+import { SynthesisHeader } from "@/components/genre/SynthesisHeader";
+import { FrictionPoints } from "@/components/genre/FrictionPoints";
+import { WishlistItems } from "@/components/genre/WishlistItems";
+import { BenchmarkGames } from "@/components/genre/BenchmarkGames";
+import { ChurnWall } from "@/components/genre/ChurnWall";
+import { DevPrioritiesTable } from "@/components/genre/DevPrioritiesTable";
+import { MethodologyFooter } from "@/components/genre/MethodologyFooter";
+import { ReportBlock } from "@/components/genre/ReportBlock";
 
 interface Props {
   params: Promise<{ slug: string }>;
 }
 
+export const revalidate = 3600;
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const row = await getGenreInsights(slug);
+  if (!row) {
+    return {
+      title: "Genre not found — SteamPulse",
+      robots: { index: false, follow: false },
+    };
+  }
+  const title = `${row.display_name}: What Players Want, Hate, and Praise | SteamPulse`;
+  const description = row.narrative_summary.slice(0, 155);
+  const canonical = `https://steampulse.io/genre/${slug}/`;
   return {
-    title: `${name} Games`,
-    description: `Browse ${name} games on Steam with player sentiment analysis, hidden gems, and review intelligence.`,
+    title,
+    description,
     openGraph: {
-      title: `${name} Games on Steam — SteamPulse`,
-      description: `Browse ${name} games with player sentiment analysis, hidden gems, and review intelligence.`,
-      url: `https://steampulse.io/genre/${slug}`,
-      images: [{ url: "/og-default.png", width: 1200, height: 630 }],
+      title,
+      description,
+      url: canonical,
+      images: [{ url: `/og/genre/${slug}.png`, width: 1200, height: 630 }],
+      type: "article",
     },
     twitter: {
       card: "summary_large_image",
-      title: `${name} Games on Steam — SteamPulse`,
-      description: `Browse ${name} games with player sentiment analysis, hidden gems, and review intelligence.`,
+      title,
+      description,
     },
-    alternates: { canonical: `https://steampulse.io/genre/${slug}` },
+    alternates: { canonical },
   };
 }
 
 export default async function GenrePage({ params }: Props) {
   const { slug } = await params;
-  const name = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-  // Fetch genre info, top picks, and market analytics in parallel
-  const [genresResult, topPicksResult, pricingResult, timingResult, platformsResult] = await Promise.allSettled([
-    getGenres(),
-    getGames({ genre: slug, sort: "sentiment_score", min_reviews: 200, limit: 3 }),
-    getPricePositioning(slug),
-    getReleaseTiming(slug),
-    getPlatformGaps(slug),
+  const [row, report] = await Promise.all([
+    getGenreInsights(slug),
+    getReportForGenre(slug),
   ]);
+  if (!row) notFound();
 
-  const genres = genresResult.status === "fulfilled" ? genresResult.value : [];
-  const genreInfo = genres.find((g: Genre) => g.slug === slug);
-  const topPicks: Game[] =
-    topPicksResult.status === "fulfilled" ? topPicksResult.value.games ?? [] : [];
-  const pricing = pricingResult.status === "fulfilled" ? pricingResult.value : null;
-  const timing = timingResult.status === "fulfilled" ? timingResult.value : null;
-  const platforms = platformsResult.status === "fulfilled" ? platformsResult.value : null;
+  // Partial lookup so blockquote attributions can name the source game when
+  // it's also one of the benchmark games. Friction/wishlist/churn may
+  // reference appids outside the benchmark set — those fall back to a
+  // plain "source game →" link.
+  const appidToName: Record<number, string> = {};
+  for (const b of row.synthesis.benchmark_games) {
+    appidToName[b.appid] = b.name;
+  }
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: `What ${row.display_name} Players Want, Hate, and Praise`,
+    description: row.narrative_summary,
+    datePublished: row.computed_at,
+    dateModified: row.computed_at,
+    author: {
+      "@type": "Organization",
+      name: "SteamPulse",
+      url: "https://steampulse.io",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "SteamPulse",
+      url: "https://steampulse.io",
+    },
+    about: {
+      "@type": "VideoGameSeries",
+      name: row.display_name,
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `https://steampulse.io/genre/${slug}/`,
+    },
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         <Breadcrumbs
           items={[
             { label: "Home", href: "/" },
-            { label: "Browse", href: "/search" },
-            { label: name },
+            { label: "Genres", href: "/search" },
+            { label: row.display_name },
           ]}
         />
 
-        <div className="mt-6 mb-10">
-          <h1
-            className="font-serif text-4xl font-bold mb-2"
-            style={{ letterSpacing: "-0.03em" }}
-          >
-            {name}
-          </h1>
-          <p className="text-base text-muted-foreground font-mono">
-            {genreInfo?.game_count?.toLocaleString() ?? "?"} games
-            {genreInfo?.analyzed_count != null && ` \u00b7 ${genreInfo.analyzed_count.toLocaleString()} analyzed`}
-          </p>
-        </div>
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_20rem] gap-10">
+          <main>
+            <SynthesisHeader row={row} />
+            <FrictionPoints
+              items={row.synthesis.friction_points}
+              inputCount={row.input_count}
+              appidToName={appidToName}
+            />
+            <WishlistItems
+              items={row.synthesis.wishlist_items}
+              inputCount={row.input_count}
+              appidToName={appidToName}
+            />
+            <BenchmarkGames items={row.synthesis.benchmark_games} />
+            <ChurnWall
+              churn={row.synthesis.churn_insight}
+              appidToName={appidToName}
+            />
+            <DevPrioritiesTable rows={row.synthesis.dev_priorities} />
+            {report && (
+              <div className="mb-14">
+                <ReportBlock report={report} placement="body" />
+              </div>
+            )}
+            <MethodologyFooter />
+          </main>
 
-        {/* Top Picks */}
-        {topPicks.length > 0 && (
-          <section className="mb-12">
-            <h2 className="font-serif text-lg font-semibold mb-4">Top Picks</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {topPicks.map((game) => (
-                <GameCard key={game.appid} game={game} />
-              ))}
+          <aside className="hidden md:block">
+            <div className="sticky top-24 space-y-6">
+              <section
+                aria-labelledby="at-a-glance"
+                className="rounded-xl p-5"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              >
+                <h2
+                  id="at-a-glance"
+                  className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-4"
+                >
+                  At a glance
+                </h2>
+                <dl className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Games</dt>
+                    <dd className="font-mono tabular-nums">{row.input_count.toLocaleString()}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Median reviews/game</dt>
+                    <dd className="font-mono tabular-nums">
+                      {row.median_review_count.toLocaleString()}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Avg positive</dt>
+                    <dd className="font-mono tabular-nums">
+                      {Math.round(row.avg_positive_pct)}%
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Refresh</dt>
+                    <dd className="font-mono text-xs">weekly</dd>
+                  </div>
+                </dl>
+              </section>
+              {report && <ReportBlock report={report} placement="sidebar" />}
             </div>
-          </section>
-        )}
-
-        {/* Market Intelligence */}
-        {(pricing?.distribution?.length || timing?.monthly?.length || platforms?.total_games) && (
-          <section className="mb-12 space-y-6">
-            <h2 className="font-serif text-lg font-semibold">Market Intelligence</h2>
-            {pricing && <PricePositioning data={pricing} />}
-            {timing && <ReleaseTiming data={timing} />}
-            {platforms && <PlatformGaps data={platforms} />}
-          </section>
-        )}
-
-        {/* Games in this genre */}
-        <Suspense fallback={<p className="text-base text-muted-foreground font-mono py-8">Loading...</p>}>
-          <SearchClient
-            initialParams={{}}
-            initialFilters={{ genre: slug }}
-            hideGenreFilter
-          />
-        </Suspense>
+          </aside>
+        </div>
       </div>
     </div>
   );
 }
-
-export const revalidate = 3600;

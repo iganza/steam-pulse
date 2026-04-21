@@ -10,6 +10,9 @@ import {
   MOCK_REVIEW_VELOCITY, MOCK_TOP_REVIEWS, MOCK_PRICE_POSITIONING,
   MOCK_RELEASE_TIMING, MOCK_PLATFORM_GAPS, MOCK_TAG_TREND,
   MOCK_DEVELOPER_PORTFOLIO,
+  MOCK_GENRE_SYNTHESIS,
+  MOCK_REPORT_SUMMARY_PREORDER,
+  MOCK_REPORT_SUMMARY_LIVE,
 } from './mock-data'
 
 export async function mockAnalyticsRoutes(page: Page) {
@@ -295,4 +298,40 @@ export async function mockAllApiRoutes(page: Page) {
 
   await mockAnalyticsRoutes(page)
   await mockPerEntityAnalyticsRoutes(page)
+}
+
+// Routes consumed by the /genre/[slug]/ synthesis page. The three report
+// variants — pre-order / live / missing — are swapped per test to cover
+// every state of the commerce block.
+export async function mockGenreSynthesisRoutes(
+  page: Page,
+  opts: {
+    report?: 'preorder' | 'live' | 'missing'
+    insightsNotFound?: boolean
+  } = {},
+) {
+  const { report = 'missing', insightsNotFound = false } = opts
+
+  await page.route('**/api/tags/*/insights', route => {
+    if (insightsNotFound) {
+      return route.fulfill({
+        status: 404,
+        json: { error: 'no_synthesis', code: 'not_found' },
+      })
+    }
+    return route.fulfill({ json: MOCK_GENRE_SYNTHESIS })
+  })
+
+  await page.route('**/api/genres/*/report', route => {
+    if (report === 'preorder') {
+      return route.fulfill({ json: MOCK_REPORT_SUMMARY_PREORDER })
+    }
+    if (report === 'live') {
+      return route.fulfill({ json: MOCK_REPORT_SUMMARY_LIVE })
+    }
+    return route.fulfill({
+      status: 404,
+      json: { error: 'no_report', code: 'not_found' },
+    })
+  })
 }

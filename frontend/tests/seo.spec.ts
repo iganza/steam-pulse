@@ -30,10 +30,13 @@ test('game page has OG image and canonical', async ({ page }) => {
 })
 
 test('genre page has OG tags', async ({ page }) => {
+  // /genre/[slug]/ now serves the cross-genre synthesis — the display name
+  // comes from the mv_genre_synthesis row, not the URL slug. Mock API always
+  // responds with the RDB synthesis, so assert on that.
   await mockAllApiRoutes(page)
-  await page.goto('/genre/action')
+  await page.goto('/genre/roguelike-deckbuilder')
   const ogTitle = await page.locator('meta[property="og:title"]').getAttribute('content')
-  expect(ogTitle).toContain('Action')
+  expect(ogTitle).toContain('Roguelike Deckbuilder')
   expect(ogTitle).toContain('SteamPulse')
 })
 

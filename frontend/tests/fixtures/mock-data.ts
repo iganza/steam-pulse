@@ -592,3 +592,278 @@ export const MOCK_PLAYTIME_SENTIMENT_NO_CHURN = {
   median_playtime_hours: 5,
   value_score: null,
 }
+
+// ---------------------------------------------------------------------------
+// Genre synthesis — mv_genre_synthesis row for roguelike-deckbuilder.
+// Sized to match the page's structural assertions (10 friction, 10 wishlist,
+// 5 benchmarks, ≥3 dev priorities) so the Playwright spec can rely on the
+// full shape without ad-hoc padding.
+// ---------------------------------------------------------------------------
+
+const _RDB_BENCH_APPIDS = {
+  slayTheSpire: 646570,
+  balatro: 2379780,
+  inscryption: 1092790,
+  monsterTrain: 1102190,
+  acrossObelisk: 1385380,
+}
+
+export const MOCK_GENRE_SYNTHESIS = {
+  slug: 'roguelike-deckbuilder',
+  display_name: 'Roguelike Deckbuilder',
+  input_appids: [
+    _RDB_BENCH_APPIDS.slayTheSpire,
+    _RDB_BENCH_APPIDS.balatro,
+    _RDB_BENCH_APPIDS.inscryption,
+    _RDB_BENCH_APPIDS.monsterTrain,
+    _RDB_BENCH_APPIDS.acrossObelisk,
+  ],
+  input_count: 141,
+  prompt_version: 'v1',
+  input_hash: 'mockhash0000000000000000000000000000000000000000000000000000dead',
+  narrative_summary:
+    'Roguelike deckbuilders live or die on the strength of their card interactions and the fairness of their runs. Players return for the combo-chasing and the small moments of "wait, that works?" — and they churn when randomness feels stacked against them or when the endgame thins out.',
+  avg_positive_pct: 88.4,
+  median_review_count: 2100,
+  computed_at: '2026-04-18T14:00:00Z',
+  synthesis: {
+    narrative_summary:
+      'Roguelike deckbuilders live or die on the strength of their card interactions and the fairness of their runs. Players return for the combo-chasing and the small moments of "wait, that works?" — and they churn when randomness feels stacked against them or when the endgame thins out.',
+    friction_points: [
+      {
+        title: 'RNG feels punishing in early runs',
+        description: 'Players call out early-game variance that decides a run before they have agency over their deck.',
+        representative_quote: 'Lost three runs in a row to bad opening draws before the game felt playable.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 42,
+      },
+      {
+        title: 'Unlock grind gates the real game',
+        description: 'New players bounce off when core cards or relics are hidden behind progression hours.',
+        representative_quote: 'The first 10 hours are basically a tutorial — the actual deckbuilding starts after that.',
+        source_appid: _RDB_BENCH_APPIDS.balatro,
+        mention_count: 36,
+      },
+      {
+        title: 'UI tooltips are inconsistent',
+        description: 'Card text and relic interactions are occasionally ambiguous; players want hover-to-explain everywhere.',
+        representative_quote: 'Had to Google what this relic does mid-run. The tooltip just says "powerful".',
+        source_appid: _RDB_BENCH_APPIDS.inscryption,
+        mention_count: 28,
+      },
+      {
+        title: 'Endgame thins out',
+        description: 'After beating the final boss, players want meaningful reasons to keep running.',
+        representative_quote: 'Post-ascension content felt like the same fight with bigger numbers.',
+        source_appid: _RDB_BENCH_APPIDS.monsterTrain,
+        mention_count: 25,
+      },
+      {
+        title: 'Boss balance varies wildly',
+        description: 'Specific bosses are flagged as unfair against certain archetypes.',
+        representative_quote: 'If you build the wrong deck for this one boss, there is nothing you can do.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 22,
+      },
+      {
+        title: 'Balance patches break existing strategies',
+        description: 'Mains of a specific archetype churn when patches land without compensatory buffs.',
+        representative_quote: 'They nerfed my favourite deck into uselessness and it took a year to get it back.',
+        source_appid: _RDB_BENCH_APPIDS.acrossObelisk,
+        mention_count: 19,
+      },
+      {
+        title: 'Run length forces commitment',
+        description: 'Players struggle to fit a full run into a lunch break and ask for pause/resume reliability.',
+        representative_quote: 'A single run is 90 minutes. I can never finish one before I have to close the laptop.',
+        source_appid: _RDB_BENCH_APPIDS.monsterTrain,
+        mention_count: 18,
+      },
+      {
+        title: 'Card rewards feel samey',
+        description: 'After the first ascension, new cards feel like stat checks rather than new decisions.',
+        representative_quote: 'By ascension 15 I was taking cards because of numbers, not ideas.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 16,
+      },
+      {
+        title: 'Steam Deck text is tiny',
+        description: 'Handheld players call out unreadable card fonts in docked and handheld modes.',
+        representative_quote: 'The text is legible on a 4K monitor and completely unreadable on Steam Deck.',
+        source_appid: _RDB_BENCH_APPIDS.balatro,
+        mention_count: 14,
+      },
+      {
+        title: 'No cloud save parity across mobile and desktop',
+        description: 'Players on multiple platforms want their progress to follow them.',
+        representative_quote: 'Bought it twice. Still cannot continue my run across devices.',
+        source_appid: _RDB_BENCH_APPIDS.balatro,
+        mention_count: 12,
+      },
+    ],
+    wishlist_items: [
+      {
+        title: 'Daily challenge with shared seeds',
+        description: 'A once-a-day fixed-seed run that lets players compare outcomes against friends.',
+        representative_quote: 'I want to see what my friends did with the same hand today.',
+        source_appid: _RDB_BENCH_APPIDS.balatro,
+        mention_count: 38,
+      },
+      {
+        title: 'Deck-building sandbox mode',
+        description: 'A mode where players can construct a deck freely and see how it performs against set encounters.',
+        representative_quote: 'Let me build the broken deck I dream about and actually play it.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 33,
+      },
+      {
+        title: 'Run history and stats screen',
+        description: 'Detailed per-run stats: damage taken, cards picked, boss clear times.',
+        representative_quote: 'I want to see why my best win was actually my best win.',
+        source_appid: _RDB_BENCH_APPIDS.monsterTrain,
+        mention_count: 27,
+      },
+      {
+        title: 'Steam Workshop support for community decks',
+        description: 'Players want official mod support so community additions do not break between patches.',
+        representative_quote: 'Community mods keep the game alive. Let us actually install them cleanly.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 24,
+      },
+      {
+        title: 'Difficulty modifiers a la nuzlocke',
+        description: 'Player-driven modifiers that constrain deck choices for self-imposed challenge.',
+        representative_quote: 'Give me a way to say "no healing cards this run" and have the game track it.',
+        source_appid: _RDB_BENCH_APPIDS.inscryption,
+        mention_count: 22,
+      },
+      {
+        title: 'Co-op or shared-seed multiplayer',
+        description: 'Simultaneous runs where two players compare choices and outcomes in real time.',
+        representative_quote: 'My partner and I would play this together every night if there was co-op.',
+        source_appid: _RDB_BENCH_APPIDS.acrossObelisk,
+        mention_count: 20,
+      },
+      {
+        title: 'Accessibility: colourblind card rarity',
+        description: 'Card-rarity colours rely on red/green, which excludes a meaningful slice of the audience.',
+        representative_quote: 'I cannot tell uncommon from rare without hovering every single card.',
+        source_appid: _RDB_BENCH_APPIDS.balatro,
+        mention_count: 17,
+      },
+      {
+        title: 'More character variety',
+        description: 'Single-character games are asked for new protagonists with distinct mechanics.',
+        representative_quote: 'Love the game. Four years later, still the same two characters.',
+        source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        mention_count: 15,
+      },
+      {
+        title: 'Expanded lore and world-building',
+        description: 'Players investing 100+ hours want more narrative rewards to chase.',
+        representative_quote: 'I have 300 hours and still do not know who the boss actually is.',
+        source_appid: _RDB_BENCH_APPIDS.inscryption,
+        mention_count: 13,
+      },
+      {
+        title: 'Tournament and ranked mode',
+        description: 'Competitive players ask for a structured ladder built on shared seeds and leaderboards.',
+        representative_quote: 'Tournaments already happen unofficially. Bake them in.',
+        source_appid: _RDB_BENCH_APPIDS.acrossObelisk,
+        mention_count: 11,
+      },
+    ],
+    benchmark_games: [
+      {
+        appid: _RDB_BENCH_APPIDS.slayTheSpire,
+        name: 'Slay the Spire',
+        why_benchmark: 'The category shape-definer. Every deckbuilder after it is compared to its card-relic-boss loop, and players measure new entrants against its clarity.',
+      },
+      {
+        appid: _RDB_BENCH_APPIDS.balatro,
+        name: 'Balatro',
+        why_benchmark: 'Broke the genre into the mainstream. Its joker-stacking feedback loop is the new reference point for combo payoffs.',
+      },
+      {
+        appid: _RDB_BENCH_APPIDS.inscryption,
+        name: 'Inscryption',
+        why_benchmark: 'Demonstrated that narrative framing can carry a deckbuilder to audiences who would not touch the genre otherwise.',
+      },
+      {
+        appid: _RDB_BENCH_APPIDS.monsterTrain,
+        name: 'Monster Train',
+        why_benchmark: 'Showed that layered board state adds meaningful depth without alienating newcomers.',
+      },
+      {
+        appid: _RDB_BENCH_APPIDS.acrossObelisk,
+        name: 'Across the Obelisk',
+        why_benchmark: 'The co-op template. Proved the genre has room for synchronous multiplayer when the matchmaking is patient.',
+      },
+    ],
+    churn_insight: {
+      typical_dropout_hour: 4,
+      primary_reason:
+        'Players hit an early run where RNG appears decisive, conclude the game is unfair, and refund before the deckbuilding system reveals itself.',
+      representative_quote:
+        'Four hours in and I lost three runs to opening hands I could not play. Refunded. Maybe I will come back to it.',
+      source_appid: _RDB_BENCH_APPIDS.slayTheSpire,
+    },
+    dev_priorities: [
+      {
+        action: 'Tune opening-run variance and telegraph it in the tutorial',
+        why_it_matters:
+          'Stops the first-four-hour churn cliff where new players read RNG as unfairness instead of a system to learn.',
+        frequency: 42,
+        effort: 'medium' as const,
+      },
+      {
+        action: 'Add a daily-challenge mode with shared seeds',
+        why_it_matters:
+          'Converts lapsed players into daily returners and seeds community content (streams, threads, leaderboards).',
+        frequency: 38,
+        effort: 'low' as const,
+      },
+      {
+        action: 'Build a deck-sandbox mode for experimentation',
+        why_it_matters:
+          'The highest-engagement players want to play with decks they theorycraft about; the mode costs little relative to retained attention.',
+        frequency: 33,
+        effort: 'medium' as const,
+      },
+      {
+        action: 'Add per-run telemetry and a history screen',
+        why_it_matters:
+          'Feeds the community content flywheel — players share their best runs when the game gives them the numbers to back it up.',
+        frequency: 27,
+        effort: 'low' as const,
+      },
+      {
+        action: 'Steam Workshop / official mod support',
+        why_it_matters:
+          'Mods currently extend the long tail; making support official halves the friction for the next 100 community decks.',
+        frequency: 24,
+        effort: 'high' as const,
+      },
+    ],
+  },
+}
+
+export const MOCK_REPORT_SUMMARY_PREORDER = {
+  slug: 'rdb-2026-q2',
+  display_name: 'Roguelike Deckbuilder — 2026 Q2 Edition',
+  tiers: [
+    { tier: 'indie' as const, price_cents: 4900, stripe_price_id: 'price_mock_indie' },
+    { tier: 'studio' as const, price_cents: 14900, stripe_price_id: 'price_mock_studio' },
+    { tier: 'publisher' as const, price_cents: 49900, stripe_price_id: 'price_mock_publisher' },
+  ],
+  // Far future so the pre-order path is always taken in tests.
+  published_at: '2099-06-01T00:00:00Z',
+  is_pre_order: true,
+}
+
+export const MOCK_REPORT_SUMMARY_LIVE = {
+  ...MOCK_REPORT_SUMMARY_PREORDER,
+  // Past — the live path.
+  published_at: '2020-01-01T00:00:00Z',
+  is_pre_order: false,
+}

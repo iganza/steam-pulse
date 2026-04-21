@@ -573,3 +573,91 @@ export interface RelatedAnalyzedGame {
   positive_pct: number | null;
   one_liner: string;
 }
+
+// ---------------------------------------------------------------------------
+// Genre synthesis — Phase-4 cross-genre LLM output (mv_genre_synthesis).
+// Mirrors library_layer/models/genre_synthesis.py exactly.
+// ---------------------------------------------------------------------------
+
+export interface FrictionPoint {
+  title: string;
+  description: string;
+  representative_quote: string;
+  source_appid: number;
+  mention_count: number;
+}
+
+export interface WishlistItem {
+  title: string;
+  description: string;
+  representative_quote: string;
+  source_appid: number;
+  mention_count: number;
+}
+
+export interface BenchmarkGame {
+  appid: number;
+  name: string;
+  why_benchmark: string;
+}
+
+export interface ChurnInsight {
+  typical_dropout_hour: number;
+  primary_reason: string;
+  representative_quote: string;
+  source_appid: number;
+}
+
+// Distinct from the per-game DevPriority above: frequency is a cross-genre
+// mention count (integer), effort is a constrained enum.
+export interface GenreDevPriority {
+  action: string;
+  why_it_matters: string;
+  frequency: number;
+  effort: "low" | "medium" | "high";
+}
+
+export interface GenreSynthesis {
+  narrative_summary: string;
+  friction_points: FrictionPoint[];
+  wishlist_items: WishlistItem[];
+  benchmark_games: BenchmarkGame[];
+  churn_insight: ChurnInsight;
+  dev_priorities: GenreDevPriority[];
+}
+
+export interface GenreSynthesisRow {
+  slug: string;
+  display_name: string;
+  input_appids: number[];
+  input_count: number;
+  prompt_version: string;
+  input_hash: string;
+  synthesis: GenreSynthesis;
+  narrative_summary: string;
+  avg_positive_pct: number;
+  median_review_count: number;
+  computed_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Paid report summary — consumed by the pre-order / buy block on the genre
+// page. Served by GET /api/genres/{slug}/report (owned by the Stripe prompt;
+// endpoint may not exist yet, in which case the block is hidden).
+// ---------------------------------------------------------------------------
+
+export type ReportTier = "indie" | "studio" | "publisher";
+
+export interface ReportTierPrice {
+  tier: ReportTier;
+  price_cents: number;
+  stripe_price_id: string;
+}
+
+export interface ReportSummary {
+  slug: string;
+  display_name: string;
+  tiers: ReportTierPrice[];
+  published_at: string;
+  is_pre_order: boolean;
+}

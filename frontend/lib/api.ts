@@ -5,6 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
+  GenreSynthesisRow, ReportSummary,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -401,6 +402,48 @@ export async function getRelatedAnalyzedGames(
   // a shorter per-fetch revalidate would effectively shrink the page ISR and
   // hammer the DB on every cache miss.
   return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 86400 } });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-genre synthesis (Phase-4 LLM output, mv_genre_synthesis)
+// ---------------------------------------------------------------------------
+
+/** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.
+ *
+ * Backend uses `/api/tags/...` because the synthesizer is keyed on tag slugs
+ * (the persisted table is `mv_genre_synthesis` for marketing reasons, but
+ * the identifier space is tags.slug). The frontend route `/genre/[slug]/`
+ * is public-facing naming. Returns `null` on 404 — lets the page trigger
+ * notFound() cleanly.
+ */
+export async function getGenreInsights(slug: string): Promise<GenreSynthesisRow | null> {
+  try {
+    return await apiFetch<GenreSynthesisRow>(`/api/tags/${slug}/insights`, {
+      next: { revalidate: 3600, tags: [`genre-insights-${slug}`] },
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
+/** GET /api/genres/{slug}/report — pre-order / buy summary for the paid PDF.
+ *
+ * Owned by stripe-checkout-report-delivery.md; endpoint may not exist yet.
+ * Any non-200 (including 404 for "no report row" and 404 for "route not
+ * implemented") collapses to `null` so the page hides the commerce block
+ * without a redesign when the Stripe prompt lands.
+ */
+export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
+  try {
+    return await apiFetch<ReportSummary>(`/api/genres/${slug}/report`, {
+      next: { revalidate: 3600, tags: [`genre-report-${slug}`] },
+    });
+  } catch (e) {
+    if (e instanceof ApiError) return null;
+    // Network/timeout errors also collapse — the block is optional.
+    return null;
+  }
 }
 
 export { ApiError };

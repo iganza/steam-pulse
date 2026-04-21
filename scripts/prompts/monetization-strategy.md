@@ -67,22 +67,42 @@ churn timing, ranked dev priorities — all quote-backed.
 
 ### Free vs paid — what differentiates the tiers
 
-The free `/genre/[slug]/` page and the paid PDF report are built from
-the same Phase-4 synthesiser output. They are **different artifacts**,
-not different access levels to the same content.
+The free `/genre/[slug]/` page is a **curated preview** with a named
+human author; the paid PDF is the **full analysis**. They share an
+underlying synthesiser run but are **different artifacts**, shaped
+for different jobs:
 
-| Artifact                     | What it is                                                  | Price  |
-|------------------------------|-------------------------------------------------------------|--------|
-| Free `/genre/[slug]/` page   | Phase-4 synthesis rendered in HTML: narrative summary, top-10 friction clusters with quotes + mention counts, top-10 wishlist, benchmark game list, churn insight, dev priorities table, methodology footer | $0 |
-| Indie PDF                    | Above, plus editorial sequencing, 3-page executive summary, strategic recommendations chapter, methodology expanded, print-ready design, cover page                                  | $49    |
-| Studio PDF + CSV             | Indie + CSV dataset of every friction / wishlist / benchmark with source_appid columns for independent analysis + 1-year update access                                                | $149   |
-| Publisher PDF + CSV + JSON   | Studio + raw JSON payload of the synthesis + team license (up to 10 seats)                                                                                                            | $499   |
+- the free page proves the research is real and drives SEO + AI-citation traffic
+- the paid PDF is the depth, the editorial, the dataset, the printable artifact
 
-The critical piece missing from the free page that lives only in the
-PDF: the **benchmark game deep-dives** (15–20 pages of 3–4 pages each
-on Slay the Spire / Balatro / Inscryption / Monster Train / Dicey
-Dungeons). These are not in the Phase-4 output — they are hand-written
-editorial content. That's the real price justification.
+The curation on the free page is load-bearing for two reasons:
+**Google's March 2026 core update** demotes mass-produced AI content
+without human editing or named-expert attribution, and the
+**anti-cannibalisation rule** is that AI assistants should be able
+to *cite* but not *finish* the buyer's question from what's public.
+
+| Artifact                     | What it is                                                                                                                                                                                                    | Price  |
+|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| Free `/genre/[slug]/` page   | Curated preview: named-author byline, 200–300 word editorial intro, top-5 friction clusters with quotes + mention counts, top-3 wishlist items, 3 benchmark game cards with pull-quotes, churn stat + one-line editorial interpretation, 2-row dev priorities teaser, methodology footer | $0     |
+| Indie PDF                    | Full synthesis (all 10 friction / all 10 wishlist / all 5 benchmark games with quotes + context), plus 3-page executive summary, 15–20 pages of hand-written benchmark game deep-dives, strategic recommendations chapter, full dev priorities table, expanded methodology, print-ready design, cover page | $49    |
+| Studio PDF + CSV             | Indie + CSV dataset of every friction / wishlist / benchmark with source_appid columns for independent analysis + 1-year update access                                                                        | $149   |
+| Publisher PDF + CSV + JSON   | Studio + raw JSON payload of the synthesis + team license (up to 10 seats)                                                                                                                                     | $499   |
+
+The critical pieces missing from the free page — what justifies the
+$49:
+
+1. The **other 5 friction clusters** (items 6–10), each with full quote sets
+2. The **other 7 wishlist items** (items 4–10)
+3. The **other 2 benchmark games** plus 15–20 pages of hand-written deep-dives on all 5 (Slay the Spire / Balatro / Inscryption / Monster Train / Dicey Dungeons)
+4. The **full dev priorities table** with all ranked actions + strategic recommendations chapter
+5. The **executive summary + editorial sequencing + print-ready design** — a fileable, printable artifact a team can pass around
+
+The deep-dives are **not in the Phase-4 synthesiser output at all** —
+they are hand-written editorial content. That's the structural
+difference between the free page and the PDF: the free page is a
+curated window onto the data; the PDF is the window plus original
+human-written analysis that no amount of reading the free page
+produces.
 
 ### Pricing
 

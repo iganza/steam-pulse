@@ -102,14 +102,17 @@ After this work, the landing page must:
    · See the churn, the wishlist, the friction — cited to reviews
 
 5. WHAT'S IN THE FREE ANALYSIS
-   (The proof. Preview the actual synthesis page.)
-   · Executive paragraph excerpt (first narrative_summary sentence
-     from the live mv_genre_synthesis row)
+   (The proof. Teaser of the curated synthesis page.)
+   · Author byline — "Analysis by {author_name}" (pulled from the
+     same config constant the synthesis page uses)
+   · Opening sentence from the editorial_intro (the human-written
+     framing on the synthesis page), or narrative_summary fallback
+     while editorial is unwritten
    · One friction cluster with mention_count + representative quote
      + source-game attribution (playtime hours + helpful votes)
    · One benchmark game pull-quote (Slay the Spire / Balatro /
      Inscryption)
-   · Dev priorities table preview (3 rows from the synthesis)
+   · Dev priorities teaser (first 2 rows from the synthesis)
 
    [ Read the full analysis → ]
    (secondary micro-line:
@@ -174,14 +177,23 @@ After this work, the landing page must:
 
 ### "What's in the free analysis" section (critical — this is the proof)
 
-Preview the actual live synthesis content. Pull from the API
-(`GET /api/genres/roguelike-deckbuilder/insights`), not from hard-coded
-placeholders. Four concrete blocks:
+This block is a **teaser of a teaser** — the landing page previews
+the synthesis page, and the synthesis page is itself a curated
+preview of the paid PDF. The landing section is the shortest of the
+three funnel steps. It must:
 
-1. **Narrative excerpt** — first sentence of `narrative_summary`.
-2. **One friction cluster** — highest-`mention_count` item from `friction_points`. Show: title, mention_count badge ("18 of 141 games"), representative quote with attribution (source game + playtime hours + helpful votes).
-3. **One benchmark pull-quote** — a sentence from one of the top 3 `benchmark_games[].why_benchmark` entries, framed as a pull-quote.
-4. **Dev priorities preview** — first 3 rows from `dev_priorities`: action · why it matters · frequency · effort.
+- Make the quality visible fast (one-click-away proof)
+- Name a human author (Google 2026 trust signal)
+- Leave the visitor wanting more depth (that's the synthesis page's job)
+
+Pull live data from the API (`GET /api/genres/roguelike-deckbuilder/insights`),
+not from hard-coded placeholders. Five concrete blocks, in order:
+
+1. **Author byline** — *"Analysis by {author_name} · Methodology →"*. Same `author_name` constant the synthesis page uses.
+2. **Editorial opener** — first sentence of `mv_genre_synthesis.editorial_intro` (falls back to first sentence of `narrative_summary` when the editorial is unwritten; the component handles both). This is the human voice.
+3. **One friction cluster** — highest-`mention_count` item from `friction_points`. Show: title, `mention_count` badge ("18 of 141 games"), representative quote with attribution (source game + playtime hours + helpful votes).
+4. **One benchmark pull-quote** — a sentence from one of the top 3 `benchmark_games[].why_benchmark` entries, framed as a pull-quote.
+5. **Dev priorities teaser** — first **2** rows from `dev_priorities` (match the synthesis page's teaser length so the landing doesn't reveal more than the next funnel step).
 
 Closing CTA in this section: **"Read the full analysis →"** linking
 to `/genre/roguelike-deckbuilder/`. Below that, *one* micro-line
@@ -269,7 +281,7 @@ doesn't exist yet, create one before shipping; don't ship without.
 
 1. Landing page renders at `/` with hero headline "Steam, decoded." and the locked sub-line verbatim.
 2. Above-the-fold region contains exactly one primary CTA; that CTA links to `/genre/roguelike-deckbuilder/`.
-3. The "What's in the free analysis" section pulls live data from `/api/genres/roguelike-deckbuilder/insights` and renders the four blocks (narrative excerpt, friction cluster, benchmark pull-quote, dev priorities preview).
+3. The "What's in the free analysis" section pulls live data from `/api/genres/roguelike-deckbuilder/insights` and renders the five blocks (author byline, editorial opener, one friction cluster, one benchmark pull-quote, 2-row dev priorities teaser).
 4. Exactly **one** sentence on the page mentions the paid PDF + pre-order. Grep test: `rg 'pre-order' frontend/app/page.tsx` returns one occurrence.
 5. Grep of rendered HTML returns zero matches for: `newsletter`, `waitlist`, `Pro tier`, `Pro subscription`, `Discord`, `Most Popular`, `Trending`, `New Releases`, `Hidden Gems`, `Just Analyzed`, `For Developers`, `AI-powered`, `Upgrade to Pro`.
 6. Grep for the forbidden vocabulary list in `Voice + tone guardrails` → zero matches across landing-page copy.

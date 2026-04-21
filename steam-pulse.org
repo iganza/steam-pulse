@@ -135,12 +135,34 @@
      | Genre Report — Indie tier            | $49    | Stripe → S3 signed URL PDF (delayed if pre-order) |
      | Genre Report — Studio tier           | $149   | PDF + CSV dataset + 1-yr update access          |
      | Genre Report — Publisher tier        | $499   | PDF + CSV + raw JSON + team license             |
-     | =/genre/[slug]/= synthesis page      | $0     | Free forever, SEO-indexed                       |
+     | =/genre/[slug]/= synthesis page      | $0     | Free forever, SEO-indexed (curated preview)     |
      | All per-game pages                   | $0     | Free forever, SEO-indexed                       |
 
      All three paid tiers are *fully self-serve*. No "contact us"
      button. No manual invoicing. No email scoping. Even the publisher
      tier is Stripe-button-only.
+
+     *Free vs paid shape.* The =/genre/[slug]/= page is a **curated
+     preview** (author byline + editorial intro + top-5 friction +
+     top-3 wishlist + 3 benchmark cards + churn stat with one-line
+     interpretation + 2-row dev priorities teaser). The paid PDF is
+     the **full synthesis** (all 10 friction / 10 wishlist / 5 benchmarks
+     with full quote sets) plus 15–20 pages of hand-written benchmark
+     deep-dives, executive summary, strategic recommendations,
+     print-ready design, and (Studio/Publisher) CSV + JSON datasets.
+     See =scripts/prompts/monetization-strategy.md= → "Free vs paid"
+     for the canonical table.  The curation is load-bearing: Google's
+     March 2026 core update demotes mass-produced LLM content without
+     named-human editing, and the anti-cannibalisation rule is that
+     AI assistants should be able to cite the preview but not finish
+     the buyer's question from it.
+
+     Per-game pages (=/games/[appid]/[slug]/=) stay **fully visible,
+     full sections, no curation** — commodity-floor parity with
+     competitors (Datahumble, LEYWARE, HowlRound, GG Insights) and the
+     programmatic-SEO breadth layer. Cannibalisation risk vs. the
+     paid PDF is zero because the PDF is a different artifact shape
+     (cross-genre synthesis, not a per-game collection).
 
 **** Tier 1 prompts to land (execute in this order)
      *Already shipped (prerequisites):*

@@ -39,6 +39,32 @@ No `/insights` suffix. The synthesis page IS the genre page.
 
 ## What to do
 
+### 0. Schema migration — editorial columns on `mv_genre_synthesis`
+
+Two new text columns on the synthesis matview store the human-written
+curation that distinguishes the free preview page from the raw
+synthesiser output:
+
+```sql
+-- depends: <prev>
+ALTER TABLE mv_genre_synthesis
+  ADD COLUMN IF NOT EXISTS editorial_intro TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS churn_interpretation TEXT NOT NULL DEFAULT '';
+```
+
+Both are operator-populated at curation time via a small ops script
+(`scripts/ops/update_editorial.py slug --intro-file ... --churn ...`)
+or directly via psql. The matview refresh job **does not touch
+these columns** — they're human content layered on top of the
+synthesiser output. Refresh the matview freely; the editorial text
+persists as long as the row's primary key holds.
+
+Empty string is the "not yet curated" state. The page component
+falls back to `narrative_summary` (for `editorial_intro`) and omits
+the line entirely (for `churn_interpretation`) when empty. Rolling
+out the page before editorial is written is therefore safe, just
+thinner.
+
 ### 1. Server component + data fetch
 
 ```tsx
@@ -89,38 +115,57 @@ consumes it.
 
 ### 3. Page sections (in order, top to bottom)
 
+The page is a **curated preview** of the synthesis — not the raw
+Phase-4 output. The free page proves the research is real and worth
+paying for; the paid PDF (buy block in section 4) is the full
+analysis. This distinction is load-bearing for two reasons:
+
+1. **Google's 2026 core update** demotes mass-produced AI content
+   without human editing / named expert attribution. The editorial
+   intro + author byline + curated counts satisfy the "substantially
+   edited by a named human expert" test.
+2. **Anti-cannibalisation.** AI Overview / Claude / Perplexity can
+   cite the preview but cannot "finish" the buyer's question from
+   it — the deep context, full quote sets, all ten friction items,
+   benchmark deep-dives, and dataset all live in the paid PDF.
+
 Single column on mobile. Two columns on desktop: main content + a
 sticky right sidebar with stats / methodology / share / buy block.
 
 **Header block** (above the fold):
 - `<h1>` — `"What {Display Name} Players Want, Hate, and Praise"`
-- Narrative summary paragraph from `insights.narrative_summary`
-- Meta line: `"Synthesised from {input_count} games · {total_reviews} reviews · last updated {computed_at}"`
+- **Author byline** — *"Analysis by {author_name} · Methodology →"*. `author_name` comes from a config constant (one human name — yours — for now). The byline link anchors to the methodology footer. This is the Google 2026 "named human expert" signal.
+- **Editorial intro** (200–300 words) — human-written paragraph framing what the synthesis found and why it matters to an indie dev building in this genre. NOT the raw `narrative_summary`. Written by the operator at curation time and stored alongside the synthesis row (new column `mv_genre_synthesis.editorial_intro TEXT NOT NULL DEFAULT ''`; fall back to `narrative_summary` while empty). Original perspective satisfies the Google 2026 expertise signal.
+- Meta line: *"Synthesised from {input_count} games · {total_reviews} reviews · last updated {computed_at}"*
 - Share buttons: Twitter/X, Bluesky, copy link, Reddit (`r/gamedev`, `r/{genre}`)
 
-**Top 10 Friction Points** (`<section>`):
-- Numbered list (`<ol>`)
-- Each item: title (`<h3>`), description, `<blockquote>` with verbatim quote + link to source game (`/games/[appid]/[slug]`)
-- `mention_count` badge — *"18 of 141 games"*
-- **All ten render. No truncation. No "unlock top 20" CTA.**
+**Top 5 Friction Points** (`<section>`):
+- Numbered list (`<ol>`), items 1–5 from `insights.friction_points` (highest `mention_count` first — the repo already orders this way).
+- Each item: title (`<h3>`), short description, `<blockquote>` with verbatim quote + link to source game (`/games/[appid]/[slug]`).
+- `mention_count` badge — *"18 of 141 games"*.
+- Closing line below the list: *"Five more friction clusters, with full quote sets, are in the PDF →"* anchoring to the buy block.
 
-**Top 10 Wishlist Features**:
-- Same shape as friction.
+**Top 3 Wishlist Features**:
+- Same shape as friction. Items 1–3.
 - Framed as opportunities, not complaints — the genre's gaps.
+- Closing line: *"Seven more wishlist items are in the PDF →"*.
 
 **Benchmark Games** (`<section>`):
-- 5-card grid. Each card: cover image (`games.header_image`), game name, `why_benchmark` blurb, *"Read the per-game analysis →"* link to `/games/[appid]/[slug]`.
-- These are the most important internal cross-links for SEO. Use `<Link>` so Next.js prefetches.
+- 3-card grid. Each card: cover image (`games.header_image`), game name, one-sentence pull-quote from `why_benchmark`, *"Read the per-game analysis →"* link to `/games/[appid]/[slug]`.
+- These are important internal cross-links for SEO. Use `<Link>` so Next.js prefetches.
+- Closing line: *"Two more benchmark games, with 3–4 page deep-dives each, are in the PDF →"*.
 
 **Churn Wall**:
-- Single-stat callout. Big number (`typical_dropout_hour` formatted as *"~4 hours"*), `primary_reason` underneath, blockquote with representative quote + link to source game.
+- Single-stat callout. Big number (`typical_dropout_hour` formatted as *"~4 hours"*), `primary_reason` underneath in one line.
+- **One-line editorial interpretation** written by the operator at curation time (new column `mv_genre_synthesis.churn_interpretation TEXT NOT NULL DEFAULT ''`; fall back to empty if unset). Example: *"Unlock grind hits around the 8-hour mark — players drop before meta-progression kicks in."* No blockquote on the free page; the full quote + context lives in the PDF.
 
-**Dev Priorities table**:
-- All rows from `insights.dev_priorities`. Columns: action · why it matters · frequency · effort.
-- Plain HTML table. No filtering, no sorting, no pagination. The point is that the reader can see the whole list.
+**Dev Priorities teaser** (`<section>`):
+- Render **first 2 rows** only from `insights.dev_priorities` as a compact two-row table (action · why it matters · frequency · effort).
+- Below the table: *"The full ranked priorities table — all {N} actions, plus strategic recommendations — is in the PDF →"* anchoring to the buy block.
 
 **Methodology footer**:
-- 2–3 sentences explaining the synthesis (three-phase LLM pipeline, `mention_count ≥ 3` threshold, weekly refresh, links to per-game pages for full review context). Trust signal.
+- 2–3 sentences explaining the synthesis (three-phase LLM pipeline, `mention_count ≥ 3` threshold, curated by a human before publication, weekly refresh, links to per-game pages for full review context).
+- Anchor target for the byline link.
 - *"Notice an issue? Email feedback@steampulse.io"*
 
 ### 4. Pre-order / Buy block (the commerce surface)
@@ -218,13 +263,14 @@ New test file `frontend/tests/genre-page.spec.ts`:
 
 - Mock the API in `frontend/tests/fixtures/api-mock.ts` to return a canned `GenreInsights` for `roguelike-deckbuilder`
 - Tests:
-  - Page renders with correct h1 and narrative summary
-  - All 10 friction points display (no truncation)
-  - All 10 wishlist items display
-  - All 5 benchmark game cards render with cover images + working `/games/[appid]/[slug]` links
-  - Churn wall stat displays
-  - Dev priorities table renders all rows
-  - Methodology footer displays
+  - Page renders with correct h1, author byline, editorial intro, and narrative meta line
+  - Exactly 5 friction points display (curated preview, not the full 10)
+  - Exactly 3 wishlist items display
+  - Exactly 3 benchmark game cards render with cover images + working `/games/[appid]/[slug]` links
+  - Churn wall stat + one-line editorial interpretation display (no blockquote on the free page)
+  - Dev priorities teaser renders exactly 2 rows plus the "full table in PDF" anchor
+  - Every closing "…in the PDF →" anchor resolves to the buy block
+  - Methodology footer displays and is the anchor target for the byline link
   - **Pre-order block:** when mock `getReportForGenre` returns a row with future `published_at`, block renders with *"Pre-order"* buttons and ship date
   - **Live block:** when mock returns a row with past `published_at`, block renders with *"Buy"* buttons
   - **No-report state:** when mock returns null, no pre-order / buy block renders at all
@@ -236,7 +282,7 @@ New test file `frontend/tests/genre-page.spec.ts`:
 Add `tests/smoke/test_genre_page.py`:
 - `GET /api/genres/roguelike-deckbuilder/insights` returns 200
 - Response shape matches `GenreSynthesis` Pydantic model
-- Required fields populated: `narrative_summary` non-empty, `friction_points ≥ 10`, `wishlist_items ≥ 10`, `benchmark_games ≥ 5`, `dev_priorities ≥ 3`
+- Required fields populated for the **underlying synthesis row** (the page curates down from these): `narrative_summary` non-empty, `friction_points ≥ 10`, `wishlist_items ≥ 10`, `benchmark_games ≥ 5`, `dev_priorities ≥ 3`. The extra material beyond the curated preview is what the paid PDF delivers.
 - `GET /api/genres/roguelike-deckbuilder/report` returns 200 or 404 depending on seed state
 
 ## Verification
@@ -259,7 +305,7 @@ Add `tests/smoke/test_genre_page.py`:
 - **Cross-genre comparison page** — Tier-2-gated speculative feature. Do not build.
 - **Filtering / sorting / search within the synthesis** — Tier-2-gated toolkit territory. Killed for Tier 1.
 - **Drill-down modal per friction item** — Tier-2-gated.
-- **Additional genres beyond `roguelike-deckbuilder` at launch** — same route, same component, different slug. No code change needed; just produce more synthesis rows.
+- **Additional genres beyond `roguelike-deckbuilder` at launch** — same route, same component, different slug. No code change needed. The per-genre work is: run the synthesiser + write the editorial_intro (200–300 words) + write the churn_interpretation (one line) + publish. The raw synthesis row ships automatically; the curated editorial bits are the unavoidable 1–2 hours of human curation per genre page.
 
 ## Voice guardrails
 
@@ -278,11 +324,12 @@ anti-hype. Don't duplicate the list here.
 
 ```
 ## Summary
-Ship the free cross-genre synthesis page at /genre/[slug]/. Renders
-the full Phase-4 synthesis: narrative, top-10 friction, top-10
-wishlist, 5 benchmark games, churn wall, dev priorities. Conditionally
-renders a pre-order / buy block when a reports row exists for the
-genre.
+Ship the free cross-genre synthesis page at /genre/[slug]/ as a
+curated preview (not the raw Phase-4 dump). Author byline + editorial
+intro + top-5 friction + top-3 wishlist + 3 benchmarks + churn wall
+with one-line interpretation + 2-row dev priorities teaser.
+Conditionally renders a pre-order / buy block when a reports row
+exists for the genre. The full depth lives in the paid PDF.
 
 ## Changes
 - frontend/app/genre/[slug]/page.tsx — server component, ISR 1h

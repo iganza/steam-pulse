@@ -344,7 +344,7 @@ export async function mockGenreInsights(
     )
   }
 
-  // Insights
+  // Insights — override the fixture's slug so response.slug matches the URL.
   const insightsPattern = `**/api/tags/${slug}/insights`
   if (insightsMode === '404') {
     await page.route(insightsPattern, route =>
@@ -352,11 +352,12 @@ export async function mockGenreInsights(
     )
   } else {
     await page.route(insightsPattern, route =>
-      route.fulfill({ json: MOCK_GENRE_INSIGHTS }),
+      route.fulfill({ json: { ...MOCK_GENRE_INSIGHTS, slug } }),
     )
   }
 
-  // Report
+  // Report — clone the fixture with the requested slug so checkout flows
+  // that read report.slug stay consistent with the mocked route.
   const reportPattern = `**/api/genres/${slug}/report`
   if (opts.reportState === 'none') {
     await page.route(reportPattern, route =>
@@ -364,11 +365,11 @@ export async function mockGenreInsights(
     )
   } else if (opts.reportState === 'pre-order') {
     await page.route(reportPattern, route =>
-      route.fulfill({ json: MOCK_REPORT_SUMMARY_PREORDER }),
+      route.fulfill({ json: { ...MOCK_REPORT_SUMMARY_PREORDER, slug } }),
     )
   } else {
     await page.route(reportPattern, route =>
-      route.fulfill({ json: MOCK_REPORT_SUMMARY_LIVE }),
+      route.fulfill({ json: { ...MOCK_REPORT_SUMMARY_LIVE, slug } }),
     )
   }
 }

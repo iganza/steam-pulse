@@ -27,7 +27,9 @@ function truncate(s: string, n: number): string {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const insights = await getGenreInsights(slug);
-  const canonical = `https://steampulse.io/genre/${slug}/`;
+  // No trailing slash — mirrors the games/[appid]/[slug] canonical shape and
+  // avoids the Next.js default-off trailingSlash redirect loop.
+  const canonical = `https://steampulse.io/genre/${slug}`;
   if (!insights) {
     return {
       title: "Not found | SteamPulse",
@@ -66,12 +68,14 @@ export default async function GenrePage({ params }: Props) {
   ]);
   if (!insights) notFound();
 
-  // Collect every appid that needs a crosslink (source games + benchmarks).
+  // Collect every appid that renders a crosslink: friction quotes, wishlist
+  // quotes, benchmark cards. The churn insight's source_appid is NOT
+  // included — the free-page churn wall shows the stat + interpretation
+  // only, no per-game quote link, so fetching its report is wasted work.
   const appids = new Set<number>();
   for (const f of insights.synthesis.friction_points.slice(0, 5)) appids.add(f.source_appid);
   for (const w of insights.synthesis.wishlist_items.slice(0, 3)) appids.add(w.source_appid);
   for (const b of insights.synthesis.benchmark_games.slice(0, 3)) appids.add(b.appid);
-  appids.add(insights.synthesis.churn_insight.source_appid);
 
   const gameResults = await Promise.allSettled(
     Array.from(appids).map((id) => getGameReport(id).then((r) => [id, r] as const)),
@@ -89,7 +93,7 @@ export default async function GenrePage({ params }: Props) {
     };
   }
 
-  const shareUrl = `https://steampulse.io/genre/${slug}/`;
+  const shareUrl = `https://steampulse.io/genre/${slug}`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -133,18 +137,21 @@ export default async function GenrePage({ params }: Props) {
                 items={insights.synthesis.friction_points}
                 gameCount={insights.input_count}
                 games={games}
+                hasReport={!!report}
               />
 
               <WishlistList
                 items={insights.synthesis.wishlist_items}
                 gameCount={insights.input_count}
                 games={games}
+                hasReport={!!report}
               />
 
               <BenchmarkGrid
                 items={insights.synthesis.benchmark_games}
                 totalCount={insights.synthesis.benchmark_games.length}
                 games={games}
+                hasReport={!!report}
               />
 
               <ChurnWall
@@ -155,6 +162,7 @@ export default async function GenrePage({ params }: Props) {
               <DevPrioritiesTeaser
                 items={insights.synthesis.dev_priorities}
                 totalCount={insights.synthesis.dev_priorities.length}
+                hasReport={!!report}
               />
 
               {report && <ReportBuyBlock report={report} variant="main" />}

@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Genre synthesis page — no report', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/genre/rdb-base/')
+    await page.goto('/genre/rdb-base')
   })
 
   test('renders headline, byline, editorial intro, and meta line', async ({ page }) => {
@@ -28,7 +28,6 @@ test.describe('Genre synthesis page — no report', () => {
     await expect(friction.locator('ol > li')).toHaveCount(5)
     await expect(friction).toContainText('Run length too long')
     await expect(friction).toContainText('18 of 141 games')
-    await expect(friction).toContainText('friction clusters')
   })
 
   test('renders exactly 3 wishlist items', async ({ page }) => {
@@ -36,7 +35,6 @@ test.describe('Genre synthesis page — no report', () => {
     await expect(wishlist).toBeVisible()
     await expect(wishlist.locator('ol > li')).toHaveCount(3)
     await expect(wishlist).toContainText('Daily shared seed')
-    await expect(wishlist).toContainText('wishlist items are in the PDF')
   })
 
   test('renders exactly 3 benchmark cards with links to game pages', async ({ page }) => {
@@ -46,7 +44,6 @@ test.describe('Genre synthesis page — no report', () => {
     await expect(grid).toContainText('Balatro')
     await expect(grid).toContainText('Monster Train')
     await expect(grid.locator('a[href="/games/646570/slay-the-spire"]')).toBeVisible()
-    await expect(grid).toContainText('2 more benchmark games')
   })
 
   test('churn wall shows stat, reason, and editorial interpretation (no blockquote)', async ({ page }) => {
@@ -58,29 +55,31 @@ test.describe('Genre synthesis page — no report', () => {
     await expect(wall.locator('blockquote')).toHaveCount(0)
   })
 
-  test('dev priorities teaser renders 2 rows and PDF anchor to #buy', async ({ page }) => {
+  test('dev priorities teaser renders 2 rows', async ({ page }) => {
     const teaser = page.getByTestId('dev-priorities')
     await expect(teaser).toBeVisible()
     await expect(teaser.locator('tbody > tr')).toHaveCount(2)
-    await expect(teaser.locator('a[href="#buy"]')).toBeVisible()
   })
 
   test('methodology footer is the anchor target for the byline link', async ({ page }) => {
     await expect(page.getByTestId('methodology-footer')).toBeVisible()
     await expect(page.locator('section#methodology')).toBeVisible()
     const bylineHref = await page.getByTestId('author-byline').locator('a').getAttribute('href')
-    expect(bylineHref).toContain('#methodology')
+    expect(bylineHref).toBe('#methodology')
   })
 
-  test('buy block hidden when no report row exists', async ({ page }) => {
+  test('buy block and "in the PDF" teasers hidden when no report exists', async ({ page }) => {
     await expect(page.getByTestId('report-buy-block-main')).toHaveCount(0)
     await expect(page.getByTestId('report-buy-block-sidebar')).toHaveCount(0)
+    // The PDF teasers anchor to #buy — with no buy block on the page, they
+    // would be broken in-page links. They must not render.
+    await expect(page.locator('a[href="#buy"]')).toHaveCount(0)
   })
 })
 
 test.describe('Genre synthesis page — pre-order report', () => {
   test('buy block renders in pre-order state with ship date', async ({ page }) => {
-    await page.goto('/genre/rdb-preorder/')
+    await page.goto('/genre/rdb-preorder')
     const block = page.getByTestId('report-buy-block-main')
     await expect(block).toBeVisible()
     await expect(block).toHaveAttribute('data-state', 'pre-order')
@@ -89,11 +88,27 @@ test.describe('Genre synthesis page — pre-order report', () => {
     await expect(block).toContainText('Pre-order Publisher')
     await expect(block).toContainText(/ships/i)
   })
+
+  test('PDF teaser CTAs render and anchor to #buy', async ({ page }) => {
+    await page.goto('/genre/rdb-preorder')
+    await expect(
+      page.getByTestId('friction-list').locator('a[href="#buy"]'),
+    ).toContainText(/more friction clusters/i)
+    await expect(
+      page.getByTestId('wishlist-list').locator('a[href="#buy"]'),
+    ).toContainText(/wishlist items are in the PDF/i)
+    await expect(
+      page.getByTestId('benchmark-grid').locator('a[href="#buy"]'),
+    ).toContainText(/more benchmark games/i)
+    await expect(
+      page.getByTestId('dev-priorities').locator('a[href="#buy"]'),
+    ).toBeVisible()
+  })
 })
 
 test.describe('Genre synthesis page — live report', () => {
   test('buy block renders in live state with Buy buttons', async ({ page }) => {
-    await page.goto('/genre/rdb-live/')
+    await page.goto('/genre/rdb-live')
     const block = page.getByTestId('report-buy-block-main')
     await expect(block).toBeVisible()
     await expect(block).toHaveAttribute('data-state', 'live')
@@ -104,7 +119,7 @@ test.describe('Genre synthesis page — live report', () => {
 
 test.describe('Genre synthesis page — 404', () => {
   test('unknown slug 404s cleanly', async ({ page }) => {
-    const response = await page.goto('/genre/rdb-missing/')
+    const response = await page.goto('/genre/rdb-missing')
     expect(response?.status()).toBe(404)
   })
 })

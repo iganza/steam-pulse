@@ -24,7 +24,7 @@ export function EditorialIntro({ insights, shareUrl }: Props) {
         What {insights.display_name} Players Want, Hate, and Praise
       </h1>
 
-      <AuthorByline />
+      <AuthorByline href="#methodology" />
 
       <div className="mt-8 space-y-4 text-base leading-relaxed max-w-prose">
         {intro.split(/\n\n+/).map((para, i) => (

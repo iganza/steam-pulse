@@ -32,9 +32,13 @@ def test_tag_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:
         assert "dev_priorities" in s and isinstance(s["dev_priorities"], list)
 
         # Editorial columns (migration 0052) are always present as strings —
-        # may be empty when the row hasn't been curated yet.
-        assert isinstance(body.get("editorial_intro", ""), str)
-        assert isinstance(body.get("churn_interpretation", ""), str)
+        # may be empty when the row hasn't been curated yet. Assert presence
+        # first so a silently-dropped column fails here instead of returning
+        # the default from a lenient `.get`.
+        assert "editorial_intro" in body
+        assert isinstance(body["editorial_intro"], str)
+        assert "churn_interpretation" in body
+        assert isinstance(body["churn_interpretation"], str)
 
 
 @pytest.mark.parametrize("slug", ["roguelike-deckbuilder"])

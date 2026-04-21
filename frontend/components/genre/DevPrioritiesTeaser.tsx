@@ -3,9 +3,12 @@ import type { GenreDevPriority } from "@/lib/types";
 interface Props {
   items: GenreDevPriority[];
   totalCount: number;
+  /** When false, the "full table in PDF →" CTA is hidden — #buy anchors
+   * only resolve when the ReportBuyBlock is on the page. */
+  hasReport: boolean;
 }
 
-export function DevPrioritiesTeaser({ items, totalCount }: Props) {
+export function DevPrioritiesTeaser({ items, totalCount, hasReport }: Props) {
   const preview = items.slice(0, 2);
 
   return (
@@ -50,7 +53,7 @@ export function DevPrioritiesTeaser({ items, totalCount }: Props) {
         </table>
       </div>
 
-      {totalCount > preview.length && (
+      {totalCount > preview.length && hasReport && (
         <p className="mt-6 text-sm font-mono" style={{ color: "var(--muted-foreground)" }}>
           <a href="#buy" className="underline underline-offset-2 hover:text-foreground transition-colors">
             The full ranked priorities table &mdash; all {totalCount} actions, plus strategic recommendations &mdash; is in the PDF &rarr;

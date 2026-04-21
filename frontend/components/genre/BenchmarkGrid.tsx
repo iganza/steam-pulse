@@ -7,13 +7,16 @@ interface Props {
   items: BenchmarkGame[];
   totalCount: number;
   games: Record<number, GameBasics>;
+  /** When false, the "X more ... in the PDF →" CTA is hidden — #buy
+   * anchors only resolve when the ReportBuyBlock is on the page. */
+  hasReport: boolean;
 }
 
 function cdnHeader(appid: number): string {
   return `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`;
 }
 
-export function BenchmarkGrid({ items, totalCount, games }: Props) {
+export function BenchmarkGrid({ items, totalCount, games, hasReport }: Props) {
   const preview = items.slice(0, 3);
   const remaining = Math.max(0, totalCount - preview.length);
 
@@ -73,7 +76,7 @@ export function BenchmarkGrid({ items, totalCount, games }: Props) {
         })}
       </div>
 
-      {remaining > 0 && (
+      {remaining > 0 && hasReport && (
         <p className="mt-8 text-sm font-mono" style={{ color: "var(--muted-foreground)" }}>
           <a href="#buy" className="underline underline-offset-2 hover:text-foreground transition-colors">
             {remaining} more benchmark games, with 3&ndash;4 page deep-dives each, are in the PDF &rarr;

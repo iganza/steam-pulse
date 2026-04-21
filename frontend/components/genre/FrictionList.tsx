@@ -6,9 +6,12 @@ interface Props {
   items: FrictionPoint[];
   gameCount: number;
   games: Record<number, GameBasics>;
+  /** When false, the "X more ... in the PDF →" CTA is hidden — #buy
+   * anchors only resolve when the ReportBuyBlock is on the page. */
+  hasReport: boolean;
 }
 
-export function FrictionList({ items, gameCount, games }: Props) {
+export function FrictionList({ items, gameCount, games, hasReport }: Props) {
   const preview = items.slice(0, 5);
   // "X more in the PDF" is a count of clusters beyond the preview, not a
   // game count — keep the cohort size (gameCount) separate from this.
@@ -68,7 +71,7 @@ export function FrictionList({ items, gameCount, games }: Props) {
         })}
       </ol>
 
-      {remaining > 0 && (
+      {remaining > 0 && hasReport && (
         <p className="mt-8 text-sm font-mono" style={{ color: "var(--muted-foreground)" }}>
           <a href="#buy" className="underline underline-offset-2 hover:text-foreground transition-colors">
             {remaining} more friction clusters, with full quote sets, are in the PDF &rarr;

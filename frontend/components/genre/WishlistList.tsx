@@ -6,9 +6,12 @@ interface Props {
   items: WishlistItem[];
   gameCount: number;
   games: Record<number, GameBasics>;
+  /** When false, the "X more ... in the PDF →" CTA is hidden — #buy
+   * anchors only resolve when the ReportBuyBlock is on the page. */
+  hasReport: boolean;
 }
 
-export function WishlistList({ items, gameCount, games }: Props) {
+export function WishlistList({ items, gameCount, games, hasReport }: Props) {
   const preview = items.slice(0, 3);
   // Remaining = wishlist clusters beyond the preview, not games in the cohort.
   const remaining = Math.max(0, items.length - preview.length);
@@ -61,7 +64,7 @@ export function WishlistList({ items, gameCount, games }: Props) {
         })}
       </ol>
 
-      {remaining > 0 && (
+      {remaining > 0 && hasReport && (
         <p className="mt-8 text-sm font-mono" style={{ color: "var(--muted-foreground)" }}>
           <a href="#buy" className="underline underline-offset-2 hover:text-foreground transition-colors">
             {remaining} more wishlist items are in the PDF &rarr;

@@ -67,28 +67,9 @@ test.describe('Game report — analytics features', () => {
   })
 })
 
-// Genre page — market analytics
-test.describe('Genre page — market analytics', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.goto('/genre/action')
-  })
-
-  test('price positioning chart renders with sweet spot', async ({ page }) => {
-    await expect(page.getByText(/price positioning/i)).toBeVisible()
-    await expect(page.getByText(/sweet spot/i)).toBeVisible()
-  })
-
-  test('release timing chart renders with best month', async ({ page }) => {
-    await expect(page.getByText(/release timing/i)).toBeVisible()
-    await expect(page.getByText(/february/i)).toBeVisible()
-  })
-
-  test('platform gaps renders with underserved indicator', async ({ page }) => {
-    await expect(page.getByText(/platform/i).first()).toBeVisible()
-    await expect(page.getByText(/linux/i)).toBeVisible()
-  })
-})
+// The /genre/[slug]/ route is now the editorial synthesis page — its coverage
+// lives in tests/genre-page.spec.ts. Price positioning / release timing /
+// platform gaps analytics are no longer surfaced on that route.
 
 // Tag page — tag trend
 test.describe('Tag page — tag trend', () => {

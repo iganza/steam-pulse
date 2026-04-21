@@ -50,12 +50,26 @@ test('game page has OG image and canonical', async ({ page }) => {
   )
 })
 
-test('genre page has OG tags', async ({ page }) => {
-  await mockAllApiRoutes(page)
-  await page.goto('/genre/action')
+test('genre synthesis page has OG tags + Article JSON-LD', async ({ page }) => {
+  await page.goto('/genre/rdb-base/')
   const ogTitle = await page.locator('meta[property="og:title"]').getAttribute('content')
-  expect(ogTitle).toContain('Action')
+  expect(ogTitle).toContain('Players Want, Hate, and Praise')
   expect(ogTitle).toContain('SteamPulse')
+  const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+  expect(canonical).toContain('/genre/rdb-base/')
+  const jsonLds = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(
+      (el) => el.textContent ?? ''
+    )
+  )
+  const parsed = jsonLds
+    .map((s) => {
+      try { return JSON.parse(s) } catch { return null }
+    })
+    .filter((v): v is Record<string, unknown> => v !== null)
+  const article = parsed.find((obj) => obj['@type'] === 'Article')
+  expect(article).toBeDefined()
+  expect(article).toMatchObject({ '@type': 'Article' })
 })
 
 test('robots.txt is accessible and correct', async ({ page }) => {

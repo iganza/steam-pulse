@@ -5,6 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
+  GenreInsights, ReportSummary,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -401,6 +402,43 @@ export async function getRelatedAnalyzedGames(
   // a shorter per-fetch revalidate would effectively shrink the page ISR and
   // hammer the DB on every cache miss.
   return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 86400 } });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-genre synthesis + paid-report surface (genre insights page)
+// ---------------------------------------------------------------------------
+
+/** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.
+ *
+ * Path uses /api/tags/ because the synthesizer joins the tags table; the
+ * public URL is /genre/[slug]/, hence the getGenreInsights name.
+ * 404 → null so the page can surface Next.js notFound() cleanly.
+ */
+export async function getGenreInsights(slug: string): Promise<GenreInsights | null> {
+  try {
+    return await apiFetch<GenreInsights>(`/api/tags/${encodeURIComponent(slug)}/insights`, {
+      next: { revalidate: 3600, tags: [`genre-insights-${slug}`] },
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** GET /api/genres/{slug}/report — paid-PDF report summary.
+ *
+ * Endpoint ships with stripe-checkout-report-delivery.md; absent today.
+ * Any non-200 (including "endpoint not wired yet") resolves to null so the
+ * pre-order/buy block simply doesn't render until the Stripe prompt lands.
+ */
+export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
+  try {
+    return await apiFetch<ReportSummary>(`/api/genres/${encodeURIComponent(slug)}/report`, {
+      next: { revalidate: 300, tags: [`genre-report-${slug}`] },
+    });
+  } catch {
+    return null;
+  }
 }
 
 export { ApiError };

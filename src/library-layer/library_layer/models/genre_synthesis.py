@@ -81,6 +81,11 @@ class GenreSynthesisRow(BaseModel):
     Fields match the SQL columns 1:1. `avg_positive_pct` and
     `median_review_count` are always defined because the service refuses
     to synthesize below MIN_REPORTS_PER_GENRE.
+
+    `editorial_intro` and `churn_interpretation` are operator-curated
+    (via scripts/ops/update_editorial.py) and layered on top of the
+    synthesizer output — the weekly refresh does not touch them. Empty
+    string is the "not yet curated" state.
     """
 
     slug: str
@@ -94,3 +99,5 @@ class GenreSynthesisRow(BaseModel):
     avg_positive_pct: float
     median_review_count: int
     computed_at: datetime
+    editorial_intro: str = ""
+    churn_interpretation: str = ""

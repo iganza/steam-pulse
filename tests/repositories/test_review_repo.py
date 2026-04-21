@@ -102,6 +102,57 @@ def test_bulk_upsert_is_idempotent(
     assert review_repo.count_by_appid(440) == 3
 
 
+def _tuple_identity(db_conn: object, steam_review_id: str) -> tuple:
+    with db_conn.cursor() as cur:  # type: ignore[attr-defined]
+        cur.execute(
+            "SELECT ctid::text AS ctid, xmin::text AS xmin FROM reviews "
+            "WHERE steam_review_id = %s",
+            (steam_review_id,),
+        )
+        row = cur.fetchone()
+    return (row["ctid"], row["xmin"])
+
+
+def test_bulk_upsert_identical_rows_is_noop(
+    db_conn: object, game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """Re-upserting a byte-identical row must not rewrite the tuple.
+
+    The WHERE ... IS DISTINCT FROM guard on DO UPDATE should short-circuit
+    the write — unchanged ctid + xmin is Postgres-level proof that no MVCC
+    tuple was produced. Critical for keeping refresh cycles within the
+    t4g.small CPU credit budget; see scripts/prompts/idempotent-review-upsert.md.
+    """
+    _seed_game(game_repo)
+    reviews = _make_reviews(count=1)
+    review_repo.bulk_upsert(reviews)
+    before = _tuple_identity(db_conn, reviews[0]["steam_review_id"])
+
+    review_repo.bulk_upsert(reviews)  # identical payload
+
+    after = _tuple_identity(db_conn, reviews[0]["steam_review_id"])
+    assert before == after, f"expected no tuple rewrite; ctid/xmin changed {before} -> {after}"
+
+
+def test_bulk_upsert_vote_change_updates_row(
+    db_conn: object, game_repo: GameRepository, review_repo: ReviewRepository
+) -> None:
+    """A genuine change (e.g. votes_helpful) must still land — regression guard
+    that the IS DISTINCT FROM guard doesn't over-skip mutable fields."""
+    _seed_game(game_repo)
+    reviews = _make_reviews(count=1)
+    review_repo.bulk_upsert(reviews)
+    before = _tuple_identity(db_conn, reviews[0]["steam_review_id"])
+
+    bumped = [{**reviews[0], "votes_helpful": reviews[0]["votes_helpful"] + 1}]
+    review_repo.bulk_upsert(bumped)
+
+    after = _tuple_identity(db_conn, reviews[0]["steam_review_id"])
+    assert before != after, "expected tuple rewrite when votes_helpful changed"
+    stored = review_repo.find_by_appid(440, limit=1)[0]
+    assert stored.votes_helpful == bumped[0]["votes_helpful"]
+
+
 def test_find_by_appid_paginates(game_repo: GameRepository, review_repo: ReviewRepository) -> None:
     _seed_game(game_repo)
     review_repo.bulk_upsert(_make_reviews(count=5))

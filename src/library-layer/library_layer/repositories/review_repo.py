@@ -58,6 +58,27 @@ class ReviewRepository(BaseRepository):
                     votes_funny                 = EXCLUDED.votes_funny,
                     written_during_early_access = EXCLUDED.written_during_early_access,
                     received_for_free           = EXCLUDED.received_for_free
+                WHERE (
+                    reviews.voted_up,
+                    reviews.playtime_hours,
+                    reviews.body,
+                    reviews.author_steamid,
+                    reviews.language,
+                    reviews.votes_helpful,
+                    reviews.votes_funny,
+                    reviews.written_during_early_access,
+                    reviews.received_for_free
+                ) IS DISTINCT FROM (
+                    EXCLUDED.voted_up,
+                    EXCLUDED.playtime_hours,
+                    EXCLUDED.body,
+                    EXCLUDED.author_steamid,
+                    EXCLUDED.language,
+                    EXCLUDED.votes_helpful,
+                    EXCLUDED.votes_funny,
+                    EXCLUDED.written_during_early_access,
+                    EXCLUDED.received_for_free
+                )
                 """,
                 rows,
                 page_size=500,

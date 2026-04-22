@@ -43,11 +43,16 @@ def _stub_ssm(arn: str = "arn:aws:states:us-east-1:123:stateMachine:test") -> Ma
     return ssm
 
 
+class _ExecutionAlreadyExists(Exception):
+    pass
+
+
 def _stub_sfn() -> MagicMock:
     sfn = MagicMock()
     sfn.start_execution.return_value = {
         "executionArn": "arn:aws:states:us-east-1:123:execution:test:run-1"
     }
+    sfn.exceptions.ExecutionAlreadyExists = _ExecutionAlreadyExists
     return sfn
 
 
@@ -93,3 +98,33 @@ def test_malformed_record_does_not_crash() -> None:
 
     assert "execution_arn" in result
     sfn.start_execution.assert_called_once()
+
+
+def test_execution_name_deterministic_per_batch() -> None:
+    """Same SQS batch → same execution name so Lambda retries are idempotent."""
+    sfn = _stub_sfn()
+    ssm = _stub_ssm()
+    mod = _get_module(sfn, ssm)
+
+    event = _make_sqs_event("report-ready")
+    mod.handler(event, MockLambdaContext())
+    first_name = sfn.start_execution.call_args.kwargs["name"]
+
+    sfn.start_execution.reset_mock()
+    mod.handler(event, MockLambdaContext())
+    second_name = sfn.start_execution.call_args.kwargs["name"]
+
+    assert first_name == second_name
+
+
+def test_execution_already_exists_is_no_op() -> None:
+    """ExecutionAlreadyExists → treated as success, no re-raise."""
+    sfn = _stub_sfn()
+    sfn.start_execution.side_effect = _ExecutionAlreadyExists("already exists")
+    ssm = _stub_ssm()
+    mod = _get_module(sfn, ssm)
+
+    result = mod.handler(_make_sqs_event("report-ready"), MockLambdaContext())
+
+    assert result["duplicate"] is True
+    assert "execution_name" in result

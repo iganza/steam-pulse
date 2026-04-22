@@ -175,3 +175,161 @@ def test_audience_overlap_limit(
 
     result = matview_repo.get_audience_overlap(440, limit=2)
     assert len(result["overlaps"]) <= 2
+
+
+# ---------------------------------------------------------------------------
+# Refresh management — refresh_one / start_cycle / complete_cycle
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_one_rejects_unknown_view(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """refresh_one raises ValueError for names not in MATVIEW_NAMES.
+
+    Guards the sql.Identifier path — an attacker-controlled string would
+    otherwise be interpolated directly into the REFRESH statement.
+    """
+    with pytest.raises(ValueError):
+        matview_repo.refresh_one("not_a_view")
+
+
+def test_refresh_one_returns_duration(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+    game_repo: GameRepository,
+    refresh_matviews: Any,
+) -> None:
+    """refresh_one succeeds and returns a non-negative duration."""
+    _seed_game(game_repo, 440)
+    # Prime the matview so CONCURRENTLY doesn't fail on empty content.
+    refresh_matviews()
+    duration_ms = matview_repo.refresh_one("mv_genre_counts")
+    assert duration_ms >= 0
+
+
+def test_start_cycle_inserts_running_row(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """start_cycle writes a row with status='running' and started_at set."""
+    matview_repo.start_cycle("cycle-abc")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT cycle_id, status, started_at, per_view_results, duration_ms
+            FROM matview_refresh_log
+            WHERE cycle_id = %s
+            """,
+            ("cycle-abc",),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["cycle_id"] == "cycle-abc"
+    assert row["status"] == "running"
+    assert row["started_at"] is not None
+    assert row["per_view_results"] is None
+    assert row["duration_ms"] is None
+
+
+def test_complete_cycle_all_success(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """All-success results → status='complete', views_refreshed populated."""
+    matview_repo.start_cycle("cycle-ok")
+    per_view = {
+        "mv_a": {"success": True, "duration_ms": 100, "error": ""},
+        "mv_b": {"success": True, "duration_ms": 200, "error": ""},
+    }
+    matview_repo.complete_cycle("cycle-ok", 1234, per_view)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status, duration_ms, per_view_results, views_refreshed
+            FROM matview_refresh_log WHERE cycle_id = %s
+            """,
+            ("cycle-ok",),
+        )
+        row = cur.fetchone()
+    assert row["status"] == "complete"
+    assert row["duration_ms"] == 1234
+    assert set(row["per_view_results"].keys()) == {"mv_a", "mv_b"}
+    assert set(row["views_refreshed"]) == {"mv_a", "mv_b"}
+
+
+def test_complete_cycle_partial_failure(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Mixed results → status='partial_failure'; only successes in views_refreshed."""
+    matview_repo.start_cycle("cycle-mixed")
+    per_view = {
+        "mv_a": {"success": True, "duration_ms": 100, "error": ""},
+        "mv_b": {"success": False, "duration_ms": 0, "error": "boom"},
+    }
+    matview_repo.complete_cycle("cycle-mixed", 500, per_view)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status, views_refreshed FROM matview_refresh_log WHERE cycle_id = %s",
+            ("cycle-mixed",),
+        )
+        row = cur.fetchone()
+    assert row["status"] == "partial_failure"
+    assert row["views_refreshed"] == ["mv_a"]
+
+
+def test_complete_cycle_all_failure(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """All-failure results → status='failed'."""
+    matview_repo.start_cycle("cycle-bad")
+    per_view = {
+        "mv_a": {"success": False, "duration_ms": 0, "error": "boom"},
+    }
+    matview_repo.complete_cycle("cycle-bad", 50, per_view)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM matview_refresh_log WHERE cycle_id = %s",
+            ("cycle-bad",),
+        )
+        row = cur.fetchone()
+    assert row["status"] == "failed"
+
+
+def test_get_last_refresh_time_only_reads_complete(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Running/failed/legacy-NULL rows are ignored by the debounce read."""
+    # Legacy row with NULL status (pre-0054).
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO matview_refresh_log (duration_ms, views_refreshed) VALUES (%s, %s)",
+            (100, ["mv_a"]),
+        )
+    db_conn.commit()
+
+    matview_repo.start_cycle("cycle-running")
+    matview_repo.start_cycle("cycle-done")
+    matview_repo.complete_cycle(
+        "cycle-done", 200, {"mv_a": {"success": True, "duration_ms": 100, "error": ""}}
+    )
+    matview_repo.start_cycle("cycle-fail")
+    matview_repo.complete_cycle(
+        "cycle-fail", 10, {"mv_a": {"success": False, "duration_ms": 0, "error": "boom"}}
+    )
+
+    ts = matview_repo.get_last_refresh_time()
+    assert ts is not None
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts FROM matview_refresh_log "
+            "WHERE cycle_id = %s",
+            ("cycle-done",),
+        )
+        done_ts = cur.fetchone()["ts"]
+    assert ts == pytest.approx(float(done_ts), abs=0.001)

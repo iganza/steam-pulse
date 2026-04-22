@@ -39,6 +39,8 @@ Usage:
 
   poetry run python scripts/sp.py dispatch --env staging [--batch-size N] [--dry-run] [--watch]
 
+  poetry run python scripts/sp.py matview-refresh --env staging [--force]
+
 Requires:
   DATABASE_URL  (defaults to postgresql://steampulse:dev@127.0.0.1:5432/steampulse)
   STEAM_API_KEY in .env  (catalog / game / reviews commands)
@@ -67,7 +69,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src", "lambda-functions"))
 # Commands that resolve config from .env.{environment} via for_environment().
 # Skipping load_dotenv for these prevents dummy .env values from overriding
 # real SSM paths that pydantic-settings would read from the env file.
-_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "dispatch", "logs"}
+_DEPLOYED_COMMANDS = {"spokes", "queue", "db", "batch", "dispatch", "logs", "matview-refresh"}
 _cmd = sys.argv[1] if len(sys.argv) >= 2 else ""
 
 if _cmd not in _DEPLOYED_COMMANDS:
@@ -93,6 +95,8 @@ if _cmd not in _DEPLOYED_COMMANDS and _cmd not in {"analyze", "seed"}:
     os.environ.setdefault("SYSTEM_EVENTS_TOPIC_PARAM_NAME", "local")
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
+
+from datetime import UTC
 
 from library_layer.config import SteamPulseConfig  # noqa: E402
 from library_layer.repositories.catalog_repo import CatalogRepository  # noqa: E402
@@ -220,7 +224,7 @@ def _build_crawl_service(
 
 def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[dict]:
     """Return [{appid, name, steam_last_modified, price_change_number}, ...] from IStoreService/GetAppList (cursor-paginated)."""
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
 
     if not api_key:
         raise ValueError("STEAM_API_KEY is required for IStoreService/GetAppList/v1/")
@@ -239,7 +243,7 @@ def _fetch_app_list(client: httpx.Client, api_key: str | None = None) -> list[di
                 "appid": a["appid"],
                 "name": a.get("name", ""),
                 "steam_last_modified": (
-                    datetime.fromtimestamp(a["last_modified"], tz=_tz.utc)
+                    datetime.fromtimestamp(a["last_modified"], tz=UTC)
                     if a.get("last_modified")
                     else None
                 ),
@@ -849,6 +853,35 @@ def cmd_dispatch(
         _info("Stopped watching (execution still running)")
 
 
+# ── matview-refresh (start the Step Functions state machine) ─────────────────
+
+
+def cmd_matview_refresh(env: str, force: bool) -> None:
+    """Start a matview-refresh Step Functions execution."""
+    import boto3
+
+    env_config = SteamPulseConfig.for_environment(env)
+    ssm = boto3.client("ssm", region_name="us-west-2")
+    arn = ssm.get_parameter(Name=env_config.MATVIEW_REFRESH_SFN_ARN_PARAM_NAME)[
+        "Parameter"
+    ]["Value"]
+    sfn = boto3.client("stepfunctions", region_name="us-west-2")
+    resp = sfn.start_execution(
+        stateMachineArn=arn,
+        input=json.dumps({"force": force}),
+    )
+    execution_arn = resp["executionArn"]
+    _ok(f"Started matview-refresh execution (force={force})")
+    _info(f"  Execution ARN: {execution_arn}")
+    # us-west-2 console URL mirrors the region the ARN lives in.
+    region = arn.split(":")[3]
+    console_url = (
+        f"https://{region}.console.aws.amazon.com/states/home?region={region}"
+        f"#/v2/executions/details/{execution_arn}"
+    )
+    _info(f"  Console: {console_url}")
+
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 
@@ -1199,6 +1232,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Poll execution status every 30s until complete (Ctrl+C to stop)",
     )
 
+    # ── matview-refresh (start the SFN directly)
+    mr = sub.add_parser(
+        "matview-refresh",
+        help="Start a matview-refresh Step Functions execution",
+    )
+    mr.add_argument(
+        "--env",
+        default="staging",
+        choices=["staging", "production"],
+        help="Environment (default: staging)",
+    )
+    mr.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the 5-min debounce (Start step normally skips recent refreshes)",
+    )
+
     # ── spokes
     sp = sub.add_parser("spokes", help="Spoke Lambda status across regions")
     sp_sub = sp.add_subparsers(dest="spokes_cmd", required=True)
@@ -1353,6 +1403,9 @@ def main() -> None:
 
     elif args.cmd == "dispatch":
         cmd_dispatch(args.batch_size, args.dry_run, args.watch, args.env)
+
+    elif args.cmd == "matview-refresh":
+        cmd_matview_refresh(args.env, args.force)
 
     elif args.cmd == "spokes":
         if args.spokes_cmd == "status":

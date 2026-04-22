@@ -10,6 +10,7 @@ because they hold a direct CDK reference to the function.
 import os
 
 import aws_cdk as cdk
+import aws_cdk.aws_dynamodb as dynamodb
 import aws_cdk.aws_ec2 as ec2
 import aws_cdk.aws_events as events
 import aws_cdk.aws_events_targets as events_targets
@@ -21,7 +22,6 @@ import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_secretsmanager as secretsmanager
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
-import aws_cdk.aws_dynamodb as dynamodb
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
@@ -569,64 +569,245 @@ class ComputeStack(cdk.Stack):
         cdk.Tags.of(migration_fn).add("steampulse:tier", "internal")
         db_secret.grant_read(migration_fn)
 
-        # ── Matview Refresh Lambda (keeps materialized views up-to-date) ────────
-        matview_refresh_fn = PythonFunction(
+        # ── Matview Refresh pipeline (Step Functions + per-view fan-out) ────────
+        # Replaces the single MatviewRefreshFn. A Step Functions Map runs one
+        # worker Lambda per matview so each view gets its own 15-min invocation
+        # budget — no single slow view can time out the whole cycle. Serial
+        # (MaxConcurrency=1) by default to preserve today's DB load profile.
+        matview_refresh_role = iam.Role(
             self,
-            "MatviewRefreshFn",
+            "MatviewRefreshRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
+            ],
+        )
+        db_secret.grant_read(matview_refresh_role)
+
+        def _make_matview_refresh_fn(
+            construct_id: str,
+            index: str,
+            powertools_service: str,
+            *,
+            reserved_concurrency: int | None = None,
+        ) -> PythonFunction:
+            return PythonFunction(
+                self,
+                construct_id,
+                entry="src/lambda-functions",
+                index=index,
+                handler="handler",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                layers=[library_layer],
+                role=matview_refresh_role,
+                vpc=vpc,
+                vpc_subnets=private_subnets,
+                security_groups=[intra_sg],
+                # 15 min ceiling — matches the worker's per-view budget. Start
+                # and Finalize are quick but share the same role/env for
+                # simplicity; the long timeout is harmless for them.
+                timeout=cdk.Duration.minutes(15),
+                memory_size=256,
+                reserved_concurrent_executions=reserved_concurrency,
+                log_group=logs.LogGroup(
+                    self,
+                    f"{construct_id}Logs",
+                    log_group_name=f"/steampulse/{env}/matview-refresh-{powertools_service}",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                environment=config.to_lambda_env(
+                    POWERTOOLS_SERVICE_NAME=f"matview-refresh-{powertools_service}",
+                    POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+                ),
+            )
+
+        matview_start_fn = _make_matview_refresh_fn(
+            "MatviewRefreshStartFn",
+            "lambda_functions/matview_refresh/start.py",
+            "start",
+        )
+        matview_worker_fn = _make_matview_refresh_fn(
+            "MatviewRefreshWorkerFn",
+            "lambda_functions/matview_refresh/refresh_one.py",
+            "worker",
+            reserved_concurrency=1,
+        )
+        matview_finalize_fn = _make_matview_refresh_fn(
+            "MatviewRefreshFinalizeFn",
+            "lambda_functions/matview_refresh/finalize.py",
+            "finalize",
+        )
+        for fn in (matview_start_fn, matview_worker_fn, matview_finalize_fn):
+            cdk.Tags.of(fn).add("steampulse:service", "matview-refresh")
+            cdk.Tags.of(fn).add("steampulse:tier", "internal")
+
+        # ── Step Functions state machine ────────────────────────────────
+        matview_start_task = tasks.LambdaInvoke(
+            self,
+            "MatviewRefreshStart",
+            lambda_function=matview_start_fn,
+            payload=sfn.TaskInput.from_object({
+                # Boolean from the SFN input — use the .$ suffix form so SFN
+                # resolves the JSON path (string_at would coerce to str).
+                "force.$": "$.force",
+                "cycle_id.$": "$$.Execution.Name",
+            }),
+            payload_response_only=True,
+            result_path="$",
+        )
+
+        matview_done = sfn.Succeed(self, "MatviewRefreshDone")
+
+        # Pass state — just reshape the result. No new fields introduced; keeps
+        # cycle_id / views / start_time_ms visible at the top level so the
+        # Map (items_path=$.views) and Finalize steps can read them.
+        record_start_time = sfn.Pass(
+            self,
+            "MatviewRecordStartTime",
+            parameters={
+                "cycle_id.$": "$.cycle_id",
+                "views.$": "$.views",
+                "start_time_ms.$": "$.start_time_ms",
+            },
+        )
+
+        refresh_one_task = tasks.LambdaInvoke(
+            self,
+            "MatviewRefreshOne",
+            lambda_function=matview_worker_fn,
+            payload=sfn.TaskInput.from_object({
+                "name": sfn.JsonPath.string_at("$.name"),
+                "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
+            }),
+            payload_response_only=True,
+        )
+        # Retry only on Lambda service-side errors (throttles, 5xx). Per-view
+        # REFRESH failures are returned as data (success=false) so Map can
+        # aggregate them at Finalize.
+        refresh_one_task.add_retry(
+            errors=["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+            interval=cdk.Duration.seconds(5),
+            max_attempts=2,
+            backoff_rate=2,
+        )
+
+        fan_out = sfn.Map(
+            self,
+            "MatviewRefreshFanOut",
+            max_concurrency=1,
+            items_path="$.views",
+            item_selector={
+                "name": sfn.JsonPath.string_at("$$.Map.Item.Value"),
+                "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
+            },
+            result_path="$.results",
+        )
+        fan_out.item_processor(refresh_one_task)
+
+        finalize_task = tasks.LambdaInvoke(
+            self,
+            "MatviewRefreshFinalize",
+            lambda_function=matview_finalize_fn,
+            payload=sfn.TaskInput.from_object({
+                "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
+                "start_time_ms": sfn.JsonPath.number_at("$.start_time_ms"),
+                "results": sfn.JsonPath.list_at("$.results"),
+            }),
+            payload_response_only=True,
+            result_path="$.finalize",
+        )
+
+        skip_choice = sfn.Choice(self, "MatviewRefreshSkipped?")
+        skip_choice.when(
+            sfn.Condition.boolean_equals("$.skip", True), matview_done
+        ).otherwise(record_start_time.next(fan_out).next(finalize_task).next(matview_done))
+
+        matview_state_machine = sfn.StateMachine(
+            self,
+            "MatviewRefreshMachine",
+            state_machine_name=f"steampulse-matview-refresh-{env}",
+            definition_body=sfn.DefinitionBody.from_chainable(
+                matview_start_task.next(skip_choice)
+            ),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            logs=sfn.LogOptions(
+                destination=logs.LogGroup(
+                    self,
+                    "MatviewRefreshSfnLogs",
+                    log_group_name=f"/steampulse/{env}/matview-refresh-sfn",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+
+        ssm.StringParameter(
+            self,
+            "MatviewRefreshSfnArnParam",
+            parameter_name=f"/steampulse/{env}/matview-refresh/sfn-arn",
+            string_value=matview_state_machine.state_machine_arn,
+        )
+
+        # ── Trigger Lambda (SQS shell — calls StartExecution) ────────────
+        # Not VPC-attached: it has no DB access, only sfn:StartExecution.
+        matview_trigger_fn = PythonFunction(
+            self,
+            "MatviewRefreshTriggerFn",
             entry="src/lambda-functions",
-            index="lambda_functions/admin/matview_refresh_handler.py",
+            index="lambda_functions/matview_refresh/trigger.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
             layers=[library_layer],
-            role=iam.Role(
-                self,
-                "MatviewRefreshRole",
-                assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-                managed_policies=[
-                    iam.ManagedPolicy.from_aws_managed_policy_name(
-                        "service-role/AWSLambdaVPCAccessExecutionRole",
-                    ),
-                ],
-            ),
-            vpc=vpc,
-            vpc_subnets=private_subnets,
-            security_groups=[intra_sg],
-            timeout=cdk.Duration.minutes(5),
+            timeout=cdk.Duration.seconds(30),
             memory_size=256,
-            reserved_concurrent_executions=1,
             log_group=logs.LogGroup(
                 self,
-                "MatviewRefreshLogs",
-                log_group_name=f"/steampulse/{env}/matview-refresh",
+                "MatviewRefreshTriggerLogs",
+                log_group_name=f"/steampulse/{env}/matview-refresh-trigger",
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment=config.to_lambda_env(
-                POWERTOOLS_SERVICE_NAME="matview-refresh",
+                POWERTOOLS_SERVICE_NAME="matview-refresh-trigger",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),
         )
-        cdk.Tags.of(matview_refresh_fn).add("steampulse:service", "matview-refresh")
-        cdk.Tags.of(matview_refresh_fn).add("steampulse:tier", "internal")
-        db_secret.grant_read(matview_refresh_fn)
-
-        # SQS event source — consumes from cache_invalidation_queue
-        matview_refresh_fn.add_event_source(
+        cdk.Tags.of(matview_trigger_fn).add("steampulse:service", "matview-refresh")
+        cdk.Tags.of(matview_trigger_fn).add("steampulse:tier", "internal")
+        matview_state_machine.grant_start_execution(matview_trigger_fn)
+        matview_trigger_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}"
+                    f":parameter/steampulse/{env}/matview-refresh/*"
+                ],
+            )
+        )
+        matview_trigger_fn.add_event_source(
             event_sources.SqsEventSource(
                 cache_invalidation_queue,
                 batch_size=1,
             )
         )
 
-        # EventBridge fallback — refresh every 6 hours.
-        # Staging: schedule disabled by convention (no cron in non-prod envs).
-        # Staging operators refresh matviews ad-hoc via sp.py.
+        # EventBridge fallback — refresh every 6 hours, prod only.
+        # Staging operators refresh ad-hoc via `sp.py matview-refresh --env staging`.
         events.Rule(
             self,
             "MatviewRefreshSchedule",
             schedule=events.Schedule.rate(cdk.Duration.hours(6)),
             enabled=config.is_production,
-        ).add_target(events_targets.LambdaFunction(matview_refresh_fn))
+        ).add_target(
+            events_targets.SfnStateMachine(
+                matview_state_machine,
+                input=events.RuleTargetInput.from_object({"force": False}),
+            )
+        )
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
         # This Lambda drops and recreates the public schema. It must never exist

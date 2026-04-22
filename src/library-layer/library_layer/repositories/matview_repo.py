@@ -1,5 +1,8 @@
 """Repository for reading materialized views and managing refresh."""
 
+import json
+import time
+
 from aws_lambda_powertools import Logger
 from library_layer.repositories.base import BaseRepository
 from library_layer.repositories.tag_repo import TAG_CATEGORY_ORDER
@@ -295,56 +298,97 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def get_last_refresh_time(self) -> float | None:
-        """Return epoch seconds of the most recent *full* successful refresh, or None."""
+        """Return epoch seconds of the most recent successful refresh cycle, or None.
+
+        Reads only rows with status='complete' — running/failed/legacy-NULL
+        rows are ignored so a partial-failure or in-flight cycle does not
+        inadvertently satisfy the debounce window.
+        """
         row = self._fetchone(
             """
             SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts
             FROM matview_refresh_log
-            WHERE views_refreshed @> %s AND views_refreshed <@ %s
+            WHERE status = 'complete'
             ORDER BY refreshed_at DESC
             LIMIT 1
             """,
-            (list(MATVIEW_NAMES), list(MATVIEW_NAMES)),
         )
         return float(row["ts"]) if row else None
 
-    def refresh_all(self) -> dict[str, bool]:
-        """Refresh all materialized views CONCURRENTLY. Returns name → success."""
-        results: dict[str, bool] = {}
+    def refresh_one(self, name: str) -> int:
+        """REFRESH MATERIALIZED VIEW CONCURRENTLY one view. Returns duration_ms.
+
+        Raises ValueError for unknown names — guards the sql.Identifier path
+        against callers passing attacker-controlled strings.
+        """
+        if name not in MATVIEW_NAMES:
+            raise ValueError(f"Unknown matview name: {name!r}")
         prev_autocommit = self.conn.autocommit
-        # Close any open transaction before switching to autocommit —
-        # psycopg2 raises ProgrammingError if set_session is called mid-transaction.
         if not prev_autocommit:
             self.conn.rollback()
         self.conn.autocommit = True
         try:
-            for name in MATVIEW_NAMES:
-                try:
-                    with self.conn.cursor() as cur:
-                        cur.execute(
-                            sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
-                                sql.Identifier(name)
-                            )
-                        )
-                    results[name] = True
-                except Exception:
-                    logger.exception(
-                        "Failed to refresh matview",
-                        extra={"matview": name},
+            start = time.monotonic()
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
+                        sql.Identifier(name)
                     )
-                    results[name] = False
+                )
+            return int((time.monotonic() - start) * 1000)
         finally:
             self.conn.autocommit = prev_autocommit
-        return results
 
-    def log_refresh(self, duration_ms: int, views: list[str]) -> None:
-        """Record a refresh event for debounce tracking."""
+    def start_cycle(self, cycle_id: str) -> None:
+        """Insert a running-status row keyed by the SFN execution name."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO matview_refresh_log (duration_ms, views_refreshed)
-                VALUES (%s, %s)
+                INSERT INTO matview_refresh_log (cycle_id, status, started_at)
+                VALUES (%s, 'running', NOW())
                 """,
-                (duration_ms, views),
+                (cycle_id,),
+            )
+        self.conn.commit()
+
+    def complete_cycle(
+        self,
+        cycle_id: str,
+        duration_ms: int,
+        per_view_results: dict[str, dict],
+    ) -> None:
+        """Update the cycle row with final status + per-view results.
+
+        Status is derived from per_view_results: all success → complete;
+        mix → partial_failure; all fail → failed. Also stamps
+        refreshed_at=NOW() (the column's default only fires on INSERT) and
+        populates views_refreshed with successful view names so existing
+        consumers of that column continue to see the shape they expect.
+        """
+        success_names = [n for n, r in per_view_results.items() if r.get("success")]
+        if len(success_names) == len(per_view_results):
+            status = "complete"
+        elif not success_names:
+            status = "failed"
+        else:
+            status = "partial_failure"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE matview_refresh_log
+                SET status = %s,
+                    duration_ms = %s,
+                    per_view_results = %s::jsonb,
+                    views_refreshed = %s,
+                    refreshed_at = NOW()
+                WHERE cycle_id = %s
+                """,
+                (
+                    status,
+                    duration_ms,
+                    json.dumps(per_view_results),
+                    success_names,
+                    cycle_id,
+                ),
             )
         self.conn.commit()

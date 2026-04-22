@@ -315,6 +315,28 @@ class MatviewRepository(BaseRepository):
         )
         return float(row["ts"]) if row else None
 
+    def get_running_cycle_id(self, stale_after_seconds: int) -> str | None:
+        """Return cycle_id of the newest non-stale `running` row, or None.
+
+        In-flight guard for the Start step — prevents a second SFN execution
+        from piling up work on top of an in-progress cycle. Rows older than
+        `stale_after_seconds` are treated as crashed (a failed Finalize would
+        otherwise leave `running` rows forever, permanently blocking all
+        future cycles).
+        """
+        row = self._fetchone(
+            """
+            SELECT cycle_id
+            FROM matview_refresh_log
+            WHERE status = 'running'
+              AND started_at > NOW() - (%s || ' seconds')::interval
+            ORDER BY started_at DESC
+            LIMIT 1
+            """,
+            (str(stale_after_seconds),),
+        )
+        return row["cycle_id"] if row else None
+
     def refresh_one(self, name: str) -> int:
         """REFRESH MATERIALIZED VIEW CONCURRENTLY one view. Returns duration_ms.
 
@@ -323,13 +345,19 @@ class MatviewRepository(BaseRepository):
         """
         if name not in MATVIEW_NAMES:
             raise ValueError(f"Unknown matview name: {name!r}")
-        prev_autocommit = self.conn.autocommit
+        # Capture the connection once. BaseRepository.conn re-invokes the
+        # factory on each access, so reading autocommit, toggling it, and
+        # running REFRESH via `self.conn` could land on different connections
+        # under a reconnect — the REFRESH would silently run outside the
+        # autocommit mode this method set up.
+        conn = self.conn
+        prev_autocommit = conn.autocommit
         if not prev_autocommit:
-            self.conn.rollback()
-        self.conn.autocommit = True
+            conn.rollback()
+        conn.autocommit = True
         try:
             start = time.monotonic()
-            with self.conn.cursor() as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
                         sql.Identifier(name)
@@ -337,7 +365,7 @@ class MatviewRepository(BaseRepository):
                 )
             return int((time.monotonic() - start) * 1000)
         finally:
-            self.conn.autocommit = prev_autocommit
+            conn.autocommit = prev_autocommit
 
     def start_cycle(self, cycle_id: str) -> None:
         """Insert a running-status row keyed by the SFN execution name."""
@@ -372,7 +400,8 @@ class MatviewRepository(BaseRepository):
             status = "failed"
         else:
             status = "partial_failure"
-        with self.conn.cursor() as cur:
+        conn = self.conn
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE matview_refresh_log
@@ -391,4 +420,13 @@ class MatviewRepository(BaseRepository):
                     cycle_id,
                 ),
             )
-        self.conn.commit()
+            rowcount = cur.rowcount
+        conn.commit()
+        if rowcount == 0:
+            # No row matched — either Finalize ran with the wrong cycle_id or
+            # start_cycle never inserted. Either way, the cycle outcome is
+            # lost and debounce / observability are broken. Fail loudly so
+            # the SFN execution reflects it.
+            raise RuntimeError(
+                f"complete_cycle matched no row for cycle_id={cycle_id!r}"
+            )

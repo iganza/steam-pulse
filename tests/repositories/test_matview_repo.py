@@ -299,6 +299,60 @@ def test_complete_cycle_all_failure(
     assert row["status"] == "failed"
 
 
+def test_complete_cycle_raises_when_no_match(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Raise if the UPDATE matches no row — silently losing a cycle would
+    break debounce/observability."""
+    with pytest.raises(RuntimeError):
+        matview_repo.complete_cycle(
+            "never-started",
+            1000,
+            {"mv_a": {"success": True, "duration_ms": 100, "error": ""}},
+        )
+
+
+def test_get_running_cycle_id_returns_recent_running(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """A running cycle started inside the stale window is returned."""
+    matview_repo.start_cycle("cycle-live")
+    got = matview_repo.get_running_cycle_id(stale_after_seconds=3600)
+    assert got == "cycle-live"
+
+
+def test_get_running_cycle_id_ignores_stale(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Running rows older than the cutoff are treated as crashed."""
+    # Insert a running row with a deliberately old started_at.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO matview_refresh_log (cycle_id, status, started_at)
+            VALUES ('cycle-stuck', 'running', NOW() - INTERVAL '2 hours')
+            """,
+        )
+    db_conn.commit()
+
+    assert matview_repo.get_running_cycle_id(stale_after_seconds=3600) is None
+
+
+def test_get_running_cycle_id_ignores_complete(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Only status='running' rows count toward the in-flight guard."""
+    matview_repo.start_cycle("cycle-done")
+    matview_repo.complete_cycle(
+        "cycle-done", 100, {"mv_a": {"success": True, "duration_ms": 100, "error": ""}}
+    )
+    assert matview_repo.get_running_cycle_id(stale_after_seconds=3600) is None
+
+
 def test_get_last_refresh_time_only_reads_complete(
     db_conn: Any,
     matview_repo: MatviewRepository,

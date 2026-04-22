@@ -17,6 +17,12 @@ from pydantic import BaseModel
 logger = Logger(service="matview-refresh-start")
 
 DEBOUNCE_SECONDS = 300
+# Treat `running` rows older than this as crashed/abandoned — otherwise a
+# Finalize failure would leave the cycle row stuck as running and block all
+# future cycles forever. A successful cycle is at most ~18 views x a few
+# minutes each with MaxConcurrency=1, so 1 hour is comfortably past p99 and
+# short enough to recover quickly from a crash.
+RUNNING_STALE_SECONDS = 3600
 
 _repo = MatviewRepository(get_conn)
 
@@ -36,15 +42,31 @@ class StartResult(BaseModel):
 @logger.inject_lambda_context
 def handler(event: dict, context: LambdaContext) -> dict:
     parsed = StartEvent.model_validate(event)
-    last_ts = _repo.get_last_refresh_time()
     now = time.time()
 
-    if not parsed.force and last_ts and (now - last_ts) < DEBOUNCE_SECONDS:
-        logger.info(
-            "Skipping refresh — debounced",
-            extra={"seconds_since_last": round(now - last_ts), "cycle_id": parsed.cycle_id},
-        )
-        return StartResult(skip=True, cycle_id=parsed.cycle_id).model_dump()
+    if not parsed.force:
+        # In-flight guard: another cycle is already running. Skip rather than
+        # pile on duplicate REFRESH work. Stale rows (crashed Finalize) are
+        # ignored after RUNNING_STALE_SECONDS so a bad cycle doesn't block
+        # everything forever.
+        running_cycle_id = _repo.get_running_cycle_id(RUNNING_STALE_SECONDS)
+        if running_cycle_id:
+            logger.info(
+                "Skipping refresh — cycle already running",
+                extra={"cycle_id": parsed.cycle_id, "running_cycle_id": running_cycle_id},
+            )
+            return StartResult(skip=True, cycle_id=parsed.cycle_id).model_dump()
+
+        last_ts = _repo.get_last_refresh_time()
+        if last_ts and (now - last_ts) < DEBOUNCE_SECONDS:
+            logger.info(
+                "Skipping refresh — debounced",
+                extra={
+                    "seconds_since_last": round(now - last_ts),
+                    "cycle_id": parsed.cycle_id,
+                },
+            )
+            return StartResult(skip=True, cycle_id=parsed.cycle_id).model_dump()
 
     _repo.start_cycle(parsed.cycle_id)
     logger.info(

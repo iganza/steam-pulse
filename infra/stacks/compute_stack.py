@@ -764,6 +764,12 @@ class ComputeStack(cdk.Stack):
             layers=[library_layer],
             timeout=cdk.Duration.seconds(30),
             memory_size=256,
+            # Cap trigger concurrency so a bursty SQS fan-in (report-ready +
+            # catalog-refresh-complete + batch-analysis-complete) doesn't
+            # start many SFN executions in parallel. The Start step's
+            # in-flight guard already no-ops duplicate cycles, but serializing
+            # here avoids wasted StartExecution calls and log churn.
+            reserved_concurrent_executions=1,
             log_group=logs.LogGroup(
                 self,
                 "MatviewRefreshTriggerLogs",
@@ -792,6 +798,7 @@ class ComputeStack(cdk.Stack):
             event_sources.SqsEventSource(
                 cache_invalidation_queue,
                 batch_size=1,
+                max_concurrency=2,
             )
         )
 

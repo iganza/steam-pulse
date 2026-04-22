@@ -247,6 +247,28 @@ class CatalogRepository(BaseRepository):
             )
         self.conn.commit()
 
+    def mark_reviews_complete_and_crawled(
+        self, appid: int, completed_at: datetime | None = None
+    ) -> None:
+        """Combined form of mark_reviews_complete + mark_reviews_crawled.
+
+        One UPDATE + one commit instead of two. Called at review-termination
+        branches (exhausted / early_stop / target_hit) where both timestamps
+        always advance together.
+        """
+        ts = completed_at or datetime.now(tz=timezone.utc)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """UPDATE app_catalog
+                   SET reviews_completed_at = GREATEST(
+                           COALESCE(reviews_completed_at, '1970-01-01'::timestamptz), %s
+                       ),
+                       review_crawled_at = NOW()
+                   WHERE appid = %s""",
+                (ts, appid),
+            )
+        self.conn.commit()
+
     def get_reviews_completed_at(self, appid: int) -> datetime | None:
         """Return when reviews were last fully exhausted. None = never completed."""
         row = self._fetchone(

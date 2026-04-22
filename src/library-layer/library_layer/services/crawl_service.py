@@ -160,8 +160,9 @@ class CrawlService:
         if dry_run:
             return True
 
-        # Load existing row BEFORE upsert for state comparison (events)
-        existing = self._game_repo.find_by_appid(appid)
+        # Load existing row BEFORE upsert for state comparison (events). Narrow
+        # projection — we only need the 4 fields the event detector compares.
+        existing = self._game_repo.find_event_snapshot(appid)
 
         game_data = self._ingest_app_data(appid, details, summary, deck_compat)
         if not game_data:
@@ -259,7 +260,7 @@ class CrawlService:
             logger.warning("ingest_spoke_metadata: empty details", extra={"appid": appid})
             return False
 
-        existing = self._game_repo.find_by_appid(appid)
+        existing = self._game_repo.find_event_snapshot(appid)
 
         game_data = self._ingest_app_data(appid, details, summary, deck_compat)
         if not game_data:
@@ -454,9 +455,14 @@ class CrawlService:
         self,
         appid: int,
         game_data: dict,
-        existing: object | None,
+        existing: dict | None,
     ) -> None:
-        """Publish domain events after app metadata upsert."""
+        """Publish domain events after app metadata upsert.
+
+        `existing` is the pre-upsert snapshot from find_event_snapshot: a dict with
+        coming_soon, price_usd, review_count, has_early_access_reviews — or None
+        when the game had no prior row.
+        """
         if not self._sns or not self._config:
             return
 
@@ -482,7 +488,7 @@ class CrawlService:
             # Detect game release: coming_soon flipped True → False
             if (
                 existing
-                and getattr(existing, "coming_soon", False)
+                and existing["coming_soon"]
                 and not game_data.get("coming_soon", True)
             ):
                 publish_event(
@@ -495,9 +501,9 @@ class CrawlService:
                     ),
                 )
 
-            # Detect price change (compare as floats — existing may be Decimal)
+            # Detect price change (compare as floats — existing price_usd may be Decimal)
             if existing:
-                old_price = float(getattr(existing, "price_usd", None) or 0)
+                old_price = float(existing["price_usd"] or 0)
                 new_price = float(game_data.get("price_usd") or 0)
                 if old_price != new_price:
                     publish_event(
@@ -512,7 +518,7 @@ class CrawlService:
                     )
 
             # Detect review milestones
-            old_count = getattr(existing, "review_count", 0) if existing else 0
+            old_count = existing["review_count"] if existing else 0
             for milestone in REVIEW_MILESTONES:
                 if old_count < milestone <= review_count:
                     publish_event(

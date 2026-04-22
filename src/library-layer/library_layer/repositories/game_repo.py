@@ -141,6 +141,18 @@ class GameRepository(BaseRepository):
             return None
         return Game.model_validate(dict(row))
 
+    def find_event_snapshot(self, appid: int) -> dict | None:
+        """Minimal pre-upsert snapshot for event detection (coming_soon flip, price change,
+        review milestone crossings). Avoids the wide TOAST-heavy row that find_by_appid
+        returns, which is the right read for API handlers but wasteful on hot refresh paths.
+        """
+        row = self._fetchone(
+            "SELECT coming_soon, price_usd, review_count, has_early_access_reviews "
+            "FROM games WHERE appid = %s",
+            (appid,),
+        )
+        return dict(row) if row else None
+
     def get_by_appid(self, appid: int) -> Game:
         """Return the game, raising GameNotFound if it does not exist."""
         game = self.find_by_appid(appid)

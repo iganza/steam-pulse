@@ -868,7 +868,7 @@ def cmd_matview_refresh(env: str, force: bool) -> None:
     sfn = boto3.client("stepfunctions", region_name="us-west-2")
     resp = sfn.start_execution(
         stateMachineArn=arn,
-        input=json.dumps({"force": force}),
+        input=json.dumps({"force": force, "trigger_event": ""}),
     )
     execution_arn = resp["executionArn"]
     _ok(f"Started matview-refresh execution (force={force})")

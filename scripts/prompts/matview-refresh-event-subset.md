@@ -27,16 +27,21 @@ Triggers and what they actually invalidate:
 | SNS `report-ready` (realtime or batch collect) | `mv_catalog_reports`, `mv_analysis_candidates`, `mv_new_releases`, `mv_discovery_feeds` |
 | SNS `batch-analysis-complete` | all 18 (batch landed many new reports + touched catalog state) |
 | SNS `catalog-refresh-complete` | all 18 (catalog shape changed) |
-| EventBridge 6h cron | all 18 (safety net) |
+| EventBridge daily cron (07:45 UTC / 12:45 MST) | all 18 (safety net) |
 | `sp.py matview-refresh` | all 18 (operator knob) |
 
 **Goal.** Narrow `report-ready` to the 4-view subset. Keep all other
 triggers unchanged. Compute savings: ~14 fewer REFRESH calls per real-time
 report, so DB IOPS drop proportionally on the realtime path.
 
-**Explicitly out of scope.** No change to debounce, in-flight guard,
-trigger Lambda idempotency, or the EventBridge schedule. No per-trigger
-subset for anything other than `report-ready`.
+**Explicitly out of scope.** No change to debounce, in-flight guard, or
+trigger Lambda idempotency. No per-trigger subset for anything other
+than `report-ready`.
+
+**Also in this change.** The EventBridge safety-net cron drops from every
+6 hours to once daily at 07:45 UTC (12:45 AM MST). SNS invalidation
+covers all real triggers; the cron exists only to catch missed events,
+and a full-refresh cycle is long enough that 4×/day was wasteful.
 
 ## Approach
 
@@ -46,11 +51,14 @@ the Start step, and let Start return a filtered `views` list.
 1. **Trigger** (`trigger.py`): already inspects SQS records to detect the
    force-refresh event type. Extend the output of that inspection to
    return a `trigger_event` string (`"report-ready"` /
-   `"batch-analysis-complete"` / `"catalog-refresh-complete"` /
-   `"unknown"`), and pass it in the SFN input:
+   `"batch-analysis-complete"` / `"catalog-refresh-complete"` / `""`),
+   and pass it in the SFN input:
    `{"force": bool, "trigger_event": str}`. The EventBridge rule input
-   stays `{"force": False}` — `trigger_event` defaults to `""` in the
-   Start event model, which maps to the full-refresh path.
+   AND `sp.py matview-refresh` must also carry `trigger_event: ""` —
+   `MatviewRefreshStart` reads `$.trigger_event` via `.$`, and SFN's
+   ASL path evaluation fails before Lambda runs if the key is missing
+   (the Pydantic default only fires after invocation). Empty string
+   maps to the full-refresh path.
 
 2. **Start** (`start.py`): after the existing debounce + in-flight guards
    run, compute the view list:
@@ -83,8 +91,12 @@ the Start step, and let Start return a filtered `views` list.
   - Select view list based on `trigger_event`.
 - `infra/stacks/compute_stack.py`:
   - `MatviewRefreshStart` payload gains `"trigger_event.$": "$.trigger_event"`.
+  - `MatviewRefreshSchedule` EB rule input gains `"trigger_event": ""`.
   - Pass state `MatviewRecordStartTime` already just reshapes — no change
     needed if `views` is populated by Start.
+- `scripts/sp.py`:
+  - `cmd_matview_refresh` sends `{"force": force, "trigger_event": ""}`
+    so operator-driven runs stay on the full-refresh branch.
 
 ## Verification
 

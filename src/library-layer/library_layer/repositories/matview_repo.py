@@ -31,6 +31,15 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_discovery_feeds",
 )
 
+# Views invalidated by a new report landing — used by the `report-ready` trigger path.
+# Order mirrors MATVIEW_NAMES so the Map (max_concurrency=1) refreshes in the same sequence.
+REPORT_DEPENDENT_VIEWS: tuple[str, ...] = (
+    "mv_new_releases",
+    "mv_analysis_candidates",
+    "mv_catalog_reports",
+    "mv_discovery_feeds",
+)
+
 
 class MatviewRepository(BaseRepository):
     """Read from materialized views and manage refresh cycles."""

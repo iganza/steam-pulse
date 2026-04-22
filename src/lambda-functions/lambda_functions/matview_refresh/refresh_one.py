@@ -26,6 +26,11 @@ class WorkerResult(BaseModel):
 @logger.inject_lambda_context
 def handler(event: dict, context: LambdaContext) -> dict:
     parsed = WorkerEvent.model_validate(event)
+    # Log before issuing REFRESH so Lambda timeouts still identify the view in CloudWatch.
+    logger.info(
+        "Starting matview refresh",
+        extra={"matview": parsed.name, "cycle_id": parsed.cycle_id},
+    )
     try:
         duration_ms = _repo.refresh_one(parsed.name)
         logger.info(

@@ -57,6 +57,18 @@ def handler(event: dict, context: LambdaContext) -> dict:
     else:
         status = "partial_failure"
 
+    # Per-view failure log so CloudWatch Insights can pinpoint which views broke.
+    for r in parsed.results:
+        if not r.success:
+            logger.error(
+                "Matview refresh failed",
+                extra={
+                    "cycle_id": parsed.cycle_id,
+                    "matview": r.name,
+                    "error": r.error,
+                },
+            )
+
     logger.info(
         "Matview refresh cycle finalized",
         extra={
@@ -68,9 +80,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
         },
     )
 
-    if status == "failed":
-        failed_names = [r.name for r in parsed.results if not r.success]
-        raise RuntimeError(f"All matview refreshes failed: {', '.join(failed_names)}")
+    # Raise on any failure so the SFN execution is marked Failed (not Succeeded)
+    # — otherwise a single 15-min timeout disappears into a green checkmark.
+    if failure_count > 0:
+        failed = [f"{r.name} ({r.error or 'no error captured'})" for r in parsed.results if not r.success]
+        raise RuntimeError(
+            f"Matview refresh {status} — {failure_count}/{len(parsed.results)} failed: {'; '.join(failed)}"
+        )
 
     return FinalizeResult(
         cycle_id=parsed.cycle_id,

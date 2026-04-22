@@ -55,24 +55,23 @@ def test_finalize_all_success() -> None:
     mock_repo.complete_cycle.assert_called_once()
 
 
-def test_finalize_partial_failure_no_raise() -> None:
-    """Mixed → status='partial_failure', no raise (failure already logged per-view)."""
+def test_finalize_partial_failure_raises_with_failed_names() -> None:
+    """Mixed → cycle persisted, then raises so SFN is marked Failed (not Succeeded)."""
     mock_repo = MagicMock()
     mod = _get_module(mock_repo)
 
-    result = mod.handler(
-        _event(
-            [
-                {"name": "mv_a", "success": True, "duration_ms": 100, "error": ""},
-                {"name": "mv_b", "success": False, "duration_ms": 0, "error": "boom"},
-            ]
-        ),
-        MockLambdaContext(),
-    )
-
-    assert result["status"] == "partial_failure"
-    assert result["success_count"] == 1
-    assert result["failure_count"] == 1
+    with pytest.raises(RuntimeError, match="mv_b"):
+        mod.handler(
+            _event(
+                [
+                    {"name": "mv_a", "success": True, "duration_ms": 100, "error": ""},
+                    {"name": "mv_b", "success": False, "duration_ms": 0, "error": "boom"},
+                ]
+            ),
+            MockLambdaContext(),
+        )
+    # Cycle row is persisted before the raise so operators can inspect per_view_results.
+    mock_repo.complete_cycle.assert_called_once()
 
 
 def test_finalize_all_failure_raises() -> None:

@@ -25,19 +25,38 @@ def _get_state_machine_arn() -> str:
     return _cached_arn
 
 
-def _is_force_refresh(event: dict) -> bool:
-    """Check if any SQS record contains a batch-analysis-complete event."""
+# Precedence for mixed batches — highest-priority event type wins. Higher priority
+# = broader invalidation, so a `catalog-refresh-complete` in the same batch as a
+# `report-ready` must upgrade to the full refresh. `batch-analysis-complete` also
+# escalates force=True.
+_EVENT_PRIORITY: dict[str, int] = {
+    "report-ready": 1,
+    "catalog-refresh-complete": 2,
+    "batch-analysis-complete": 3,
+}
+
+
+def _classify(event: dict) -> tuple[bool, str]:
+    """Inspect SQS records and return (force, trigger_event).
+
+    Scans every record and picks the highest-priority recognised event type per
+    `_EVENT_PRIORITY`. Unknown or malformed batches return (False, "").
+    """
+    best = ""
+    best_priority = 0
     for record in event.get("Records", []):
         try:
             body = json.loads(record.get("body", "{}"))
             message = body.get("Message", body)
             if isinstance(message, str):
                 message = json.loads(message)
-            if (
-                isinstance(message, dict)
-                and message.get("event_type") == "batch-analysis-complete"
-            ):
-                return True
+            if not isinstance(message, dict):
+                continue
+            event_type = message.get("event_type", "")
+            priority = _EVENT_PRIORITY.get(event_type, 0)
+            if priority > best_priority:
+                best_priority = priority
+                best = event_type
         except (json.JSONDecodeError, TypeError, AttributeError):
             logger.warning(
                 "Skipping malformed refresh event record",
@@ -46,7 +65,7 @@ def _is_force_refresh(event: dict) -> bool:
                 },
             )
             continue
-    return False
+    return best == "batch-analysis-complete", best
 
 
 def _execution_name(event: dict) -> str:
@@ -62,26 +81,43 @@ def _execution_name(event: dict) -> str:
 
 @logger.inject_lambda_context
 def handler(event: dict, context: LambdaContext) -> dict:
-    force = _is_force_refresh(event)
+    force, trigger_event = _classify(event)
     execution_name = _execution_name(event)
 
     try:
         resp = _sfn.start_execution(
             stateMachineArn=_get_state_machine_arn(),
             name=execution_name,
-            input=json.dumps({"force": force}),
+            input=json.dumps({"force": force, "trigger_event": trigger_event}),
         )
         execution_arn = resp["executionArn"]
     except _sfn.exceptions.ExecutionAlreadyExists:
         # Lambda retry after a successful StartExecution — same execution_name, so no-op.
         logger.info(
             "SFN execution already exists for this SQS batch — retry no-op",
-            extra={"execution_name": execution_name, "force": force},
+            extra={
+                "execution_name": execution_name,
+                "force": force,
+                "trigger_event": trigger_event,
+            },
         )
-        return {"execution_name": execution_name, "force": force, "duplicate": True}
+        return {
+            "execution_name": execution_name,
+            "force": force,
+            "trigger_event": trigger_event,
+            "duplicate": True,
+        }
 
     logger.info(
         "Started matview-refresh SFN execution",
-        extra={"execution_arn": execution_arn, "force": force},
+        extra={
+            "execution_arn": execution_arn,
+            "force": force,
+            "trigger_event": trigger_event,
+        },
     )
-    return {"execution_arn": execution_arn, "force": force}
+    return {
+        "execution_arn": execution_arn,
+        "force": force,
+        "trigger_event": trigger_event,
+    }

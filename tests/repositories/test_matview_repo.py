@@ -5,7 +5,11 @@ from typing import Any
 
 import pytest
 from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.matview_repo import MatviewRepository
+from library_layer.repositories.matview_repo import (
+    MATVIEW_NAMES,
+    REPORT_DEPENDENT_VIEWS,
+    MatviewRepository,
+)
 from library_layer.repositories.review_repo import ReviewRepository
 
 # ---------------------------------------------------------------------------
@@ -175,6 +179,23 @@ def test_audience_overlap_limit(
 
     result = matview_repo.get_audience_overlap(440, limit=2)
     assert len(result["overlaps"]) <= 2
+
+
+# ---------------------------------------------------------------------------
+# View-list constants
+# ---------------------------------------------------------------------------
+
+
+def test_report_dependent_views_is_subset_of_matview_names() -> None:
+    """REPORT_DEPENDENT_VIEWS names must exist in MATVIEW_NAMES and cover the 4 report consumers."""
+    assert len(REPORT_DEPENDENT_VIEWS) == 4
+    assert set(REPORT_DEPENDENT_VIEWS).issubset(set(MATVIEW_NAMES))
+    assert set(REPORT_DEPENDENT_VIEWS) == {
+        "mv_catalog_reports",
+        "mv_analysis_candidates",
+        "mv_new_releases",
+        "mv_discovery_feeds",
+    }
 
 
 # ---------------------------------------------------------------------------

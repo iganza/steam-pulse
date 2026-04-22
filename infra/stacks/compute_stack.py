@@ -645,6 +645,7 @@ class ComputeStack(cdk.Stack):
             payload=sfn.TaskInput.from_object({
                 # `.$` form needed — `JsonPath.string_at` would coerce the boolean.
                 "force.$": "$.force",
+                "trigger_event.$": "$.trigger_event",
                 "cycle_id.$": "$$.Execution.Name",
             }),
             payload_response_only=True,
@@ -798,16 +799,20 @@ class ComputeStack(cdk.Stack):
             event_sources.SqsEventSource(cache_invalidation_queue, batch_size=1)
         )
 
-        # EventBridge fallback — every 6h, prod only (staging uses sp.py).
+        # EventBridge fallback — daily at 07:45 UTC (12:45 AM MST), prod only. Report-ready,
+        # batch-analysis-complete, and catalog-refresh-complete all invalidate via SNS, so
+        # this cron is pure safety-net; a full refresh takes long enough that once/day is plenty.
         events.Rule(
             self,
             "MatviewRefreshSchedule",
-            schedule=events.Schedule.rate(cdk.Duration.hours(6)),
+            schedule=events.Schedule.cron(minute="45", hour="7"),
             enabled=config.is_production,
         ).add_target(
             events_targets.SfnStateMachine(
                 matview_state_machine,
-                input=events.RuleTargetInput.from_object({"force": False}),
+                input=events.RuleTargetInput.from_object(
+                    {"force": False, "trigger_event": ""}
+                ),
             )
         )
 

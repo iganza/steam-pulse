@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGenreInsights, getReportForGenre, getGameReport } from "@/lib/api";
+import { getGenreInsights, getReportForGenre, getGameBasics } from "@/lib/api";
 import { AUTHOR_NAME, ABOUT_URL } from "@/lib/author";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { EditorialIntro } from "@/components/genre/EditorialIntro";
@@ -71,26 +71,26 @@ export default async function GenrePage({ params }: Props) {
   // Collect every appid that renders a crosslink: friction quotes, wishlist
   // quotes, benchmark cards. The churn insight's source_appid is NOT
   // included — the free-page churn wall shows the stat + interpretation
-  // only, no per-game quote link, so fetching its report is wasted work.
+  // only, no per-game quote link, so fetching its basics is wasted work.
+  // One batched /api/games/basics call replaces up to 11 /report fetches.
   const appids = new Set<number>();
   for (const f of insights.synthesis.friction_points.slice(0, 5)) appids.add(f.source_appid);
   for (const w of insights.synthesis.wishlist_items.slice(0, 3)) appids.add(w.source_appid);
   for (const b of insights.synthesis.benchmark_games.slice(0, 3)) appids.add(b.appid);
 
-  const gameResults = await Promise.allSettled(
-    Array.from(appids).map((id) => getGameReport(id).then((r) => [id, r] as const)),
-  );
   const games: Record<number, GameBasics> = {};
-  for (const res of gameResults) {
-    if (res.status !== "fulfilled") continue;
-    const [appid, data] = res.value;
-    const g = data.game;
-    if (!g?.slug || !g?.name) continue;
-    games[appid] = {
-      slug: g.slug,
-      name: g.name,
-      header_image: g.header_image ?? `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
-    };
+  try {
+    const basics = await getGameBasics(Array.from(appids));
+    for (const g of basics) {
+      games[g.appid] = {
+        slug: g.slug,
+        name: g.name,
+        header_image: g.header_image ?? `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+      };
+    }
+  } catch {
+    // Basics endpoint failure degrades to plain names + Steam-CDN covers;
+    // the page still renders.
   }
 
   const shareUrl = `https://steampulse.io/genre/${slug}`;

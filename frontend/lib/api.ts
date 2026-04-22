@@ -408,6 +408,27 @@ export async function getRelatedAnalyzedGames(
 // Cross-genre synthesis + paid-report surface (genre insights page)
 // ---------------------------------------------------------------------------
 
+/** Lightweight crosslink basics for a batch of appids. Backed by
+ * /api/games/basics — the genre synthesis page uses this instead of N
+ * per-appid /report fetches when it only needs slug/name/header_image.
+ */
+export interface GameBasicsEntry {
+  appid: number;
+  name: string;
+  slug: string;
+  header_image: string | null;
+}
+
+export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]> {
+  if (appids.length === 0) return [];
+  const qs = appids.join(",");
+  const data = await apiFetch<{ games: GameBasicsEntry[] }>(
+    `/api/games/basics?appids=${encodeURIComponent(qs)}`,
+    { next: { revalidate: 3600, tags: ["game-basics"] } },
+  );
+  return data.games;
+}
+
 /** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.
  *
  * Path uses /api/tags/ because the synthesizer joins the tags table; the

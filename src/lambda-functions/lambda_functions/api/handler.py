@@ -184,6 +184,52 @@ async def list_games(
     return {"total": total, "has_more": has_more, "games": games}
 
 
+@app.get("/api/games/basics")
+async def get_games_basics(appids: str) -> JSONResponse:
+    """Lightweight crosslink lookup — returns [{appid, name, slug, header_image}, ...]
+    for a comma-separated list of appids.
+
+    Purpose: the genre synthesis page (/genre/[slug]/) renders up to ~11
+    crosslinks per SSR — benchmark cards, friction-quote source-game links,
+    wishlist-quote source-game links. Hitting /api/games/{appid}/report
+    for each would pull the full report JSON per game; this endpoint is
+    a single DB round-trip for the four fields actually rendered.
+
+    Order is preserved from the input list; unknown appids are silently
+    omitted rather than 404-ing the whole batch. Hard-capped at 50 to
+    prevent accidental large fan-outs.
+    """
+    parsed: list[int] = []
+    for part in appids.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            parsed.append(int(part))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_appid", "value": part},
+            )
+    if len(parsed) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "too_many_appids", "limit": 50, "given": len(parsed)},
+        )
+    # Dedupe while preserving first-seen order.
+    seen: set[int] = set()
+    unique: list[int] = []
+    for a in parsed:
+        if a not in seen:
+            seen.add(a)
+            unique.append(a)
+    basics = _game_repo.find_basics_by_appids(unique)
+    return JSONResponse(
+        content={"games": basics},
+        headers={"Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400"},
+    )
+
+
 @app.get("/api/games/{appid}/report")
 async def get_game_report(appid: int) -> dict:
     """Return the full report JSON if it exists, or a status object.

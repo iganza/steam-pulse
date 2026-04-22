@@ -26,10 +26,14 @@ function formatUsd(cents: number): string {
 }
 
 function formatShipDate(iso: string): string {
+  // Format in UTC so a viewer in e.g. UTC-8 doesn't see the previous day
+  // when published_at is stored as UTC midnight. Ship dates are a single
+  // canonical day, not a timezone-local moment.
   return new Date(iso).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 

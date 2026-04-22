@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link as LinkIcon, Check } from "lucide-react";
 
 interface Props {
@@ -11,6 +11,14 @@ interface Props {
 
 export function ShareButtons({ url, title, subredditSlug }: Props) {
   const [copied, setCopied] = useState(false);
+  // Track the pending reset so we can cancel it if the component unmounts
+  // or the user clicks copy again before it fires — avoids a React warning
+  // about setState on an unmounted component.
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
+
   const encodedUrl = encodeURIComponent(url);
   const encodedTitle = encodeURIComponent(title);
 
@@ -25,7 +33,8 @@ export function ShareButtons({ url, title, subredditSlug }: Props) {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // clipboard API unavailable — silently skip
     }

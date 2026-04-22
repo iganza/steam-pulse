@@ -397,9 +397,35 @@ const server = createServer((req, res) => {
     }
   }
 
-  // Benchmark-game reports for the genre page's crosslinks. Matched BEFORE
-  // the generic /api/games/:id/report fallback so the benchmark cards show
-  // the actual game name + slug rather than the Team Fortress 2 default.
+  // Batched crosslink lookup — used by the genre synthesis page in place
+  // of N per-appid /report fetches. Matched BEFORE any /api/games/:id/*
+  // routes so "basics" isn't mistaken for an appid segment.
+  if (path === '/api/games/basics') {
+    const raw = url.searchParams.get('appids') ?? ''
+    const appids = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter((n) => Number.isFinite(n))
+    const games = appids
+      .map((appid) => {
+        const g = BENCHMARK_GAME_BASICS[appid]
+        if (!g) return null
+        return {
+          appid,
+          name: g.name,
+          slug: g.slug,
+          header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        }
+      })
+      .filter((x) => x !== null)
+    return respond(res, 200, { games })
+  }
+
+  // Benchmark-game reports kept for any other callers that still hit the
+  // full /report endpoint (not the genre page anymore). Matched BEFORE the
+  // generic /api/games/:id/report fallback so the benchmark game names win.
   {
     const m = path.match(/^\/api\/games\/(\d+)\/report$/)
     if (m && BENCHMARK_GAME_BASICS[Number(m[1])]) {

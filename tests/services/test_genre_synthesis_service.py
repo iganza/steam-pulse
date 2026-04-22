@@ -31,9 +31,12 @@ from library_layer.services.genre_synthesis_service import (
 class FakeBatchBackend:
     """Minimal stand-in for AnthropicBatchBackend — records calls, returns canned output.
 
-    Mirrors the four-method lifecycle: prepare/submit/status/collect.
-    Tests drive ``collect_response`` to control what ``collect_batch``
-    sees from the Anthropic batch result iterator.
+    Mirrors the three methods the service touches in these tests —
+    ``prepare`` / ``submit`` / ``collect``. ``status`` isn't exercised
+    here (the per-slug SFN owns polling via the shared check_status
+    Lambda), so the fake doesn't implement it. Tests drive
+    ``collect_response`` to control what ``collect_batch`` sees from the
+    Anthropic batch result iterator.
     """
 
     def __init__(
@@ -215,6 +218,32 @@ def test_prepare_batch_submits_and_inserts_tracking_row(service_parts: dict[str,
     assert insert_kwargs["prompt_version"] == "v1"
     # No appid for slug-keyed rows.
     assert insert_kwargs.get("appid") is None
+
+
+def test_prepare_batch_returns_job_id_when_tracking_insert_fails(
+    service_parts: dict[str, Any],
+) -> None:
+    """If the tracking-row insert fails (transient DB error), the Lambda
+    must still return the submitted job_id so Step Functions doesn't
+    retry-and-resubmit a new batch, doubling the LLM spend."""
+    svc: GenreSynthesisService = service_parts["service"]
+    backend: FakeBatchBackend = service_parts["backend"]
+    batch_exec_repo = service_parts["batch_exec_repo"]
+    batch_exec_repo.insert.side_effect = RuntimeError("transient DB error")
+
+    result = svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-abc",
+        backend=backend,  # type: ignore[arg-type]
+    )
+
+    # Batch was submitted — job_id must be threaded forward even though
+    # the tracking row never landed.
+    assert result.skip is False
+    assert result.job_id == "msgbatch_test_001"
+    assert len(backend.submit_calls) == 1
+    batch_exec_repo.insert.assert_called_once()
 
 
 def test_prepare_batch_cache_hit_skips_and_bumps_timestamp(

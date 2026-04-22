@@ -241,17 +241,34 @@ class GenreSynthesisService:
             prepared, "genre_synthesis", phase=GENRE_SYNTHESIS_PHASE
         )
 
-        self._batch_exec_repo.insert(
-            execution_id=execution_id,
-            slug=slug,
-            phase=GENRE_SYNTHESIS_PHASE,
-            backend=self._config.LLM_BACKEND,
-            batch_id=job_id,
-            model_id=self._config.model_for("genre_synthesis"),
-            request_count=1,
-            pipeline_version=self._required_pipeline_version,
-            prompt_version=prompt_version,
-        )
+        # Tracking-row insert is best-effort: the batch is already
+        # submitted, and letting a transient DB error fail the Lambda
+        # would cause Step Functions to retry, resubmitting a *second*
+        # batch and doubling the LLM spend. Log and continue — the row
+        # can be backfilled from CloudWatch logs if needed. Matches the
+        # Phase 1-3 prepare_phase pattern.
+        try:
+            self._batch_exec_repo.insert(
+                execution_id=execution_id,
+                slug=slug,
+                phase=GENRE_SYNTHESIS_PHASE,
+                backend=self._config.LLM_BACKEND,
+                batch_id=job_id,
+                model_id=self._config.model_for("genre_synthesis"),
+                request_count=1,
+                pipeline_version=self._required_pipeline_version,
+                prompt_version=prompt_version,
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_tracking_insert_failed",
+                extra={
+                    "slug": slug,
+                    "execution_id": execution_id,
+                    "job_id": job_id,
+                    "phase": GENRE_SYNTHESIS_PHASE,
+                },
+            )
 
         return PrepareResult(
             slug=slug,

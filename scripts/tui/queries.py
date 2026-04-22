@@ -4,10 +4,10 @@
 
 DASHBOARD_KPI = """
 SELECT
-  (SELECT COUNT(*) FROM games) AS games,
-  (SELECT COUNT(*) FROM reviews) AS reviews,
-  (SELECT COUNT(*) FROM reports) AS reports,
-  (SELECT COUNT(*) FROM app_catalog) AS catalog
+  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'games'),       0) AS games,
+  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'reviews'),     0) AS reviews,
+  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'reports'),     0) AS reports,
+  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'app_catalog'), 0) AS catalog
 """
 
 DASHBOARD_PIPELINE = """
@@ -143,7 +143,7 @@ SELECT MAX(refreshed_at) AS last_refresh FROM matview_refresh_log
 
 ANALYSIS_BACKLOG = """
 SELECT g.appid, g.name, g.review_count,
-       (SELECT COUNT(*) FROM reviews rv WHERE rv.appid = g.appid) AS reviews_in_db,
+       COALESCE(mrc.stored_count, 0) AS reviews_in_db,
        r.last_analyzed,
        CASE
          WHEN r.appid IS NULL THEN 'no report'
@@ -152,6 +152,7 @@ SELECT g.appid, g.name, g.review_count,
        END AS status
 FROM games g
 LEFT JOIN reports r ON r.appid = g.appid
+LEFT JOIN mv_review_counts mrc ON mrc.appid = g.appid
 WHERE g.review_count >= 50
 ORDER BY
   CASE WHEN r.appid IS NULL THEN 0 ELSE 1 END,

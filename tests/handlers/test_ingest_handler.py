@@ -180,7 +180,7 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
     mock_spoke_sqs.send_message.assert_not_called()
 
 
@@ -215,7 +215,7 @@ def test_early_stop_marks_complete_when_batch_older_than_completed_at(lambda_con
 
     # On early-stop, completed_at is set to the batch boundary (oldest timestamp in batch)
     expected_boundary = datetime(2023, 1, 1, tzinfo=timezone.utc)
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(
         440, completed_at=expected_boundary
     )
     mock_spoke_sqs.send_message.assert_not_called()
@@ -248,7 +248,7 @@ def test_no_early_stop_on_first_crawl(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_not_called()
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_not_called()
     mock_spoke_sqs.send_message.assert_called_once()
 
 
@@ -282,7 +282,7 @@ def test_no_early_stop_when_batch_has_new_reviews(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_not_called()
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_not_called()
     mock_spoke_sqs.send_message.assert_called_once()
 
 
@@ -313,7 +313,7 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
     mock_spoke_sqs.send_message.assert_not_called()
 
 
@@ -392,7 +392,7 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     )
     ih.handler(hop1, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_not_called()
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_not_called()
     mock_spoke_sqs.send_message.assert_called_once()
     sent = json.loads(mock_spoke_sqs.send_message.call_args[1]["MessageBody"])
     assert sent["target"] == 1000  # 2000 - 1000
@@ -414,7 +414,7 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     )
     ih.handler(hop2, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
     mock_spoke_sqs.send_message.assert_not_called()
 
 

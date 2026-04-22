@@ -247,7 +247,6 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         and datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) < reviews_completed_at
     )
 
-    total_fetched = _review_repo.count_by_appid(appid)
     # `target` means "remaining reviews to fetch in this chain" — decremented by batch count
     # each hop so the spoke can limit its final batch to exactly what's left.
     # target_hit fires when this batch consumed the last of the budget.
@@ -260,15 +259,13 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
         # we have every review up to this moment).
         boundary = datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
-        _catalog_repo.mark_reviews_complete(appid, completed_at=boundary)
-        _catalog_repo.mark_reviews_crawled(appid)
+        _catalog_repo.mark_reviews_complete_and_crawled(appid, completed_at=boundary)
         if early_stop:
             logger.info(
                 "Reviews complete",
                 extra={
                     "appid": appid,
                     "reason": "early_stop",
-                    "total": total_fetched,
                     "batch_count": msg.count,
                     "min_batch_ts": datetime.fromtimestamp(
                         min_batch_ts, tz=timezone.utc
@@ -284,14 +281,12 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
                 extra={
                     "appid": appid,
                     "reason": "exhausted",
-                    "total": total_fetched,
                     "batch_count": msg.count,
                 },
             )
     elif target_hit:
         # Budget exhausted — mark complete so early-stop on re-crawls picks up only new reviews.
-        _catalog_repo.mark_reviews_complete(appid, completed_at=None)
-        _catalog_repo.mark_reviews_crawled(appid)
+        _catalog_repo.mark_reviews_complete_and_crawled(appid, completed_at=None)
         logger.info(
             "Reviews complete",
             extra={
@@ -318,7 +313,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
             "Re-queued for next batch",
             extra={
                 "appid": appid,
-                "total_so_far": total_fetched,
+                "batch_count": msg.count,
                 "remaining": new_remaining,
                 "cursor": msg.next_cursor,
                 "queue_url": queue_url,

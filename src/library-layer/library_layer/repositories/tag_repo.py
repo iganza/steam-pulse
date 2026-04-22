@@ -127,7 +127,23 @@ class TagRepository(BaseRepository):
             genres: List of Steam genre dicts: [{"id": "1", "description": "Action"}, ...]
         """
         valid_genre_ids = [int(g.get("id") or 0) for g in genres if int(g.get("id") or 0)]
+        # Dedupe by genre_id — execute_values + ON CONFLICT DO UPDATE raises on
+        # duplicate conflict targets within a single statement. Steam occasionally
+        # returns the same genre twice (unlike per-row INSERTs, which absorbed it).
+        genre_by_id: dict[int, tuple[int, str, str]] = {}
+        for genre in genres:
+            genre_id = int(genre.get("id") or 0)
+            genre_name: str = genre.get("description") or ""
+            if not (genre_id and genre_name):
+                continue
+            genre_slug = slugify(genre_name) or f"genre-{genre_id}"
+            genre_by_id[genre_id] = (genre_id, genre_name, genre_slug)
+        genre_rows = list(genre_by_id.values())
+        game_genre_rows: list[tuple[int, int]] = [(appid, gid) for gid in genre_by_id]
+
         with self.conn.cursor() as cur:
+            from psycopg2.extras import execute_values
+
             if valid_genre_ids:
                 cur.execute(
                     "DELETE FROM game_genres WHERE appid = %s AND genre_id != ALL(%s)",
@@ -135,25 +151,20 @@ class TagRepository(BaseRepository):
                 )
             else:
                 cur.execute("DELETE FROM game_genres WHERE appid = %s", (appid,))
-            for genre in genres:
-                genre_id = int(genre.get("id") or 0)
-                genre_name: str = genre.get("description") or ""
-                genre_slug = slugify(genre_name) or f"genre-{genre_id}"
-                if not (genre_id and genre_name):
-                    continue
-                cur.execute(
-                    """
-                    INSERT INTO genres (id, name, slug) VALUES (%s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug
-                    """,
-                    (genre_id, genre_name, genre_slug),
+
+            if genre_rows:
+                execute_values(
+                    cur,
+                    """INSERT INTO genres (id, name, slug) VALUES %s
+                       ON CONFLICT (id) DO UPDATE
+                         SET name = EXCLUDED.name, slug = EXCLUDED.slug""",
+                    genre_rows,
                 )
-                cur.execute(
-                    """
-                    INSERT INTO game_genres (appid, genre_id) VALUES (%s, %s)
-                    ON CONFLICT (appid, genre_id) DO NOTHING
-                    """,
-                    (appid, genre_id),
+                execute_values(
+                    cur,
+                    """INSERT INTO game_genres (appid, genre_id) VALUES %s
+                       ON CONFLICT (appid, genre_id) DO NOTHING""",
+                    game_genre_rows,
                 )
         self.conn.commit()
 
@@ -168,7 +179,20 @@ class TagRepository(BaseRepository):
             categories: List of Steam category dicts: [{"id": 1, "description": "Multi-player"}, ...]
         """
         valid_cat_ids = [int(c.get("id") or 0) for c in categories if int(c.get("id") or 0)]
+        # Dedupe by cat_id — execute_values + ON CONFLICT DO UPDATE raises on
+        # duplicate conflict targets within a single statement.
+        category_by_id: dict[int, tuple[int, int, str]] = {}
+        for cat in categories:
+            cat_id = int(cat.get("id") or 0)
+            cat_name: str = cat.get("description") or ""
+            if not (cat_id and cat_name):
+                continue
+            category_by_id[cat_id] = (appid, cat_id, cat_name)
+        category_rows = list(category_by_id.values())
+
         with self.conn.cursor() as cur:
+            from psycopg2.extras import execute_values
+
             if valid_cat_ids:
                 cur.execute(
                     "DELETE FROM game_categories WHERE appid = %s AND category_id != ALL(%s)",
@@ -176,19 +200,15 @@ class TagRepository(BaseRepository):
                 )
             else:
                 cur.execute("DELETE FROM game_categories WHERE appid = %s", (appid,))
-            for cat in categories:
-                cat_id = int(cat.get("id") or 0)
-                cat_name: str = cat.get("description") or ""
-                if not (cat_id and cat_name):
-                    continue
-                cur.execute(
-                    """
-                    INSERT INTO game_categories (appid, category_id, category_name)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (appid, category_id) DO UPDATE
-                        SET category_name = EXCLUDED.category_name
-                    """,
-                    (appid, cat_id, cat_name),
+
+            if category_rows:
+                execute_values(
+                    cur,
+                    """INSERT INTO game_categories (appid, category_id, category_name)
+                       VALUES %s
+                       ON CONFLICT (appid, category_id) DO UPDATE
+                         SET category_name = EXCLUDED.category_name""",
+                    category_rows,
                 )
         self.conn.commit()
 

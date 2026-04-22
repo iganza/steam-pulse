@@ -105,8 +105,8 @@ class TagRepository(BaseRepository):
 
                 # Delete stale tag associations for every appid in this batch
                 # in a single DELETE. UNNEST of parallel arrays builds the
-                # keep-set inline — one statement + one WAL entry per batch
-                # instead of N small DELETEs (one per touched appid).
+                # keep-set inline, reducing statement count, round-trips, and
+                # per-statement overhead versus N small DELETEs (one per touched appid).
                 batch_appids = list({aid for aid, _, _ in game_tag_rows})
                 kept_appids = [aid for aid, _, _ in game_tag_rows]
                 kept_tag_ids = [tid for _, tid, _ in game_tag_rows]

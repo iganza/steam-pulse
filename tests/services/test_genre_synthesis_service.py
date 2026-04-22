@@ -1,4 +1,4 @@
-"""Tests for GenreSynthesisService — cache-hit short-circuit + happy path."""
+"""Tests for GenreSynthesisService — prepare + collect batch lifecycle."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from aws_lambda_powertools import Metrics
 from library_layer.config import SteamPulseConfig
+from library_layer.llm.backend import BatchCollectResult
 from library_layer.models.genre_synthesis import (
     BenchmarkGame,
     ChurnInsight,
@@ -18,23 +19,53 @@ from library_layer.models.genre_synthesis import (
 )
 from library_layer.models.report import Report
 from library_layer.services.genre_synthesis_service import (
+    GENRE_SYNTHESIS_PHASE,
     GenreSynthesisService,
     NotEnoughReportsError,
+    PrepareResult,
     UnknownPromptVersionError,
     _compute_input_hash,
 )
 
 
-class FakeBackend:
-    """Minimal stand-in for ConverseBackend — records calls, returns canned output."""
+class FakeBatchBackend:
+    """Minimal stand-in for AnthropicBatchBackend — records calls, returns canned output.
 
-    def __init__(self, response: GenreSynthesis) -> None:
-        self._response = response
-        self.calls: list[Any] = []
+    Mirrors the four-method lifecycle: prepare/submit/status/collect.
+    Tests drive ``collect_response`` to control what ``collect_batch``
+    sees from the Anthropic batch result iterator.
+    """
 
-    def run(self, requests: list[Any], *, on_result: Any = None) -> list[GenreSynthesis]:
-        self.calls.append(requests)
-        return [self._response]
+    def __init__(
+        self,
+        *,
+        job_id: str = "msgbatch_test_001",
+        collect_response: BatchCollectResult | None = None,
+    ) -> None:
+        self.job_id = job_id
+        self.collect_response = collect_response
+        self.prepare_calls: list[tuple[list[Any], str]] = []
+        self.submit_calls: list[tuple[list[Any], Any, str]] = []
+        self.collect_calls: list[tuple[str, Any]] = []
+
+    def prepare(self, requests: list[Any], *, phase: str) -> list[dict]:
+        self.prepare_calls.append((requests, phase))
+        return [{"custom_id": r.record_id, "params": {}} for r in requests]
+
+    def submit(self, prepared: list[dict], task: Any, *, phase: str) -> str:
+        self.submit_calls.append((prepared, task, phase))
+        return self.job_id
+
+    def collect(
+        self,
+        batch_id: str,
+        *,
+        default_response_model: Any = None,
+    ) -> BatchCollectResult:
+        self.collect_calls.append((batch_id, default_response_model))
+        if self.collect_response is None:
+            raise RuntimeError("FakeBatchBackend.collect called without collect_response set")
+        return self.collect_response
 
 
 def _canned_synthesis() -> GenreSynthesis:
@@ -75,24 +106,39 @@ def _canned_synthesis() -> GenreSynthesis:
     )
 
 
+def _canned_collect_result(synthesis: GenreSynthesis) -> BatchCollectResult:
+    return BatchCollectResult(
+        results=[("genre_synthesis:roguelike-deckbuilder:v1", synthesis)],
+        failed_ids=[],
+        skipped=0,
+        input_tokens=12345,
+        output_tokens=678,
+        cache_read_tokens=200,
+        cache_write_tokens=100,
+    )
+
+
 @pytest.fixture
-def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+def service_parts() -> dict[str, Any]:
     config = SteamPulseConfig(
         MIN_REPORTS_PER_GENRE=3,
         MAX_REPORTS_PER_GENRE=10,
         GENRE_SYNTHESIS_MAX_TOKENS=8000,
         GENRE_SYNTHESIS_PROMPT_VERSION="v1",
         GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT=100,
+        # Pin to a model ID present in _BATCH_PRICING so collect_batch
+        # can estimate cost without tripping the unknown-model guard.
+        LLM_MODEL={"genre_synthesis": "claude-sonnet-4-6"},
     )
     report_repo = MagicMock()
     tag_repo = MagicMock()
     game_repo = MagicMock()
     synthesis_repo = MagicMock()
+    batch_exec_repo = MagicMock()
     metrics = Metrics(namespace="SteamPulseTest", service="genre-synthesis-test")
     canned = _canned_synthesis()
-    backend = FakeBackend(canned)
+    backend = FakeBatchBackend(collect_response=_canned_collect_result(canned))
 
-    # Return the three eligible appids in review-count-desc order.
     tag_repo.find_eligible_for_synthesis.return_value = [1001, 1002, 1003]
     tag_repo.find_display_name_for_slug.return_value = "Roguelike Deckbuilder"
 
@@ -111,7 +157,7 @@ def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         tag_repo=tag_repo,
         game_repo=game_repo,
         synthesis_repo=synthesis_repo,
-        llm_backend=backend,  # type: ignore[arg-type]
+        batch_exec_repo=batch_exec_repo,
         config=config,
         metrics=metrics,
         required_pipeline_version="3.0/test",
@@ -120,100 +166,240 @@ def service_parts(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "service": service,
         "backend": backend,
         "synthesis_repo": synthesis_repo,
+        "batch_exec_repo": batch_exec_repo,
         "tag_repo": tag_repo,
+        "game_repo": game_repo,
         "canned": canned,
     }
 
 
-def test_synthesize_happy_path(service_parts: dict[str, Any]) -> None:
+# ── prepare_batch ────────────────────────────────────────────────────────────
+
+
+def test_prepare_batch_submits_and_inserts_tracking_row(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
-    backend: FakeBackend = service_parts["backend"]
-    synthesis_repo = service_parts["synthesis_repo"]
+    backend: FakeBatchBackend = service_parts["backend"]
+    batch_exec_repo = service_parts["batch_exec_repo"]
 
-    row = svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
+    result = svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-abc",
+        backend=backend,  # type: ignore[arg-type]
+    )
 
-    assert row.slug == "roguelike-deckbuilder"
-    assert row.display_name == "Roguelike Deckbuilder"
-    assert row.input_appids == [1001, 1002, 1003]
-    assert row.input_count == 3
-    assert row.prompt_version == "v1"
-    assert row.synthesis.narrative_summary.startswith("Runs are long")
-    # Median of [5000, 3000, 1500] = 3000
-    assert row.median_review_count == 3000
-    # Mean of [90, 85, 80] = 85.0
-    assert row.avg_positive_pct == pytest.approx(85.0)
+    assert isinstance(result, PrepareResult)
+    assert result.skip is False
+    assert result.job_id == "msgbatch_test_001"
+    assert result.slug == "roguelike-deckbuilder"
+    assert result.display_name == "Roguelike Deckbuilder"
+    assert result.selected_appids == [1001, 1002, 1003]
+    assert result.avg_positive_pct == pytest.approx(85.0)
+    assert result.median_review_count == 3000
+    assert result.input_hash  # non-empty
+    assert result.execution_id == "exec-abc"
 
-    assert len(backend.calls) == 1
-    synthesis_repo.upsert.assert_called_once()
+    assert len(backend.prepare_calls) == 1
+    assert len(backend.submit_calls) == 1
+    _prepared, task, phase = backend.submit_calls[0]
+    assert task == "genre_synthesis"
+    assert phase == GENRE_SYNTHESIS_PHASE
+
+    batch_exec_repo.insert.assert_called_once()
+    insert_kwargs = batch_exec_repo.insert.call_args.kwargs
+    assert insert_kwargs["slug"] == "roguelike-deckbuilder"
+    assert insert_kwargs["phase"] == GENRE_SYNTHESIS_PHASE
+    assert insert_kwargs["batch_id"] == "msgbatch_test_001"
+    assert insert_kwargs["request_count"] == 1
+    assert insert_kwargs["execution_id"] == "exec-abc"
+    assert insert_kwargs["prompt_version"] == "v1"
+    # No appid for slug-keyed rows.
+    assert insert_kwargs.get("appid") is None
 
 
-def test_synthesize_cache_short_circuits(service_parts: dict[str, Any]) -> None:
-    """Re-running with the same input set hits the cache and skips the LLM.
-
-    On hit, the service must call touch_computed_at so the weekly stale-
-    scan doesn't loop-enqueue the same slug forever. The returned row's
-    computed_at should reflect the bump, not the original timestamp.
-    """
+def test_prepare_batch_cache_hit_skips_and_bumps_timestamp(
+    service_parts: dict[str, Any],
+) -> None:
     svc: GenreSynthesisService = service_parts["service"]
-    backend: FakeBackend = service_parts["backend"]
+    backend: FakeBatchBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
+    batch_exec_repo = service_parts["batch_exec_repo"]
 
-    # First run — real synth.
-    first_row = svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
-    # Seed the repo mock so get_by_slug returns the row we just upserted.
-    synthesis_repo.get_by_slug.return_value = first_row
-    synthesis_repo.upsert.reset_mock()
+    # First call — build and submit.
+    svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-1",
+        backend=backend,  # type: ignore[arg-type]
+    )
 
-    second = svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
+    # Seed the repo mock so the cache check hits on the next call.
+    stored_row = MagicMock()
+    stored_row.input_hash = _compute_input_hash(
+        prompt_version="v1",
+        pipeline_version="3.0/test",
+        appids=[1001, 1002, 1003],
+    )
+    synthesis_repo.get_by_slug.return_value = stored_row
 
-    assert len(backend.calls) == 1  # still just one LLM call
-    assert second.input_hash == first_row.input_hash
-    synthesis_repo.upsert.assert_not_called()
-    # Cache-hit path still refreshes the freshness timestamp. Avoid a
-    # `>` assertion on two back-to-back datetime.now() calls — those can
-    # legitimately tie on low-resolution clocks. Instead, assert the repo
-    # was called with the same timestamp that the returned row carries.
+    backend.prepare_calls.clear()
+    backend.submit_calls.clear()
+    batch_exec_repo.insert.reset_mock()
+
+    second = svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-2",
+        backend=backend,  # type: ignore[arg-type]
+    )
+
+    assert second.skip is True
+    assert second.job_id == ""
+    assert backend.prepare_calls == []
+    assert backend.submit_calls == []
+    batch_exec_repo.insert.assert_not_called()
     synthesis_repo.touch_computed_at.assert_called_once()
-    call_kwargs = synthesis_repo.touch_computed_at.call_args.kwargs
-    assert second.computed_at == call_kwargs["at"]
-    assert second.computed_at >= first_row.computed_at
 
 
-def test_synthesize_input_set_change_triggers_rerun(service_parts: dict[str, Any]) -> None:
+def test_prepare_batch_input_set_change_resubmits(service_parts: dict[str, Any]) -> None:
+    """A new appid in the eligible set changes input_hash → new batch submitted."""
     svc: GenreSynthesisService = service_parts["service"]
-    backend: FakeBackend = service_parts["backend"]
+    backend: FakeBatchBackend = service_parts["backend"]
     synthesis_repo = service_parts["synthesis_repo"]
     tag_repo = service_parts["tag_repo"]
+    game_repo = service_parts["game_repo"]
 
-    first = svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
-    synthesis_repo.get_by_slug.return_value = first
+    first = svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-1",
+        backend=backend,  # type: ignore[arg-type]
+    )
+    # Seed the repo so the cache check runs — but input_hash will differ.
+    stored_row = MagicMock()
+    stored_row.input_hash = first.input_hash
+    synthesis_repo.get_by_slug.return_value = stored_row
 
-    # New appid enters the eligible set — input_hash changes, LLM re-runs.
     tag_repo.find_eligible_for_synthesis.return_value = [1001, 1002, 1003, 1004]
-    # Extend game stats so _compute_aggregates has data for the new appid.
-    service_parts["service"]._game_repo.find_review_stats_for_appids.return_value = [
+    game_repo.find_review_stats_for_appids.return_value = [
         {"appid": 1001, "positive_pct": 90, "review_count": 5000},
         {"appid": 1002, "positive_pct": 85, "review_count": 3000},
         {"appid": 1003, "positive_pct": 80, "review_count": 1500},
         {"appid": 1004, "positive_pct": 92, "review_count": 8000},
     ]
-    svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
+    second = svc.prepare_batch(
+        slug="roguelike-deckbuilder",
+        prompt_version="v1",
+        execution_id="exec-2",
+        backend=backend,  # type: ignore[arg-type]
+    )
 
-    assert len(backend.calls) == 2
+    assert second.skip is False
+    assert second.input_hash != first.input_hash
+    assert len(backend.submit_calls) == 2
 
 
-def test_synthesize_unknown_prompt_version_raises(service_parts: dict[str, Any]) -> None:
+def test_prepare_batch_unknown_prompt_version_raises(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
+    backend: FakeBatchBackend = service_parts["backend"]
     with pytest.raises(UnknownPromptVersionError):
-        svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v99")
+        svc.prepare_batch(
+            slug="roguelike-deckbuilder",
+            prompt_version="v99",
+            execution_id="exec-x",
+            backend=backend,  # type: ignore[arg-type]
+        )
 
 
-def test_synthesize_refuses_below_minimum(service_parts: dict[str, Any]) -> None:
+def test_prepare_batch_refuses_below_minimum(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
-    # Drop eligible to 1 — below MIN_REPORTS_PER_GENRE=3.
+    backend: FakeBatchBackend = service_parts["backend"]
     service_parts["tag_repo"].find_eligible_for_synthesis.return_value = [1001]
     with pytest.raises(NotEnoughReportsError):
-        svc.synthesize(slug="roguelike-deckbuilder", prompt_version="v1")
+        svc.prepare_batch(
+            slug="roguelike-deckbuilder",
+            prompt_version="v1",
+            execution_id="exec-x",
+            backend=backend,  # type: ignore[arg-type]
+        )
+
+
+# ── collect_batch ────────────────────────────────────────────────────────────
+
+
+def test_collect_batch_upserts_row_and_marks_completed(service_parts: dict[str, Any]) -> None:
+    svc: GenreSynthesisService = service_parts["service"]
+    backend: FakeBatchBackend = service_parts["backend"]
+    synthesis_repo = service_parts["synthesis_repo"]
+    batch_exec_repo = service_parts["batch_exec_repo"]
+
+    row = svc.collect_batch(
+        slug="roguelike-deckbuilder",
+        job_id="msgbatch_test_001",
+        selected_appids=[1001, 1002, 1003],
+        display_name="Roguelike Deckbuilder",
+        avg_positive_pct=85.0,
+        median_review_count=3000,
+        input_hash="hash-abc",
+        prompt_version="v1",
+        backend=backend,  # type: ignore[arg-type]
+    )
+
+    assert row.slug == "roguelike-deckbuilder"
+    assert row.display_name == "Roguelike Deckbuilder"
+    assert row.input_appids == [1001, 1002, 1003]
+    assert row.input_count == 3
+    assert row.input_hash == "hash-abc"
+    assert row.prompt_version == "v1"
+    assert row.synthesis.narrative_summary.startswith("Runs are long")
+    assert row.avg_positive_pct == pytest.approx(85.0)
+    assert row.median_review_count == 3000
+
+    synthesis_repo.upsert.assert_called_once()
+    batch_exec_repo.mark_completed.assert_called_once()
+    mark_kwargs = batch_exec_repo.mark_completed.call_args.kwargs
+    assert mark_kwargs["succeeded_count"] == 1
+    assert mark_kwargs["failed_count"] == 0
+    assert mark_kwargs["input_tokens"] == 12345
+    assert mark_kwargs["output_tokens"] == 678
+    assert mark_kwargs["cache_read_tokens"] == 200
+    assert mark_kwargs["cache_write_tokens"] == 100
+    assert mark_kwargs["estimated_cost_usd"] > 0
+
+
+def test_collect_batch_no_results_marks_failed(service_parts: dict[str, Any]) -> None:
+    svc: GenreSynthesisService = service_parts["service"]
+    batch_exec_repo = service_parts["batch_exec_repo"]
+    empty_backend = FakeBatchBackend(
+        collect_response=BatchCollectResult(
+            results=[],
+            failed_ids=["genre_synthesis:roguelike-deckbuilder:v1"],
+            skipped=1,
+            input_tokens=100,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    )
+    with pytest.raises(RuntimeError, match="No genre_synthesis output"):
+        svc.collect_batch(
+            slug="roguelike-deckbuilder",
+            job_id="msgbatch_test_001",
+            selected_appids=[1001, 1002, 1003],
+            display_name="Roguelike Deckbuilder",
+            avg_positive_pct=85.0,
+            median_review_count=3000,
+            input_hash="hash-abc",
+            prompt_version="v1",
+            backend=empty_backend,  # type: ignore[arg-type]
+        )
+    # mark_completed still recorded token usage first, then mark_failed
+    # was called with the error reason.
+    batch_exec_repo.mark_completed.assert_called_once()
+    batch_exec_repo.mark_failed.assert_called_once()
+
+
+# ── Constructor guard + hash invariants (unchanged) ──────────────────────────
 
 
 def test_service_rejects_min_reports_below_mention_floor(
@@ -223,7 +409,7 @@ def test_service_rejects_min_reports_below_mention_floor(
     is rejected because the LLM tool_use schema cannot satisfy
     mention_count >= 3 from fewer than 3 input reports."""
     config = SteamPulseConfig(
-        MIN_REPORTS_PER_GENRE=2,  # invalid: below the mention floor
+        MIN_REPORTS_PER_GENRE=2,
         MAX_REPORTS_PER_GENRE=10,
         GENRE_SYNTHESIS_MAX_TOKENS=8000,
         GENRE_SYNTHESIS_PROMPT_VERSION="v1",
@@ -235,7 +421,7 @@ def test_service_rejects_min_reports_below_mention_floor(
             tag_repo=MagicMock(),
             game_repo=MagicMock(),
             synthesis_repo=MagicMock(),
-            llm_backend=MagicMock(),
+            batch_exec_repo=MagicMock(),
             config=config,
             metrics=service_parts["service"]._metrics,
             required_pipeline_version="3.0/test",
@@ -252,11 +438,7 @@ def test_compute_input_hash_stable_and_order_independent() -> None:
 
     a = h()
     assert a == h()
-    # Same set, permuted order — function sorts internally.
     assert a == h(appids=[3, 1, 2])
     assert a == h(appids=[2, 3, 1])
-    # Prompt version bump changes the hash.
     assert a != h(prompt_version="v2")
-    # Pipeline version bump changes the hash — Phase-3 refresh with the
-    # same eligible set must force a cache miss.
     assert a != h(pipeline_version="3.0/other")

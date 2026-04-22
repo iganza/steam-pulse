@@ -21,7 +21,6 @@ class BatchExecutionRepository(BaseRepository):
         self,
         *,
         execution_id: str,
-        appid: int,
         phase: str,
         backend: str,
         batch_id: str,
@@ -29,22 +28,34 @@ class BatchExecutionRepository(BaseRepository):
         request_count: int,
         pipeline_version: str,
         prompt_version: str,
+        appid: int | None = None,
+        slug: str = "",
     ) -> int:
         """Record a new batch submission. Returns the row id.
+
+        Exactly one of ``appid`` or ``slug`` must be set — Phase 1-3 jobs
+        are per-game (appid), Phase 4 genre synthesis is per-genre (slug).
+        The underlying CHECK constraint enforces this at the DB level too.
 
         Idempotent on `batch_id` — Step Functions retries that re-submit the
         same batch will return the existing row's id. Uses a no-op UPDATE
         on conflict so RETURNING works in a single statement (DO NOTHING
         + separate SELECT is not concurrency-safe).
         """
+        if (appid is None) == (not slug):
+            raise ValueError(
+                "BatchExecutionRepository.insert requires exactly one of "
+                f"appid={appid!r} or slug={slug!r} to be set."
+            )
+        slug_value = slug or None
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 INSERT INTO batch_executions (
-                    execution_id, appid, phase, backend, batch_id, model_id,
+                    execution_id, appid, slug, phase, backend, batch_id, model_id,
                     request_count, pipeline_version, prompt_version
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (batch_id) DO UPDATE
                 SET batch_id = EXCLUDED.batch_id
                 RETURNING id
@@ -52,6 +63,7 @@ class BatchExecutionRepository(BaseRepository):
                 (
                     execution_id,
                     appid,
+                    slug_value,
                     phase,
                     backend,
                     batch_id,
@@ -205,5 +217,18 @@ class BatchExecutionRepository(BaseRepository):
             LIMIT %s
             """,
             (appid, limit),
+        )
+        return self._rows_to_models(rows)
+
+    def find_by_slug(self, slug: str, *, limit: int) -> list[BatchExecution]:
+        """Recent batch executions for a specific genre slug."""
+        rows = self._fetchall(
+            """
+            SELECT * FROM batch_executions
+            WHERE slug = %s
+            ORDER BY submitted_at DESC
+            LIMIT %s
+            """,
+            (slug, limit),
         )
         return self._rows_to_models(rows)

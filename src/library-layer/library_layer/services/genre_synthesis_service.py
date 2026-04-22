@@ -1,13 +1,21 @@
 """GenreSynthesisService — Phase-4 cross-genre LLM synthesizer.
 
-Coordinates: resolve eligible appids → cache-check via input_hash →
-load GameReports → build LLM prompt → call Bedrock via instructor with
-tool_use → persist row → return.
+Step Functions drives this as a two-step batch lifecycle:
 
-Single Sonnet call per genre per refresh. Input is the per-game
-GameReport JSON (~3k tokens each, Phase-3 output), NOT raw reviews —
-synthesizing reports is ~$1.30 per genre, synthesizing raw reviews
-would be ~$50+ per genre.
+- ``prepare_batch()`` resolves eligible appids, computes the input_hash,
+  short-circuits on cache hit (touches computed_at, returns skip=True),
+  otherwise builds one LLMRequest, submits an Anthropic message batch,
+  and inserts a ``batch_executions`` row keyed by slug.
+
+- ``collect_batch()`` runs after the status poller reports ``Completed``:
+  pulls the single result, assembles the ``GenreSynthesisRow``, upserts
+  ``mv_genre_synthesis``, and marks the ``batch_executions`` row completed
+  with token usage + estimated cost.
+
+Input is the per-game GameReport JSON (~3k tokens each, Phase-3 output),
+NOT raw reviews — synthesizing reports is ~$1.30 per genre, synthesizing
+raw reviews would be ~$50+ per genre. At batch pricing the cost halves
+again.
 """
 
 from __future__ import annotations
@@ -15,24 +23,27 @@ from __future__ import annotations
 import hashlib
 import statistics
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 from library_layer.config import SteamPulseConfig
-from library_layer.llm.backend import LLMRequest
-from library_layer.llm.converse import ConverseBackend
+from library_layer.llm.anthropic_batch import AnthropicBatchBackend
+from library_layer.llm.backend import LLMRequest, estimate_batch_cost_usd
 from library_layer.models.genre_synthesis import (
     SHARED_SIGNAL_MIN_MENTIONS,
     GenreSynthesis,
     GenreSynthesisRow,
 )
 from library_layer.prompts import genre_synthesis_v1
+from library_layer.repositories.batch_execution_repo import BatchExecutionRepository
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.genre_synthesis_repo import (
     GenreSynthesisRepository,
 )
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.tag_repo import TagRepository
+from pydantic import BaseModel
 
 logger = Logger()
 
@@ -45,6 +56,8 @@ _PROMPT_MODULES = {
     "v1": genre_synthesis_v1,
 }
 
+GENRE_SYNTHESIS_PHASE = "genre_synthesis"
+
 
 class NotEnoughReportsError(RuntimeError):
     """Raised when a slug has fewer than MIN_REPORTS_PER_GENRE eligible reports."""
@@ -54,8 +67,30 @@ class UnknownPromptVersionError(RuntimeError):
     """Raised when prompt_version doesn't map to a known prompt module."""
 
 
+class PrepareResult(BaseModel):
+    """Structured output of ``prepare_batch``, threaded through SFN state.
+
+    When ``skip`` is True the caller should bypass Wait/Check/Collect and
+    return directly (cache hit). Otherwise ``job_id`` identifies the
+    Anthropic message batch that the status poller should watch, and the
+    remaining fields are what ``collect_batch`` needs to build the final
+    row without re-running any eligibility/aggregate queries.
+    """
+
+    slug: str
+    skip: bool
+    prompt_version: str
+    execution_id: str
+    job_id: str = ""
+    display_name: str = ""
+    selected_appids: list[int] = []
+    avg_positive_pct: float = 0.0
+    median_review_count: int = 0
+    input_hash: str = ""
+
+
 class GenreSynthesisService:
-    """Coordinates the cross-genre synthesis for a single slug."""
+    """Coordinates the cross-genre synthesis batch lifecycle for a single slug."""
 
     def __init__(
         self,
@@ -64,7 +99,7 @@ class GenreSynthesisService:
         tag_repo: TagRepository,
         game_repo: GameRepository,
         synthesis_repo: GenreSynthesisRepository,
-        llm_backend: ConverseBackend,
+        batch_exec_repo: BatchExecutionRepository,
         config: SteamPulseConfig,
         metrics: Metrics,
         required_pipeline_version: str,
@@ -91,33 +126,29 @@ class GenreSynthesisService:
         self._tag_repo = tag_repo
         self._game_repo = game_repo
         self._synthesis_repo = synthesis_repo
-        self._llm = llm_backend
+        self._batch_exec_repo = batch_exec_repo
         self._config = config
         self._metrics = metrics
         self._required_pipeline_version = required_pipeline_version
 
-    def synthesize(
+    # ------------------------------------------------------------------
+    # Phase 1: prepare & submit the single-request batch
+    # ------------------------------------------------------------------
+    def prepare_batch(
         self,
         *,
         slug: str,
         prompt_version: str,
-    ) -> GenreSynthesisRow:
-        """Run (or cache-hit) the synthesis for one genre slug.
+        execution_id: str,
+        backend: AnthropicBatchBackend,
+    ) -> PrepareResult:
+        """Resolve inputs, cache-check, and submit the batch.
 
-        Steps:
-          1. Resolve eligible appids (tag ⋈ games with reports ⋈ min_reviews).
-          2. Compute input_hash from (prompt_version, required_pipeline_version,
-             sorted_appids). A Phase-3 pipeline bump changes the hash and
-             forces a fresh synthesis even if the eligible appid set is
-             unchanged.
-          3. Short-circuit: if an existing row has the same input_hash,
-             touch computed_at (so stale-scan doesn't re-enqueue) and return.
-          4. Load GameReport JSON for each appid (bounded to MAX_REPORTS_PER_GENRE
-             by review_count DESC).
-          5. Build the LLM request (system prompt cached, user = report dumps).
-          6. Call Bedrock Sonnet via tool_use with GenreSynthesis as response_model.
-          7. Upsert the row.
-          8. Return the row.
+        Returns a ``PrepareResult`` with ``skip=True`` on a cache hit
+        (``computed_at`` is bumped, no batch submitted, no
+        ``batch_executions`` row). Otherwise returns ``skip=False`` plus
+        the ``job_id`` of the submitted Anthropic batch and the context
+        fields ``collect_batch`` needs to finish the run.
         """
         prompt_module = _PROMPT_MODULES.get(prompt_version)
         if prompt_module is None:
@@ -148,16 +179,12 @@ class GenreSynthesisService:
             pipeline_version=self._required_pipeline_version,
             appids=selected_appids,
         )
-        # Numerically sorted view of the same set, shown to the LLM as
-        # the allow-list of valid source_appid values.
-        sorted_appids = sorted(selected_appids)
 
-        # Step 3: cache-hit short-circuit. An existing row with the same
-        # input_hash means the inputs and prompt haven't changed, so re-
-        # running the LLM would produce the same synthesis and waste money.
-        # On hit we still bump computed_at so the next weekly stale-scan
-        # doesn't re-enqueue the same slug forever — if we didn't, the row
-        # would be stale → enqueued → cache-hit (no write) → still stale.
+        # Cache-hit short-circuit. An existing row with the same input_hash
+        # means the inputs and prompt haven't changed, so re-running the
+        # LLM would produce the same synthesis and waste money. On hit we
+        # still bump computed_at so the next stale-scan (if one ever
+        # re-enters service) doesn't re-enqueue the same slug forever.
         existing = self._synthesis_repo.get_by_slug(slug)
         if existing is not None and existing.input_hash == input_hash:
             now = datetime.now(UTC)
@@ -169,10 +196,16 @@ class GenreSynthesisService:
             self._metrics.add_metric(
                 name="GenreSynthesisCacheHit", unit=MetricUnit.Count, value=1
             )
-            # Return the row as stored, but with the refreshed timestamp so
-            # the caller observes the state that's now in the DB.
-            return existing.model_copy(update={"computed_at": now})
+            return PrepareResult(
+                slug=slug,
+                skip=True,
+                prompt_version=prompt_version,
+                execution_id=execution_id,
+            )
 
+        # Numerically sorted view of the same set, shown to the LLM as
+        # the allow-list of valid source_appid values.
+        sorted_appids = sorted(selected_appids)
         reports = self._load_reports(selected_appids)
         avg_positive_pct, median_review_count = self._compute_aggregates(selected_appids)
 
@@ -191,7 +224,7 @@ class GenreSynthesisService:
         )
 
         logger.info(
-            "genre_synthesis_start",
+            "genre_synthesis_submit",
             extra={
                 "slug": slug,
                 "input_count": len(selected_appids),
@@ -203,32 +236,140 @@ class GenreSynthesisService:
             name="GenreSynthesisRuns", unit=MetricUnit.Count, value=1
         )
 
-        [synthesis_obj] = self._llm.run([request])
-        if not isinstance(synthesis_obj, GenreSynthesis):
-            raise RuntimeError(
-                f"LLM returned {type(synthesis_obj).__name__}, expected GenreSynthesis"
-            )
+        prepared = backend.prepare([request], phase=GENRE_SYNTHESIS_PHASE)
+        job_id = backend.submit(
+            prepared, "genre_synthesis", phase=GENRE_SYNTHESIS_PHASE
+        )
 
-        row = GenreSynthesisRow(
+        self._batch_exec_repo.insert(
+            execution_id=execution_id,
             slug=slug,
-            display_name=display_name,
-            input_appids=selected_appids,
-            input_count=len(selected_appids),
+            phase=GENRE_SYNTHESIS_PHASE,
+            backend=self._config.LLM_BACKEND,
+            batch_id=job_id,
+            model_id=self._config.model_for("genre_synthesis"),
+            request_count=1,
+            pipeline_version=self._required_pipeline_version,
             prompt_version=prompt_version,
-            input_hash=input_hash,
-            synthesis=synthesis_obj,
-            narrative_summary=synthesis_obj.narrative_summary,
+        )
+
+        return PrepareResult(
+            slug=slug,
+            skip=False,
+            prompt_version=prompt_version,
+            execution_id=execution_id,
+            job_id=job_id,
+            display_name=display_name,
+            selected_appids=selected_appids,
             avg_positive_pct=avg_positive_pct,
             median_review_count=median_review_count,
-            computed_at=datetime.now(UTC),
+            input_hash=input_hash,
         )
-        self._synthesis_repo.upsert(row)
+
+    # ------------------------------------------------------------------
+    # Phase 2: collect the batch result and persist
+    # ------------------------------------------------------------------
+    def collect_batch(
+        self,
+        *,
+        slug: str,
+        job_id: str,
+        selected_appids: list[int],
+        display_name: str,
+        avg_positive_pct: float,
+        median_review_count: int,
+        input_hash: str,
+        prompt_version: str,
+        backend: AnthropicBatchBackend,
+    ) -> GenreSynthesisRow:
+        """Pull the single batch result, upsert the row, close the tracking row.
+
+        Tokens and cost are recorded via ``batch_executions.mark_completed``
+        before the row is built, so even a validation failure leaves
+        cost visible. On failure to build the row, the tracking row is
+        flipped to ``failed`` with the failure reason captured.
+        """
+        collect_result = backend.collect(
+            job_id, default_response_model=GenreSynthesis
+        )
+
+        cost = estimate_batch_cost_usd(
+            model_id=self._config.model_for("genre_synthesis"),
+            input_tokens=collect_result.input_tokens,
+            output_tokens=collect_result.output_tokens,
+            cache_read_tokens=collect_result.cache_read_tokens,
+            cache_write_tokens=collect_result.cache_write_tokens,
+        )
+
+        # Always record token usage and cost first — even if the single
+        # record failed validation, the API consumed tokens and we need
+        # the cost tracked.
+        try:
+            self._batch_exec_repo.mark_completed(
+                job_id,
+                succeeded_count=len(collect_result.results),
+                failed_count=len(collect_result.failed_ids),
+                failed_record_ids=collect_result.failed_ids,
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
+                estimated_cost_usd=Decimal(str(round(cost, 4))),
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_mark_completed_failed",
+                extra={"slug": slug, "job_id": job_id},
+            )
+
+        try:
+            if not collect_result.results:
+                raise RuntimeError(
+                    f"No genre_synthesis output for slug={slug!r} "
+                    f"(job_id={job_id}, failed_ids={collect_result.failed_ids})"
+                )
+            _record_id, synthesis_obj = collect_result.results[0]
+            if not isinstance(synthesis_obj, GenreSynthesis):
+                raise TypeError(
+                    f"Expected GenreSynthesis, got {type(synthesis_obj).__name__}"
+                )
+
+            row = GenreSynthesisRow(
+                slug=slug,
+                display_name=display_name,
+                input_appids=selected_appids,
+                input_count=len(selected_appids),
+                prompt_version=prompt_version,
+                input_hash=input_hash,
+                synthesis=synthesis_obj,
+                narrative_summary=synthesis_obj.narrative_summary,
+                avg_positive_pct=avg_positive_pct,
+                median_review_count=median_review_count,
+                computed_at=datetime.now(UTC),
+            )
+            self._synthesis_repo.upsert(row)
+        except Exception as exc:
+            try:
+                self._batch_exec_repo.mark_failed(
+                    job_id,
+                    failure_reason=f"genre_synthesis collect failed for slug={slug!r}: {exc}",
+                )
+            except Exception:
+                logger.exception(
+                    "batch_execution_mark_failed_failed",
+                    extra={"slug": slug, "job_id": job_id},
+                )
+            raise
+
         logger.info(
             "genre_synthesis_complete",
-            extra={"slug": slug, "input_hash": input_hash},
+            extra={"slug": slug, "input_hash": input_hash, "job_id": job_id},
         )
         return row
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
     def _resolve_display_name(self, slug: str) -> str:
         name = self._tag_repo.find_display_name_for_slug(slug)
         if name is None:

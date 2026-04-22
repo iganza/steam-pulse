@@ -11,7 +11,8 @@ class BatchExecution(BaseModel):
 
     id: int
     execution_id: str
-    appid: int
+    appid: int | None = None
+    slug: str = ""
     phase: str
     backend: str
     batch_id: str

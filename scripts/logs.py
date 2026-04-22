@@ -566,11 +566,11 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
         style = _STATUS_STYLE.get(overall, "white")
         icon = _STATUS_ICON.get(overall, "")
 
-        # For genre_synthesis the subject is a slug, not an appid —
-        # show the slug in both the first column (instead of appid) and
-        # as the display name (no games row to LEFT JOIN against).
+        # Genre-synthesis rows are keyed by slug, not appid — leave the
+        # narrow subject column blank so the slug shows cleanly in the
+        # name column (the "genre" phase badge already signals row type).
         if g["slug"]:
-            subject = g["slug"][:10]
+            subject = "—"
             name = g["slug"][:28]
         else:
             subject = str(g["appid"] or "")

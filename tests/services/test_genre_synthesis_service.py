@@ -367,6 +367,75 @@ def test_collect_batch_upserts_row_and_marks_completed(service_parts: dict[str, 
     assert mark_kwargs["estimated_cost_usd"] > 0
 
 
+def test_collect_batch_multiple_results_marks_failed(
+    service_parts: dict[str, Any],
+) -> None:
+    """prepare_batch submits one request per slug; more than one result
+    means the backend returned something we didn't ask for. Bail rather
+    than silently persist results[0]."""
+    svc: GenreSynthesisService = service_parts["service"]
+    canned = service_parts["canned"]
+    bogus_backend = FakeBatchBackend(
+        collect_response=BatchCollectResult(
+            results=[
+                ("genre_synthesis:roguelike-deckbuilder:v1", canned),
+                ("genre_synthesis:stowaway:v1", canned),
+            ],
+            failed_ids=[],
+            skipped=0,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    )
+    with pytest.raises(RuntimeError, match="Expected exactly 1"):
+        svc.collect_batch(
+            slug="roguelike-deckbuilder",
+            job_id="msgbatch_test_001",
+            selected_appids=[1001, 1002, 1003],
+            display_name="Roguelike Deckbuilder",
+            avg_positive_pct=85.0,
+            median_review_count=3000,
+            input_hash="hash-abc",
+            prompt_version="v1",
+            backend=bogus_backend,  # type: ignore[arg-type]
+        )
+    service_parts["batch_exec_repo"].mark_failed.assert_called_once()
+
+
+def test_collect_batch_record_id_mismatch_marks_failed(
+    service_parts: dict[str, Any],
+) -> None:
+    """Result's record_id must match the one prepare_batch submitted."""
+    svc: GenreSynthesisService = service_parts["service"]
+    canned = service_parts["canned"]
+    wrong_id_backend = FakeBatchBackend(
+        collect_response=BatchCollectResult(
+            results=[("genre_synthesis:wrong-slug:v1", canned)],
+            failed_ids=[],
+            skipped=0,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    )
+    with pytest.raises(RuntimeError, match="record_id mismatch"):
+        svc.collect_batch(
+            slug="roguelike-deckbuilder",
+            job_id="msgbatch_test_001",
+            selected_appids=[1001, 1002, 1003],
+            display_name="Roguelike Deckbuilder",
+            avg_positive_pct=85.0,
+            median_review_count=3000,
+            input_hash="hash-abc",
+            prompt_version="v1",
+            backend=wrong_id_backend,  # type: ignore[arg-type]
+        )
+    service_parts["batch_exec_repo"].mark_failed.assert_called_once()
+
+
 def test_collect_batch_no_results_marks_failed(service_parts: dict[str, Any]) -> None:
     svc: GenreSynthesisService = service_parts["service"]
     batch_exec_repo = service_parts["batch_exec_repo"]

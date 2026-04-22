@@ -43,7 +43,7 @@ from library_layer.repositories.genre_synthesis_repo import (
 )
 from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.tag_repo import TagRepository
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = Logger()
 
@@ -83,7 +83,7 @@ class PrepareResult(BaseModel):
     execution_id: str
     job_id: str = ""
     display_name: str = ""
-    selected_appids: list[int] = []
+    selected_appids: list[int] = Field(default_factory=list)
     avg_positive_pct: float = 0.0
     median_review_count: int = 0
     input_hash: str = ""
@@ -328,7 +328,22 @@ class GenreSynthesisService:
                     f"No genre_synthesis output for slug={slug!r} "
                     f"(job_id={job_id}, failed_ids={collect_result.failed_ids})"
                 )
-            _record_id, synthesis_obj = collect_result.results[0]
+            # prepare_batch submits exactly one request per slug — more than
+            # one result here means the backend returned something we didn't
+            # ask for, so bail rather than silently persist results[0].
+            if len(collect_result.results) != 1:
+                raise RuntimeError(
+                    f"Expected exactly 1 genre_synthesis result for slug={slug!r}, "
+                    f"got {len(collect_result.results)} "
+                    f"(record_ids={[rid for rid, _ in collect_result.results]})"
+                )
+            record_id, synthesis_obj = collect_result.results[0]
+            expected_record_id = f"genre_synthesis:{slug}:{prompt_version}"
+            if record_id != expected_record_id:
+                raise RuntimeError(
+                    f"record_id mismatch for slug={slug!r}: expected "
+                    f"{expected_record_id!r}, got {record_id!r}"
+                )
             if not isinstance(synthesis_obj, GenreSynthesis):
                 raise TypeError(
                     f"Expected GenreSynthesis, got {type(synthesis_obj).__name__}"

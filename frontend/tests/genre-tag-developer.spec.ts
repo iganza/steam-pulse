@@ -1,29 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { mockAllApiRoutes } from './fixtures/api-mock'
 
-test.describe('Genre page', () => {
-  test.beforeEach(async ({ page }) => {
-    await mockAllApiRoutes(page)
-    await page.goto('/genre/action')
-  })
-
-  test('renders genre name as heading', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /action/i })).toBeVisible()
-  })
-
-  test('shows game count or result info', async ({ page }) => {
-    await expect(page.getByText(/games/i).first()).toBeVisible()
-  })
-
-  test('shows game cards', async ({ page }) => {
-    await expect(page.getByText('Team Fortress 2').first()).toBeVisible()
-  })
-
-  test('breadcrumbs include home', async ({ page }) => {
-    // Breadcrumbs are rendered server-side as a nav with aria-label
-    await expect(page.getByRole('navigation', { name: /breadcrumb/i })).toBeVisible()
-  })
-})
+// Genre page coverage lives in tests/genre-page.spec.ts — the /genre/[slug]/
+// route is now the editorial synthesis page, not a generic listing.
 
 test.describe('Tag page', () => {
   test.beforeEach(async ({ page }) => {

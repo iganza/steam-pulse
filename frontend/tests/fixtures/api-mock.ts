@@ -10,6 +10,7 @@ import {
   MOCK_REVIEW_VELOCITY, MOCK_TOP_REVIEWS, MOCK_PRICE_POSITIONING,
   MOCK_RELEASE_TIMING, MOCK_PLATFORM_GAPS, MOCK_TAG_TREND,
   MOCK_DEVELOPER_PORTFOLIO,
+  MOCK_GENRE_INSIGHTS, MOCK_REPORT_SUMMARY_PREORDER, MOCK_REPORT_SUMMARY_LIVE,
 } from './mock-data'
 
 export async function mockAnalyticsRoutes(page: Page) {
@@ -295,4 +296,80 @@ export async function mockAllApiRoutes(page: Page) {
 
   await mockAnalyticsRoutes(page)
   await mockPerEntityAnalyticsRoutes(page)
+}
+
+/** Mock the /genre/[slug]/ page endpoints.
+ *
+ *   reportState: 'pre-order' | 'live' | 'none'
+ *     - pre-order: getReportForGenre returns a future-dated row
+ *     - live:      returns a past-dated row
+ *     - none:      returns 404 (block doesn't render)
+ *
+ *   insights: 'present' | '404'
+ *     - present: MOCK_GENRE_INSIGHTS
+ *     - 404:     /api/tags/{slug}/insights returns 404 (page 404s)
+ */
+export async function mockGenreInsights(
+  page: Page,
+  opts: {
+    reportState: 'pre-order' | 'live' | 'none'
+    insights?: 'present' | '404'
+    slug?: string
+  } = { reportState: 'none' },
+) {
+  const slug = opts.slug ?? 'roguelike-deckbuilder'
+  const insightsMode = opts.insights ?? 'present'
+
+  // Source-game lookups for friction/wishlist/benchmark crosslinks. Benchmarks
+  // 99999901 / 99999902 are in the fixture but off-preview (first-3 slice),
+  // so the page shouldn't call their report endpoint.
+  const gameReportMocks: Record<number, { slug: string; name: string }> = {
+    646570: { slug: 'slay-the-spire', name: 'Slay the Spire' },
+    2379780: { slug: 'balatro', name: 'Balatro' },
+    1196590: { slug: 'monster-train', name: 'Monster Train' },
+  }
+  for (const [appidStr, g] of Object.entries(gameReportMocks)) {
+    const appid = Number(appidStr)
+    await page.route(`**/api/games/${appid}/report`, route =>
+      route.fulfill({
+        json: {
+          status: 'available',
+          game: {
+            slug: g.slug,
+            name: g.name,
+            header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          },
+        },
+      }),
+    )
+  }
+
+  // Insights — override the fixture's slug so response.slug matches the URL.
+  const insightsPattern = `**/api/tags/${slug}/insights`
+  if (insightsMode === '404') {
+    await page.route(insightsPattern, route =>
+      route.fulfill({ status: 404, json: { error: 'not_found' } }),
+    )
+  } else {
+    await page.route(insightsPattern, route =>
+      route.fulfill({ json: { ...MOCK_GENRE_INSIGHTS, slug } }),
+    )
+  }
+
+  // Report — clone the fixture with the requested slug so checkout flows
+  // that read report.slug stay consistent with the mocked route.
+  const reportPattern = `**/api/genres/${slug}/report`
+  if (opts.reportState === 'none') {
+    await page.route(reportPattern, route =>
+      route.fulfill({ status: 404, json: { error: 'not_found' } }),
+    )
+  } else if (opts.reportState === 'pre-order') {
+    await page.route(reportPattern, route =>
+      route.fulfill({ json: { ...MOCK_REPORT_SUMMARY_PREORDER, slug } }),
+    )
+  } else {
+    await page.route(reportPattern, route =>
+      route.fulfill({ json: { ...MOCK_REPORT_SUMMARY_LIVE, slug } }),
+    )
+  }
 }

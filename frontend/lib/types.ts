@@ -573,3 +573,91 @@ export interface RelatedAnalyzedGame {
   positive_pct: number | null;
   one_liner: string;
 }
+
+// ---------------------------------------------------------------------------
+// Cross-genre synthesis (Phase-4) — mirrors backend GenreSynthesisRow.
+// Served from GET /api/tags/{slug}/insights.
+// ---------------------------------------------------------------------------
+
+export interface FrictionPoint {
+  title: string;
+  description: string;
+  representative_quote: string;
+  source_appid: number;
+  mention_count: number;
+}
+
+export interface WishlistItem {
+  title: string;
+  description: string;
+  representative_quote: string;
+  source_appid: number;
+  mention_count: number;
+}
+
+export interface BenchmarkGame {
+  appid: number;
+  name: string;
+  why_benchmark: string;
+}
+
+export interface ChurnInsight {
+  typical_dropout_hour: number;
+  primary_reason: string;
+  representative_quote: string;
+  source_appid: number;
+}
+
+export interface GenreDevPriority {
+  action: string;
+  why_it_matters: string;
+  frequency: number;
+  effort: "low" | "medium" | "high";
+}
+
+export interface GenreSynthesis {
+  narrative_summary: string;
+  friction_points: FrictionPoint[];
+  wishlist_items: WishlistItem[];
+  benchmark_games: BenchmarkGame[];
+  churn_insight: ChurnInsight;
+  dev_priorities: GenreDevPriority[];
+}
+
+export interface GenreInsights {
+  slug: string;
+  display_name: string;
+  input_appids: number[];
+  input_count: number;
+  prompt_version: string;
+  input_hash: string;
+  synthesis: GenreSynthesis;
+  narrative_summary: string;
+  avg_positive_pct: number;
+  median_review_count: number;
+  computed_at: string;
+  editorial_intro: string;
+  churn_interpretation: string;
+}
+
+// ---------------------------------------------------------------------------
+// Paid-PDF report summary — served from GET /api/genres/{slug}/report.
+// Owned by stripe-checkout-report-delivery.md; absent today, so the client
+// getter returns null on any non-200.
+// ---------------------------------------------------------------------------
+
+export type ReportTier = "indie" | "studio" | "publisher";
+
+export interface ReportTierPrice {
+  tier: ReportTier;
+  price_cents: number;
+  stripe_price_id: string;
+}
+
+export interface ReportSummary {
+  slug: string;
+  display_name: string;
+  tiers: ReportTierPrice[];
+  published_at: string;
+  is_pre_order: boolean;
+}

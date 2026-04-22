@@ -188,6 +188,35 @@ def test_upsert_overwrites_on_conflict(
     assert got.input_count == 42
 
 
+def test_upsert_preserves_editorial_on_refresh(
+    db_conn: Any,
+    genre_synthesis_repo: GenreSynthesisRepository,
+) -> None:
+    # Editorial columns are operator-curated out-of-band; the synthesizer
+    # refresh path must not clobber them. Simulate curation-then-refresh.
+    genre_synthesis_repo.upsert(_sample_row())
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE mv_genre_synthesis
+               SET editorial_intro = %s, churn_interpretation = %s
+             WHERE slug = %s
+            """,
+            ("Hand-written intro.", "One-line churn take.", "roguelike-deckbuilder"),
+        )
+    db_conn.commit()
+
+    refreshed = _sample_row()
+    refreshed.input_hash = "refresh-hash"
+    genre_synthesis_repo.upsert(refreshed)
+
+    got = genre_synthesis_repo.get_by_slug("roguelike-deckbuilder")
+    assert got is not None
+    assert got.input_hash == "refresh-hash"
+    assert got.editorial_intro == "Hand-written intro."
+    assert got.churn_interpretation == "One-line churn take."
+
+
 def test_find_stale_returns_old_rows(
     db_conn: Any, genre_synthesis_repo: GenreSynthesisRepository
 ) -> None:

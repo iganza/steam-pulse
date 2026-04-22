@@ -184,6 +184,62 @@ async def list_games(
     return {"total": total, "has_more": has_more, "games": games}
 
 
+@app.get("/api/games/basics")
+async def get_games_basics(appids: str) -> JSONResponse:
+    """Lightweight crosslink lookup — returns [{appid, name, slug, header_image}, ...]
+    for a comma-separated list of appids.
+
+    Purpose: the genre synthesis page (/genre/[slug]/) renders up to ~11
+    crosslinks per SSR — benchmark cards, friction-quote source-game links,
+    wishlist-quote source-game links. Hitting /api/games/{appid}/report
+    for each would pull the full report JSON per game; this endpoint is
+    a single DB round-trip for the four fields actually rendered.
+
+    Order is preserved from the input list; unknown appids are silently
+    omitted rather than 404-ing the whole batch. Hard-capped at 50 to
+    prevent accidental large fan-outs.
+    """
+    # Parse + dedupe while preserving first-seen order. Cap the raw input
+    # generously to guard the parser, then cap the deduped list to the real
+    # DB-fanout limit — so appids=1,1,1,... (many duplicates) doesn't 400
+    # when the actual lookup is a single row.
+    RAW_LIMIT = 500
+    UNIQUE_LIMIT = 50
+    if len(appids) > RAW_LIMIT * 10:  # rough byte guard before the split
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "query_too_long"},
+        )
+    parsed: list[int] = []
+    for part in appids.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            parsed.append(int(part))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_appid", "value": part},
+            )
+    seen: set[int] = set()
+    unique: list[int] = []
+    for a in parsed:
+        if a not in seen:
+            seen.add(a)
+            unique.append(a)
+    if len(unique) > UNIQUE_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "too_many_appids", "limit": UNIQUE_LIMIT, "given": len(unique)},
+        )
+    basics = _game_repo.find_basics_by_appids(unique)
+    return JSONResponse(
+        content={"games": basics},
+        headers={"Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400"},
+    )
+
+
 @app.get("/api/games/{appid}/report")
 async def get_game_report(appid: int) -> dict:
     """Return the full report JSON if it exists, or a status object.

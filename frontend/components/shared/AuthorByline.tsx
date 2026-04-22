@@ -5,9 +5,14 @@ import { AUTHOR_NAME, METHODOLOGY_PATH } from "@/lib/author";
 
 interface AuthorBylineProps {
   className?: string;
+  /** Override the Methodology link target. Defaults to the global
+   * `/about#methodology` route; pages with their own methodology section
+   * (e.g. the genre synthesis page) can pass a local `#methodology` anchor
+   * so the in-page section wins over the cross-page one. */
+  href?: string;
 }
 
-export function AuthorByline({ className }: AuthorBylineProps) {
+export function AuthorByline({ className, href }: AuthorBylineProps) {
   return (
     <p
       className={
@@ -20,7 +25,7 @@ export function AuthorByline({ className }: AuthorBylineProps) {
       <span className="font-medium text-foreground">{AUTHOR_NAME}</span>
       {" · "}
       <Link
-        href={METHODOLOGY_PATH}
+        href={href ?? METHODOLOGY_PATH}
         className="underline underline-offset-2 hover:text-foreground transition-colors"
       >
         Methodology &rarr;

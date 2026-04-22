@@ -21,7 +21,8 @@ class GenreSynthesisRepository(BaseRepository):
             """
             SELECT slug, display_name, input_appids, input_count,
                    prompt_version, input_hash, synthesis, narrative_summary,
-                   avg_positive_pct, median_review_count, computed_at
+                   avg_positive_pct, median_review_count, computed_at,
+                   editorial_intro, churn_interpretation
             FROM mv_genre_synthesis
             WHERE slug = %s
             """,

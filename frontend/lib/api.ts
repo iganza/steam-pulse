@@ -5,6 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
+  GenreInsights, ReportSummary,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -401,6 +402,67 @@ export async function getRelatedAnalyzedGames(
   // a shorter per-fetch revalidate would effectively shrink the page ISR and
   // hammer the DB on every cache miss.
   return apiFetch(`/api/games/${appid}/related-analyzed`, { next: { revalidate: 86400 } });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-genre synthesis + paid-report surface (genre insights page)
+// ---------------------------------------------------------------------------
+
+/** Lightweight crosslink basics for a batch of appids. Backed by
+ * /api/games/basics — the genre synthesis page uses this instead of N
+ * per-appid /report fetches when it only needs slug/name/header_image.
+ */
+export interface GameBasicsEntry {
+  appid: number;
+  name: string;
+  slug: string;
+  header_image: string | null;
+}
+
+export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]> {
+  if (appids.length === 0) return [];
+  const qs = appids.join(",");
+  const data = await apiFetch<{ games: GameBasicsEntry[] }>(
+    `/api/games/basics?appids=${encodeURIComponent(qs)}`,
+    { next: { revalidate: 3600, tags: ["game-basics"] } },
+  );
+  return data.games;
+}
+
+/** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.
+ *
+ * Path uses /api/tags/ because the synthesizer joins the tags table; the
+ * public URL is /genre/[slug]/, hence the getGenreInsights name.
+ * 404 → null so the page can surface Next.js notFound() cleanly.
+ */
+export async function getGenreInsights(slug: string): Promise<GenreInsights | null> {
+  try {
+    return await apiFetch<GenreInsights>(`/api/tags/${encodeURIComponent(slug)}/insights`, {
+      next: { revalidate: 3600, tags: [`genre-insights-${slug}`] },
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** GET /api/genres/{slug}/report — paid-PDF report summary.
+ *
+ * Endpoint ships with stripe-checkout-report-delivery.md; until then,
+ * FastAPI returns 404 for the unwired route. 404 and 501 resolve to null
+ * so the pre-order/buy block simply doesn't render. 5xx and network
+ * errors are rethrown so real production failures stay visible in logs
+ * instead of being silently suppressed into a missing buy block.
+ */
+export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
+  try {
+    return await apiFetch<ReportSummary>(`/api/genres/${encodeURIComponent(slug)}/report`, {
+      next: { revalidate: 300, tags: [`genre-report-${slug}`] },
+    });
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 501)) return null;
+    throw err;
+  }
 }
 
 export { ApiError };

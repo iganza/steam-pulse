@@ -14,6 +14,25 @@ def test_games_list(api: httpx.Client) -> None:
     assert len(data["games"]) > 0
 
 
+def test_games_basics_batch(api: httpx.Client, well_known_appid: int) -> None:
+    r = api.get("/api/games/basics", params={"appids": str(well_known_appid)})
+    assert r.status_code == 200
+    data = r.json()
+    assert "games" in data
+    # Known appid should resolve; unknowns are silently omitted.
+    assert any(g["appid"] == well_known_appid for g in data["games"])
+    for g in data["games"]:
+        assert "name" in g and isinstance(g["name"], str)
+        assert "slug" in g and isinstance(g["slug"], str)
+        # header_image may be null if the Steam crawl hasn't populated it.
+        assert "header_image" in g
+
+
+def test_games_basics_rejects_non_numeric(api: httpx.Client) -> None:
+    r = api.get("/api/games/basics", params={"appids": "notanumber"})
+    assert r.status_code == 400
+
+
 def test_game_report(api: httpx.Client, well_known_appid: int) -> None:
     r = api.get(f"/api/games/{well_known_appid}/report")
     assert r.status_code == 200

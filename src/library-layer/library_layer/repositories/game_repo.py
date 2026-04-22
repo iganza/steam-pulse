@@ -519,6 +519,30 @@ class GameRepository(BaseRepository):
             result.append(d)
         return {"total": None, "games": result}
 
+    def find_basics_by_appids(
+        self, appids: list[int]
+    ) -> list[dict[str, object]]:
+        """Return [{appid, name, slug, header_image}, ...] for the given appids.
+
+        Backs GET /api/games/basics — the lightweight crosslink lookup used
+        by the genre synthesis page to populate benchmark cards and
+        friction/wishlist quote source-game links without pulling the full
+        report JSON for each appid.
+
+        Preserves caller order in the result; unknown appids are omitted.
+        """
+        if not appids:
+            return []
+        rows = self._fetchall(
+            """
+            SELECT appid, name, slug, header_image
+            FROM games WHERE appid = ANY(%s)
+            """,
+            (appids,),
+        )
+        by_appid = {int(r["appid"]): dict(r) for r in rows}
+        return [by_appid[a] for a in appids if a in by_appid]
+
     def find_review_stats_for_appids(
         self, appids: list[int]
     ) -> list[dict[str, object]]:

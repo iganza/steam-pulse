@@ -237,6 +237,116 @@ const MOCK_DEVELOPER_PORTFOLIO = {
   ],
 }
 
+// ── Cross-genre synthesis fixtures ───────────────────────────────────────────
+
+const MOCK_GENRE_INSIGHTS = {
+  slug: 'roguelike-deckbuilder',
+  display_name: 'Roguelike Deckbuilder',
+  input_appids: [646570, 2379780, 1196590],
+  input_count: 141,
+  prompt_version: 'v1',
+  input_hash: 'mock-hash',
+  narrative_summary:
+    'Players of the genre cluster around three patterns: tight run length rewards craft, meta-progression carries late-game attention, and anything resembling grind breaks the loop.',
+  avg_positive_pct: 88.5,
+  median_review_count: 12000,
+  computed_at: '2026-04-15T00:00:00Z',
+  editorial_intro:
+    'This is a hand-written editorial intro for testing purposes. It frames what the synthesis found and why it matters to an indie dev building in this genre.\n\nThe second paragraph adds context so the page renders with a real-looking body of prose above the first section heading.',
+  churn_interpretation:
+    'Unlock grind hits around the 8-hour mark — players drop before meta-progression kicks in.',
+  synthesis: {
+    narrative_summary:
+      'Players of the genre cluster around three patterns: tight run length rewards craft, meta-progression carries late-game attention, and anything resembling grind breaks the loop.',
+    friction_points: [
+      { title: 'Run length too long', description: 'Runs routinely exceed 90 minutes.', representative_quote: '2-hour runs are brutal on mobile.', source_appid: 646570, mention_count: 18 },
+      { title: 'Unlock pacing grind', description: 'Players stall when meta-progression gates core content.', representative_quote: 'I just want the cards I\u2019ve earned already.', source_appid: 2379780, mention_count: 14 },
+      { title: 'Endgame feels empty', description: 'After ascension peaks, motivation drops hard.', representative_quote: 'Nothing to chase after A20.', source_appid: 646570, mention_count: 11 },
+      { title: 'Balance swings between patches', description: 'Meta whiplash frustrates experienced players.', representative_quote: 'Last patch killed my favorite deck.', source_appid: 1196590, mention_count: 9 },
+      { title: 'UI hides key information', description: 'Relic interactions are buried under tooltips.', representative_quote: 'I had to read the wiki.', source_appid: 646570, mention_count: 8 },
+      { title: 'Sixth friction item', description: 'Hidden in PDF.', representative_quote: 'Hidden.', source_appid: 1196590, mention_count: 5 },
+      { title: 'Seventh friction item', description: 'Hidden in PDF.', representative_quote: 'Hidden.', source_appid: 1196590, mention_count: 4 },
+      { title: 'Eighth friction item', description: 'Hidden in PDF.', representative_quote: 'Hidden.', source_appid: 1196590, mention_count: 4 },
+      { title: 'Ninth friction item', description: 'Hidden in PDF.', representative_quote: 'Hidden.', source_appid: 1196590, mention_count: 3 },
+      { title: 'Tenth friction item', description: 'Hidden in PDF.', representative_quote: 'Hidden.', source_appid: 1196590, mention_count: 3 },
+    ],
+    wishlist_items: [
+      { title: 'Daily shared seed', description: 'Community run comparisons.', representative_quote: 'I wish runs were shareable.', source_appid: 1196590, mention_count: 12 },
+      { title: 'Deeper deck archetypes', description: 'More viable non-meta builds.', representative_quote: 'Give me more decks, not more balance patches.', source_appid: 646570, mention_count: 10 },
+      { title: 'Pause during combat', description: 'Accessibility.', representative_quote: 'Pausing mid-fight would unlock the game for me.', source_appid: 2379780, mention_count: 7 },
+      { title: 'Fourth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 6 },
+      { title: 'Fifth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 5 },
+      { title: 'Sixth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 4 },
+      { title: 'Seventh wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 4 },
+      { title: 'Eighth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 3 },
+      { title: 'Ninth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 3 },
+      { title: 'Tenth wishlist item', description: 'Hidden.', representative_quote: 'Hidden.', source_appid: 646570, mention_count: 3 },
+    ],
+    benchmark_games: [
+      { appid: 646570, name: 'Slay the Spire', why_benchmark: 'Defines the pacing ceiling for the genre.' },
+      { appid: 2379780, name: 'Balatro', why_benchmark: 'Proves a fresh mechanical core still lands with mass audiences.' },
+      { appid: 1196590, name: 'Monster Train', why_benchmark: 'Multi-lane combat expanded the design envelope.' },
+      { appid: 99999901, name: 'Benchmark 4', why_benchmark: 'Hidden behind the paywall.' },
+      { appid: 99999902, name: 'Benchmark 5', why_benchmark: 'Hidden behind the paywall.' },
+    ],
+    churn_insight: {
+      typical_dropout_hour: 8,
+      primary_reason: 'Unlock grind between runs',
+      representative_quote: 'Stopped at hour 8 — too many cards locked.',
+      source_appid: 646570,
+    },
+    dev_priorities: [
+      { action: 'Shorten late-run pacing', why_it_matters: 'Cuts the top friction cluster.', frequency: 18, effort: 'medium' },
+      { action: 'Unlock all content by hour 6', why_it_matters: 'Pre-empts the churn wall.', frequency: 14, effort: 'low' },
+      { action: 'Add shared daily seed mode', why_it_matters: 'Top wishlist item with low cost.', frequency: 12, effort: 'low' },
+      { action: 'Fourth priority', why_it_matters: 'Hidden in PDF.', frequency: 9, effort: 'high' },
+    ],
+  },
+}
+
+const _NOW = Date.now()
+const _FUTURE_SHIP_ISO = new Date(_NOW + 21 * 86_400 * 1000).toISOString()
+const _PAST_SHIP_ISO = new Date(_NOW - 3 * 86_400 * 1000).toISOString()
+
+const MOCK_REPORT_SUMMARY_PREORDER = {
+  slug: 'rdb-preorder',
+  display_name: 'The Roguelike Deckbuilder Market Report 2026',
+  tiers: [
+    { tier: 'indie', price_cents: 4900, stripe_price_id: 'price_indie_test' },
+    { tier: 'studio', price_cents: 14900, stripe_price_id: 'price_studio_test' },
+    { tier: 'publisher', price_cents: 49900, stripe_price_id: 'price_publisher_test' },
+  ],
+  published_at: _FUTURE_SHIP_ISO,
+  is_pre_order: true,
+}
+
+const MOCK_REPORT_SUMMARY_LIVE = {
+  ...MOCK_REPORT_SUMMARY_PREORDER,
+  slug: 'rdb-live',
+  published_at: _PAST_SHIP_ISO,
+  is_pre_order: false,
+}
+
+// Test slugs used by the /genre/[slug]/ Playwright spec. All 'rdb-*' slugs
+// return the same synthesis content; the report endpoint varies per slug.
+const GENRE_INSIGHTS_SLUGS = new Set([
+  'roguelike-deckbuilder',
+  'rdb-base',
+  'rdb-preorder',
+  'rdb-live',
+])
+
+const GENRE_REPORT_BY_SLUG = {
+  'rdb-preorder': MOCK_REPORT_SUMMARY_PREORDER,
+  'rdb-live': MOCK_REPORT_SUMMARY_LIVE,
+}
+
+const BENCHMARK_GAME_BASICS = {
+  646570: { slug: 'slay-the-spire', name: 'Slay the Spire' },
+  2379780: { slug: 'balatro', name: 'Balatro' },
+  1196590: { slug: 'monster-train', name: 'Monster Train' },
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 function respond(res, statusCode, data) {
@@ -259,6 +369,89 @@ const server = createServer((req, res) => {
   // recognize an already-running mock instead of trying to relaunch on 3001.
   if (path === '/') {
     return respond(res, 200, { ok: true })
+  }
+
+  // Cross-genre synthesis — /api/tags/:slug/insights.
+  // Must come BEFORE the /api/tags/.../trend and generic tags wildcards.
+  {
+    const m = path.match(/^\/api\/tags\/([^/]+)\/insights$/)
+    if (m) {
+      const slug = m[1]
+      if (GENRE_INSIGHTS_SLUGS.has(slug)) {
+        return respond(res, 200, { ...MOCK_GENRE_INSIGHTS, slug, display_name: MOCK_GENRE_INSIGHTS.display_name })
+      }
+      return respond(res, 404, { error: 'no_synthesis', code: 'not_found', slug })
+    }
+  }
+
+  // Paid-PDF report summary — /api/genres/:slug/report.
+  // Only the 'rdb-preorder' and 'rdb-live' test slugs return a row; other
+  // slugs 404 so the pre-order/buy block stays hidden.
+  {
+    const m = path.match(/^\/api\/genres\/([^/]+)\/report$/)
+    if (m) {
+      const slug = m[1]
+      const body = GENRE_REPORT_BY_SLUG[slug]
+      if (body) return respond(res, 200, body)
+      return respond(res, 404, { error: 'no_report', code: 'not_found', slug })
+    }
+  }
+
+  // Batched crosslink lookup — used by the genre synthesis page in place
+  // of N per-appid /report fetches. Matched BEFORE any /api/games/:id/*
+  // routes so "basics" isn't mistaken for an appid segment.
+  if (path === '/api/games/basics') {
+    const raw = url.searchParams.get('appids') ?? ''
+    const appids = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter((n) => Number.isFinite(n))
+    const games = appids
+      .map((appid) => {
+        const g = BENCHMARK_GAME_BASICS[appid]
+        if (!g) return null
+        return {
+          appid,
+          name: g.name,
+          slug: g.slug,
+          header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        }
+      })
+      .filter((x) => x !== null)
+    return respond(res, 200, { games })
+  }
+
+  // Benchmark-game reports kept for any other callers that still hit the
+  // full /report endpoint (not the genre page anymore). Matched BEFORE the
+  // generic /api/games/:id/report fallback so the benchmark game names win.
+  {
+    const m = path.match(/^\/api\/games\/(\d+)\/report$/)
+    if (m && BENCHMARK_GAME_BASICS[Number(m[1])]) {
+      const appid = Number(m[1])
+      const g = BENCHMARK_GAME_BASICS[appid]
+      return respond(res, 200, {
+        status: 'available',
+        game: {
+          slug: g.slug,
+          name: g.name,
+          header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          short_desc: `${g.name} test fixture.`,
+          developer: 'Test Dev',
+          release_date: '2020-01-01',
+          price_usd: 19.99,
+          is_free: false,
+          is_early_access: false,
+          genres: ['Roguelike'],
+          tags: ['Deckbuilder'],
+          positive_pct: 95,
+          review_score_desc: 'Overwhelmingly Positive',
+          review_count: 1000,
+          review_count_english: 800,
+        },
+      })
+    }
   }
 
   // Specific game reports — registered before the wildcard

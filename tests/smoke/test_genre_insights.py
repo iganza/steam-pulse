@@ -31,6 +31,25 @@ def test_tag_insights_endpoint_responds(api: httpx.Client, slug: str) -> None:
         assert "churn_insight" in s
         assert "dev_priorities" in s and isinstance(s["dev_priorities"], list)
 
+        # Editorial columns (migration 0052) — API contract check. Asserts
+        # the endpoint's response shape always includes these fields, even
+        # when the DB column is unset (the Pydantic model defaults to "").
+        # This does NOT catch a silently-dropped SELECT in the repo: that
+        # regression would still return defaults via Pydantic — cover it
+        # with a repository-level test instead (see
+        # tests/repositories/test_genre_synthesis_repo.py).
+        assert "editorial_intro" in body
+        assert isinstance(body["editorial_intro"], str)
+        assert "churn_interpretation" in body
+        assert isinstance(body["churn_interpretation"], str)
+
+
+# The "PDF delivers more than the free preview" promise is an editorial
+# contract, not a runtime invariant — the synthesizer's Pydantic schema
+# accepts lists as short as 1 (tolerant for sparse cohorts), and hard
+# smoke thresholds are flaky against the weekly re-synthesis. Verify
+# this promise manually before publishing a new genre page instead.
+
 
 def test_tag_insights_unknown_slug_returns_404(api: httpx.Client) -> None:
     r = api.get("/api/tags/this-slug-will-never-exist-xyz123/insights")

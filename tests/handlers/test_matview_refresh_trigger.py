@@ -115,6 +115,26 @@ def test_batch_analysis_wins_over_other_events_in_same_batch() -> None:
     assert payload == {"force": True, "trigger_event": "batch-analysis-complete"}
 
 
+def test_catalog_refresh_upgrades_report_ready_in_mixed_batch() -> None:
+    """report-ready seen first, catalog-refresh-complete seen later → the broader event wins."""
+    sfn = _stub_sfn()
+    ssm = _stub_ssm()
+    mod = _get_module(sfn, ssm)
+
+    rr = json.dumps({"Message": json.dumps({"event_type": "report-ready"})})
+    crc = json.dumps({"Message": json.dumps({"event_type": "catalog-refresh-complete"})})
+    event = {
+        "Records": [
+            {"messageId": "m1", "body": rr},
+            {"messageId": "m2", "body": crc},
+        ]
+    }
+    mod.handler(event, MockLambdaContext())
+
+    payload = json.loads(sfn.start_execution.call_args.kwargs["input"])
+    assert payload == {"force": False, "trigger_event": "catalog-refresh-complete"}
+
+
 def test_malformed_record_does_not_crash() -> None:
     """Malformed SQS records are skipped; a valid record in the same batch still fires."""
     sfn = _stub_sfn()

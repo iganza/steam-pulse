@@ -25,19 +25,25 @@ def _get_state_machine_arn() -> str:
     return _cached_arn
 
 
-# Non-force event types that propagate as `trigger_event`. `batch-analysis-complete`
-# is handled separately below because it also escalates force=True.
-_NON_FORCE_EVENT_TYPES = frozenset({"report-ready", "catalog-refresh-complete"})
+# Precedence for mixed batches — highest-priority event type wins. Higher priority
+# = broader invalidation, so a `catalog-refresh-complete` in the same batch as a
+# `report-ready` must upgrade to the full refresh. `batch-analysis-complete` also
+# escalates force=True.
+_EVENT_PRIORITY: dict[str, int] = {
+    "report-ready": 1,
+    "catalog-refresh-complete": 2,
+    "batch-analysis-complete": 3,
+}
 
 
 def _classify(event: dict) -> tuple[bool, str]:
     """Inspect SQS records and return (force, trigger_event).
 
-    `batch-analysis-complete` wins over other events in a mixed batch and
-    escalates force=True. Other recognised events propagate as `trigger_event`
-    with force=False. Unknown or malformed batches return (False, "").
+    Scans every record and picks the highest-priority recognised event type per
+    `_EVENT_PRIORITY`. Unknown or malformed batches return (False, "").
     """
-    trigger_event = ""
+    best = ""
+    best_priority = 0
     for record in event.get("Records", []):
         try:
             body = json.loads(record.get("body", "{}"))
@@ -47,10 +53,10 @@ def _classify(event: dict) -> tuple[bool, str]:
             if not isinstance(message, dict):
                 continue
             event_type = message.get("event_type", "")
-            if event_type == "batch-analysis-complete":
-                return True, "batch-analysis-complete"
-            if not trigger_event and event_type in _NON_FORCE_EVENT_TYPES:
-                trigger_event = event_type
+            priority = _EVENT_PRIORITY.get(event_type, 0)
+            if priority > best_priority:
+                best_priority = priority
+                best = event_type
         except (json.JSONDecodeError, TypeError, AttributeError):
             logger.warning(
                 "Skipping malformed refresh event record",
@@ -59,7 +65,7 @@ def _classify(event: dict) -> tuple[bool, str]:
                 },
             )
             continue
-    return False, trigger_event
+    return best == "batch-analysis-complete", best
 
 
 def _execution_name(event: dict) -> str:

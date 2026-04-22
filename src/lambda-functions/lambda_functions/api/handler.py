@@ -199,6 +199,17 @@ async def get_games_basics(appids: str) -> JSONResponse:
     omitted rather than 404-ing the whole batch. Hard-capped at 50 to
     prevent accidental large fan-outs.
     """
+    # Parse + dedupe while preserving first-seen order. Cap the raw input
+    # generously to guard the parser, then cap the deduped list to the real
+    # DB-fanout limit — so appids=1,1,1,... (many duplicates) doesn't 400
+    # when the actual lookup is a single row.
+    RAW_LIMIT = 500
+    UNIQUE_LIMIT = 50
+    if len(appids) > RAW_LIMIT * 10:  # rough byte guard before the split
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "query_too_long"},
+        )
     parsed: list[int] = []
     for part in appids.split(","):
         part = part.strip()
@@ -211,18 +222,17 @@ async def get_games_basics(appids: str) -> JSONResponse:
                 status_code=400,
                 detail={"error": "invalid_appid", "value": part},
             )
-    if len(parsed) > 50:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "too_many_appids", "limit": 50, "given": len(parsed)},
-        )
-    # Dedupe while preserving first-seen order.
     seen: set[int] = set()
     unique: list[int] = []
     for a in parsed:
         if a not in seen:
             seen.add(a)
             unique.append(a)
+    if len(unique) > UNIQUE_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "too_many_appids", "limit": UNIQUE_LIMIT, "given": len(unique)},
+        )
     basics = _game_repo.find_basics_by_appids(unique)
     return JSONResponse(
         content={"games": basics},

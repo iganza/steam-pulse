@@ -9,10 +9,14 @@ interface Props {
 
 export function EditorialIntro({ insights, shareUrl }: Props) {
   const intro = insights.editorial_intro.trim() || insights.narrative_summary;
+  // computed_at is an ISO timestamp (usually UTC midnight from the weekly
+  // scan). Formatting in UTC keeps the displayed "last updated" date stable
+  // across viewer timezones — matches the approach in ReportBuyBlock.
   const updated = new Date(insights.computed_at).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "UTC",
   });
 
   return (

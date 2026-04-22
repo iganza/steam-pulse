@@ -5,7 +5,12 @@ interface Props {
   interpretation: string;
 }
 
+// Phase-4 uses typical_dropout_hour === 0 as the sentinel for "no hour
+// known" (the prompt explicitly allows 0 when no dropout signal emerges).
+// Rendering that as "~0min" would read like a real churn wall at the very
+// first minute, which is the opposite of the truth — use an em-dash.
 function formatHours(hours: number): string {
+  if (hours === 0) return "—";
   if (hours < 1) {
     const minutes = Math.round(hours * 60);
     return `~${minutes}min`;
@@ -20,6 +25,7 @@ function formatHours(hours: number): string {
 
 export function ChurnWall({ insight, interpretation }: Props) {
   const trimmed = interpretation.trim();
+  const hasHour = insight.typical_dropout_hour > 0;
   return (
     <section className="mb-16" data-testid="churn-wall">
       <h2 className="font-serif text-2xl md:text-3xl font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
@@ -44,6 +50,14 @@ export function ChurnWall({ insight, interpretation }: Props) {
         >
           {formatHours(insight.typical_dropout_hour)}
         </div>
+        {!hasHour && (
+          <p
+            className="mt-2 text-xs font-mono uppercase tracking-widest"
+            style={{ color: "var(--muted-foreground)" }}
+          >
+            No consistent dropout hour in the cohort
+          </p>
+        )}
         <p className="mt-4 text-lg font-serif">{insight.primary_reason}</p>
         {trimmed && (
           <p

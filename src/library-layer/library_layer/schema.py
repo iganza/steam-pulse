@@ -300,7 +300,11 @@ TABLES: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS batch_executions (
         id                  BIGSERIAL PRIMARY KEY,
         execution_id        TEXT NOT NULL,
-        appid               INTEGER NOT NULL REFERENCES games(appid),
+        -- Polymorphic subject: appid for Phase 1-3 per-game batches,
+        -- slug for Phase 4 per-genre batches. XOR enforced by CHECK
+        -- constraint below (matches migration 0053).
+        appid               INTEGER REFERENCES games(appid),
+        slug                TEXT,
         phase               TEXT NOT NULL,
         backend             TEXT NOT NULL,
         batch_id            TEXT NOT NULL UNIQUE,
@@ -320,11 +324,29 @@ TABLES: tuple[str, ...] = (
         failure_reason      TEXT,
         failed_record_ids   TEXT[],
         pipeline_version    TEXT,
-        prompt_version      TEXT
+        prompt_version      TEXT,
+        CONSTRAINT batch_executions_subject_check
+            CHECK ((appid IS NOT NULL) <> (slug IS NOT NULL))
     )
+    """,
+    # 0053_batch_executions_slug — idempotent ALTERs for test DBs whose
+    # batch_executions was created before the slug column existed. CREATE
+    # TABLE IF NOT EXISTS above is a no-op in that case, so the slug
+    # column / nullable appid / XOR check must be applied here before any
+    # index referencing slug runs.
+    "ALTER TABLE batch_executions ALTER COLUMN appid DROP NOT NULL",
+    "ALTER TABLE batch_executions ADD COLUMN IF NOT EXISTS slug TEXT",
+    """
+    DO $$ BEGIN
+        ALTER TABLE batch_executions
+            ADD CONSTRAINT batch_executions_subject_check
+            CHECK ((appid IS NOT NULL) <> (slug IS NOT NULL));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
     """,
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_execution_id ON batch_executions(execution_id)",
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_appid ON batch_executions(appid)",
+    "CREATE INDEX IF NOT EXISTS idx_batch_exec_slug ON batch_executions(slug)",
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_status ON batch_executions(status)",
     "CREATE INDEX IF NOT EXISTS idx_batch_exec_submitted ON batch_executions(submitted_at DESC)",
     # 0050_create_mv_genre_synthesis — Phase-4 cross-genre LLM synthesis.

@@ -367,6 +367,62 @@ def test_collect_batch_upserts_row_and_marks_completed(service_parts: dict[str, 
     assert mark_kwargs["estimated_cost_usd"] > 0
 
 
+def test_collect_batch_unknown_model_does_not_strand_row(
+    service_parts: dict[str, Any],
+) -> None:
+    """An unknown model_id raises in estimate_batch_cost_usd. The tracking
+    row must still reach a terminal state (cost=0, mark_completed runs)
+    rather than being stuck in 'submitted'."""
+    config = SteamPulseConfig(
+        MIN_REPORTS_PER_GENRE=3,
+        MAX_REPORTS_PER_GENRE=10,
+        GENRE_SYNTHESIS_MAX_TOKENS=8000,
+        GENRE_SYNTHESIS_PROMPT_VERSION="v1",
+        GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT=100,
+        # Model not in _BATCH_PRICING — exercises the safety net.
+        LLM_MODEL={"genre_synthesis": "unknown-pricing-model"},
+    )
+    svc = GenreSynthesisService(
+        report_repo=MagicMock(),
+        tag_repo=MagicMock(),
+        game_repo=MagicMock(),
+        synthesis_repo=service_parts["synthesis_repo"],
+        batch_exec_repo=service_parts["batch_exec_repo"],
+        config=config,
+        metrics=service_parts["service"]._metrics,
+        required_pipeline_version="3.0/test",
+    )
+
+    canned = service_parts["canned"]
+    backend = FakeBatchBackend(
+        collect_response=BatchCollectResult(
+            results=[("genre_synthesis:roguelike-deckbuilder:v1", canned)],
+            failed_ids=[],
+            skipped=0,
+            input_tokens=12345,
+            output_tokens=678,
+            cache_read_tokens=200,
+            cache_write_tokens=100,
+        )
+    )
+    svc.collect_batch(
+        slug="roguelike-deckbuilder",
+        job_id="msgbatch_test_001",
+        selected_appids=[1001, 1002, 1003],
+        display_name="Roguelike Deckbuilder",
+        avg_positive_pct=85.0,
+        median_review_count=3000,
+        input_hash="hash-abc",
+        prompt_version="v1",
+        backend=backend,  # type: ignore[arg-type]
+    )
+
+    # mark_completed still runs with cost=0 so the row reaches terminal state.
+    service_parts["batch_exec_repo"].mark_completed.assert_called_once()
+    mark_kwargs = service_parts["batch_exec_repo"].mark_completed.call_args.kwargs
+    assert mark_kwargs["estimated_cost_usd"] == 0
+
+
 def test_collect_batch_multiple_results_marks_failed(
     service_parts: dict[str, Any],
 ) -> None:

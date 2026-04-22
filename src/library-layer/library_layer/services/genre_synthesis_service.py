@@ -293,13 +293,24 @@ class GenreSynthesisService:
             job_id, default_response_model=GenreSynthesis
         )
 
-        cost = estimate_batch_cost_usd(
-            model_id=self._config.model_for("genre_synthesis"),
-            input_tokens=collect_result.input_tokens,
-            output_tokens=collect_result.output_tokens,
-            cache_read_tokens=collect_result.cache_read_tokens,
-            cache_write_tokens=collect_result.cache_write_tokens,
-        )
+        # Cost estimation can raise if the model_id isn't in the pricing
+        # table — never let that strand the batch_executions row in
+        # 'submitted'. Record cost=0 with a warning so mark_completed
+        # still runs and the row reaches a terminal state.
+        try:
+            cost = estimate_batch_cost_usd(
+                model_id=self._config.model_for("genre_synthesis"),
+                input_tokens=collect_result.input_tokens,
+                output_tokens=collect_result.output_tokens,
+                cache_read_tokens=collect_result.cache_read_tokens,
+                cache_write_tokens=collect_result.cache_write_tokens,
+            )
+        except Exception:
+            logger.exception(
+                "batch_execution_cost_estimation_failed",
+                extra={"slug": slug, "job_id": job_id},
+            )
+            cost = 0.0
 
         # Always record token usage and cost first — even if the single
         # record failed validation, the API consumed tokens and we need

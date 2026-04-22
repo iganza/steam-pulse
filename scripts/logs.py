@@ -22,11 +22,12 @@ Usage:
         poetry run python scripts/logs.py --batches --all --tail 15
 
 Log groups (--log-group shorthand):
-    crawler     /steampulse/{env}/crawler
-    ingest      /steampulse/{env}/ingest
-    api         /steampulse/{env}/api
-    spoke       /aws/lambda/steampulse-spoke-crawler-*-{env}
-    synthesis   /steampulse/{env}/genre-synthesis
+    crawler             /steampulse/{env}/crawler
+    ingest              /steampulse/{env}/ingest
+    api                 /steampulse/{env}/api
+    spoke               /aws/lambda/steampulse-spoke-crawler-*-{env}
+    synthesis           /steampulse/{env}/batch-genre-synthesis-prepare
+    synthesis-collect   /steampulse/{env}/batch-genre-synthesis-collect
 """
 
 import argparse

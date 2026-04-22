@@ -41,9 +41,9 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.services.genre_synthesis_service import GenreSynthesisService
 from library_layer.utils.db import get_conn
 
-logger = Logger(service="genre-synthesis-prepare")
-tracer = Tracer(service="genre-synthesis-prepare")
-metrics = Metrics(namespace="SteamPulse", service="genre-synthesis-prepare")
+logger = Logger(service="batch-genre-synthesis-prepare")
+tracer = Tracer(service="batch-genre-synthesis-prepare")
+metrics = Metrics(namespace="SteamPulse", service="batch-genre-synthesis-prepare")
 
 _config = SteamPulseConfig()
 metrics.set_default_dimensions(environment=_config.ENVIRONMENT)

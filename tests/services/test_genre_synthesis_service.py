@@ -457,6 +457,11 @@ def test_collect_batch_multiple_results_marks_failed(
             prompt_version="v1",
             backend=bogus_backend,  # type: ignore[arg-type]
         )
+    # Counts reflect the validated outcome — NOT len(collect_result.results).
+    mark_kwargs = service_parts["batch_exec_repo"].mark_completed.call_args.kwargs
+    assert mark_kwargs["succeeded_count"] == 0
+    assert mark_kwargs["failed_count"] == 2
+    assert "genre_synthesis:stowaway:v1" in mark_kwargs["failed_record_ids"]
     service_parts["batch_exec_repo"].mark_failed.assert_called_once()
 
 
@@ -489,6 +494,10 @@ def test_collect_batch_record_id_mismatch_marks_failed(
             prompt_version="v1",
             backend=wrong_id_backend,  # type: ignore[arg-type]
         )
+    mark_kwargs = service_parts["batch_exec_repo"].mark_completed.call_args.kwargs
+    assert mark_kwargs["succeeded_count"] == 0
+    assert mark_kwargs["failed_count"] == 1
+    assert "genre_synthesis:wrong-slug:v1" in mark_kwargs["failed_record_ids"]
     service_parts["batch_exec_repo"].mark_failed.assert_called_once()
 
 

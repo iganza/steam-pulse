@@ -76,9 +76,13 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
   `{"slug", "job_id" | null, "skip": bool, "display_name", "selected_appids",
   "avg_positive_pct", "median_review_count", "input_hash", "prompt_version",
   "execution_id"}` — same threading shape Phase 1-3's `prepare_phase` uses.
-- `collect.py` — shell around `GenreSynthesisService.collect_batch`. Input:
-  prepare output merged with `{"status"}`. Writes `mv_genre_synthesis` row,
-  marks `batch_executions` completed.
+- `collect.py` — shell around `GenreSynthesisService.collect_batch`. Input
+  is the prepare output fields threaded forward by Step Functions
+  (`slug`, `job_id`, `execution_id`, `selected_appids`, `display_name`,
+  `avg_positive_pct`, `median_review_count`, `input_hash`,
+  `prompt_version`) — the `CheckStatus` result lives at
+  `$.status_result` and is consumed by the SFN Choice, not by Collect.
+  Writes `mv_genre_synthesis` row, marks `batch_executions` completed.
 - **Delete:** `handler.py` (SQS + scan_stale branches, both gone).
 
 **Reuse as-is (no changes):**
@@ -94,44 +98,61 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
   CHECK ((appid IS NOT NULL) <> (slug IS NOT NULL));` + index on `slug`.
   The FK `REFERENCES games(appid)` is preserved (nullable FK is valid).
 - `BatchExecutionRepository.insert`: make `appid: int | None = None`, add
-  `slug: str = ""`. Raise if neither/both set.
-- `BatchExecution` model: `appid: int | None`, `slug: str = ""`.
-- `scripts/logs.py` query adds `be.slug`; `_group_by_execution` renders
-  `slug` when `appid` is null, `game_name` otherwise.
+  `slug: str | None = None`. Raise if neither/both set.
+- `BatchExecution` model: `appid: int | None = None`, `slug: str | None =
+  None`. Nullable-on-both-sides maps directly to the DB column shape so
+  NULL round-trips cleanly without a translation layer.
+- `scripts/logs.py` query adds `be.slug`; rendering splits the
+  first column into a narrow `subject` (appid or `—` for slug rows) and
+  a wider `name` (game_name or slug) so the `genre` badge + slug read
+  cleanly alongside Phase 1-3 rows.
 
 **CDK** (`infra/stacks/`):
-- `compute_stack.py:746-835` — replace `GenreSynthesisFn` + SQS event source
-  with two new `PythonFunction`s: `GenreSynthesisPrepareFn`,
-  `GenreSynthesisCollectFn`. Keep `anthropic_secret.grant_read` +
-  `db_secret.grant_read` + SSM read grants. Drop `bedrock:InvokeModel*`
-  (the new path is Anthropic batch, no Bedrock call). Drop
-  `genre_synthesis_queue.grant_consume_messages` + `grant_send_messages`.
-- `compute_stack.py:821-835` — delete `GenreSynthesisWeeklyRule` and its
-  target wiring entirely. No replacement. (The rule is currently
-  `enabled=False`; no behavior change.)
-- **New SFN** `steampulse-genre-synthesis-{env}` (per-slug, mirror
-  `batch_analysis_stack.py:398-414` shape):
-  `PrepareSynthesis` → `SkipCheck (Choice — skip==true → Done)` →
-  `WaitForBatch (Wait 300s — match Phase 1-3 poll cadence)` →
-  `CheckStatus` (invokes shared
-  `check_batch_status.py`) → `StatusChoice (Completed → Collect; Failed → Fail;
-  else → Wait)` → `CollectSynthesis` → `Done`.
-- **New SFN** `steampulse-genre-synthesis-orchestrator-{env}` (mirror
-  `batch_analysis_stack.py:531-560`):
-  `CountSlugs` → `DistributedMap (max_concurrency=2)` → invoke per-slug SFN
-  per slug → `Done`. Input contract: `{"slugs": [...], "prompt_version": "..."}`.
-  No `scan_stale` shape, no EventBridge entry point.
-- New SSM params:
+- `compute_stack.py` — delete the `GenreSynthesisFn` PythonFunction,
+  its dedicated `genre_synthesis_role`, its SQS event source, and the
+  `GenreSynthesisWeeklyRule` + target wiring. Drop the
+  `genre_synthesis_queue` constructor param from `ComputeStack.__init__`
+  and from `application_stage.py`. No replacement Lambda here — the new
+  prepare/collect functions live in `batch_analysis_stack.py` (below).
+- `batch_analysis_stack.py` — co-locate the new genre-synthesis Lambdas
+  and state machines at the bottom of the stack, reusing the existing
+  `batch_lambda_role`, `_make_batch_fn` helper, `check_status_fn`
+  poller, and the `steampulse-batch-*-{env}` IAM wildcard for
+  parent→child `StartExecution`:
+  - `GenreSynthesisPrepareFn`, `GenreSynthesisCollectFn` via
+    `_make_batch_fn` (same role/env/layer as Phase 1-3 Lambdas).
+  - **Per-slug SFN** `steampulse-batch-genre-synthesis-{env}`
+    (name uses the `-batch-` prefix so it matches the IAM wildcard
+    on `batch_lambda_role`; mirrors the Phase 1-3 shape):
+    `PrepareGenreSynthesis` → `GenreSynthesisSkipped? (Choice —
+    skip==true → Done)` → `WaitGenreSynthesis (Wait 300s)` →
+    `CheckGenreSynthesisStatus` (invokes shared `check_status_fn`) →
+    `GenreSynthesisBatchComplete? (Completed → Collect; Failed →
+    Fail; else → Wait)` → `CollectGenreSynthesis` → `Done`.
+  - **Orchestrator SFN** `steampulse-batch-genre-synthesis-orchestrator-{env}`:
+    `CountSlugs (Pass)` → `FanOutSlugs (DistributedMap,
+    max_concurrency=2, tolerated_failure_percentage=10)` → invoke
+    per-slug SFN via `StepFunctionsStartExecution(RUN_JOB)` → `Done`.
+    Input contract: `{"slugs": [...], "prompt_version": "..."}`. No
+    `scan_stale` shape, no EventBridge entry point.
+  - `genre_state_machine.grant_start_execution(genre_orchestrator)` +
+    `states:DescribeExecution` / `states:StopExecution` grants.
+- New SSM params (published from `batch_analysis_stack.py`):
   - `/steampulse/{env}/genre-synthesis/sfn-arn`
   - `/steampulse/{env}/genre-synthesis/orchestrator-sfn-arn`
-- Grant `states:StartExecution` on the orchestrator SFN to the operator IAM
-  role used by `trigger_genre_synthesis.py`.
-- `messaging_stack.py:72, 142-150, 365-380` — delete `genre_synthesis_queue`,
-  `genre_synthesis_dlq`, their visibility config, and both SSM outputs.
-- `src/library-layer/library_layer/config.py:257` — delete
-  `GENRE_SYNTHESIS_QUEUE_PARAM_NAME`. Add
-  `GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME: str = ""` for the trigger
-  script to resolve.
+- `messaging_stack.py` — delete `genre_synthesis_queue`,
+  `genre_synthesis_dlq`, their visibility config, their tags, and the
+  `GenreSynthesisQueueUrlParam` / `GenreSynthesisQueueArnParam` /
+  `GenreSynthesisDlqArnParam` SSM outputs.
+- `library_layer/config.py` — delete `GENRE_SYNTHESIS_QUEUE_PARAM_NAME`.
+  Add `GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME: str = ""` for the
+  trigger script to resolve.
+- `library_layer/events.py` — delete `GenreSynthesisJobMessage` and the
+  `"genre_synthesis_job"` entry in `SqsMessageType`.
+- `.env.staging` / `.env.production` — swap
+  `GENRE_SYNTHESIS_QUEUE_PARAM_NAME=/.../messaging/genre-synthesis-queue-url`
+  for
+  `GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME=/.../genre-synthesis/orchestrator-sfn-arn`.
 
 **CLI updates:**
 - `scripts/trigger_genre_synthesis.py` — swap the SQS publish for
@@ -139,10 +160,24 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
   Payload: `{"slugs": args.slugs, "prompt_version": prompt_version}`. Print
   execution ARN + console URL (mirror `scripts/sp.py:cmd_batch`). Resolve
   SFN ARN via SSM `GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME` path per env.
-- `scripts/logs.py:442-447` — add `"genre_synthesis": "genre"` to
-  `_PHASE_SHORT` so `--batches` renders the badge correctly.
+- `scripts/logs.py`:
+  - Add `"genre_synthesis": "genre"` to `_PHASE_SHORT` so `--batches`
+    renders the badge correctly.
+  - Include `be.slug` in the `_fetch_batches` query and group on it in
+    `_group_by_execution`; split the first column into a narrow
+    `subject` (appid or `—`) and a wider `name` (game_name or slug)
+    so slug-keyed rows render cleanly.
+  - Add `"synthesis"` / `"synthesis-collect"` log-group shorthands
+    (`/steampulse/{env}/batch-genre-synthesis-{prepare,collect}`) and
+    two saved queries (`synthesis-activity`, `synthesis-errors`) that
+    search across both log groups via `extra_groups`.
 
 ## Ship order
+
+Phase 4 has no live consumers besides the trigger script, so the five
+PR-slicing below is optional scaffolding; shipping the full cutover in
+one branch is fine pre-launch (no dual-path flag, no staging soak
+between steps). The outline is preserved as a sequencing guide.
 
 1. **Service refactor (PR 1).** Extract `prepare_batch` + `collect_batch`
    from `synthesize()` in `genre_synthesis_service.py`. Unit tests against
@@ -152,16 +187,18 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
 2. **Lambdas (PR 2).** Write `prepare.py`, `collect.py`. Handler-shell
    tests cover input/output shape.
 3. **CDK scaffolding (PR 3).** Add the two new state machines + two new
-   Lambdas + SSM params. Keep the old `GenreSynthesisFn` + SQS queue alive
-   in parallel — no traffic to them yet.
+   Lambdas + SSM params in `batch_analysis_stack.py`. Delete the old
+   `GenreSynthesisFn` + SQS event source from `compute_stack.py` in the
+   same PR — there are no live consumers to keep alive in parallel.
 4. **Cutover (PR 4).** Update `trigger_genre_synthesis.py` to start the
    orchestrator SFN. Deploy to staging, manually trigger for a slug with
    ≥30 reports, watch SFN execution + `batch_executions` row + final
    `mv_genre_synthesis` row.
-5. **Cleanup (PR 5, after staging soak).** Delete the old `handler.py`, the
-   `GenreSynthesisWeeklyRule` + target wiring, the SQS queue + DLQ from
-   `messaging_stack.py`, queue grants in `compute_stack.py`, the
-   `GENRE_SYNTHESIS_QUEUE_PARAM_NAME` field from config. Add
+5. **Cleanup (PR 5, or folded into PR 3).** Delete the SQS queue + DLQ
+   from `messaging_stack.py`, the `genre_synthesis_queue` param from
+   `ComputeStack.__init__` + `application_stage.py`, the
+   `GENRE_SYNTHESIS_QUEUE_PARAM_NAME` field from config + env files,
+   and the `GenreSynthesisJobMessage` event class. Add
    `"genre_synthesis": "genre"` to `_PHASE_SHORT` in `scripts/logs.py`.
 
 ## Verification
@@ -177,9 +214,19 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
     `phase="genre_synthesis"` and returns a `job_id` when eligible ≥ min.
   - `collect_batch` upserts `mv_genre_synthesis` and calls `mark_completed`
     with token counts populated.
+  - `collect_batch` guards against silent corruption: `record_id`
+    mismatch, multiple results, or zero results all flip the tracking
+    row to `failed` via `mark_failed`.
+  - `collect_batch` safety net: an unknown model_id in the pricing
+    table logs + records cost=0 rather than leaving the tracking row
+    stranded in `submitted`.
 - `tests/handlers/test_genre_synthesis_prepare.py` and
   `tests/handlers/test_genre_synthesis_collect.py`: Lambda-shell input /
-  output shape validation.
+  output shape validation, including numeric coercion for fields that
+  arrive as strings from JSONPath (`avg_positive_pct`,
+  `median_review_count`, `selected_appids`).
+- `tests/models/test_batch_execution.py`: round-trip `appid`/`slug`
+  nullability matches the DB XOR shape.
 - Tests must use `steampulse_test` DB (repo convention).
 
 **Staging end-to-end** (PR 4):

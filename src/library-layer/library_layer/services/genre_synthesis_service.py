@@ -293,6 +293,55 @@ class GenreSynthesisService:
             job_id, default_response_model=GenreSynthesis
         )
 
+        # Validate the result shape before recording counts so
+        # ``mark_completed`` sees accurate succeeded/failed figures even
+        # when the batch is about to be flipped to ``failed``. The
+        # lightweight checks never touch the DB and can't raise
+        # transient errors, so running them first is safe.
+        expected_record_id = f"genre_synthesis:{slug}:{prompt_version}"
+        validation_error: str = ""
+        synthesis_obj: GenreSynthesis | None = None
+
+        if not collect_result.results:
+            validation_error = (
+                f"No genre_synthesis output for slug={slug!r} "
+                f"(job_id={job_id}, failed_ids={collect_result.failed_ids})"
+            )
+        elif len(collect_result.results) != 1:
+            # prepare_batch submits exactly one request per slug — more
+            # than one result means the backend returned something we
+            # didn't ask for, bail rather than silently persist results[0].
+            validation_error = (
+                f"Expected exactly 1 genre_synthesis result for slug={slug!r}, "
+                f"got {len(collect_result.results)} "
+                f"(record_ids={[rid for rid, _ in collect_result.results]})"
+            )
+        else:
+            record_id, obj = collect_result.results[0]
+            if record_id != expected_record_id:
+                validation_error = (
+                    f"record_id mismatch for slug={slug!r}: expected "
+                    f"{expected_record_id!r}, got {record_id!r}"
+                )
+            elif not isinstance(obj, GenreSynthesis):
+                validation_error = (
+                    f"Expected GenreSynthesis, got {type(obj).__name__}"
+                )
+            else:
+                synthesis_obj = obj
+
+        if synthesis_obj is None:
+            # Collect any result record_ids the batch produced but that
+            # didn't pass validation, so operators can correlate.
+            unexpected_ids = [rid for rid, _ in collect_result.results]
+            succeeded_count = 0
+            failed_record_ids = list(collect_result.failed_ids) + unexpected_ids
+            failed_count = len(failed_record_ids)
+        else:
+            succeeded_count = 1
+            failed_record_ids = list(collect_result.failed_ids)
+            failed_count = len(failed_record_ids)
+
         # Cost estimation can raise if the model_id isn't in the pricing
         # table — never let that strand the batch_executions row in
         # 'submitted'. Record cost=0 with a warning so mark_completed
@@ -312,15 +361,16 @@ class GenreSynthesisService:
             )
             cost = 0.0
 
-        # Always record token usage and cost first — even if the single
-        # record failed validation, the API consumed tokens and we need
-        # the cost tracked.
+        # Always record token usage and cost — even if validation below
+        # flips the row to 'failed', the API consumed tokens and we need
+        # the cost tracked. succeeded/failed counts now reflect the
+        # validated outcome, not raw backend.collect output.
         try:
             self._batch_exec_repo.mark_completed(
                 job_id,
-                succeeded_count=len(collect_result.results),
-                failed_count=len(collect_result.failed_ids),
-                failed_record_ids=collect_result.failed_ids,
+                succeeded_count=succeeded_count,
+                failed_count=failed_count,
+                failed_record_ids=failed_record_ids,
                 input_tokens=collect_result.input_tokens,
                 output_tokens=collect_result.output_tokens,
                 cache_read_tokens=collect_result.cache_read_tokens,
@@ -333,33 +383,20 @@ class GenreSynthesisService:
                 extra={"slug": slug, "job_id": job_id},
             )
 
-        try:
-            if not collect_result.results:
-                raise RuntimeError(
-                    f"No genre_synthesis output for slug={slug!r} "
-                    f"(job_id={job_id}, failed_ids={collect_result.failed_ids})"
+        if synthesis_obj is None:
+            try:
+                self._batch_exec_repo.mark_failed(
+                    job_id,
+                    failure_reason=f"genre_synthesis collect failed for slug={slug!r}: {validation_error}",
                 )
-            # prepare_batch submits exactly one request per slug — more than
-            # one result here means the backend returned something we didn't
-            # ask for, so bail rather than silently persist results[0].
-            if len(collect_result.results) != 1:
-                raise RuntimeError(
-                    f"Expected exactly 1 genre_synthesis result for slug={slug!r}, "
-                    f"got {len(collect_result.results)} "
-                    f"(record_ids={[rid for rid, _ in collect_result.results]})"
+            except Exception:
+                logger.exception(
+                    "batch_execution_mark_failed_failed",
+                    extra={"slug": slug, "job_id": job_id},
                 )
-            record_id, synthesis_obj = collect_result.results[0]
-            expected_record_id = f"genre_synthesis:{slug}:{prompt_version}"
-            if record_id != expected_record_id:
-                raise RuntimeError(
-                    f"record_id mismatch for slug={slug!r}: expected "
-                    f"{expected_record_id!r}, got {record_id!r}"
-                )
-            if not isinstance(synthesis_obj, GenreSynthesis):
-                raise TypeError(
-                    f"Expected GenreSynthesis, got {type(synthesis_obj).__name__}"
-                )
+            raise RuntimeError(validation_error)
 
+        try:
             row = GenreSynthesisRow(
                 slug=slug,
                 display_name=display_name,

@@ -257,6 +257,9 @@ class SteamPulseConfig(BaseSettings):
     GENRE_SYNTHESIS_MAX_AGE_DAYS: int = 7
     GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME: str = ""
 
+    # SSM path to the matview-refresh state machine ARN.
+    MATVIEW_REFRESH_SFN_ARN_PARAM_NAME: str = ""
+
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.
 

@@ -354,21 +354,26 @@ TABLES: tuple[str, ...] = (
     # API reads one row per genre slug.
     """
     CREATE TABLE IF NOT EXISTS mv_genre_synthesis (
-        slug                TEXT PRIMARY KEY,
-        display_name        TEXT NOT NULL,
-        input_appids        INTEGER[] NOT NULL,
-        input_count         INTEGER NOT NULL,
-        prompt_version      TEXT NOT NULL,
-        input_hash          TEXT NOT NULL,
-        synthesis           JSONB NOT NULL,
-        narrative_summary   TEXT NOT NULL,
-        avg_positive_pct    NUMERIC NOT NULL,
-        median_review_count INTEGER NOT NULL,
-        computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        slug                 TEXT PRIMARY KEY,
+        display_name         TEXT NOT NULL,
+        input_appids         INTEGER[] NOT NULL,
+        input_count          INTEGER NOT NULL,
+        prompt_version       TEXT NOT NULL,
+        input_hash           TEXT NOT NULL,
+        synthesis            JSONB NOT NULL,
+        narrative_summary    TEXT NOT NULL,
+        avg_positive_pct     NUMERIC NOT NULL,
+        median_review_count  INTEGER NOT NULL,
+        computed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        editorial_intro      TEXT NOT NULL DEFAULT '',
+        churn_interpretation TEXT NOT NULL DEFAULT ''
     )
     """,
     "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_input_hash_idx ON mv_genre_synthesis(input_hash)",
     "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_computed_at_idx ON mv_genre_synthesis(computed_at)",
+    # 0052 ALTERs for pre-existing test DBs.
+    "ALTER TABLE mv_genre_synthesis ADD COLUMN IF NOT EXISTS editorial_intro TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE mv_genre_synthesis ADD COLUMN IF NOT EXISTS churn_interpretation TEXT NOT NULL DEFAULT ''",
     # Legacy table — kept for CLI backward compatibility
     """
     CREATE TABLE IF NOT EXISTS review_summaries (
@@ -399,13 +404,25 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS steam_tag_id INTEGER",
     # 0014_add_tag_category
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'Other'",
-    # 0016_materialized_views — refresh log table
+    # 0016_materialized_views + 0054_matview_refresh_log_detail (inlined).
     """CREATE TABLE IF NOT EXISTS matview_refresh_log (
         id SERIAL PRIMARY KEY,
         refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         duration_ms INTEGER,
-        views_refreshed TEXT[]
+        views_refreshed TEXT[],
+        cycle_id TEXT,
+        status TEXT CHECK (status IN ('running', 'complete', 'partial_failure', 'failed')),
+        per_view_results JSONB,
+        started_at TIMESTAMPTZ
     )""",
+    # 0054 ALTERs for pre-existing test DBs (CREATE TABLE IF NOT EXISTS is a no-op).
+    "ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS cycle_id TEXT",
+    """ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS status TEXT
+       CHECK (status IN ('running', 'complete', 'partial_failure', 'failed'))""",
+    "ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS per_view_results JSONB",
+    "ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+    """CREATE UNIQUE INDEX IF NOT EXISTS idx_matview_refresh_log_cycle_id
+        ON matview_refresh_log(cycle_id) WHERE cycle_id IS NOT NULL""",
     # 0017_denormalize_scores
     # NOTE: sentiment_score was dropped in 0021_drop_sentiment_score — Steam's
     # positive_pct is now the only sentiment number. Do not re-add it.

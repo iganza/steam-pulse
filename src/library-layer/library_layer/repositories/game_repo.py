@@ -147,8 +147,7 @@ class GameRepository(BaseRepository):
         returns, which is the right read for API handlers but wasteful on hot refresh paths.
         """
         row = self._fetchone(
-            "SELECT coming_soon, price_usd, review_count, has_early_access_reviews "
-            "FROM games WHERE appid = %s",
+            "SELECT coming_soon, price_usd, review_count FROM games WHERE appid = %s",
             (appid,),
         )
         return dict(row) if row else None

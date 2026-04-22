@@ -127,16 +127,19 @@ class TagRepository(BaseRepository):
             genres: List of Steam genre dicts: [{"id": "1", "description": "Action"}, ...]
         """
         valid_genre_ids = [int(g.get("id") or 0) for g in genres if int(g.get("id") or 0)]
-        genre_rows: list[tuple[int, str, str]] = []
-        game_genre_rows: list[tuple[int, int]] = []
+        # Dedupe by genre_id — execute_values + ON CONFLICT DO UPDATE raises on
+        # duplicate conflict targets within a single statement. Steam occasionally
+        # returns the same genre twice (unlike per-row INSERTs, which absorbed it).
+        genre_by_id: dict[int, tuple[int, str, str]] = {}
         for genre in genres:
             genre_id = int(genre.get("id") or 0)
             genre_name: str = genre.get("description") or ""
             if not (genre_id and genre_name):
                 continue
             genre_slug = slugify(genre_name) or f"genre-{genre_id}"
-            genre_rows.append((genre_id, genre_name, genre_slug))
-            game_genre_rows.append((appid, genre_id))
+            genre_by_id[genre_id] = (genre_id, genre_name, genre_slug)
+        genre_rows = list(genre_by_id.values())
+        game_genre_rows: list[tuple[int, int]] = [(appid, gid) for gid in genre_by_id]
 
         with self.conn.cursor() as cur:
             from psycopg2.extras import execute_values
@@ -176,13 +179,16 @@ class TagRepository(BaseRepository):
             categories: List of Steam category dicts: [{"id": 1, "description": "Multi-player"}, ...]
         """
         valid_cat_ids = [int(c.get("id") or 0) for c in categories if int(c.get("id") or 0)]
-        category_rows: list[tuple[int, int, str]] = []
+        # Dedupe by cat_id — execute_values + ON CONFLICT DO UPDATE raises on
+        # duplicate conflict targets within a single statement.
+        category_by_id: dict[int, tuple[int, int, str]] = {}
         for cat in categories:
             cat_id = int(cat.get("id") or 0)
             cat_name: str = cat.get("description") or ""
             if not (cat_id and cat_name):
                 continue
-            category_rows.append((appid, cat_id, cat_name))
+            category_by_id[cat_id] = (appid, cat_id, cat_name)
+        category_rows = list(category_by_id.values())
 
         with self.conn.cursor() as cur:
             from psycopg2.extras import execute_values

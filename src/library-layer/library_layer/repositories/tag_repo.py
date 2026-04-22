@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-
 from library_layer.repositories.base import BaseRepository
 from library_layer.utils.slugify import slugify
 
@@ -105,15 +103,25 @@ class TagRepository(BaseRepository):
                     game_tag_rows,
                 )
 
-                # Delete stale tag associations per appid (tags removed on Steam's side).
-                appid_tag_ids: dict[int, list[int]] = defaultdict(list)
-                for aid, tid, _ in game_tag_rows:
-                    appid_tag_ids[aid].append(tid)
-                for aid, tids in appid_tag_ids.items():
-                    cur.execute(
-                        "DELETE FROM game_tags WHERE appid = %s AND tag_id != ALL(%s)",
-                        (aid, tids),
-                    )
+                # Delete stale tag associations for every appid in this batch
+                # in a single DELETE. UNNEST of parallel arrays builds the
+                # keep-set inline, reducing statement count, round-trips, and
+                # per-statement overhead versus N small DELETEs (one per touched appid).
+                batch_appids = list({aid for aid, _, _ in game_tag_rows})
+                kept_appids = [aid for aid, _, _ in game_tag_rows]
+                kept_tag_ids = [tid for _, tid, _ in game_tag_rows]
+                cur.execute(
+                    """
+                    DELETE FROM game_tags gt
+                    WHERE gt.appid = ANY(%s)
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM UNNEST(%s::int[], %s::int[]) AS kept(appid, tag_id)
+                          WHERE kept.appid = gt.appid AND kept.tag_id = gt.tag_id
+                      )
+                    """,
+                    (batch_appids, kept_appids, kept_tag_ids),
+                )
         self.conn.commit()
 
     def upsert_genres(self, appid: int, genres: list[dict]) -> None:

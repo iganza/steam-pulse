@@ -179,3 +179,41 @@ def test_upsert_tags_removes_stale(game_repo: GameRepository, tag_repo: TagRepos
     )
     names = {t["name"] for t in tag_repo.find_tags_for_game(440)}
     assert names == {"Action", "FPS"}
+
+
+def test_upsert_tags_batch_across_appids_removes_stale_per_appid(
+    game_repo: GameRepository, tag_repo: TagRepository
+) -> None:
+    """A multi-appid batch must delete each appid's stale tags independently,
+    without touching tags of appids not in the batch.
+    """
+    _seed_game(game_repo, appid=440)
+    _seed_game(game_repo, appid=441)
+    _seed_game(game_repo, appid=442)
+
+    # Seed initial tags for 440 and 441; give 442 a tag that must NOT be touched.
+    tag_repo.upsert_tags(
+        [
+            {"appid": 440, "name": "Action", "votes": 100},
+            {"appid": 440, "name": "Shooter", "votes": 90},
+            {"appid": 441, "name": "RPG", "votes": 80},
+            {"appid": 441, "name": "Fantasy", "votes": 70},
+        ]
+    )
+    tag_repo.upsert_tags([{"appid": 442, "name": "Puzzle", "votes": 60}])
+
+    # Re-crawl a batch covering 440 and 441 with trimmed-down tag sets.
+    # Shooter drops off 440; Fantasy drops off 441. 442's Puzzle must survive.
+    tag_repo.upsert_tags(
+        [
+            {"appid": 440, "name": "Action", "votes": 105},
+            {"appid": 441, "name": "RPG", "votes": 85},
+        ]
+    )
+
+    names_440 = {t["name"] for t in tag_repo.find_tags_for_game(440)}
+    names_441 = {t["name"] for t in tag_repo.find_tags_for_game(441)}
+    names_442 = {t["name"] for t in tag_repo.find_tags_for_game(442)}
+    assert names_440 == {"Action"}
+    assert names_441 == {"RPG"}
+    assert names_442 == {"Puzzle"}

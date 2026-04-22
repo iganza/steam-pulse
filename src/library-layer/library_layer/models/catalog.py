@@ -21,7 +21,7 @@ class CatalogEntry(BaseModel):
     price_change_number: int | None = None
     # Populated only by CatalogRepository.find_due_meta / find_due_reviews
     # so downstream enqueue logs can emit per-tier counts without re-deriving.
-    # 0=S, 1=A, 2=B, 3=C (C excluded from review refresh).
+    # 0=S, 1=A, 2=B. Tier C (long tail) is refresh-exempt and never appears.
     tier_rank: int | None = None
 
     @property

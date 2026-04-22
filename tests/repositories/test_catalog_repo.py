@@ -204,7 +204,7 @@ def test_find_due_meta_a_tier_ea_genre(catalog_repo: CatalogRepository) -> None:
 def test_find_due_meta_b_tier_eligible_vs_c_tier_tail(
     catalog_repo: CatalogRepository,
 ) -> None:
-    """B-tier (>=50 reviews) due at 21d; C-tier long tail needs 90d."""
+    """B-tier (>=50 reviews) due at 21d; C-tier long tail is refresh-exempt."""
     catalog_repo.bulk_upsert(
         [{"appid": 7500, "name": "Mid"}, {"appid": 7501, "name": "Tail"}]
     )
@@ -213,11 +213,29 @@ def test_find_due_meta_b_tier_eligible_vs_c_tier_tail(
     _seed_game_row(catalog_repo, 7500, review_count=200)  # B
     _seed_game_row(catalog_repo, 7501, review_count=5)  # C
     _set_meta_crawled_at(catalog_repo, 7500, days_ago=45)  # past 21d + 21d smear
-    _set_meta_crawled_at(catalog_repo, 7501, days_ago=45)  # still inside 90d C window
+    _set_meta_crawled_at(catalog_repo, 7501, days_ago=45)  # C is excluded regardless
 
     appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
     assert 7500 in appids
     assert 7501 not in appids
+
+
+def test_find_due_meta_excludes_tier_c_even_when_never_crawled(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Tier C (review_count < B threshold, not EA, not coming_soon) is never
+    returned by the dispatcher — even with NULL meta_crawled_at. Operators
+    graduate a C-tier game via scripts/trigger_crawl.py.
+    """
+    catalog_repo.bulk_upsert([{"appid": 7700, "name": "LongTail"}])
+    catalog_repo.set_meta_status(7700, "done")
+    _seed_game_row(catalog_repo, 7700, review_count=5)  # C
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute("UPDATE app_catalog SET meta_crawled_at=NULL WHERE appid = 7700")
+    catalog_repo.conn.commit()
+
+    appids = [e.appid for e in catalog_repo.find_due_meta(limit=10, config=_config())]
+    assert 7700 not in appids
 
 
 def test_find_due_meta_nulls_first(catalog_repo: CatalogRepository) -> None:

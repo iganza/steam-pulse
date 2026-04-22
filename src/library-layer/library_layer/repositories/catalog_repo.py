@@ -82,7 +82,12 @@ class CatalogRepository(BaseRepository):
         """Return catalog entries whose metadata refresh window has elapsed.
 
         Tiers (first match wins): S (top popularity) → A (EA/coming-soon/popular)
-        → B (analysis-eligible) → C (long tail). Each tier has its own cadence.
+        → B (analysis-eligible). Tier C (long tail, review_count below the B
+        threshold and not EA/coming-soon) is refresh-exempt — the long-tail
+        share of hourly ingest dominated write IOPS on a small RDS, and those
+        games' metadata barely drifts. Graduation out of C is operator-driven
+        via `scripts/trigger_crawl.py`; the next dispatcher run picks the game
+        up at its new tier once its review_count catches up.
 
         Deterministic smearing: a game's due time is offset into its tier's
         window by `abs(hashtext(appid::text)::bigint) % window_secs` (bigint
@@ -96,7 +101,6 @@ class CatalogRepository(BaseRepository):
         s_secs = config.REFRESH_META_TIER_S_DAYS * 86400
         a_secs = config.REFRESH_META_TIER_A_DAYS * 86400
         b_secs = config.REFRESH_META_TIER_B_DAYS * 86400
-        c_secs = config.REFRESH_META_TIER_C_DAYS * 86400
         rows = self._fetchall(
             """
             WITH tiered AS (
@@ -107,21 +111,24 @@ class CatalogRepository(BaseRepository):
                   WHEN COALESCE(g.coming_soon, FALSE) = TRUE
                     OR gg.genre_id IS NOT NULL
                     OR g.review_count >= %(a_threshold)s THEN %(a_secs)s
-                  WHEN g.review_count >= %(b_threshold)s THEN %(b_secs)s
-                  ELSE %(c_secs)s
+                  ELSE %(b_secs)s
                 END AS window_secs,
                 CASE
                   WHEN g.review_count >= %(s_threshold)s THEN 0
                   WHEN COALESCE(g.coming_soon, FALSE) = TRUE
                     OR gg.genre_id IS NOT NULL
                     OR g.review_count >= %(a_threshold)s THEN 1
-                  WHEN g.review_count >= %(b_threshold)s THEN 2
-                  ELSE 3
+                  ELSE 2
                 END AS tier_rank
               FROM app_catalog ac
               JOIN games g ON g.appid = ac.appid
               LEFT JOIN game_genres gg ON gg.appid = ac.appid AND gg.genre_id = 70
               WHERE ac.meta_status = 'done'
+                AND (
+                  COALESCE(g.coming_soon, FALSE) = TRUE
+                  OR gg.genre_id IS NOT NULL
+                  OR g.review_count >= %(b_threshold)s
+                )
             )
             SELECT * FROM tiered
             WHERE
@@ -140,7 +147,6 @@ class CatalogRepository(BaseRepository):
                 "s_secs": s_secs,
                 "a_secs": a_secs,
                 "b_secs": b_secs,
-                "c_secs": c_secs,
                 "limit": limit,
             },
         )

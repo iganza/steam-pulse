@@ -120,11 +120,12 @@ class SteamPulseConfig(BaseSettings):
     #   last_crawled_at + tier_interval
     #   + (abs(hashtext(appid::text)::bigint) % tier_interval_seconds)
     # so work is smeared evenly across the window rather than firing on a boundary.
-    # Metadata covers S/A/B/C; reviews cover S/A/B only (tier C excluded).
+    # Metadata and reviews both cover S/A/B. Tier C (long tail, below the B
+    # threshold and not EA/coming-soon) is refresh-exempt to keep RDS write
+    # IOPS in budget — graduation is operator-driven via scripts/trigger_crawl.py.
     REFRESH_META_TIER_S_DAYS: int = 2
     REFRESH_META_TIER_A_DAYS: int = 7
     REFRESH_META_TIER_B_DAYS: int = 21
-    REFRESH_META_TIER_C_DAYS: int = 90
     REFRESH_REVIEWS_TIER_S_DAYS: int = 1
     REFRESH_REVIEWS_TIER_A_DAYS: int = 3
     REFRESH_REVIEWS_TIER_B_DAYS: int = 14
@@ -160,7 +161,6 @@ class SteamPulseConfig(BaseSettings):
             "REFRESH_META_TIER_S_DAYS",
             "REFRESH_META_TIER_A_DAYS",
             "REFRESH_META_TIER_B_DAYS",
-            "REFRESH_META_TIER_C_DAYS",
             "REFRESH_REVIEWS_TIER_S_DAYS",
             "REFRESH_REVIEWS_TIER_A_DAYS",
             "REFRESH_REVIEWS_TIER_B_DAYS",

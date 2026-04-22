@@ -88,7 +88,7 @@ DLQ, the SQS-triggered handler, and the SSM queue URL param.
   across Phase 1-3 and Phase 4 SFNs.
 
 **Schema change (needed for slug-keyed tracking):**
-- New migration `src/lambda-functions/migrations/0051_batch_executions_slug.sql`:
+- New migration `src/lambda-functions/migrations/0053_batch_executions_slug.sql`:
   `ALTER TABLE batch_executions ALTER COLUMN appid DROP NOT NULL;` +
   `ADD COLUMN slug TEXT;` + `ADD CONSTRAINT batch_executions_subject_check
   CHECK ((appid IS NOT NULL) <> (slug IS NOT NULL));` + index on `slug`.

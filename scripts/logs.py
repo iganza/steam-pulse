@@ -74,7 +74,11 @@ def log_group(name: str, env: str) -> str:
         "spoke": f"/steampulse/{env}/spoke",
         "admin": f"/steampulse/{env}/admin",
         "analysis": f"/steampulse/{env}/analysis",
-        "synthesis": f"/steampulse/{env}/genre-synthesis",
+        # Genre-synthesis is now a two-Lambda SFN (prepare + collect). The
+        # canonical log group is "prepare"; callers that want both should
+        # use extra_groups to pull the collect lambda too.
+        "synthesis": f"/steampulse/{env}/batch-genre-synthesis-prepare",
+        "synthesis-collect": f"/steampulse/{env}/batch-genre-synthesis-collect",
     }
     if name in groups:
         return groups[name]
@@ -325,14 +329,14 @@ fields @timestamp, path, status_code
     },
     # ── Phase-4 Genre Synthesis ───────────────────────────────────────────────
     "synthesis-activity": {
-        "description": "Genre synthesis runs — start / cache-hit / complete per slug",
+        "description": "Genre synthesis runs — submit / cache-hit / complete per slug",
         "log_group": "synthesis",
+        "extra_groups": ["synthesis-collect"],
         "query": """
-fields @timestamp, message, slug, input_count, prompt_version, input_hash
-| filter message = "genre_synthesis_start"
+fields @timestamp, message, slug, input_count, prompt_version, input_hash, job_id
+| filter message = "genre_synthesis_submit"
     or message = "genre_synthesis_complete"
     or message = "genre_synthesis_cache_hit"
-    or message = "scan_stale trigger"
 | sort @timestamp desc
 | limit 100
 """,
@@ -341,6 +345,7 @@ fields @timestamp, message, slug, input_count, prompt_version, input_hash
     "synthesis-errors": {
         "description": "Genre synthesis errors and warnings",
         "log_group": "synthesis",
+        "extra_groups": ["synthesis-collect"],
         "query": """
 fields @timestamp, level, message, slug, error
 | filter level = "ERROR" or level = "WARNING"

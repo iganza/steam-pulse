@@ -1,4 +1,4 @@
-"""Tests for the BatchExecution domain model — NULL-slug coercion."""
+"""Tests for the BatchExecution domain model — appid/slug polymorphism."""
 
 from __future__ import annotations
 
@@ -21,16 +21,16 @@ def _base_row() -> dict[str, object]:
     }
 
 
-def test_batch_execution_coerces_null_slug_to_empty() -> None:
-    """Phase 1-3 rows have slug NULL — validator maps None → '' so the
-    domain model stays no-optionality without a separate `| None` type."""
+def test_batch_execution_preserves_null_slug_for_appid_row() -> None:
+    """Phase 1-3 rows have slug NULL — maps directly to Python None,
+    matching the nullable DB column shape."""
     row = _base_row() | {"appid": 440, "slug": None}
     model = BatchExecution.model_validate(row)
-    assert model.slug == ""
+    assert model.slug is None
     assert model.appid == 440
 
 
-def test_batch_execution_keeps_explicit_slug() -> None:
+def test_batch_execution_preserves_slug_for_genre_row() -> None:
     row = _base_row() | {"appid": None, "slug": "roguelike-deckbuilder", "phase": "genre_synthesis"}
     model = BatchExecution.model_validate(row)
     assert model.slug == "roguelike-deckbuilder"

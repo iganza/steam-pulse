@@ -29,7 +29,7 @@ class BatchExecutionRepository(BaseRepository):
         pipeline_version: str,
         prompt_version: str,
         appid: int | None = None,
-        slug: str = "",
+        slug: str | None = None,
     ) -> int:
         """Record a new batch submission. Returns the row id.
 
@@ -42,12 +42,11 @@ class BatchExecutionRepository(BaseRepository):
         on conflict so RETURNING works in a single statement (DO NOTHING
         + separate SELECT is not concurrency-safe).
         """
-        if (appid is None) == (not slug):
+        if (appid is None) == (slug is None):
             raise ValueError(
                 "BatchExecutionRepository.insert requires exactly one of "
                 f"appid={appid!r} or slug={slug!r} to be set."
             )
-        slug_value = slug or None
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
@@ -63,7 +62,7 @@ class BatchExecutionRepository(BaseRepository):
                 (
                     execution_id,
                     appid,
-                    slug_value,
+                    slug,
                     phase,
                     backend,
                     batch_id,

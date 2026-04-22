@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 
 class BatchExecution(BaseModel):
@@ -11,18 +11,14 @@ class BatchExecution(BaseModel):
 
     id: int
     execution_id: str
+    # Exactly one of (appid, slug) is set per row — enforced by the
+    # batch_executions_subject_check CHECK constraint. Nullable on both
+    # sides maps directly to the DB column shape, so NULL round-trips
+    # cleanly without a translation layer in the repo or the model.
     appid: int | None = None
-    slug: str = ""
+    slug: str | None = None
     phase: str
     backend: str
-
-    @field_validator("slug", mode="before")
-    @classmethod
-    def _slug_null_to_empty(cls, value: object) -> object:
-        # batch_executions.slug is nullable — Phase 1-3 rows have slug NULL.
-        # Coerce the psycopg2 None here so the domain model keeps the
-        # no-optionality contract (empty string = "not a slug-keyed row").
-        return "" if value is None else value
     batch_id: str
     model_id: str
     status: str

@@ -191,7 +191,11 @@ class GenreSynthesisService:
             self._synthesis_repo.touch_computed_at(slug, at=now)
             logger.info(
                 "genre_synthesis_cache_hit",
-                extra={"slug": slug, "input_hash": input_hash},
+                extra={
+                    "slug": slug,
+                    "input_hash": input_hash,
+                    "prompt_version": prompt_version,
+                },
             )
             self._metrics.add_metric(
                 name="GenreSynthesisCacheHit", unit=MetricUnit.Count, value=1
@@ -223,15 +227,6 @@ class GenreSynthesisService:
             response_model=GenreSynthesis,
         )
 
-        logger.info(
-            "genre_synthesis_submit",
-            extra={
-                "slug": slug,
-                "input_count": len(selected_appids),
-                "prompt_version": prompt_version,
-                "input_hash": input_hash,
-            },
-        )
         self._metrics.add_metric(
             name="GenreSynthesisRuns", unit=MetricUnit.Count, value=1
         )
@@ -239,6 +234,20 @@ class GenreSynthesisService:
         prepared = backend.prepare([request], phase=GENRE_SYNTHESIS_PHASE)
         job_id = backend.submit(
             prepared, "genre_synthesis", phase=GENRE_SYNTHESIS_PHASE
+        )
+
+        # Log after submit so job_id is present — ops dashboards
+        # (scripts/logs.py synthesis-activity) join on job_id to
+        # correlate submit → complete across CloudWatch log groups.
+        logger.info(
+            "genre_synthesis_submit",
+            extra={
+                "slug": slug,
+                "input_count": len(selected_appids),
+                "prompt_version": prompt_version,
+                "input_hash": input_hash,
+                "job_id": job_id,
+            },
         )
 
         # Tracking-row insert is best-effort: the batch is already
@@ -443,7 +452,12 @@ class GenreSynthesisService:
 
         logger.info(
             "genre_synthesis_complete",
-            extra={"slug": slug, "input_hash": input_hash, "job_id": job_id},
+            extra={
+                "slug": slug,
+                "input_hash": input_hash,
+                "job_id": job_id,
+                "prompt_version": prompt_version,
+            },
         )
         return row
 

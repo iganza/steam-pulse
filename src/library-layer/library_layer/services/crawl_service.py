@@ -460,8 +460,7 @@ class CrawlService:
         """Publish domain events after app metadata upsert.
 
         `existing` is the pre-upsert snapshot from find_event_snapshot: a dict with
-        coming_soon, price_usd, review_count, has_early_access_reviews — or None
-        when the game had no prior row.
+        coming_soon, price_usd, review_count — or None when the game had no prior row.
         """
         if not self._sns or not self._config:
             return

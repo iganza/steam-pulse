@@ -11,7 +11,12 @@ class BatchExecution(BaseModel):
 
     id: int
     execution_id: str
-    appid: int
+    # Exactly one of (appid, slug) is set per row — enforced by the
+    # batch_executions_subject_check CHECK constraint. Nullable on both
+    # sides maps directly to the DB column shape, so NULL round-trips
+    # cleanly without a translation layer in the repo or the model.
+    appid: int | None = None
+    slug: str | None = None
     phase: str
     backend: str
     batch_id: str

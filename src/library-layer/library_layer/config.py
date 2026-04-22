@@ -244,17 +244,18 @@ class SteamPulseConfig(BaseSettings):
     # GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT: only include games with at
     #   least this many Steam reviews (low-signal games would drag the
     #   synthesis toward noise).
-    # GENRE_SYNTHESIS_MAX_AGE_DAYS: weekly refresh threshold used by
-    #   find_stale() in the EventBridge scan.
-    # GENRE_SYNTHESIS_QUEUE_PARAM_NAME: SSM path for the synthesis SQS
-    #   queue URL. Lambda resolves at cold start.
+    # GENRE_SYNTHESIS_MAX_AGE_DAYS: refresh threshold for stale slugs
+    #   (currently unused — kept for a future scheduled refresh gate).
+    # GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME: SSM path for the
+    #   orchestrator Step Functions ARN. Resolved by
+    #   scripts/trigger_genre_synthesis.py to start an execution.
     MIN_REPORTS_PER_GENRE: int = 30
     MAX_REPORTS_PER_GENRE: int = 200
     GENRE_SYNTHESIS_MAX_TOKENS: int = 8000
     GENRE_SYNTHESIS_PROMPT_VERSION: str = "v1"
     GENRE_SYNTHESIS_MIN_GAME_REVIEW_COUNT: int = 200
     GENRE_SYNTHESIS_MAX_AGE_DAYS: int = 7
-    GENRE_SYNTHESIS_QUEUE_PARAM_NAME: str = ""
+    GENRE_SYNTHESIS_ORCHESTRATOR_SFN_PARAM_NAME: str = ""
 
     def to_lambda_env(self, **overrides: str) -> dict[str, str]:
         """Build a Lambda environment dict from this config.

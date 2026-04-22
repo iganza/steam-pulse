@@ -566,3 +566,191 @@ class BatchAnalysisStack(cdk.Stack):
             parameter_name=f"/steampulse/{env}/batch/dispatch-fn-name",
             string_value=dispatch_fn.function_name,
         )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Phase-4 Genre Synthesis — per-slug batch pipeline
+        #
+        # Mirror of Phase 1-3: one Anthropic message batch per slug (single
+        # request), Step Functions drives prepare → wait → check → collect.
+        # Reuses the shared ``batch_lambda_role`` and the existing
+        # ``check_status_fn`` poller. Tracked in ``batch_executions`` keyed
+        # by ``slug`` instead of ``appid``.
+        # ══════════════════════════════════════════════════════════════════════
+        genre_prepare_fn = _make_batch_fn(
+            "GenreSynthesisPrepareFn",
+            "lambda_functions/genre_synthesis/prepare.py",
+            "genre-synthesis-prepare",
+        )
+        genre_collect_fn = _make_batch_fn(
+            "GenreSynthesisCollectFn",
+            "lambda_functions/genre_synthesis/collect.py",
+            "genre-synthesis-collect",
+        )
+
+        genre_fail_state = sfn.Fail(
+            self,
+            "GenreSynthesisFailed",
+            error="AnthropicBatchJobFailed",
+            cause="Anthropic genre synthesis batch job failed",
+        )
+        genre_done = sfn.Succeed(self, "GenreSynthesisComplete")
+
+        genre_prepare = tasks.LambdaInvoke(
+            self,
+            "PrepareGenreSynthesis",
+            lambda_function=genre_prepare_fn,
+            payload=sfn.TaskInput.from_object({
+                "slug": sfn.JsonPath.string_at("$.slug"),
+                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+            }),
+            payload_response_only=True,
+            # Overwrite the input — PrepareResult.model_dump() already
+            # includes slug, prompt_version, and execution_id.
+            result_path="$",
+        )
+        genre_skip_check = sfn.Choice(self, "GenreSynthesisSkipped?")
+        genre_wait = sfn.Wait(
+            self,
+            "WaitGenreSynthesis",
+            time=sfn.WaitTime.duration(cdk.Duration.seconds(300)),
+        )
+        genre_check = tasks.LambdaInvoke(
+            self,
+            "CheckGenreSynthesisStatus",
+            lambda_function=check_status_fn,
+            payload=sfn.TaskInput.from_object(
+                {"job_id": sfn.JsonPath.string_at("$.job_id")}
+            ),
+            payload_response_only=True,
+            result_path="$.status_result",
+        )
+        genre_done_choice = sfn.Choice(self, "GenreSynthesisBatchComplete?")
+        genre_collect = tasks.LambdaInvoke(
+            self,
+            "CollectGenreSynthesis",
+            lambda_function=genre_collect_fn,
+            payload=sfn.TaskInput.from_object({
+                "slug": sfn.JsonPath.string_at("$.slug"),
+                "job_id": sfn.JsonPath.string_at("$.job_id"),
+                "execution_id": sfn.JsonPath.string_at("$.execution_id"),
+                "selected_appids": sfn.JsonPath.list_at("$.selected_appids"),
+                "display_name": sfn.JsonPath.string_at("$.display_name"),
+                "avg_positive_pct": sfn.JsonPath.number_at("$.avg_positive_pct"),
+                "median_review_count": sfn.JsonPath.number_at("$.median_review_count"),
+                "input_hash": sfn.JsonPath.string_at("$.input_hash"),
+                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+            }),
+            payload_response_only=True,
+            result_path="$.collected",
+        )
+
+        genre_prepare.next(genre_skip_check)
+        genre_skip_check.when(
+            sfn.Condition.boolean_equals("$.skip", True), genre_done
+        ).otherwise(genre_wait)
+        genre_wait.next(genre_check).next(genre_done_choice)
+        genre_done_choice.when(
+            sfn.Condition.string_equals("$.status_result.status", "Completed"),
+            genre_collect,
+        ).when(
+            sfn.Condition.string_equals("$.status_result.status", "Failed"),
+            genre_fail_state,
+        ).otherwise(genre_wait)
+        genre_collect.next(genre_done)
+
+        genre_state_machine = sfn.StateMachine(
+            self,
+            "GenreSynthesisMachine",
+            # SFN name must match the `steampulse-batch-*-{env}` IAM scope
+            # above so parent-to-child StartExecution is allowed.
+            state_machine_name=f"steampulse-batch-genre-synthesis-{env}",
+            definition_body=sfn.DefinitionBody.from_chainable(genre_prepare),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            logs=sfn.LogOptions(
+                destination=logs.LogGroup(
+                    self,
+                    "GenreSynthesisSfnLogs",
+                    log_group_name=f"/steampulse/{env}/genre-synthesis-sfn",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+
+        ssm.StringParameter(
+            self,
+            "GenreSynthesisSfnArnParam",
+            parameter_name=f"/steampulse/{env}/genre-synthesis/sfn-arn",
+            string_value=genre_state_machine.state_machine_arn,
+        )
+
+        # ── Orchestrator: fan-out across slugs via DistributedMap ─────────
+        # Input contract: {"slugs": [...], "prompt_version": "..."}.
+        # max_concurrency pinned at 2 — aligns with the old SQS event
+        # source's max_concurrency=2 and keeps Anthropic batch submission
+        # rate predictable. No per-invocation override needed (Phase 4 is
+        # a handful of slugs, not thousands of appids).
+        genre_count_slugs = sfn.Pass(
+            self,
+            "CountSlugs",
+            parameters={
+                "slugs": sfn.JsonPath.list_at("$.slugs"),
+                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+            },
+        )
+        genre_fan_out = sfn.DistributedMap(
+            self,
+            "FanOutSlugs",
+            items_path="$.slugs",
+            max_concurrency=2,
+            tolerated_failure_percentage=10,
+            result_path=sfn.JsonPath.DISCARD,
+            item_selector={
+                "slug": sfn.JsonPath.string_at("$$.Map.Item.Value"),
+                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+            },
+        )
+        genre_fan_out.item_processor(
+            tasks.StepFunctionsStartExecution(
+                self,
+                "RunPerSlug",
+                state_machine=genre_state_machine,
+                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                input=sfn.TaskInput.from_object({
+                    "slug": sfn.JsonPath.string_at("$.slug"),
+                    "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+                }),
+            )
+        )
+        genre_orchestrator_done = sfn.Succeed(self, "GenreOrchestrationComplete")
+        genre_count_slugs.next(genre_fan_out).next(genre_orchestrator_done)
+
+        genre_orchestrator = sfn.StateMachine(
+            self,
+            "GenreSynthesisOrchestrator",
+            state_machine_name=f"steampulse-batch-genre-synthesis-orchestrator-{env}",
+            definition_body=sfn.DefinitionBody.from_chainable(genre_count_slugs),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            logs=sfn.LogOptions(
+                destination=logs.LogGroup(
+                    self,
+                    "GenreSynthesisOrchestratorLogs",
+                    log_group_name=f"/steampulse/{env}/genre-synthesis-orchestrator",
+                    retention=logs.RetentionDays.ONE_WEEK,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
+                level=sfn.LogLevel.ERROR,
+            ),
+        )
+        genre_state_machine.grant_start_execution(genre_orchestrator)
+        genre_state_machine.grant(genre_orchestrator, "states:DescribeExecution")
+        genre_state_machine.grant(genre_orchestrator, "states:StopExecution")
+
+        ssm.StringParameter(
+            self,
+            "GenreSynthesisOrchestratorSfnArnParam",
+            parameter_name=f"/steampulse/{env}/genre-synthesis/orchestrator-sfn-arn",
+            string_value=genre_orchestrator.state_machine_arn,
+        )

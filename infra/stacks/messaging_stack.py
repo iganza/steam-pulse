@@ -69,12 +69,6 @@ class MessagingStack(cdk.Stack):
             "EmailDlq",
             retention_period=cdk.Duration.days(14),
         )
-        self.genre_synthesis_dlq = sqs.Queue(
-            self,
-            "GenreSynthesisDlq",
-            retention_period=cdk.Duration.days(14),
-        )
-
         # Deterministic names — spokes in other regions construct ARN/URL
         # strings from these names (CDK tokens can't cross regions).
         self.app_crawl_queue = sqs.Queue(
@@ -136,19 +130,6 @@ class MessagingStack(cdk.Stack):
             ),
         )
 
-        # Phase-4 cross-genre synthesis jobs. One message = one slug to
-        # re-synthesize. Visibility generous (10 min) because an LLM call
-        # over ~141 GameReports can take minutes.
-        self.genre_synthesis_queue = sqs.Queue(
-            self,
-            "GenreSynthesisQueue",
-            visibility_timeout=cdk.Duration.minutes(10),
-            dead_letter_queue=sqs.DeadLetterQueue(
-                max_receive_count=3,
-                queue=self.genre_synthesis_dlq,
-            ),
-        )
-
         # ── Tags ────────────────────────────────────────────────────────────
         for q in (
             self.app_crawl_queue,
@@ -169,9 +150,6 @@ class MessagingStack(cdk.Stack):
 
         for q in (self.cache_invalidation_queue, self.cache_invalidation_dlq):
             cdk.Tags.of(q).add("steampulse:service", "frontend")
-
-        for q in (self.genre_synthesis_queue, self.genre_synthesis_dlq):
-            cdk.Tags.of(q).add("steampulse:service", "genre-synthesis")
 
         cdk.Tags.of(self.game_events_topic).add("steampulse:service", "crawler")
         cdk.Tags.of(self.content_events_topic).add("steampulse:service", "analysis")
@@ -360,25 +338,6 @@ class MessagingStack(cdk.Stack):
             parameter_name=f"/steampulse/{env}/messaging/email-dlq-arn",
             string_value=self.email_dlq.queue_arn,
         )
-        ssm.StringParameter(
-            self,
-            "GenreSynthesisQueueUrlParam",
-            parameter_name=f"/steampulse/{env}/messaging/genre-synthesis-queue-url",
-            string_value=self.genre_synthesis_queue.queue_url,
-        )
-        ssm.StringParameter(
-            self,
-            "GenreSynthesisQueueArnParam",
-            parameter_name=f"/steampulse/{env}/messaging/genre-synthesis-queue-arn",
-            string_value=self.genre_synthesis_queue.queue_arn,
-        )
-        ssm.StringParameter(
-            self,
-            "GenreSynthesisDlqArnParam",
-            parameter_name=f"/steampulse/{env}/messaging/genre-synthesis-dlq-arn",
-            string_value=self.genre_synthesis_dlq.queue_arn,
-        )
-
         # Eligibility threshold SSM param
         ssm.StringParameter(
             self,

@@ -22,10 +22,12 @@ Usage:
         poetry run python scripts/logs.py --batches --all --tail 15
 
 Log groups (--log-group shorthand):
-    crawler     /steampulse/{env}/crawler
-    ingest      /steampulse/{env}/ingest
-    api         /steampulse/{env}/api
-    spoke       /aws/lambda/steampulse-spoke-crawler-*-{env}
+    crawler             /steampulse/{env}/crawler
+    ingest              /steampulse/{env}/ingest
+    api                 /steampulse/{env}/api
+    spoke               /aws/lambda/steampulse-spoke-crawler-*-{env}
+    synthesis           /steampulse/{env}/batch-genre-synthesis-prepare
+    synthesis-collect   /steampulse/{env}/batch-genre-synthesis-collect
 """
 
 import argparse
@@ -73,6 +75,11 @@ def log_group(name: str, env: str) -> str:
         "spoke": f"/steampulse/{env}/spoke",
         "admin": f"/steampulse/{env}/admin",
         "analysis": f"/steampulse/{env}/analysis",
+        # Genre-synthesis is now a two-Lambda SFN (prepare + collect). The
+        # canonical log group is "prepare"; callers that want both should
+        # use extra_groups to pull the collect lambda too.
+        "synthesis": f"/steampulse/{env}/batch-genre-synthesis-prepare",
+        "synthesis-collect": f"/steampulse/{env}/batch-genre-synthesis-collect",
     }
     if name in groups:
         return groups[name]
@@ -321,6 +328,33 @@ fields @timestamp, path, status_code
 """,
         "columns": ["bin(5m)", "path", "requests"],
     },
+    # ── Phase-4 Genre Synthesis ───────────────────────────────────────────────
+    "synthesis-activity": {
+        "description": "Genre synthesis runs — submit / cache-hit / complete per slug",
+        "log_group": "synthesis",
+        "extra_groups": ["synthesis-collect"],
+        "query": """
+fields @timestamp, message, slug, input_count, prompt_version, input_hash, job_id
+| filter message = "genre_synthesis_submit"
+    or message = "genre_synthesis_complete"
+    or message = "genre_synthesis_cache_hit"
+| sort @timestamp desc
+| limit 100
+""",
+        "columns": ["@timestamp", "message", "slug", "input_count", "prompt_version"],
+    },
+    "synthesis-errors": {
+        "description": "Genre synthesis errors and warnings",
+        "log_group": "synthesis",
+        "extra_groups": ["synthesis-collect"],
+        "query": """
+fields @timestamp, level, message, slug, error
+| filter level = "ERROR" or level = "WARNING"
+| sort @timestamp desc
+| limit 50
+""",
+        "columns": ["@timestamp", "level", "message", "slug", "error"],
+    },
     # ── All ───────────────────────────────────────────────────────────────────
     "all": {
         "description": "All log lines from a single log group (use with --log-group)",
@@ -383,6 +417,7 @@ def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
             SELECT
                 be.id,
                 be.appid,
+                be.slug,
                 g.name          AS game_name,
                 be.phase,
                 be.backend,
@@ -416,6 +451,7 @@ _PHASE_SHORT: dict[str, str] = {
     "merge-L1": "merge",
     "merge-L2": "mergeL2",
     "synthesis": "syn",
+    "genre_synthesis": "genre",
 }
 
 _OVERALL_PRIORITY = ["failed", "running", "submitted", "completed"]
@@ -447,6 +483,7 @@ def _group_by_execution(rows: list[dict]) -> list[dict]:
         if key not in groups:
             groups[key] = {
                 "appid": r["appid"],
+                "slug": r.get("slug") or "",
                 "game_name": r["game_name"],
                 "execution_id": r["execution_id"],
                 "phases": [],
@@ -509,8 +546,8 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
         expand=True,
     )
 
-    table.add_column("appid", width=8, no_wrap=True)
-    table.add_column("game", min_width=20)
+    table.add_column("subject", width=10, no_wrap=True)
+    table.add_column("name", min_width=20)
     table.add_column("phases", min_width=30)
     table.add_column("status", width=14, no_wrap=True)
     table.add_column("elapsed", width=9, justify="right", no_wrap=True)
@@ -530,7 +567,15 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
         style = _STATUS_STYLE.get(overall, "white")
         icon = _STATUS_ICON.get(overall, "")
 
-        game = (g["game_name"] or f"appid {g['appid']}")[:28]
+        # Genre-synthesis rows are keyed by slug, not appid — leave the
+        # narrow subject column blank so the slug shows cleanly in the
+        # name column (the "genre" phase badge already signals row type).
+        if g["slug"]:
+            subject = "—"
+            name = g["slug"][:28]
+        else:
+            subject = str(g["appid"] or "")
+            name = (g["game_name"] or f"appid {g['appid']}")[:28]
 
         # Phase badges in canonical order
         order = list(_PHASE_SHORT.keys())
@@ -559,8 +604,8 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
             submitted_str = submitted_at.astimezone().strftime("%m-%d %H:%M")
 
         row_cells: list[Any] = [
-            Text(str(g["appid"]), style="bright_black"),
-            Text(game),
+            Text(subject, style="bright_black"),
+            Text(name),
             Text(badges, style="magenta"),
             Text(f"{icon} {overall}", style=style),
             elapsed_text,

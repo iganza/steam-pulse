@@ -25,20 +25,18 @@ def _get_state_machine_arn() -> str:
     return _cached_arn
 
 
-_RECOGNISED_EVENT_TYPES = frozenset(
-    {"report-ready", "batch-analysis-complete", "catalog-refresh-complete"}
-)
+# Non-force event types that propagate as `trigger_event`. `batch-analysis-complete`
+# is handled separately below because it also escalates force=True.
+_NON_FORCE_EVENT_TYPES = frozenset({"report-ready", "catalog-refresh-complete"})
 
 
 def _classify(event: dict) -> tuple[bool, str]:
     """Inspect SQS records and return (force, trigger_event).
 
-    `force` is True when any record carries `batch-analysis-complete`.
-    `trigger_event` is the first recognised event_type seen, with
-    `batch-analysis-complete` taking precedence so `force` and `trigger_event`
-    stay consistent. Unknown or malformed batches return (False, "").
+    `batch-analysis-complete` wins over other events in a mixed batch and
+    escalates force=True. Other recognised events propagate as `trigger_event`
+    with force=False. Unknown or malformed batches return (False, "").
     """
-    force = False
     trigger_event = ""
     for record in event.get("Records", []):
         try:
@@ -51,7 +49,7 @@ def _classify(event: dict) -> tuple[bool, str]:
             event_type = message.get("event_type", "")
             if event_type == "batch-analysis-complete":
                 return True, "batch-analysis-complete"
-            if not trigger_event and event_type in _RECOGNISED_EVENT_TYPES:
+            if not trigger_event and event_type in _NON_FORCE_EVENT_TYPES:
                 trigger_event = event_type
         except (json.JSONDecodeError, TypeError, AttributeError):
             logger.warning(
@@ -61,7 +59,7 @@ def _classify(event: dict) -> tuple[bool, str]:
                 },
             )
             continue
-    return force, trigger_event
+    return False, trigger_event
 
 
 def _execution_name(event: dict) -> str:

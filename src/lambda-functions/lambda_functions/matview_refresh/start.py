@@ -4,7 +4,11 @@ import time
 
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from library_layer.repositories.matview_repo import MATVIEW_NAMES, MatviewRepository
+from library_layer.repositories.matview_repo import (
+    MATVIEW_NAMES,
+    REPORT_DEPENDENT_VIEWS,
+    MatviewRepository,
+)
 from library_layer.utils.db import get_conn
 from pydantic import BaseModel
 
@@ -20,6 +24,7 @@ _repo = MatviewRepository(get_conn)
 class StartEvent(BaseModel):
     force: bool = False
     cycle_id: str
+    trigger_event: str = ""
 
 
 class StartResult(BaseModel):
@@ -54,14 +59,26 @@ def handler(event: dict, context: LambdaContext) -> dict:
             )
             return StartResult(skip=True, cycle_id=parsed.cycle_id).model_dump()
 
+    # `report-ready` invalidates only the 4 report-dependent views — everything
+    # else (batch/catalog/EB cron/CLI) gets the full refresh.
+    if parsed.trigger_event == "report-ready":
+        views = list(REPORT_DEPENDENT_VIEWS)
+    else:
+        views = list(MATVIEW_NAMES)
+
     _repo.start_cycle(parsed.cycle_id)
     logger.info(
         "Starting matview refresh cycle",
-        extra={"cycle_id": parsed.cycle_id, "force": parsed.force, "view_count": len(MATVIEW_NAMES)},
+        extra={
+            "cycle_id": parsed.cycle_id,
+            "force": parsed.force,
+            "trigger_event": parsed.trigger_event,
+            "view_count": len(views),
+        },
     )
     return StartResult(
         skip=False,
         cycle_id=parsed.cycle_id,
-        views=list(MATVIEW_NAMES),
+        views=views,
         start_time_ms=int(now * 1000),
     ).model_dump()

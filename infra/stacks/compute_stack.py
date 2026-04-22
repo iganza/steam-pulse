@@ -645,6 +645,7 @@ class ComputeStack(cdk.Stack):
             payload=sfn.TaskInput.from_object({
                 # `.$` form needed — `JsonPath.string_at` would coerce the boolean.
                 "force.$": "$.force",
+                "trigger_event.$": "$.trigger_event",
                 "cycle_id.$": "$$.Execution.Name",
             }),
             payload_response_only=True,
@@ -807,7 +808,9 @@ class ComputeStack(cdk.Stack):
         ).add_target(
             events_targets.SfnStateMachine(
                 matview_state_machine,
-                input=events.RuleTargetInput.from_object({"force": False}),
+                input=events.RuleTargetInput.from_object(
+                    {"force": False, "trigger_event": ""}
+                ),
             )
         )
 

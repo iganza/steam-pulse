@@ -4,6 +4,8 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from tests.conftest import MockLambdaContext
 
 
@@ -56,30 +58,61 @@ def _stub_sfn() -> MagicMock:
     return sfn
 
 
-def test_force_event_starts_with_force_true() -> None:
-    """batch-analysis-complete SQS event → start_execution called with force=true."""
+@pytest.mark.parametrize(
+    "event_type,expected_force,expected_trigger_event",
+    [
+        ("batch-analysis-complete", True, "batch-analysis-complete"),
+        ("report-ready", False, "report-ready"),
+        ("catalog-refresh-complete", False, "catalog-refresh-complete"),
+    ],
+)
+def test_classified_event_produces_expected_sfn_input(
+    event_type: str,
+    expected_force: bool,
+    expected_trigger_event: str,
+) -> None:
+    """SQS event carrying a known event_type yields matching force + trigger_event."""
     sfn = _stub_sfn()
     ssm = _stub_ssm()
     mod = _get_module(sfn, ssm)
 
-    mod.handler(_make_sqs_event("batch-analysis-complete"), MockLambdaContext())
+    mod.handler(_make_sqs_event(event_type), MockLambdaContext())
 
     sfn.start_execution.assert_called_once()
-    call = sfn.start_execution.call_args
-    payload = json.loads(call.kwargs["input"])
-    assert payload == {"force": True}
+    payload = json.loads(sfn.start_execution.call_args.kwargs["input"])
+    assert payload == {"force": expected_force, "trigger_event": expected_trigger_event}
 
 
-def test_non_force_event_starts_with_force_false() -> None:
-    """Other event types → start_execution with force=false."""
+def test_unknown_event_type_yields_empty_trigger_event() -> None:
+    """Unrecognised event_type → force=false, trigger_event=''."""
     sfn = _stub_sfn()
     ssm = _stub_ssm()
     mod = _get_module(sfn, ssm)
 
-    mod.handler(_make_sqs_event("report-ready"), MockLambdaContext())
+    mod.handler(_make_sqs_event("mystery-event"), MockLambdaContext())
 
     payload = json.loads(sfn.start_execution.call_args.kwargs["input"])
-    assert payload == {"force": False}
+    assert payload == {"force": False, "trigger_event": ""}
+
+
+def test_batch_analysis_wins_over_other_events_in_same_batch() -> None:
+    """A mixed batch with batch-analysis-complete → force=true wins over report-ready."""
+    sfn = _stub_sfn()
+    ssm = _stub_ssm()
+    mod = _get_module(sfn, ssm)
+
+    rr = json.dumps({"Message": json.dumps({"event_type": "report-ready"})})
+    bac = json.dumps({"Message": json.dumps({"event_type": "batch-analysis-complete"})})
+    event = {
+        "Records": [
+            {"messageId": "m1", "body": rr},
+            {"messageId": "m2", "body": bac},
+        ]
+    }
+    mod.handler(event, MockLambdaContext())
+
+    payload = json.loads(sfn.start_execution.call_args.kwargs["input"])
+    assert payload == {"force": True, "trigger_event": "batch-analysis-complete"}
 
 
 def test_malformed_record_does_not_crash() -> None:
@@ -98,6 +131,8 @@ def test_malformed_record_does_not_crash() -> None:
 
     assert "execution_arn" in result
     sfn.start_execution.assert_called_once()
+    payload = json.loads(sfn.start_execution.call_args.kwargs["input"])
+    assert payload == {"force": False, "trigger_event": "report-ready"}
 
 
 def test_execution_name_deterministic_per_batch() -> None:

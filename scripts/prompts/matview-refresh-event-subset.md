@@ -46,11 +46,14 @@ the Start step, and let Start return a filtered `views` list.
 1. **Trigger** (`trigger.py`): already inspects SQS records to detect the
    force-refresh event type. Extend the output of that inspection to
    return a `trigger_event` string (`"report-ready"` /
-   `"batch-analysis-complete"` / `"catalog-refresh-complete"` /
-   `"unknown"`), and pass it in the SFN input:
+   `"batch-analysis-complete"` / `"catalog-refresh-complete"` / `""`),
+   and pass it in the SFN input:
    `{"force": bool, "trigger_event": str}`. The EventBridge rule input
-   stays `{"force": False}` — `trigger_event` defaults to `""` in the
-   Start event model, which maps to the full-refresh path.
+   AND `sp.py matview-refresh` must also carry `trigger_event: ""` —
+   `MatviewRefreshStart` reads `$.trigger_event` via `.$`, and SFN's
+   ASL path evaluation fails before Lambda runs if the key is missing
+   (the Pydantic default only fires after invocation). Empty string
+   maps to the full-refresh path.
 
 2. **Start** (`start.py`): after the existing debounce + in-flight guards
    run, compute the view list:
@@ -83,8 +86,12 @@ the Start step, and let Start return a filtered `views` list.
   - Select view list based on `trigger_event`.
 - `infra/stacks/compute_stack.py`:
   - `MatviewRefreshStart` payload gains `"trigger_event.$": "$.trigger_event"`.
+  - `MatviewRefreshSchedule` EB rule input gains `"trigger_event": ""`.
   - Pass state `MatviewRecordStartTime` already just reshapes — no change
     needed if `views` is populated by Start.
+- `scripts/sp.py`:
+  - `cmd_matview_refresh` sends `{"force": force, "trigger_event": ""}`
+    so operator-driven runs stay on the full-refresh branch.
 
 ## Verification
 

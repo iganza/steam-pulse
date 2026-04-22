@@ -1,10 +1,4 @@
-"""Start Lambda — debounce gate + cycle bookkeeping for matview refresh.
-
-First step of the Step Functions workflow. Decides whether to run the
-cycle (based on a 5-minute debounce against the most recent `complete`
-row in `matview_refresh_log`) and, if so, inserts a `running` row keyed
-by the SFN execution name and returns the list of views to fan out.
-"""
+"""Start Lambda — debounce + in-flight gate for the matview-refresh SFN."""
 
 import time
 
@@ -17,11 +11,7 @@ from pydantic import BaseModel
 logger = Logger(service="matview-refresh-start")
 
 DEBOUNCE_SECONDS = 300
-# Treat `running` rows older than this as crashed/abandoned — otherwise a
-# Finalize failure would leave the cycle row stuck as running and block all
-# future cycles forever. A successful cycle is at most ~18 views x a few
-# minutes each with MaxConcurrency=1, so 1 hour is comfortably past p99 and
-# short enough to recover quickly from a crash.
+# Cutoff past which a stuck 'running' row is treated as crashed.
 RUNNING_STALE_SECONDS = 3600
 
 _repo = MatviewRepository(get_conn)
@@ -45,10 +35,6 @@ def handler(event: dict, context: LambdaContext) -> dict:
     now = time.time()
 
     if not parsed.force:
-        # In-flight guard: another cycle is already running. Skip rather than
-        # pile on duplicate REFRESH work. Stale rows (crashed Finalize) are
-        # ignored after RUNNING_STALE_SECONDS so a bad cycle doesn't block
-        # everything forever.
         running_cycle_id = _repo.get_running_cycle_id(RUNNING_STALE_SECONDS)
         if running_cycle_id:
             logger.info(

@@ -1,14 +1,4 @@
-"""Finalize Lambda — aggregate Map results into matview_refresh_log.
-
-Runs after the Map state completes. Computes total duration from the
-`start_time_ms` threaded through by the Start step, folds per-view
-results into a JSONB blob, and sets cycle status:
-
-  - all success   → 'complete'
-  - some failures → 'partial_failure' (do NOT raise — failure is
-                    already logged per-view; raising would retry SFN)
-  - all failures  → 'failed' + raise so the SFN fails visibly
-"""
+"""Finalize Lambda — aggregate Map results into matview_refresh_log."""
 
 import time
 

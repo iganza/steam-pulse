@@ -298,12 +298,7 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def get_last_refresh_time(self) -> float | None:
-        """Return epoch seconds of the most recent successful refresh cycle, or None.
-
-        Reads only rows with status='complete' — running/failed/legacy-NULL
-        rows are ignored so a partial-failure or in-flight cycle does not
-        inadvertently satisfy the debounce window.
-        """
+        """Epoch seconds of the newest status='complete' cycle, or None."""
         row = self._fetchone(
             """
             SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts
@@ -316,14 +311,7 @@ class MatviewRepository(BaseRepository):
         return float(row["ts"]) if row else None
 
     def get_running_cycle_id(self, stale_after_seconds: int) -> str | None:
-        """Return cycle_id of the newest non-stale `running` row, or None.
-
-        In-flight guard for the Start step — prevents a second SFN execution
-        from piling up work on top of an in-progress cycle. Rows older than
-        `stale_after_seconds` are treated as crashed (a failed Finalize would
-        otherwise leave `running` rows forever, permanently blocking all
-        future cycles).
-        """
+        """cycle_id of the newest 'running' row inside the stale window, or None."""
         row = self._fetchone(
             """
             SELECT cycle_id
@@ -338,18 +326,10 @@ class MatviewRepository(BaseRepository):
         return row["cycle_id"] if row else None
 
     def refresh_one(self, name: str) -> int:
-        """REFRESH MATERIALIZED VIEW CONCURRENTLY one view. Returns duration_ms.
-
-        Raises ValueError for unknown names — guards the sql.Identifier path
-        against callers passing attacker-controlled strings.
-        """
+        """REFRESH MATERIALIZED VIEW CONCURRENTLY <name>. Returns duration_ms."""
         if name not in MATVIEW_NAMES:
             raise ValueError(f"Unknown matview name: {name!r}")
-        # Capture the connection once. BaseRepository.conn re-invokes the
-        # factory on each access, so reading autocommit, toggling it, and
-        # running REFRESH via `self.conn` could land on different connections
-        # under a reconnect — the REFRESH would silently run outside the
-        # autocommit mode this method set up.
+        # Snapshot conn — BaseRepository.conn re-invokes the factory per access.
         conn = self.conn
         prev_autocommit = conn.autocommit
         if not prev_autocommit:
@@ -368,16 +348,18 @@ class MatviewRepository(BaseRepository):
             conn.autocommit = prev_autocommit
 
     def start_cycle(self, cycle_id: str) -> None:
-        """Insert a running-status row keyed by the SFN execution name."""
-        with self.conn.cursor() as cur:
+        """Idempotent insert of a 'running' row keyed by SFN execution name."""
+        conn = self.conn
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO matview_refresh_log (cycle_id, status, started_at)
                 VALUES (%s, 'running', NOW())
+                ON CONFLICT (cycle_id) WHERE cycle_id IS NOT NULL DO NOTHING
                 """,
                 (cycle_id,),
             )
-        self.conn.commit()
+        conn.commit()
 
     def complete_cycle(
         self,
@@ -385,14 +367,7 @@ class MatviewRepository(BaseRepository):
         duration_ms: int,
         per_view_results: dict[str, dict],
     ) -> None:
-        """Update the cycle row with final status + per-view results.
-
-        Status is derived from per_view_results: all success → complete;
-        mix → partial_failure; all fail → failed. Also stamps
-        refreshed_at=NOW() (the column's default only fires on INSERT) and
-        populates views_refreshed with successful view names so existing
-        consumers of that column continue to see the shape they expect.
-        """
+        """Finalize the cycle row: derive status, stamp refreshed_at, raise if no match."""
         success_names = [n for n, r in per_view_results.items() if r.get("success")]
         if len(success_names) == len(per_view_results):
             status = "complete"
@@ -423,10 +398,6 @@ class MatviewRepository(BaseRepository):
             rowcount = cur.rowcount
         conn.commit()
         if rowcount == 0:
-            # No row matched — either Finalize ran with the wrong cycle_id or
-            # start_cycle never inserted. Either way, the cycle outcome is
-            # lost and debounce / observability are broken. Fail loudly so
-            # the SFN execution reflects it.
             raise RuntimeError(
                 f"complete_cycle matched no row for cycle_id={cycle_id!r}"
             )

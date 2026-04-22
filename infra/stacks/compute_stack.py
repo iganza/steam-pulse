@@ -570,10 +570,6 @@ class ComputeStack(cdk.Stack):
         db_secret.grant_read(migration_fn)
 
         # ── Matview Refresh pipeline (Step Functions + per-view fan-out) ────────
-        # Replaces the single MatviewRefreshFn. A Step Functions Map runs one
-        # worker Lambda per matview so each view gets its own 15-min invocation
-        # budget — no single slow view can time out the whole cycle. Serial
-        # (MaxConcurrency=1) by default to preserve today's DB load profile.
         matview_refresh_role = iam.Role(
             self,
             "MatviewRefreshRole",
@@ -605,9 +601,6 @@ class ComputeStack(cdk.Stack):
                 vpc=vpc,
                 vpc_subnets=private_subnets,
                 security_groups=[intra_sg],
-                # 15 min ceiling — matches the worker's per-view budget. Start
-                # and Finalize are quick but share the same role/env for
-                # simplicity; the long timeout is harmless for them.
                 timeout=cdk.Duration.minutes(15),
                 memory_size=256,
                 reserved_concurrent_executions=reserved_concurrency,
@@ -650,8 +643,7 @@ class ComputeStack(cdk.Stack):
             "MatviewRefreshStart",
             lambda_function=matview_start_fn,
             payload=sfn.TaskInput.from_object({
-                # Boolean from the SFN input — use the .$ suffix form so SFN
-                # resolves the JSON path (string_at would coerce to str).
+                # `.$` form needed — `JsonPath.string_at` would coerce the boolean.
                 "force.$": "$.force",
                 "cycle_id.$": "$$.Execution.Name",
             }),
@@ -661,9 +653,6 @@ class ComputeStack(cdk.Stack):
 
         matview_done = sfn.Succeed(self, "MatviewRefreshDone")
 
-        # Pass state — just reshape the result. No new fields introduced; keeps
-        # cycle_id / views / start_time_ms visible at the top level so the
-        # Map (items_path=$.views) and Finalize steps can read them.
         record_start_time = sfn.Pass(
             self,
             "MatviewRecordStartTime",
@@ -684,14 +673,29 @@ class ComputeStack(cdk.Stack):
             }),
             payload_response_only=True,
         )
-        # Retry only on Lambda service-side errors (throttles, 5xx). Per-view
-        # REFRESH failures are returned as data (success=false) so Map can
-        # aggregate them at Finalize.
+        # Retry only on Lambda service errors; REFRESH failures are returned as data.
         refresh_one_task.add_retry(
             errors=["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
             interval=cdk.Duration.seconds(5),
             max_attempts=2,
             backoff_rate=2,
+        )
+
+        # Catch task-level failures as data so Map keeps iterating and Finalize runs.
+        refresh_one_failed = sfn.Pass(
+            self,
+            "MatviewRefreshOneFailed",
+            parameters={
+                "name.$": "$.name",
+                "success": False,
+                "duration_ms": 0,
+                "error.$": "$.error_info.Cause",
+            },
+        )
+        refresh_one_task.add_catch(
+            refresh_one_failed,
+            errors=["States.ALL"],
+            result_path="$.error_info",
         )
 
         fan_out = sfn.Map(
@@ -752,8 +756,7 @@ class ComputeStack(cdk.Stack):
             string_value=matview_state_machine.state_machine_arn,
         )
 
-        # ── Trigger Lambda (SQS shell — calls StartExecution) ────────────
-        # Not VPC-attached: it has no DB access, only sfn:StartExecution.
+        # ── Trigger Lambda (SQS shell — calls StartExecution; no VPC/DB) ────
         matview_trigger_fn = PythonFunction(
             self,
             "MatviewRefreshTriggerFn",
@@ -764,11 +767,7 @@ class ComputeStack(cdk.Stack):
             layers=[library_layer],
             timeout=cdk.Duration.seconds(30),
             memory_size=256,
-            # Cap trigger concurrency so a bursty SQS fan-in (report-ready +
-            # catalog-refresh-complete + batch-analysis-complete) doesn't
-            # start many SFN executions in parallel. The Start step's
-            # in-flight guard already no-ops duplicate cycles, but serializing
-            # here avoids wasted StartExecution calls and log churn.
+            # Serialize StartExecution calls under bursty SQS fan-in.
             reserved_concurrent_executions=1,
             log_group=logs.LogGroup(
                 self,
@@ -794,16 +793,12 @@ class ComputeStack(cdk.Stack):
                 ],
             )
         )
+        # SqsEventSource `max_concurrency` min is 2; `reserved=1` on the fn serializes.
         matview_trigger_fn.add_event_source(
-            event_sources.SqsEventSource(
-                cache_invalidation_queue,
-                batch_size=1,
-                max_concurrency=2,
-            )
+            event_sources.SqsEventSource(cache_invalidation_queue, batch_size=1)
         )
 
-        # EventBridge fallback — refresh every 6 hours, prod only.
-        # Staging operators refresh ad-hoc via `sp.py matview-refresh --env staging`.
+        # EventBridge fallback — every 6h, prod only (staging uses sp.py).
         events.Rule(
             self,
             "MatviewRefreshSchedule",

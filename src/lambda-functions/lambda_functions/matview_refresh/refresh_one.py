@@ -1,11 +1,4 @@
-"""Worker Lambda — REFRESH MATERIALIZED VIEW CONCURRENTLY for one view.
-
-Invoked by the Step Functions Map state, once per view name. Returns
-failure as *data* rather than raising, so Map aggregates partial
-failures at Finalize instead of aborting under default retry behavior.
-Lambda timeout: 15 minutes (3x the old aggregate Lambda's 5-min budget
-applied to a single view).
-"""
+"""Worker Lambda — REFRESH MATERIALIZED VIEW CONCURRENTLY one view; failures return as data."""
 
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext

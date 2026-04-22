@@ -371,9 +371,7 @@ TABLES: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_input_hash_idx ON mv_genre_synthesis(input_hash)",
     "CREATE INDEX IF NOT EXISTS mv_genre_synthesis_computed_at_idx ON mv_genre_synthesis(computed_at)",
-    # 0052_genre_editorial_columns — mirror as ALTERs so already-provisioned
-    # test DBs pick up the new columns (CREATE TABLE IF NOT EXISTS is a no-op
-    # on pre-existing tables).
+    # 0052 ALTERs for pre-existing test DBs.
     "ALTER TABLE mv_genre_synthesis ADD COLUMN IF NOT EXISTS editorial_intro TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE mv_genre_synthesis ADD COLUMN IF NOT EXISTS churn_interpretation TEXT NOT NULL DEFAULT ''",
     # Legacy table — kept for CLI backward compatibility
@@ -406,10 +404,7 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS steam_tag_id INTEGER",
     # 0014_add_tag_category
     "ALTER TABLE tags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'Other'",
-    # 0016_materialized_views — refresh log table
-    # 0054_matview_refresh_log_detail — per-cycle status + per-view results.
-    # Inlined into the base CREATE TABLE here so fresh test DBs get the full
-    # current shape without relying on the ALTERs also below.
+    # 0016_materialized_views + 0054_matview_refresh_log_detail (inlined).
     """CREATE TABLE IF NOT EXISTS matview_refresh_log (
         id SERIAL PRIMARY KEY,
         refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -420,8 +415,7 @@ TABLES: tuple[str, ...] = (
         per_view_results JSONB,
         started_at TIMESTAMPTZ
     )""",
-    # Mirror 0054 as ALTERs so already-provisioned test DBs pick up the new
-    # columns too (CREATE TABLE IF NOT EXISTS is a no-op on pre-existing tables).
+    # 0054 ALTERs for pre-existing test DBs (CREATE TABLE IF NOT EXISTS is a no-op).
     "ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS cycle_id TEXT",
     """ALTER TABLE matview_refresh_log ADD COLUMN IF NOT EXISTS status TEXT
        CHECK (status IN ('running', 'complete', 'partial_failure', 'failed'))""",

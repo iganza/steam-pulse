@@ -1,13 +1,4 @@
-"""Trigger Lambda — SQS shell that starts a matview refresh SFN execution.
-
-Bridges the `cache_invalidation_queue` SQS event source to the Step
-Functions state machine. Preserves the force-refresh detection rule
-(SNS messages with `event_type == "batch-analysis-complete"` bypass
-debounce). Not VPC-attached — no DB access, only calls sfn:StartExecution.
-
-Debounce happens inside the Start step, not here, so the Lambda stays
-idempotent and the state machine has the single source of truth.
-"""
+"""Trigger Lambda — SQS shell that starts a matview-refresh SFN execution."""
 
 import json
 import os

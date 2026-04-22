@@ -40,11 +40,7 @@ def test_worker_success_returns_duration() -> None:
 
 
 def test_worker_captures_failure_as_data() -> None:
-    """refresh_one raising psycopg2.Error → success=false, no re-raise.
-
-    Map state needs a successful Lambda result to aggregate partial failures
-    at Finalize instead of aborting under default retry behavior.
-    """
+    """refresh_one raising psycopg2.Error → success=false, no re-raise."""
     mock_repo = MagicMock()
     mock_repo.refresh_one.side_effect = psycopg2.Error("boom")
 

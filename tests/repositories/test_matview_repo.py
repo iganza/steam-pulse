@@ -186,11 +186,7 @@ def test_refresh_one_rejects_unknown_view(
     db_conn: Any,
     matview_repo: MatviewRepository,
 ) -> None:
-    """refresh_one raises ValueError for names not in MATVIEW_NAMES.
-
-    Guards the sql.Identifier path — an attacker-controlled string would
-    otherwise be interpolated directly into the REFRESH statement.
-    """
+    """Unknown view name raises ValueError (guards the sql.Identifier path)."""
     with pytest.raises(ValueError):
         matview_repo.refresh_one("not_a_view")
 
@@ -231,6 +227,21 @@ def test_start_cycle_inserts_running_row(
     assert row["started_at"] is not None
     assert row["per_view_results"] is None
     assert row["duration_ms"] is None
+
+
+def test_start_cycle_is_idempotent(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+) -> None:
+    """Duplicate start_cycle with the same cycle_id is a no-op (SFN retry safe)."""
+    matview_repo.start_cycle("cycle-dup")
+    matview_repo.start_cycle("cycle-dup")  # must not raise
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM matview_refresh_log WHERE cycle_id = %s",
+            ("cycle-dup",),
+        )
+        assert cur.fetchone()["n"] == 1
 
 
 def test_complete_cycle_all_success(
@@ -303,8 +314,7 @@ def test_complete_cycle_raises_when_no_match(
     db_conn: Any,
     matview_repo: MatviewRepository,
 ) -> None:
-    """Raise if the UPDATE matches no row — silently losing a cycle would
-    break debounce/observability."""
+    """UPDATE matching zero rows must raise, not silently drop the cycle."""
     with pytest.raises(RuntimeError):
         matview_repo.complete_cycle(
             "never-started",
@@ -328,7 +338,6 @@ def test_get_running_cycle_id_ignores_stale(
     matview_repo: MatviewRepository,
 ) -> None:
     """Running rows older than the cutoff are treated as crashed."""
-    # Insert a running row with a deliberately old started_at.
     with db_conn.cursor() as cur:
         cur.execute(
             """

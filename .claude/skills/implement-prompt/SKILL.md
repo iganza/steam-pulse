@@ -9,7 +9,8 @@ Read the prompt file at the path the user provides and produce a focused impleme
 
 ## Steps
 
-1. Resolve the prompt path from the user's argument. Accept either an absolute path, a repo-relative path, or a bare slug (in which case look under `scripts/prompts/<slug>.md`).
+1. Resolve the prompt path from the user's argument. Accept either an absolute path, a repo-relative path, or a bare slug (in which case look under `scripts/prompts/<slug>.md`). Record the slug (filename without `.md`) for step 5.
 2. Read the prompt file end to end.
 3. Produce a plan to implement it. The plan must cover only this prompt — do not expand scope into adjacent prompts or the broader roadmap.
 4. Present the plan to the user for review. Do not start implementing until they approve.
+5. After approval, create the feature branch before any edits: `git checkout -b feature/<slug>` (e.g. `scripts/prompts/price-usd-currency-bug.md` → `git checkout -b feature/price-usd-currency-bug`). If the branch already exists, check it out instead (`git checkout feature/<slug>`).

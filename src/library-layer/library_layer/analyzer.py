@@ -285,8 +285,12 @@ def _build_synthesis_user_message(
     This section is DECISIONS, not re-descriptions.
   </section>
   <section name="competitive_context" type="array">
-    Each: {{game, comparison_sentiment: positive|negative|mixed, note}}
+    Each: {{game, comparison_sentiment: positive|negative|mixed|neutral, note}}
     ONLY named competitors from signals. Empty if none.
+    comparison_sentiment: use "neutral" for pure competitive-set identification
+    with no valence claim (e.g. "it's like Hades"); "positive"/"negative" when
+    reviewers explicitly favor one game over the other; "mixed" when reviewers
+    compare on both dimensions (better at X, worse at Y).
   </section>
   <section name="genre_context" type="string">
     1-2 sentences benchmarking against genre norms. No named competitors here.
@@ -353,9 +357,17 @@ A later model merges and synthesizes your output — your ONLY job is accurate e
 - Do not invent, generalize, or embellish.
 - confidence rule: "high" if mention_count >= 5 OR avg_helpful_votes >= 50,
   "medium" if mention_count >= 2, "low" otherwise.
-- sentiment values are strictly "positive", "negative", or "mixed". Do NOT
-  emit "neutral". If a topic has no clear valence (descriptive mentions
-  only), OMIT it — do not pad the list with low-signal topics.
+- topic sentiment values are strictly "positive", "negative", or "mixed".
+  Do NOT emit "neutral" on a topic. If a topic has no clear valence
+  (descriptive mentions only), OMIT it — do not pad the list with
+  low-signal topics.
+- competitor_refs.sentiment uses "positive", "negative", "mixed", or
+  "neutral". Use "neutral" when the reviewer names a comparable game
+  WITHOUT taking a side (e.g. "it's like Hades", "reminds me of Hollow
+  Knight") — this identifies the competitive set without a valence
+  claim. Use "positive"/"negative" when the reviewer explicitly favors
+  one game over the other. Use "mixed" when the reviewer compares on
+  both dimensions (better at X, worse at Y).
 - Competitor mentions do NOT belong in topics. If reviewers compare this
   game to another (by name), put those in the competitor_refs field, not
   as a topic. The 9 listed categories are exhaustive — do not invent new
@@ -466,7 +478,13 @@ Return a RichChunkSummary JSON with:
     quotes (up to 3 ReviewQuotes with text, steam_review_id, voted_up,
             playtime_hours, votes_helpful),
     avg_playtime_hours, avg_helpful_votes
-  competitor_refs: array of {{game, sentiment, context}}
+  competitor_refs: array of {{
+    game,
+    sentiment ("positive" | "negative" | "mixed" | "neutral" —
+               use "neutral" for pure competitive-set identification
+               with no valence claim),
+    context
+  }}
   notable_quotes: up to 3 standalone verbatim quotes
   batch_stats: {{positive_count, negative_count, avg_playtime_hours,
                  high_playtime_count, early_access_count, free_key_count,

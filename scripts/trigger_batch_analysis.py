@@ -30,6 +30,15 @@ def main() -> None:
         default=20,
         help="Max concurrent per-game executions (default: 20)",
     )
+    parser.add_argument(
+        "--start-at",
+        choices=["chunk", "merge"],
+        default="chunk",
+        help="Phase to start at. 'merge' skips chunk phase — the "
+             "per-game machine reads cached chunks from chunk_summaries "
+             "and begins at PrepareMerge. Use when chunks are already "
+             "persisted (e.g. a prior run failed on one chunk). Default: chunk.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print intent without executing")
     args = parser.parse_args()
 
@@ -45,7 +54,11 @@ def main() -> None:
         )
         sys.exit(1)
 
-    payload = {"appids": args.appids, "max_concurrency": args.concurrency}
+    payload = {
+        "appids": args.appids,
+        "max_concurrency": args.concurrency,
+        "start_at": args.start_at,
+    }
     execution_input = json.dumps(payload)
     execution_name = f"batch-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
@@ -67,6 +80,7 @@ def main() -> None:
     print(f"Name: {execution_name}")
     print(f"Appids: {args.appids}")
     print(f"Concurrency: {args.concurrency}")
+    print(f"Start at: {args.start_at}")
 
 
 if __name__ == "__main__":

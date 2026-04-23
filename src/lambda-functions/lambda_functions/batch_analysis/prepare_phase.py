@@ -87,6 +87,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     MERGE_PROMPT_VERSION,
+    MIN_CHUNKS_FOR_MERGE,
     PIPELINE_VERSION,
     SYNTHESIS_PROMPT_VERSION,
     AnalyzerSettings,
@@ -278,14 +279,20 @@ def _prepare_merge(
 ) -> dict:
     """Submit merge groups as a batch job via AnthropicBatchBackend.
 
-    Called for both merge levels. Level 1 loads chunk summaries from DB;
+    Called for both merge levels. Level 1 loads chunk summaries from DB
+    and enforces ``MIN_CHUNKS_FOR_MERGE`` before doing anything else;
     level 2 loads intermediate MergedSummary rows produced by level 1.
 
     Returns ``skip=true`` when:
-    - single chunk (Python promotion, no LLM needed)
-    - whole-set cache hit
+    - whole-set cache hit (all chunks already rolled up into one merge row)
     - all groups cached at this level and only 1 result
     - level 2 receives a single merged_id (level 1 already converged)
+
+    Raises ``ValueError`` when level 1 is called with fewer than
+    ``MIN_CHUNKS_FOR_MERGE`` cached chunks — covers both zero-chunk and
+    partial-chunk (``start_at=merge``) cases. The single-chunk promotion
+    branch below is preserved for historical reference but is unreachable
+    under the current floor.
     """
     if merge_level == 2:
         return _prepare_merge_l2(appid, backend, execution_id, merged_ids)
@@ -296,9 +303,13 @@ def _prepare_merge(
         raise ValueError(f"appid={appid} not in games table")
 
     rows = _chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
-    if not rows:
+    if len(rows) < MIN_CHUNKS_FOR_MERGE:
         raise ValueError(
-            f"merge prep: no chunk_summaries for appid={appid} — run chunk phase first"
+            f"merge prep requires at least {MIN_CHUNKS_FOR_MERGE} chunks "
+            f"(got {len(rows)} for appid={appid}). Below this floor, "
+            f"cross-chunk topic synthesis is statistically unreliable. "
+            f"If this is a start_at=merge run, verify chunk_summaries "
+            f"has the expected rows for this appid."
         )
 
     summaries = [RichChunkSummary.model_validate(r["summary_json"]) for r in rows]

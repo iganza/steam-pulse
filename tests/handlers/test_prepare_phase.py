@@ -197,52 +197,28 @@ def test_prepare_chunk_submits_when_pending_exist() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_merge_single_chunk_promotion_skips() -> None:
+def test_prepare_merge_raises_below_minimum_chunks() -> None:
+    """Floor enforced at prepare time: <MIN_CHUNKS_FOR_MERGE raises without
+    touching the backend. Covers both zero-chunk and partial-chunk (e.g.
+    --start-at merge with too few cached chunks) cases."""
+    from library_layer.analyzer import MIN_CHUNKS_FOR_MERGE
+
     pp = _get_module()
     _install_fake_game(pp)
-
-    # One cached chunk → single-chunk promotion path (no LLM call needed).
     pp._chunk_repo = MagicMock()
     pp._chunk_repo.find_by_appid.return_value = [
-        {"id": 42, "summary_json": _empty_summary("solo").model_dump(mode="json")}
+        {"id": i, "summary_json": _empty_summary(f"c{i}").model_dump(mode="json")}
+        for i in range(MIN_CHUNKS_FOR_MERGE - 1)
     ]
-    pp._merge_repo = MagicMock()
-    pp._merge_repo.find_latest_by_source_ids.return_value = None
-    pp._merge_repo.insert.return_value = 99
+    backend = _install_fake_backend(pp)
 
-    # The BatchBackend should NEVER be touched for the merge phase.
-    batch_backend = _install_fake_backend(pp)
-
-    result = pp.handler(
-        {"appid": 440, "phase": "merge", "execution_id": "exec-3", "merge_level": 1},
-        context=None,
-    )
-    assert result["skip"] is True
-    assert result["job_id"] is None
-    # merged_summary_id is threaded forward to the next merge level
-    # and ultimately to PrepareSynthesis via the state machine.
-    assert result["merged_summary_id"] == 99
-    assert result["merged_ids"] == [99]
-    batch_backend.prepare.assert_not_called()
-    batch_backend.submit.assert_not_called()
-    # Promotion row was persisted.
-    pp._merge_repo.insert.assert_called_once()
-    insert_call = pp._merge_repo.insert.call_args
-    assert insert_call.kwargs["model_id"] == "python-promotion"
-
-
-def test_prepare_merge_raises_when_no_chunk_summaries_exist() -> None:
-    pp = _get_module()
-    _install_fake_game(pp)
-    pp._chunk_repo = MagicMock()
-    pp._chunk_repo.find_by_appid.return_value = []
-    _install_fake_backend(pp)
-
-    with pytest.raises(ValueError, match="no chunk_summaries"):
+    with pytest.raises(ValueError, match=f"at least {MIN_CHUNKS_FOR_MERGE} chunks"):
         pp.handler(
             {"appid": 440, "phase": "merge", "execution_id": "exec-4", "merge_level": 1},
             context=None,
         )
+    backend.prepare.assert_not_called()
+    backend.submit.assert_not_called()
 
 
 def test_prepare_merge_submits_batch_for_multi_chunk_game() -> None:
@@ -250,11 +226,11 @@ def test_prepare_merge_submits_batch_for_multi_chunk_game() -> None:
     pp = _get_module()
     _install_fake_game(pp)
 
-    # 3 chunk summaries → one merge group (< max_chunks_per_merge_call).
+    # 5 chunk summaries → one merge group (< max_chunks_per_merge_call).
     pp._chunk_repo = MagicMock()
     pp._chunk_repo.find_by_appid.return_value = [
         {"id": i, "summary_json": _empty_summary(f"c{i}").model_dump(mode="json")}
-        for i in range(1, 4)
+        for i in range(1, 6)
     ]
     pp._merge_repo = MagicMock()
     pp._merge_repo.find_latest_by_source_ids.return_value = None  # no cache hits
@@ -280,7 +256,7 @@ def test_prepare_merge_submits_batch_for_multi_chunk_game() -> None:
     # group_meta threaded for collect.
     assert len(result["group_meta"]) == 1
     assert result["group_meta"][0]["group_index"] == 0
-    assert sorted(result["group_meta"][0]["source_chunk_ids"]) == [1, 2, 3]
+    assert sorted(result["group_meta"][0]["source_chunk_ids"]) == [1, 2, 3, 4, 5]
     assert result["cached_group_meta"] == []
 
     # Tracking row inserted.

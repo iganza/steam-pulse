@@ -4,6 +4,8 @@ import json
 import re
 from unittest.mock import MagicMock
 
+import pytest
+
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -181,6 +183,105 @@ def test_crawl_app_stores_game(
     assert game.is_free is True
     assert game.review_count == 188000  # all languages
     assert game.review_count_english == 155000  # English only
+
+
+def test_crawl_app_stores_usd_price(
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+    catalog_repo: CatalogRepository,
+    tag_repo: TagRepository,
+    steam_appdetails_paid_usd: dict,
+    httpx_mock: HTTPXMock,
+) -> None:
+    import boto3
+    import httpx as _httpx
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-crawl-q-usd")["QueueUrl"]
+
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            json=steam_appdetails_paid_usd,
+        )
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/2084000"),
+            json=SMALL_REVIEW_SUMMARY,
+        )
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/2084000"),
+            json=SMALL_REVIEW_SUMMARY,
+        )
+
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        result = svc.crawl_app(2084000)
+
+    assert result is True
+    game = game_repo.find_by_appid(2084000)
+    assert game is not None
+    assert game.is_free is False
+    assert float(game.price_usd) == 14.99
+
+
+def test_crawl_app_nulls_price_on_non_usd(
+    game_repo: GameRepository,
+    review_repo: ReviewRepository,
+    catalog_repo: CatalogRepository,
+    tag_repo: TagRepository,
+    steam_appdetails_paid_clp: dict,
+    httpx_mock: HTTPXMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    import boto3
+    import httpx as _httpx
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="review-crawl-q-clp")["QueueUrl"]
+
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/api/appdetails"),
+            json=steam_appdetails_paid_clp,
+        )
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/2084001"),
+            json=SMALL_REVIEW_SUMMARY,
+        )
+        httpx_mock.add_response(
+            url=re.compile(r"https://store\.steampowered\.com/appreviews/2084001"),
+            json=SMALL_REVIEW_SUMMARY,
+        )
+
+        client = _httpx.Client()
+        svc = _make_service(
+            game_repo,
+            review_repo,
+            catalog_repo,
+            tag_repo,
+            sqs,
+            queue_url,
+            client,
+        )
+        with caplog.at_level(logging.WARNING):
+            result = svc.crawl_app(2084001)
+
+    assert result is True
+    game = game_repo.find_by_appid(2084001)
+    assert game is not None
+    assert game.is_free is False
+    assert game.price_usd is None
+    assert any("non-USD price" in rec.message for rec in caplog.records)
 
 
 def test_crawl_app_handles_steam_error(

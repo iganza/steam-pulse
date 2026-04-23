@@ -1,0 +1,32 @@
+{
+  "2084000": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Shogun Showdown",
+      "steam_appid": 2084000,
+      "required_age": 0,
+      "is_free": false,
+      "short_description": "A tactical roguelike-deckbuilder.",
+      "developers": ["Roboatino"],
+      "publishers": ["Goblinz Publishing"],
+      "platforms": {"windows": true, "mac": true, "linux": false},
+      "price_overview": {
+        "currency": "USD",
+        "initial": 1499,
+        "final": 1499,
+        "discount_percent": 0
+      },
+      "categories": [{"id": 2, "description": "Single-player"}],
+      "genres": [{"id": "23", "description": "Indie"}, {"id": "25", "description": "Strategy"}],
+      "release_date": {"coming_soon": false, "date": "Oct 3, 2024"},
+      "header_image": "https://example.com/2084000/header.jpg",
+      "background": "https://example.com/2084000/bg.jpg",
+      "recommendations": {"total": 5000},
+      "achievements": {"total": 40},
+      "supported_languages": "English",
+      "content_descriptors": {"ids": [], "notes": null},
+      "support_info": {"url": "", "email": ""}
+    }
+  }
+}

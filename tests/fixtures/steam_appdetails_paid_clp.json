@@ -1,0 +1,32 @@
+{
+  "2084001": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Non USD Game",
+      "steam_appid": 2084001,
+      "required_age": 0,
+      "is_free": false,
+      "short_description": "A test game priced in CLP.",
+      "developers": ["Test Dev"],
+      "publishers": ["Test Pub"],
+      "platforms": {"windows": true, "mac": false, "linux": false},
+      "price_overview": {
+        "currency": "CLP",
+        "initial": 830000,
+        "final": 825000,
+        "discount_percent": 1
+      },
+      "categories": [{"id": 2, "description": "Single-player"}],
+      "genres": [{"id": "23", "description": "Indie"}],
+      "release_date": {"coming_soon": false, "date": "Jan 1, 2024"},
+      "header_image": "https://example.com/2084001/header.jpg",
+      "background": "https://example.com/2084001/bg.jpg",
+      "recommendations": {"total": 100},
+      "achievements": {"total": 10},
+      "supported_languages": "English",
+      "content_descriptors": {"ids": [], "notes": null},
+      "support_info": {"url": "", "email": ""}
+    }
+  }
+}

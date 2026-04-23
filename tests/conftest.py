@@ -252,6 +252,20 @@ def steam_appdetails_440() -> dict:
 
 
 @pytest.fixture
+def steam_appdetails_paid_usd() -> dict:
+    return json.loads(
+        (Path(__file__).parent / "fixtures/steam_appdetails_paid_usd.json").read_text()
+    )
+
+
+@pytest.fixture
+def steam_appdetails_paid_clp() -> dict:
+    return json.loads(
+        (Path(__file__).parent / "fixtures/steam_appdetails_paid_clp.json").read_text()
+    )
+
+
+@pytest.fixture
 def steam_reviews_440() -> dict:
     return json.loads((Path(__file__).parent / "fixtures/steam_reviews_440.json").read_text())
 

@@ -333,9 +333,20 @@ class CrawlService:
 
         price_info = details.get("price_overview") or {}
         is_free: bool = bool(details.get("is_free", False))
-        price_usd: float | None = (
-            price_info.get("final", 0) / 100.0 if price_info and not is_free else None
-        )
+        price_usd: float | None = None
+        if price_info and not is_free:
+            currency = price_info.get("currency")
+            if currency != "USD":
+                logger.warning(
+                    "appdetails returned non-USD price",
+                    extra={
+                        "appid": appid,
+                        "currency": currency,
+                        "final": price_info.get("final"),
+                    },
+                )
+            else:
+                price_usd = price_info.get("final", 0) / 100.0
 
         achievements = details.get("achievements") or {}
         achievements_total = (

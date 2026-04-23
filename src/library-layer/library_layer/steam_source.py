@@ -251,7 +251,7 @@ class DirectSteamSource(SteamDataSource):
 
     def get_app_details(self, appid: int) -> dict:
         self._jitter()
-        resp = self._get_with_retry(APP_DETAILS_URL, appids=str(appid), l="english")
+        resp = self._get_with_retry(APP_DETAILS_URL, appids=str(appid), l="english", cc="us")
         data = resp.json()
         key = str(appid)
         if key not in data or not data[key].get("success"):

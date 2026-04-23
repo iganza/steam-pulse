@@ -52,7 +52,7 @@ function formatRevenue(n: number): string {
 function emptyStateCopy(reason: string | null, reviewCount: number): string {
   switch (reason) {
     case "insufficient_reviews":
-      return `Not enough reviews yet to estimate (${reviewCount}/500).`;
+      return `Not enough reviews yet to estimate (${reviewCount.toLocaleString()}/500).`;
     case "free_to_play":
       return "Free-to-play — revenue estimates don't apply.";
     case "missing_price":

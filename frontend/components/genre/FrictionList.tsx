@@ -12,7 +12,8 @@ interface Props {
 }
 
 export function FrictionList({ items, gameCount, games, hasReport }: Props) {
-  const preview = items.slice(0, 5);
+  // Pre-launch: raised from 5 → schema max (20) to review full synthesis content. Restore teaser cap when paywall ships.
+  const preview = items.slice(0, 20);
   // "X more in the PDF" is a count of clusters beyond the preview, not a
   // game count — keep the cohort size (gameCount) separate from this.
   const remaining = Math.max(0, items.length - preview.length);

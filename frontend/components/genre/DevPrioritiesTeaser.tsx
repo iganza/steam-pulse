@@ -9,7 +9,8 @@ interface Props {
 }
 
 export function DevPrioritiesTeaser({ items, totalCount, hasReport }: Props) {
-  const preview = items.slice(0, 2);
+  // Pre-launch: raised from 2 → schema max (10) to review full synthesis content. Restore teaser cap when paywall ships.
+  const preview = items.slice(0, 10);
 
   return (
     <section className="mb-16" data-testid="dev-priorities">

@@ -17,7 +17,8 @@ function cdnHeader(appid: number): string {
 }
 
 export function BenchmarkGrid({ items, totalCount, games, hasReport }: Props) {
-  const preview = items.slice(0, 3);
+  // Pre-launch: raised from 3 → schema max (10) to review full synthesis content. Restore teaser cap when paywall ships.
+  const preview = items.slice(0, 10);
   const remaining = Math.max(0, totalCount - preview.length);
 
   return (

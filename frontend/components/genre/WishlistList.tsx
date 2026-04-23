@@ -12,7 +12,8 @@ interface Props {
 }
 
 export function WishlistList({ items, gameCount, games, hasReport }: Props) {
-  const preview = items.slice(0, 3);
+  // Pre-launch: raised from 3 → schema max (10) to review full synthesis content. Restore teaser cap when paywall ships.
+  const preview = items.slice(0, 10);
   // Remaining = wishlist clusters beyond the preview, not games in the cohort.
   const remaining = Math.max(0, items.length - preview.length);
 

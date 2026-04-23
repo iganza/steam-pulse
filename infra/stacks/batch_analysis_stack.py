@@ -395,11 +395,17 @@ class BatchAnalysisStack(cdk.Stack):
         merge_l1_chain = _merge_level_chain("", 1, merge_needs_l2)
         chunk_chain = _phase_chain("chunk", merge_l1_chain)
 
+        start_choice = sfn.Choice(self, "StartAtChoice")
+        start_choice.when(
+            sfn.Condition.string_equals("$.start_at", "merge"),
+            merge_l1_chain,
+        ).otherwise(chunk_chain)
+
         state_machine = sfn.StateMachine(
             self,
             "BatchAnalysisMachine",
             state_machine_name=f"steampulse-batch-analysis-{env}",
-            definition_body=sfn.DefinitionBody.from_chainable(chunk_chain),
+            definition_body=sfn.DefinitionBody.from_chainable(start_choice),
             state_machine_type=sfn.StateMachineType.STANDARD,
             logs=sfn.LogOptions(
                 destination=logs.LogGroup(
@@ -503,7 +509,10 @@ class BatchAnalysisStack(cdk.Stack):
                 "RunPerGame",
                 state_machine=state_machine,
                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                input=sfn.TaskInput.from_object({"appid": sfn.JsonPath.number_at("$")}),
+                input=sfn.TaskInput.from_object({
+                    "appid": sfn.JsonPath.number_at("$"),
+                    "start_at": sfn.JsonPath.string_at("$$.Execution.Input.start_at"),
+                }),
             )
         )
 

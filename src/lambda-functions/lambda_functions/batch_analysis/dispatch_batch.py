@@ -101,7 +101,7 @@ def _handle_dispatch(event: dict) -> dict:
         return {"dispatched": len(appids), "appids": appids, "dry_run": True}
 
     orchestrator_arn = _get_orchestrator_arn()
-    payload = {"appids": appids, "max_concurrency": 20}
+    payload = {"appids": appids, "max_concurrency": 20, "start_at": "chunk"}
     resp = _sfn.start_execution(
         stateMachineArn=orchestrator_arn,
         input=json.dumps(payload),

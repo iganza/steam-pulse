@@ -87,6 +87,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
     CHUNK_PROMPT_VERSION,
     MERGE_PROMPT_VERSION,
+    MIN_CHUNKS_FOR_MERGE,
     PIPELINE_VERSION,
     SYNTHESIS_PROMPT_VERSION,
     AnalyzerSettings,
@@ -296,9 +297,13 @@ def _prepare_merge(
         raise ValueError(f"appid={appid} not in games table")
 
     rows = _chunk_repo.find_by_appid(appid, CHUNK_PROMPT_VERSION)
-    if not rows:
+    if len(rows) < MIN_CHUNKS_FOR_MERGE:
         raise ValueError(
-            f"merge prep: no chunk_summaries for appid={appid} — run chunk phase first"
+            f"merge prep requires at least {MIN_CHUNKS_FOR_MERGE} chunks "
+            f"(got {len(rows)} for appid={appid}). Below this floor, "
+            f"cross-chunk topic synthesis is statistically unreliable. "
+            f"If this is a start_at=merge run, verify chunk_summaries "
+            f"has the expected rows for this appid."
         )
 
     summaries = [RichChunkSummary.model_validate(r["summary_json"]) for r in rows]

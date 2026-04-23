@@ -168,8 +168,8 @@ def test_run_merge_phase_rejects_non_positive_bound() -> None:
         run_merge_phase(
             appid=440,
             game_name="TF2",
-            chunk_summaries=[_empty_summary("a"), _empty_summary("b")],
-            chunk_ids=[1, 2],
+            chunk_summaries=[_empty_summary(f"c{i}") for i in range(5)],
+            chunk_ids=[1, 2, 3, 4, 5],
             backend=_FakeBackend([]),
             merge_repo=merge_repo,
             max_chunks_per_merge_call=0,
@@ -396,56 +396,28 @@ def _call_run_merge_phase(
     )
 
 
-def test_run_merge_phase_short_circuits_single_chunk_but_persists() -> None:
+def test_run_merge_phase_rejects_below_minimum_chunks() -> None:
+    """Floor: fewer than MIN_CHUNKS_FOR_MERGE chunks raises cleanly,
+    before any LLM call or DB write."""
+    from library_layer.analyzer import MIN_CHUNKS_FOR_MERGE
+
     backend = _FakeBackend([])
     merge_repo = MagicMock()
-    merge_repo.find_latest_by_source_ids.return_value = None
-    merge_repo.insert.return_value = 55
-
-    merged, merged_id = _call_run_merge_phase(
-        backend=backend,
-        merge_repo=merge_repo,
-        chunk_summaries=[_empty_summary("solo")],
-        chunk_ids=[99],
-    )
-    assert isinstance(merged, MergedSummary)
-    assert merged.merge_level == 0
-    assert merged.source_chunk_ids == [99]
-    assert merged_id == 55
+    short_count = MIN_CHUNKS_FOR_MERGE - 1
+    with pytest.raises(ValueError, match=f"at least {MIN_CHUNKS_FOR_MERGE} chunks"):
+        run_merge_phase(
+            appid=440,
+            game_name="TF2",
+            chunk_summaries=[_empty_summary(f"c{i}") for i in range(short_count)],
+            chunk_ids=list(range(short_count)),
+            backend=backend,
+            merge_repo=merge_repo,
+            max_chunks_per_merge_call=_MAX_CHUNKS_PER_MERGE_CALL,
+            merge_max_tokens=_MERGE_MAX_TOKENS,
+            merge_temperature=None,
+        )
     assert backend.received == []
-    assert merge_repo.insert.call_count == 1
-    call = merge_repo.insert.call_args
-    assert call.args[3] == [99]
-    assert call.kwargs["model_id"] == "python-promotion"
-
-
-def test_run_merge_phase_single_chunk_reuses_promotion_cache() -> None:
-    backend = _FakeBackend([])
-    existing = MergedSummary(
-        topics=[],
-        competitor_refs=[],
-        notable_quotes=[],
-        total_stats=RichBatchStats(),
-        merge_level=0,
-        chunks_merged=1,
-        source_chunk_ids=[99],
-    )
-    merge_repo = MagicMock()
-    merge_repo.find_latest_by_source_ids.return_value = {
-        "id": 55,
-        "summary_json": existing.model_dump(mode="json"),
-    }
-
-    merged, merged_id = _call_run_merge_phase(
-        backend=backend,
-        merge_repo=merge_repo,
-        chunk_summaries=[_empty_summary("solo")],
-        chunk_ids=[99],
-    )
-    assert merged_id == 55
-    assert merged.source_chunk_ids == [99]
-    assert backend.received == []
-    assert merge_repo.insert.call_count == 0
+    merge_repo.insert.assert_not_called()
 
 
 def test_run_merge_phase_uses_cached_merge_row() -> None:
@@ -456,8 +428,8 @@ def test_run_merge_phase_uses_cached_merge_row() -> None:
         notable_quotes=[],
         total_stats=RichBatchStats(),
         merge_level=1,
-        chunks_merged=3,
-        source_chunk_ids=[1, 2, 3],
+        chunks_merged=5,
+        source_chunk_ids=[1, 2, 3, 4, 5],
     )
     merge_repo = MagicMock()
     merge_repo.find_latest_by_source_ids.return_value = {
@@ -468,11 +440,11 @@ def test_run_merge_phase_uses_cached_merge_row() -> None:
     merged, merged_id = _call_run_merge_phase(
         backend=backend,
         merge_repo=merge_repo,
-        chunk_summaries=[_empty_summary(f"c{i}") for i in range(3)],
-        chunk_ids=[1, 2, 3],
+        chunk_summaries=[_empty_summary(f"c{i}") for i in range(5)],
+        chunk_ids=[1, 2, 3, 4, 5],
     )
     assert isinstance(merged, MergedSummary)
-    assert merged.chunks_merged == 3
+    assert merged.chunks_merged == 5
     assert merged_id == 42
     assert backend.received == []
     assert merge_repo.insert.call_count == 0
@@ -515,16 +487,16 @@ def test_run_merge_phase_single_level_fits_in_one_call() -> None:
     backend = _FakeBackend([merged_from_llm])
     merge_repo = _fake_merge_repo_for([7])
 
-    chunk_ids = [10, 20, 30, 40]
+    chunk_ids = [10, 20, 30, 40, 50]
     merged, merged_id = _call_run_merge_phase(
         backend=backend,
         merge_repo=merge_repo,
-        chunk_summaries=[_empty_summary(f"c{i}") for i in range(4)],
+        chunk_summaries=[_empty_summary(f"c{i}") for i in range(5)],
         chunk_ids=chunk_ids,
     )
     assert merged_id == 7
     assert merged.merge_level == 1
-    assert merged.chunks_merged == 4
+    assert merged.chunks_merged == 5
     assert merged.source_chunk_ids == sorted(chunk_ids)
     assert len(backend.received) == 1
     assert backend.received[0].task == "merging"
@@ -617,8 +589,8 @@ def test_run_merge_phase_root_lookup_is_race_free() -> None:
     merged, merged_id = _call_run_merge_phase(
         backend=backend,
         merge_repo=merge_repo,
-        chunk_summaries=[_empty_summary(f"c{i}") for i in range(4)],
-        chunk_ids=[10, 20, 30, 40],
+        chunk_summaries=[_empty_summary(f"c{i}") for i in range(5)],
+        chunk_ids=[10, 20, 30, 40, 50],
     )
     assert merged_id == 7
     assert isinstance(merged, MergedSummary)

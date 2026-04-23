@@ -336,6 +336,10 @@ MERGE_PROMPT_VERSION = "merge-v1.0"
 SYNTHESIS_PROMPT_VERSION = "synthesis-v3.0"
 PIPELINE_VERSION = f"3.0/{CHUNK_PROMPT_VERSION}/{MERGE_PROMPT_VERSION}/{SYNTHESIS_PROMPT_VERSION}"
 
+# Hard floor below which cross-chunk topic synthesis is statistically
+# unreliable — anchored to the wedge's ≥500-review / ~10-chunk minimum.
+MIN_CHUNKS_FOR_MERGE = 5
+
 
 CHUNK_SYSTEM_PROMPT_V2 = """\
 You extract structured topic signals from Steam game reviews for an analytics pipeline.
@@ -1008,8 +1012,14 @@ def run_merge_phase(
     row so downstream consumers (batch synthesis Lambda, cache lookups,
     operational visibility) never see a stale row from a previous run.
     """
-    if not chunk_summaries:
-        raise ValueError("run_merge_phase called with zero chunks")
+    if len(chunk_summaries) < MIN_CHUNKS_FOR_MERGE:
+        raise ValueError(
+            f"run_merge_phase requires at least {MIN_CHUNKS_FOR_MERGE} "
+            f"chunks (got {len(chunk_summaries)} for appid={appid}). Below this "
+            f"floor, cross-chunk topic synthesis is statistically "
+            f"unreliable. If this is a start_at=merge run, verify "
+            f"chunk_summaries has the expected rows for this appid."
+        )
     if len(chunk_summaries) != len(chunk_ids):
         raise ValueError(
             f"chunk_summaries ({len(chunk_summaries)}) and chunk_ids "

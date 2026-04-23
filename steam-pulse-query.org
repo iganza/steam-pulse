@@ -186,7 +186,29 @@
  |                27671 |           23400 |                4271 |               29190743 |                11763075 |             17802625 |           84.6 |
 
 
- 
+* Review crawled at
+#+begin_src sql
+SELECT appid, name, review_crawled_at
+  FROM app_catalog
+  WHERE review_crawled_at >= CURRENT_DATE
+  ORDER BY review_crawled_at DESC
+  LIMIT 10;
+#+end_src
+
+#+RESULTS:
+|   appid | name                                  | review_crawled_at               |
+|---------+---------------------------------------+-------------------------------|
+| 1064020 | eMemories                             | 2026-04-23 04:40:02.035427+00 |
+| 1045010 | Russia Roguelike                      | 2026-04-23 04:40:01.844481+00 |
+| 1057600 | Booze Masters: Freezing Moonshine     | 2026-04-23 04:39:48.713448+00 |
+|  200990 | Geneforge 3                           | 2026-04-23 04:39:47.903567+00 |
+| 1013890 | 青蛙跳模拟器                            | 2026-04-23 04:39:43.26143+00  |
+|  960360 | Yuzi Lims: Hentai                     | 2026-04-23 04:39:43.055014+00 |
+|  989450 | 时之回廊/Corridor of time              | 2026-04-23 04:39:35.329266+00 |
+| 1008830 | 孙悟空大战机器金刚 / Sun Wukong VS Robot | 2026-04-23 04:39:28.56889+00  |
+| 1025240 | GLAD VALAKAS TOWER DEFENCE 2          | 2026-04-23 04:39:23.829375+00 |
+|  982350 | Mon Amour                             | 2026-04-23 04:39:19.59925+00  |
+
 * Check New Added Timestamps
 
 #+begin_src sql
@@ -265,3 +287,4 @@
 |    51 |
 
 
+* 

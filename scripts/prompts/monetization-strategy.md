@@ -46,17 +46,20 @@ pre-orders are zero after two weeks of traffic, the positioning or
 the product-shape is wrong; do not commit 60 hours of editorial to
 the PDF.
 
-**Phase C** is the 60 hours of human editorial work. When the PDF
-assets land in S3, flip `reports.published_at` to `now()`; the
-delivery worker sweeps the queue and emails every pre-order buyer
-their signed URL. From that moment onward, self-serve checkout
-delivers inline.
+**Phase C** is the 60 hours of human editorial work. **It fires only
+if the Phase B → C demand gate fires** — evaluated 2 weeks after
+the pre-order block goes live:
+
+- **≥ 3 pre-orders at any paid tier** → commit the 60 hours. Write the exec summary + benchmark deep-dives + strategic recs. Upload PDF assets. Flip `reports.published_at` to `now()`; the delivery worker sweeps the queue and emails every pre-order buyer their signed URL. Self-serve checkout delivers inline from that point onward.
+- **1–2 pre-orders** → marginal but real demand. Ship Phase C with a tighter scope (fewer benchmark deep-dives if needed to stay under 60 hours).
+- **0 pre-orders** → do NOT write the PDF. Remove the `reports` row or extend `published_at` indefinitely. The free curated-preview page stays live as SEO. Talk to anyone who reached the page but didn't convert before iterating the positioning. No editorial labour committed on speculative demand.
 
 **Do not reverse the sequence.** Building the PDF first means
 committing 60 hours to a product whose demand isn't proven. The
 phased launch costs one extra email to each buyer (the shipping
 notification); it buys you validated demand before the editorial
-investment.
+investment. The gate exists specifically so the operator can't
+rationalise around a weak signal.
 
 ### The product
 

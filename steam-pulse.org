@@ -15,7 +15,7 @@
 
    SteamPulse produces deep, cited genre research reports for Steam
    indie devs, studios, and publishers. Each report synthesises the
-   complete player-review corpus of a single niche (141 games for the
+   complete player-review corpus of a single niche (145 games for the
    launch wedge) into a cross-cutting narrative: friction points,
    wishlist items, benchmark games, churn timing, and ranked dev
    priorities — all quote-backed to individual reviews.
@@ -70,21 +70,24 @@
 
 ** Wedge Strategy: Roguelike Deckbuilder Deep Coverage
 
-   Decision date: 2026-04-14. Depth-in-niche strategy; 141 eligible
-   games (≥ 500 reviews each), ~$70-141 total LLM cost for whole-niche
-   coverage.
+   Decision date: 2026-04-14. Depth-in-niche strategy; **145 eligible
+   games** (≥ 500 reviews each, verified 2026-04-23 against prod DB),
+   ~$70-145 total LLM cost for whole-niche coverage. The original
+   count was 141; the pool drifts upward over time as new titles
+   cross the 500-review threshold.
 
 *** Why roguelike-deckbuilder
-    From catalog query 2026-04-14 (eligibility: ≥ 500 reviews):
+    From catalog query (eligibility: ≥ 500 reviews; count as of
+    2026-04-23):
 
     | tag                   | eligible_games | avg_reviews | avg_positive_pct |
     |-----------------------+----------------+-------------+------------------|
     | roguelike             |           1001 |        8000 |             83.6 |
     | roguelite             |            925 |        8231 |             83.8 |
     | deckbuilding          |            334 |        6700 |             83.5 |
-    | roguelike-deckbuilder |            141 |        6590 |             87.5 |
+    | roguelike-deckbuilder |            145 |        6590 |             87.5 |
 
-    - *141 games = "complete coverage" affordable*: ~$70-141 total at
+    - *145 games = "complete coverage" affordable*: ~$70-145 total at
       ~$0.50-$1.00/game. Whole niche, not a sample.
     - *87.5% avg positive sentiment* — engaged audience writes richer
       reviews → richer synthesis.
@@ -98,11 +101,20 @@
     wedge demo lands.
 
 *** Cost expectations
-    - Analysis run (141 games): $70-141 worst case
+    - Analysis run (145 games): $70-145 worst case
     - Cross-genre synthesizer (one row, weekly refresh): ~$5/month
     - Page serving: matview row read + CDN. Negligible.
     - *Total to launch and operate Report #1: under $200 in compute +
       ~60 hours of editorial curation.*
+
+    *Current state (2026-04-23):* synthesis has been run on 30 of the
+    145 eligible games (=mv_genre_synthesis= row populated). Re-running
+    on the full 145-game pool is the first Phase A operational task —
+    ~$145 LLM + ~30 min of operator time, zero editorial labour. The
+    30-game run produced a valid synthesis (12 friction / 10 wishlist
+    / 5 benchmarks / 10 priorities), but at 20% coverage the
+    =mention_count= signal is weaker than it should be, and 2–4
+    additional patterns are likely to surface in the broader pool.
 
 ** Active Launch Plan
 
@@ -185,7 +197,7 @@
 **** Phase A operational (Week 1)
 - [ ] Sign up at https://resend.com, verify sending domain
 - [ ] Sign up at https://plausible.io ($9/mo)
-- [ ] Run batch analysis on 141 roguelike-deckbuilder games (~$141 LLM):
+- [ ] *Re-run batch analysis on all 145 roguelike-deckbuilder games* (~$145 LLM). Replaces the current 30-game synthesis with whole-niche coverage:
   #+begin_src sql
   SELECT g.appid FROM games g
   JOIN game_tags gt ON gt.appid = g.appid
@@ -193,10 +205,10 @@
   WHERE t.slug = 'roguelike-deckbuilder' AND g.review_count >= 500
   ORDER BY g.review_count DESC;
   #+end_src
-- [ ] Run wedge synthesiser once for =roguelike-deckbuilder=; iterate prompt 1-3 times (bump =prompt_version=)
-- [ ] Ship =simplify-ui-tier1-followup.md= (Phase A prompt 1) — shared =AuthorByline= + =/about= + per-game SEO hardening
-- [ ] Ship =genre-insights-page.md= (Phase A prompt 2) — the =/genre/roguelike-deckbuilder/= curated synthesis page goes live
-- [ ] Write editorial_intro (200–300 words) + churn_interpretation (one line) for the RDB synthesis row
+- [ ] Re-run wedge synthesiser for =roguelike-deckbuilder= against the full 145-game pool; iterate prompt 1-3 times (bump =prompt_version=) to get a stronger mention_count signal
+- [X] Ship =simplify-ui-tier1-followup.md= (Phase A prompt 1) — shared =AuthorByline= + =/about= + per-game SEO hardening
+- [X] Ship =genre-insights-page.md= (Phase A prompt 2) — the =/genre/roguelike-deckbuilder/= curated synthesis page goes live
+- [ ] Write editorial_intro (200–300 words) + churn_interpretation (one line) for the RDB synthesis row (populates the new columns; required for the curated preview shape to render its editorial layer)
 - [ ] Ship =fix-landing-page.md= (Phase A prompt 3) — homepage CTA now points at the live synthesis page
 - [ ] Submit sitemap to Google Search Console + Bing Webmaster Tools
 
@@ -208,7 +220,25 @@
 - [ ] Add pre-order block to =/genre/roguelike-deckbuilder/= (part of =genre-insights-page.md=)
 - [ ] Amplification event #1 (see "Tier 1 amplification" below) — seeds the pre-order funnel
 
-**** Phase C operational (Week 4-8)
+**** Phase B → Phase C decision gate (end of Week 4)
+
+     *Phase C is not automatic.* It commits 60 hours of editorial
+     labour; it must be earned by real demand.
+
+     Two weeks after the Phase B pre-order block goes live, read the
+     pre-order count honestly:
+
+     | Signal (2 weeks post-Phase-B)                          | Action                                                                                                   |
+     |--------------------------------------------------------+----------------------------------------------------------------------------------------------------------|
+     | ≥ 3 pre-orders at any paid tier ($49 / $149 / $499)    | Phase C fires. Commit the 60 hours. Write the PDF. Ship.                                                  |
+     | 1–2 pre-orders                                         | Marginal. Ship Phase C anyway — the buyers are real — but tighten scope (fewer benchmark deep-dives if required to stay under 60 hours). |
+     | 0 pre-orders                                           | Do NOT write the PDF. Remove the =reports= row or extend =published_at= indefinitely. The free synthesis page stays live as SEO; no editorial labour committed. Talk to anyone who reached the page but didn't convert before iterating. |
+
+     The sleep criterion is load-bearing here: the whole point of the
+     phased launch is that pre-orders de-risk the 60 hours. Don't
+     rationalise around a weak signal.
+
+**** Phase C operational (Week 4-8, *only if the Phase B → C gate fires*)
 - [ ] *Curate the RDB PDF* (~60 hours — the unavoidable human work)
   - Executive summary (3 pages)
   - Methodology + data caveats (2 pages)
@@ -233,17 +263,22 @@ four every time a report ships.
 
 **** Tier 1 exit criteria
      *Phase A complete when:*
-     - 141 RDB games have =GameReport= rows
-     - =mv_genre_synthesis= row exists for =roguelike-deckbuilder=
-     - =/genre/roguelike-deckbuilder/= renders all sections, fully free
+     - 145 RDB games have =GameReport= rows (re-run; not the current 30)
+     - =mv_genre_synthesis= row is re-computed against the full 145-game pool
+     - =editorial_intro= and =churn_interpretation= are populated on the synthesis row
+     - =/genre/roguelike-deckbuilder/= renders the *curated preview* shape (top-5 friction / top-3 wishlist / 3 benchmark cards / 2-row priorities teaser + byline + editorial intro + churn interpretation) — *not* the full synthesis
      - Lighthouse SEO ≥ 90, cross-links to ≥ 5 per-game pages working
-     - Nav simplified; Pro plumbing gone; landing page primary CTA points at the synthesis page
+     - Landing page primary CTA points at the synthesis page
 
      *Phase B complete when:*
      - Stripe Checkout + S3 pre-order flow works end-to-end (test mode AND live mode)
-     - Pre-order block visible on =/genre/roguelike-deckbuilder/=
-     - ≥ 1 pre-order lands (any tier)
+     - Pre-order block visible on =/genre/roguelike-deckbuilder/= with three tiers ($49 / $149 / $499)
+     - =reports= row for RDB exists with =published_at= set 6 weeks out (pre-order mode)
+     - One amplification event fired (Reddit + Bluesky + community share)
      - Plausible shows real visits; checkout events firing
+
+     *Phase B → C evaluation* (2-week window after Phase B ships):
+     - See "Phase B → Phase C decision gate" above. ≥ 3 pre-orders → Phase C fires. < 3 → PDF does not ship; free synthesis page stays live as SEO.
 
      *Phase C complete when:*
      - RDB PDF shipped to S3, tier-split (indie / studio / publisher assets present)
@@ -306,7 +341,7 @@ four every time a report ships.
     - "AI-powered review analysis" → "Every review read, every pattern surfaced"
 
 ** Cost summary
-   - Tier 1 LLM budget for Report #1: ~$141 (RDB analysis) + ~$5 (synthesis) + ~$50 (prompt iteration) = ~$200
+   - Tier 1 LLM budget for Report #1: ~$145 (RDB analysis on 145 games) + ~$5 (synthesis) + ~$50 (prompt iteration) = ~$200
    - External services: Resend free tier + Plausible $9/mo + Stripe (2.9% + $0.30/sale) + S3 (negligible)
    - Report curation: 60 hours Report #1; ≤ 40 hours Reports #2+ (unavoidable human labour)
    - Ongoing LLM: matview refresh ~$5/month per genre. No query-time LLM cost in Tier 1.

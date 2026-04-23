@@ -64,6 +64,8 @@ export function QuickStats({
   const reviewsValue = reviewCountEnglish ?? reviewCount;
   const showEnSuffix = reviewCountEnglish != null;
   const showAnalyzedSuffix = totalReviewsAnalyzed != null;
+  const showAllLangSuffix =
+    reviewCountEnglish != null && reviewCount != null && reviewCount !== reviewCountEnglish;
   const reviewsTs = formatDate(reviewCrawledAt ?? reviewsCompletedAt);
   const metaTs = formatDate(metaCrawledAt);
   // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.
@@ -94,6 +96,14 @@ export function QuickStats({
               </span>
             )}
           </p>
+          {showAllLangSuffix && (
+            <p
+              data-testid="reviews-tile-all-lang"
+              className="text-xs font-mono text-muted-foreground mt-1"
+            >
+              {reviewCount!.toLocaleString()} total (all languages)
+            </p>
+          )}
           {showAnalyzedSuffix && (
             <p className="text-xs font-mono text-muted-foreground mt-1">
               {totalReviewsAnalyzed!.toLocaleString()} analyzed

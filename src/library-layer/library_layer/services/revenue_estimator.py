@@ -29,7 +29,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from library_layer.models.game import Game
 from pydantic import BaseModel
 
-METHOD_VERSION = "boxleiter_v1"
+METHOD_VERSION = "boxleiter_v2"
 
 BASE_MULTIPLIER = Decimal("30")
 
@@ -55,7 +55,7 @@ _AGE_BOUNDARY_RECENT = 3
 _AGE_BOUNDARY_MID = 7
 _AGE_BOUNDARY_OLD = 12
 
-_REVIEW_FLOOR = 50
+_REVIEW_FLOOR = 500
 _EXCLUDED_TYPES = frozenset({"dlc", "demo", "music", "tool", "video", "mod"})
 
 

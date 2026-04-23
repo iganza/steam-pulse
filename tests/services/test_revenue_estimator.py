@@ -120,7 +120,7 @@ def test_excluded_types_return_none(game_type: str) -> None:
 
 
 def test_insufficient_reviews() -> None:
-    game = _game(review_count=49)
+    game = _game(review_count=499)
     result = compute_estimate(game, genres=[], tags=[])
     assert result.reason == "insufficient_reviews"
     assert result.estimated_owners is None
@@ -150,10 +150,10 @@ def test_review_count_factor_popular() -> None:
 
 
 def test_review_count_factor_small() -> None:
-    game = _game(review_count=100, price_usd=Decimal("10.00"), positive_pct=Decimal("80"))
+    game = _game(review_count=501, price_usd=Decimal("10.00"), positive_pct=Decimal("80"))
     result = compute_estimate(game, genres=[], tags=[])
-    # 30 * 1.15 (100) * 1.0 * 1.0 * 1.0 * 1.0 = 34.5
-    assert result.estimated_owners == int(Decimal("100") * Decimal("34.5"))
+    # 30 * 1.0 (501, in 500-49,999 bucket) * 1.0 * 1.0 * 1.0 * 1.0 = 30
+    assert result.estimated_owners == int(Decimal("501") * Decimal("30"))
 
 
 # --- Review score factor ---
@@ -244,11 +244,11 @@ def test_sub_5_and_old_compose() -> None:
 
 
 def test_revenue_is_owners_times_price() -> None:
-    game = _game(price_usd=Decimal("10.00"), review_count=100, positive_pct=Decimal("80"))
+    game = _game(price_usd=Decimal("10.00"), review_count=500, positive_pct=Decimal("80"))
     result = compute_estimate(game, genres=[], tags=[])
-    # 30 * 1.15 (100 reviews) * 1.0 * 1.0 * 1.0 * 1.0 ($10) = 34.5
-    assert result.estimated_owners == 3450
-    assert result.estimated_revenue_usd == Decimal("34500.00")
+    # 30 * 1.0 (500 reviews, 500-49,999 bucket) * 1.0 * 1.0 * 1.0 * 1.0 ($10) = 30
+    assert result.estimated_owners == 15000
+    assert result.estimated_revenue_usd == Decimal("150000.00")
 
 
 # --- Validation targets (Steam-only, ±50%) ---

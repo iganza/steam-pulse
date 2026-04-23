@@ -111,7 +111,7 @@ def _canned_synthesis() -> GenreSynthesis:
 
 def _canned_collect_result(synthesis: GenreSynthesis) -> BatchCollectResult:
     return BatchCollectResult(
-        results=[("genre_synthesis:roguelike-deckbuilder:v1", synthesis)],
+        results=[("genre-synthesis-roguelike-deckbuilder-v1", synthesis)],
         failed_ids=[],
         skipped=0,
         input_tokens=12345,
@@ -425,7 +425,7 @@ def test_collect_batch_unknown_model_does_not_strand_row(
     canned = service_parts["canned"]
     backend = FakeBatchBackend(
         collect_response=BatchCollectResult(
-            results=[("genre_synthesis:roguelike-deckbuilder:v1", canned)],
+            results=[("genre-synthesis-roguelike-deckbuilder-v1", canned)],
             failed_ids=[],
             skipped=0,
             input_tokens=12345,
@@ -463,8 +463,8 @@ def test_collect_batch_multiple_results_marks_failed(
     bogus_backend = FakeBatchBackend(
         collect_response=BatchCollectResult(
             results=[
-                ("genre_synthesis:roguelike-deckbuilder:v1", canned),
-                ("genre_synthesis:stowaway:v1", canned),
+                ("genre-synthesis-roguelike-deckbuilder-v1", canned),
+                ("genre-synthesis-stowaway-v1", canned),
             ],
             failed_ids=[],
             skipped=0,
@@ -490,7 +490,7 @@ def test_collect_batch_multiple_results_marks_failed(
     mark_kwargs = service_parts["batch_exec_repo"].mark_completed.call_args.kwargs
     assert mark_kwargs["succeeded_count"] == 0
     assert mark_kwargs["failed_count"] == 2
-    assert "genre_synthesis:stowaway:v1" in mark_kwargs["failed_record_ids"]
+    assert "genre-synthesis-stowaway-v1" in mark_kwargs["failed_record_ids"]
     service_parts["batch_exec_repo"].mark_failed.assert_called_once()
 
 
@@ -502,7 +502,7 @@ def test_collect_batch_record_id_mismatch_marks_failed(
     canned = service_parts["canned"]
     wrong_id_backend = FakeBatchBackend(
         collect_response=BatchCollectResult(
-            results=[("genre_synthesis:wrong-slug:v1", canned)],
+            results=[("genre-synthesis-wrong-slug-v1", canned)],
             failed_ids=[],
             skipped=0,
             input_tokens=100,
@@ -526,7 +526,7 @@ def test_collect_batch_record_id_mismatch_marks_failed(
     mark_kwargs = service_parts["batch_exec_repo"].mark_completed.call_args.kwargs
     assert mark_kwargs["succeeded_count"] == 0
     assert mark_kwargs["failed_count"] == 1
-    assert "genre_synthesis:wrong-slug:v1" in mark_kwargs["failed_record_ids"]
+    assert "genre-synthesis-wrong-slug-v1" in mark_kwargs["failed_record_ids"]
     service_parts["batch_exec_repo"].mark_failed.assert_called_once()
 
 
@@ -536,7 +536,7 @@ def test_collect_batch_no_results_marks_failed(service_parts: dict[str, Any]) ->
     empty_backend = FakeBatchBackend(
         collect_response=BatchCollectResult(
             results=[],
-            failed_ids=["genre_synthesis:roguelike-deckbuilder:v1"],
+            failed_ids=["genre-synthesis-roguelike-deckbuilder-v1"],
             skipped=1,
             input_tokens=100,
             output_tokens=0,

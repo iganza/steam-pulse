@@ -219,7 +219,7 @@ class GenreSynthesisService:
             input_appids=sorted_appids,
         )
         request = LLMRequest(
-            record_id=f"genre_synthesis:{slug}:{prompt_version}",
+            record_id=f"genre-synthesis-{slug}-{prompt_version}",
             task="genre_synthesis",
             system=prompt_module.SYSTEM_PROMPT,
             user=user_message,
@@ -324,7 +324,7 @@ class GenreSynthesisService:
         # when the batch is about to be flipped to ``failed``. The
         # lightweight checks never touch the DB and can't raise
         # transient errors, so running them first is safe.
-        expected_record_id = f"genre_synthesis:{slug}:{prompt_version}"
+        expected_record_id = f"genre-synthesis-{slug}-{prompt_version}"
         validation_error: str = ""
         synthesis_obj: GenreSynthesis | None = None
 

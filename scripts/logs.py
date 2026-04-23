@@ -411,6 +411,8 @@ def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
         conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
 
     status_filter = "" if show_all else "WHERE be.status IN ('submitted', 'running')"
+    # Overfetch: per-game analysis writes 4 phase rows (chunk, merge-L1, merge-L2, synthesis).
+    fetch_limit = limit * 6
     with conn.cursor() as cur:
         cur.execute(
             f"""
@@ -439,7 +441,7 @@ def _fetch_batches(db_url: str, *, show_all: bool, limit: int) -> list[dict]:
             ORDER BY be.submitted_at DESC
             LIMIT %s
             """,
-            (limit,),
+            (fetch_limit,),
         )
         rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -525,7 +527,7 @@ def _group_by_execution(rows: list[dict]) -> list[dict]:
     return sorted_groups
 
 
-def render_batches(rows: list[dict], *, show_all: bool) -> Table:
+def render_batches(rows: list[dict], *, show_all: bool, limit: int) -> Table:
     now = datetime.now(UTC)
     label = "all executions" if show_all else "active executions"
 
@@ -535,7 +537,7 @@ def render_batches(rows: list[dict], *, show_all: bool) -> Table:
         t.add_column(msg, style="yellow")
         return t
 
-    groups = _group_by_execution(rows)
+    groups = _group_by_execution(rows)[:limit]
 
     table = Table(
         title=f"batch_executions — {label}",
@@ -835,8 +837,8 @@ def main() -> None:
     parser.add_argument(
         "--limit",
         type=int,
-        default=50,
-        help="With --batches: max rows to show (default: 50)",
+        default=20,
+        help="With --batches: max executions to show (default: 20)",
     )
 
     args = parser.parse_args()
@@ -860,7 +862,7 @@ def main() -> None:
                     spin_i = 0
                     while True:
                         rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
-                        table = render_batches(rows, show_all=args.all)
+                        table = render_batches(rows, show_all=args.all, limit=args.limit)
                         spin = SPINNERS[spin_i % len(SPINNERS)]
                         spin_i += 1
                         table.title = (
@@ -873,7 +875,7 @@ def main() -> None:
                 console.print("\n[yellow]Stopped.[/yellow]")
         else:
             rows = _fetch_batches(db_url, show_all=args.all, limit=args.limit)
-            console.print(render_batches(rows, show_all=args.all))
+            console.print(render_batches(rows, show_all=args.all, limit=args.limit))
         return
     if not args.query and not args.raw:
         parser.error("Provide --query NAME, --raw 'query string', or --batches")

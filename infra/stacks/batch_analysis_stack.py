@@ -10,7 +10,10 @@ Resources:
   - IAM role assumed by Bedrock to read/write S3
   - 3 Lambdas: PreparePhase, CollectPhase, CheckBatchStatus
   - STANDARD Step Functions state machine (wait/choice loops per phase)
-  - EventBridge rule (disabled by default — for future scheduled re-analysis)
+
+Batch analysis is triggered ONLY by a human operator running
+``scripts/trigger_batch_analysis.py`` — no scheduled rules, event
+sources, or automated dispatch Lambdas are wired into this stack.
 """
 
 import aws_cdk as cdk

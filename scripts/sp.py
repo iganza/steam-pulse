@@ -574,12 +574,15 @@ def _ready_for_analysis(n: int = 1000) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
-def _resolve_dispatch_fn_name(env: str) -> str:
-    """Resolve the dispatch Lambda function name from SSM."""
-    import boto3
-
-    ssm = boto3.client("ssm", region_name="us-west-2")
-    return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
+# Auto-dispatch disabled — the matview-driven dispatch Lambda path is off.
+# Batch analysis runs only via `scripts/trigger_batch_analysis.py` (or
+# `sp.py batch <appids>`). Kept as comments in case we re-enable it later.
+# def _resolve_dispatch_fn_name(env: str) -> str:
+#     """Resolve the dispatch Lambda function name from SSM."""
+#     import boto3
+#
+#     ssm = boto3.client("ssm", region_name="us-west-2")
+#     return ssm.get_parameter(Name=f"/steampulse/{env}/batch/dispatch-fn-name")["Parameter"]["Value"]
 
 
 # ── subcommand implementations ────────────────────────────────────────────────
@@ -798,59 +801,60 @@ def cmd_batch(
         _info("Stopped watching (execution still running)")
 
 
-def cmd_dispatch(
-    batch_size: int | None,
-    dry_run: bool,
-    watch: bool,
-    env: str,
-) -> None:
-    """Invoke the deployed dispatch Lambda to start the next batch."""
-    fn_name = _resolve_dispatch_fn_name(env)
-    payload: dict[str, object] = {"dry_run": dry_run}
-    if batch_size is not None:
-        payload["batch_size"] = batch_size
-
-    _info(f"Invoking {fn_name} (batch_size={batch_size or 'default'}, dry_run={dry_run})")
-    result = _invoke_lambda(fn_name, payload)
-
-    dispatched = result.get("dispatched", 0)
-    appids = result.get("appids", [])
-
-    if not appids:
-        _warn("No candidates — matview is empty or fully analyzed")
-        return
-
-    if dry_run:
-        for i, appid in enumerate(appids, 1):
-            _info(f"  {i:>4}. {appid}")
-        _warn(f"[dry-run] Would dispatch {dispatched} games to orchestrator")
-        return
-
-    execution_arn = result.get("execution_arn", "")
-    _ok(f"Dispatched {dispatched} games")
-    _info(f"  Execution ARN: {execution_arn}")
-
-    if not watch or not execution_arn:
-        return
-
-    import boto3
-
-    sfn = boto3.client("stepfunctions")
-    _info("Watching (Ctrl+C to stop)...")
-    try:
-        while True:
-            time.sleep(30)
-            desc = sfn.describe_execution(executionArn=execution_arn)
-            status = desc["status"]
-            _info(f"  [{time.strftime('%H:%M:%S')}] {status}")
-            if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
-                if status == "SUCCEEDED":
-                    _ok("Execution succeeded")
-                else:
-                    _err(f"Execution {status.lower()}")
-                break
-    except KeyboardInterrupt:
-        _info("Stopped watching (execution still running)")
+# Auto-dispatch disabled — see note on _resolve_dispatch_fn_name above.
+# def cmd_dispatch(
+#     batch_size: int | None,
+#     dry_run: bool,
+#     watch: bool,
+#     env: str,
+# ) -> None:
+#     """Invoke the deployed dispatch Lambda to start the next batch."""
+#     fn_name = _resolve_dispatch_fn_name(env)
+#     payload: dict[str, object] = {"dry_run": dry_run}
+#     if batch_size is not None:
+#         payload["batch_size"] = batch_size
+#
+#     _info(f"Invoking {fn_name} (batch_size={batch_size or 'default'}, dry_run={dry_run})")
+#     result = _invoke_lambda(fn_name, payload)
+#
+#     dispatched = result.get("dispatched", 0)
+#     appids = result.get("appids", [])
+#
+#     if not appids:
+#         _warn("No candidates — matview is empty or fully analyzed")
+#         return
+#
+#     if dry_run:
+#         for i, appid in enumerate(appids, 1):
+#             _info(f"  {i:>4}. {appid}")
+#         _warn(f"[dry-run] Would dispatch {dispatched} games to orchestrator")
+#         return
+#
+#     execution_arn = result.get("execution_arn", "")
+#     _ok(f"Dispatched {dispatched} games")
+#     _info(f"  Execution ARN: {execution_arn}")
+#
+#     if not watch or not execution_arn:
+#         return
+#
+#     import boto3
+#
+#     sfn = boto3.client("stepfunctions")
+#     _info("Watching (Ctrl+C to stop)...")
+#     try:
+#         while True:
+#             time.sleep(30)
+#             desc = sfn.describe_execution(executionArn=execution_arn)
+#             status = desc["status"]
+#             _info(f"  [{time.strftime('%H:%M:%S')}] {status}")
+#             if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+#                 if status == "SUCCEEDED":
+#                     _ok("Execution succeeded")
+#                 else:
+#                     _err(f"Execution {status.lower()}")
+#                 break
+#     except KeyboardInterrupt:
+#         _info("Stopped watching (execution still running)")
 
 
 # ── matview-refresh (start the Step Functions state machine) ─────────────────
@@ -1206,31 +1210,31 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Poll execution status every 30s until complete (Ctrl+C to stop)",
     )
 
-    # ── dispatch (read matview → start orchestrator)
-    di = sub.add_parser("dispatch", help="Dispatch next batch from analysis candidate list")
-    di.add_argument(
-        "--env",
-        default="staging",
-        choices=["staging", "production"],
-        help="Environment (default: staging)",
-    )
-    di.add_argument(
-        "--batch-size",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Number of games to dispatch (omit to use the deployed default)",
-    )
-    di.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show candidates without starting an execution",
-    )
-    di.add_argument(
-        "--watch",
-        action="store_true",
-        help="Poll execution status every 30s until complete (Ctrl+C to stop)",
-    )
+    # ── dispatch subcommand removed — auto-dispatch is disabled; use `sp.py batch` instead.
+    # di = sub.add_parser("dispatch", help="Dispatch next batch from analysis candidate list")
+    # di.add_argument(
+    #     "--env",
+    #     default="staging",
+    #     choices=["staging", "production"],
+    #     help="Environment (default: staging)",
+    # )
+    # di.add_argument(
+    #     "--batch-size",
+    #     type=int,
+    #     default=None,
+    #     metavar="N",
+    #     help="Number of games to dispatch (omit to use the deployed default)",
+    # )
+    # di.add_argument(
+    #     "--dry-run",
+    #     action="store_true",
+    #     help="Show candidates without starting an execution",
+    # )
+    # di.add_argument(
+    #     "--watch",
+    #     action="store_true",
+    #     help="Poll execution status every 30s until complete (Ctrl+C to stop)",
+    # )
 
     # ── matview-refresh (start the SFN directly)
     mr = sub.add_parser(
@@ -1401,8 +1405,8 @@ def main() -> None:
     elif args.cmd == "batch":
         cmd_batch(args.appids, args.concurrency, args.dry_run, args.watch, args.env)
 
-    elif args.cmd == "dispatch":
-        cmd_dispatch(args.batch_size, args.dry_run, args.watch, args.env)
+    # elif args.cmd == "dispatch":
+    #     cmd_dispatch(args.batch_size, args.dry_run, args.watch, args.env)
 
     elif args.cmd == "matview-refresh":
         cmd_matview_refresh(args.env, args.force)

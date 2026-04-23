@@ -37,6 +37,26 @@ the already-persisted chunks.
 - `--start-at chunk` (default; today's behavior)
 - `--start-at merge` (skip chunk phase, start at merge L1 prepare)
 
+**Also shipped in this PR (scope-adjacent hardening, 2026-04-23):**
+Disable every automatic batch-analysis dispatch path. Batch analysis
+must run ONLY when a human invokes
+`scripts/trigger_batch_analysis.py` (or `sp.py batch <appids>`, which
+is the same path — it calls `start_execution` directly on the
+orchestrator SFN, not the dispatch Lambda). The matview-driven
+`_handle_dispatch` branch in the dispatch Lambda is commented out and
+its code path now raises a clear `RuntimeError` if invoked. The
+`sp.py dispatch` subcommand and its helpers are likewise commented
+out. Kept as comments (not deleted) so we can re-enable auto-dispatch
+later if we ever want scheduled analysis again. Sweep confirmed: no
+EventBridge rule, SQS event source, or other automated trigger was
+ever wired to `DispatchBatchFn` — the only remaining invocation is
+the orchestrator's own `PublishBatchAnalysisComplete` step, which
+uses `action="post_batch"` to publish the batch-complete event and
+never starts a new execution. A stale line in the
+`batch_analysis_stack.py` docstring referring to an "EventBridge rule
+(disabled by default)" is removed (no such rule was ever present in
+code).
+
 **Deferred (NOT this prompt):** `--start-at synthesis` — would
 require threading `merged_summary_id` through the input, and the
 per-game machine has a race-condition comment at

@@ -71,7 +71,7 @@ interface GameReportClientProps {
   reviewsCompletedAt?: string | null;
   tagsCrawledAt?: string | null;
   lastAnalyzed?: string | null;
-  // Boxleiter v1 revenue estimate — surfaced by <MarketReach />
+  // Boxleiter v2 revenue estimate — surfaced by <MarketReach />
   estimatedOwners?: number | null;
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
@@ -295,7 +295,7 @@ export function GameReportClient({
           metaCrawledAt={metaCrawledAt}
         />
 
-        {/* Market Reach — Boxleiter v1 revenue estimate. Independent of the
+        {/* Market Reach — Boxleiter v2 revenue estimate. Independent of the
             LLM pass (review count + price + genre/tags is enough), so it
             renders on unanalyzed pages too. */}
         <MarketReach

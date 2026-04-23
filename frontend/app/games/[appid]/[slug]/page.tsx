@@ -157,7 +157,7 @@ export default async function GameReportPage({ params }: Props) {
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
       if (g.tags_crawled_at) gameData.tagsCrawledAt = g.tags_crawled_at;
       if (g.last_analyzed) gameData.lastAnalyzed = g.last_analyzed;
-      // Boxleiter v1 revenue estimate fields — forwarded to <MarketReach />
+      // Boxleiter v2 revenue estimate fields — forwarded to <MarketReach />
       if (g.estimated_owners != null) gameData.estimatedOwners = g.estimated_owners;
       if (g.estimated_revenue_usd != null) gameData.estimatedRevenueUsd = g.estimated_revenue_usd;
       if (g.revenue_estimate_method) gameData.revenueEstimateMethod = g.revenue_estimate_method;

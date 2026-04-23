@@ -285,7 +285,7 @@ def _build_synthesis_user_message(
     This section is DECISIONS, not re-descriptions.
   </section>
   <section name="competitive_context" type="array">
-    Each: {{game, comparison_sentiment: positive|negative|neutral, note}}
+    Each: {{game, comparison_sentiment: positive|negative|mixed, note}}
     ONLY named competitors from signals. Empty if none.
   </section>
   <section name="genre_context" type="string">
@@ -353,6 +353,13 @@ A later model merges and synthesizes your output — your ONLY job is accurate e
 - Do not invent, generalize, or embellish.
 - confidence rule: "high" if mention_count >= 5 OR avg_helpful_votes >= 50,
   "medium" if mention_count >= 2, "low" otherwise.
+- sentiment values are strictly "positive", "negative", or "mixed". Do NOT
+  emit "neutral". If a topic has no clear valence (descriptive mentions
+  only), OMIT it — do not pad the list with low-signal topics.
+- Competitor mentions do NOT belong in topics. If reviewers compare this
+  game to another (by name), put those in the competitor_refs field, not
+  as a topic. The 9 listed categories are exhaustive — do not invent new
+  ones.
 </rules>
 
 <signal_weighting>
@@ -363,6 +370,10 @@ A later model merges and synthesizes your output — your ONLY job is accurate e
 </signal_weighting>
 
 <category_definitions>
+The 9 categories below are the complete set. If a signal doesn't fit,
+DROP IT — do not invent a 10th category. Competitor comparisons go in
+the separate competitor_refs field, not here.
+
   design_praise: Specific DESIGN elements praised — mechanics, art, audio, controls,
     progression. EXCLUDE: community praise, price, nostalgia.
   gameplay_friction: In-game UX/design friction — balance, pacing, missing UI,
@@ -448,7 +459,9 @@ Extract structured topic signals from {len(chunk)} Steam reviews for "{game_name
 Return a RichChunkSummary JSON with:
   topics: array of TopicSignal objects, each with:
     topic (string), category (one of the category_definitions),
-    sentiment ("positive"|"negative"|"mixed"), mention_count (integer >= 1),
+    sentiment ("positive" | "negative" | "mixed" — never "neutral";
+               drop topics with no clear valence),
+    mention_count (integer >= 1),
     confidence ("low"|"medium"|"high"), summary (1-2 sentences),
     quotes (up to 3 ReviewQuotes with text, steam_review_id, voted_up,
             playtime_hours, votes_helpful),

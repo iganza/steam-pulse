@@ -208,7 +208,7 @@ class SteamPulseConfig(BaseSettings):
     # ANALYSIS_*_MAX_TOKENS: Bedrock max_tokens budget per phase call. Must
     #   be large enough for the response model's full JSON under the worst
     #   reasonable topic count.
-    ANALYSIS_CHUNK_MAX_TOKENS: int = 1024
+    ANALYSIS_CHUNK_MAX_TOKENS: int = 4096
     ANALYSIS_MERGE_MAX_TOKENS: int = 4096
     ANALYSIS_SYNTHESIS_MAX_TOKENS: int = 5000
     # ANALYSIS_CONVERSE_MAX_WORKERS: chunk-phase thread pool fan-out for

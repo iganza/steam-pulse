@@ -4,6 +4,9 @@ import random
 import time
 
 import httpx
+from aws_lambda_powertools import Logger
+
+logger = Logger()
 
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -111,7 +114,7 @@ def fetch_app_metadata(appid: int) -> dict | None:
             resp = _get_with_retry(
                 client,
                 APPDETAILS_URL,
-                {"appids": str(appid), "l": "english"},
+                {"appids": str(appid), "l": "english", "cc": "us"},
             )
             data = resp.json()
         except httpx.HTTPStatusError as e:
@@ -127,8 +130,20 @@ def fetch_app_metadata(appid: int) -> dict | None:
     d = data[key]["data"]
 
     price_usd: float | None = None
-    if not d.get("is_free") and d.get("price_overview"):
-        price_usd = d["price_overview"].get("final", 0) / 100.0
+    price_overview = d.get("price_overview") or {}
+    if price_overview and not d.get("is_free"):
+        currency = price_overview.get("currency")
+        if currency != "USD":
+            logger.warning(
+                "appdetails returned non-USD price",
+                extra={
+                    "appid": appid,
+                    "currency": currency,
+                    "final": price_overview.get("final"),
+                },
+            )
+        else:
+            price_usd = price_overview.get("final", 0) / 100.0
 
     metacritic_score: int | None = None
     if d.get("metacritic"):

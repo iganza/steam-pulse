@@ -745,7 +745,7 @@ def cmd_batch(
     """Start a batch analysis orchestrator execution (fan-out over appids)."""
     import boto3
 
-    payload = {"appids": appids, "max_concurrency": concurrency}
+    payload = {"appids": appids, "max_concurrency": concurrency, "start_at": "chunk"}
 
     _info(f"Batch analysis → {env}")
     _info(f"  Appids:      {len(appids)}: {appids}")

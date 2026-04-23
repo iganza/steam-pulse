@@ -993,24 +993,25 @@ def run_merge_phase(
 ) -> tuple[MergedSummary, int]:
     """Phase 2: hierarchical merge with correct source_chunk_ids tracking.
 
-    Makes ZERO assumptions about the total review count. Any number of
-    input chunk summaries works: the phase groups them into batches of
-    `max_chunks_per_merge_call`, merges each group with one LLM call, then
-    repeats the process on the resulting MergedSummaries until a single
-    root MergedSummary remains. At every level we thread the union of
-    **leaf chunk row ids** (from the `chunk_summaries` table) so the final
-    root — and every intermediate row — can be cache-keyed by exactly the
-    set of primary chunks it was derived from.
+    Requires at least `MIN_CHUNKS_FOR_MERGE` input chunk summaries; below
+    that floor the call raises `ValueError` before any LLM or DB work,
+    because cross-chunk topic synthesis is statistically unreliable at
+    small corpora. Above the floor, the phase groups chunks into batches
+    of `max_chunks_per_merge_call`, merges each group with one LLM call,
+    then repeats on the resulting MergedSummaries until a single root
+    remains. At every level we thread the union of **leaf chunk row ids**
+    (from the `chunk_summaries` table) so the final root — and every
+    intermediate row — can be cache-keyed by exactly the set of primary
+    chunks it was derived from.
 
     `max_chunks_per_merge_call` is a per-call LLM context-budget limit,
     NOT a review-count limit. It is required from the caller (no default).
     `merge_max_tokens` is the Bedrock `max_tokens` budget per merge call.
 
-    Returns `(root_merged_summary, root_merged_row_id)`. Every analysis
-    run persists at least one merged_summaries row — even the single-chunk
-    promotion case gets a `merge_level=0`, `model_id="python-promotion"`
-    row so downstream consumers (batch synthesis Lambda, cache lookups,
-    operational visibility) never see a stale row from a previous run.
+    Returns `(root_merged_summary, root_merged_row_id)`. The single-chunk
+    promotion branch below is preserved for historical reference but is
+    unreachable under the current floor — retained so the phase still
+    works if `MIN_CHUNKS_FOR_MERGE` is ever lowered.
     """
     if len(chunk_summaries) < MIN_CHUNKS_FOR_MERGE:
         raise ValueError(

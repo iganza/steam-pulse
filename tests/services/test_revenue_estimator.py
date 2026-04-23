@@ -1,4 +1,4 @@
-"""Unit tests for the Boxleiter v1 revenue estimator (multi-signal)."""
+"""Unit tests for the Boxleiter v2 revenue estimator (multi-signal)."""
 
 from datetime import date
 from decimal import Decimal

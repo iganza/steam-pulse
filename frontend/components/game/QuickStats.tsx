@@ -9,12 +9,16 @@ interface QuickStatsProps {
   /** English-preferred review count (`review_count_english ?? review_count`).
    *  Used as the Reviews tile's main value only when `reviewCountEnglish` is
    *  null — in that case the "en" suffix is suppressed because the fallback
-   *  may be the all-language total. Also feeds MarketReach and the JSON-LD
-   *  aggregateRating count, so its semantics must stay stable. */
+   *  may be the all-language total. Also feeds the JSON-LD aggregateRating
+   *  count, so its semantics must stay stable. */
   reviewCount: number | null;
   /** Steam's English-only review count from game metadata. Takes precedence
    *  over `reviewCount` as the main value and drives the "en" suffix. */
   reviewCountEnglish: number | null;
+  /** Raw all-language review count from game metadata. Drives the
+   *  "N total (all languages)" subline — rendered only when it diverges
+   *  from the English count. */
+  reviewCountAllLanguages: number | null;
   /** Count of reviews our pipeline ingested. Rendered only as the
    *  "N analyzed" subtitle — never as the main tile value. */
   totalReviewsAnalyzed: number | null;
@@ -51,6 +55,7 @@ const TILE_STYLE = {
 export function QuickStats({
   reviewCount,
   reviewCountEnglish,
+  reviewCountAllLanguages,
   totalReviewsAnalyzed,
   releaseDate,
   price,
@@ -65,7 +70,9 @@ export function QuickStats({
   const showEnSuffix = reviewCountEnglish != null;
   const showAnalyzedSuffix = totalReviewsAnalyzed != null;
   const showAllLangSuffix =
-    reviewCountEnglish != null && reviewCount != null && reviewCount !== reviewCountEnglish;
+    reviewCountEnglish != null &&
+    reviewCountAllLanguages != null &&
+    reviewCountAllLanguages !== reviewCountEnglish;
   const reviewsTs = formatDate(reviewCrawledAt ?? reviewsCompletedAt);
   const metaTs = formatDate(metaCrawledAt);
   // Tiles: Reviews + Released + Price + Velocity = 4 base, +1 when analyzed.
@@ -101,7 +108,7 @@ export function QuickStats({
               data-testid="reviews-tile-all-lang"
               className="text-xs font-mono text-muted-foreground mt-1"
             >
-              {reviewCount!.toLocaleString()} total (all languages)
+              {reviewCountAllLanguages!.toLocaleString()} total (all languages)
             </p>
           )}
           {showAnalyzedSuffix && (

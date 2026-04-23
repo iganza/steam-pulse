@@ -143,7 +143,9 @@ export default async function GameReportPage({ params }: Props) {
       // Always prefer review_count_english so the number next to positive_pct /
       // review_score_desc stays on the same English-implicit basis; fall back
       // to all-language review_count only when no English count exists (keeps
-      // QuickStats' Reviews tile and MarketReach's X/50 empty state populated).
+      // QuickStats' Reviews tile and MarketReach's X/500 empty state populated).
+      // reviewCountAllLanguages carries the raw all-language total — MarketReach
+      // compares against it to surface "Based on N reviews (all languages)".
       if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
       if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
       const englishAlignedCount = g.review_count_english ?? g.review_count;

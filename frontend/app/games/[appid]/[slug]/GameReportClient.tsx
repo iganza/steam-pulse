@@ -283,6 +283,7 @@ export function GameReportClient({
         <QuickStats
           reviewCount={reviewCount ?? null}
           reviewCountEnglish={reviewCountEnglish ?? null}
+          reviewCountAllLanguages={reviewCountAllLanguages ?? null}
           totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
           releaseDate={releaseDate}
           price={price}

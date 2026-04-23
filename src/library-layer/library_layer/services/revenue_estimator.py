@@ -1,4 +1,4 @@
-"""Revenue estimator — Boxleiter v1 (multi-signal).
+"""Revenue estimator — Boxleiter v2 (multi-signal, small-sample floor).
 
 Estimates Steam-only owners and gross revenue for a Steam game using a
 multi-signal review-count x multiplier heuristic (a.k.a. "Boxleiter ratio").
@@ -14,9 +14,15 @@ Sources for calibration:
   - steam-revenue-calculator.com (~48x flat)
   - SteamRev (~35x flat, "~3% of players leave reviews")
 
-These numbers are **rough cuts**. Every output should be treated as ±50%.
-The method version (`boxleiter_v1`) is unchanged because the product has not
-launched — all rows will be recomputed via a full backfill before launch.
+v2 (2026-04-23) vs v1:
+  - Review floor raised from 50 → 500 (below this we return
+    `reason="insufficient_reviews"`; public estimators agree <1k is noise).
+  - Confidence band is no longer a flat ±50% — the UI renders ±40% for
+    ≥50k reviews, ±60% for 5k–50k, ±100% for 500–5k ("small sample").
+  - Algorithm shape (base multiplier + five signal factors) is unchanged.
+
+These numbers are **rough cuts**. Treat every output per the tiered band
+above — widest in the small-sample zone where calibration data is thin.
 
 Every output is **gross revenue, pre-Steam-cut** for **Steam-only** sales.
 It's a ceiling, not what the developer took home, and does not include
@@ -73,9 +79,10 @@ def _review_count_factor(review_count: int) -> Decimal:
     (cultural events drive review engagement), and their non-Steam sales
     are invisible to us. Both effects mean fewer Steam owners per review
     than the base assumes — so the factor decreases for high review counts.
+
+    Caller is expected to have already gated on `_REVIEW_FLOOR`, so the
+    domain here is `review_count >= 500`.
     """
-    if review_count < 500:
-        return Decimal("1.15")
     if review_count < 50_000:
         return Decimal("1.0")
     if review_count < 200_000:
@@ -170,7 +177,7 @@ def compute_estimate(
     genres: list[dict],
     tags: list[dict],
 ) -> RevenueEstimate:
-    """Compute a Boxleiter v1 revenue estimate for a game.
+    """Compute a Boxleiter v2 revenue estimate for a game.
 
     Returns a `RevenueEstimate`. When no estimate can be produced, both value
     fields are None and `reason` is populated with a short machine-readable

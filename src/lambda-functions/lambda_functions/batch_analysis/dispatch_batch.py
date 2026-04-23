@@ -35,6 +35,7 @@ import json
 import boto3
 from aws_lambda_powertools import Logger, Tracer
 from aws_lambda_powertools.utilities.typing import LambdaContext
+from library_layer.analyzer import MIN_CHUNKS_FOR_MERGE
 from library_layer.config import SteamPulseConfig
 from library_layer.events import BatchAnalysisCompleteEvent
 from library_layer.utils.db import get_conn
@@ -49,6 +50,10 @@ _sns = boto3.client("sns")
 # Sized to fit the Lambda's 60s timeout with 3 retry attempts:
 # worst-case connect chain = 15 + backoff + 15 + backoff + 15 ≈ 49s.
 _BATCH_CONNECT_TIMEOUT = 15
+# Filter dispatch to appids with enough reviews to clear MIN_CHUNKS_FOR_MERGE
+# at the default chunk size. mv_analysis_candidates itself keeps its ≥200
+# review floor (used by other consumers); this narrows the batch path only.
+_MIN_REVIEW_COUNT_FOR_BATCH = MIN_CHUNKS_FOR_MERGE * _config.ANALYSIS_CHUNK_SIZE
 
 
 def _get_orchestrator_arn() -> str:
@@ -74,8 +79,10 @@ def _fetch_candidates(*, batch_size: int) -> list[int]:
     conn = get_conn(connect_timeout=_BATCH_CONNECT_TIMEOUT, max_connect_attempts=3)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT appid FROM mv_analysis_candidates ORDER BY review_count DESC LIMIT %s",
-            (batch_size,),
+            "SELECT appid FROM mv_analysis_candidates "
+            "WHERE review_count >= %s "
+            "ORDER BY review_count DESC LIMIT %s",
+            (_MIN_REVIEW_COUNT_FOR_BATCH, batch_size),
         )
         return [row["appid"] for row in cur.fetchall()]
 

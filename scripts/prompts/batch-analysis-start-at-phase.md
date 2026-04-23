@@ -240,11 +240,12 @@ invariant, not a tuning knob.
    - Run: `--start-at merge --appids <that appid>`.
    - Expected: merge prepare fails with a clean ValueError citing
      `MIN_CHUNKS_FOR_MERGE = 5` and the actual chunk count.
-     Execution transitions from `PrepareMerge` to `PhaseFailed`
-     without submitting a batch request to the backend (no money
-     spent).
+     The per-game execution fails on the `PrepareMerge` task
+     itself (that is, no transition to `PhaseFailed` unless the
+     SFN is updated to add a `Catch` there), and no batch request
+     is submitted to the backend (no money spent).
 
-6. **Production cutover — the actual use case:**
+7. **Production cutover — the actual use case:**
    ```
    poetry run python scripts/trigger_batch_analysis.py \
        --env production --start-at merge --appids 1184820 3205380

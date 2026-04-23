@@ -132,9 +132,10 @@ def test_batch_size_override(monkeypatch: Any) -> None:
 
     result = mod.handler({"batch_size": 50}, MockLambdaContext())
 
-    # Verify the SQL LIMIT used our override
+    # Verify the SQL LIMIT used our override; the first bound param is
+    # the MIN_CHUNKS_FOR_MERGE * chunk-size review floor.
     call_args = mock_cursor.execute.call_args
-    assert call_args[0][1] == (50,)
+    assert call_args[0][1] == (mod._MIN_REVIEW_COUNT_FOR_BATCH, 50)
     assert result["dispatched"] == 2
 
 

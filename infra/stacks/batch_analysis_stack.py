@@ -485,7 +485,13 @@ class BatchAnalysisStack(cdk.Stack):
             "FanOut",
             items_path="$.appids",
             max_concurrency_path="$.max_concurrency",
-            tolerated_failure_percentage=10,
+            # 100 = tolerate any number of per-game failures. Each child
+            # state machine is self-contained (own Anthropic batch, own
+            # tracking row), so one bad game must never abort its siblings.
+            # The orchestrator still succeeds and fires the post-batch
+            # event; individual failures surface via batch_executions.status
+            # = 'failed' and child SFN execution history.
+            tolerated_failure_percentage=100,
             # Discard per-item results to stay under the 256KB state limit.
             # The post-batch Lambda only needs the execution ID and total
             # appids count (preserved via result_path).
@@ -705,7 +711,10 @@ class BatchAnalysisStack(cdk.Stack):
             "FanOutSlugs",
             items_path="$.slugs",
             max_concurrency=2,
-            tolerated_failure_percentage=10,
+            # 100 = tolerate any number of per-slug failures; same reasoning
+            # as FanOut — per-slug work is independent, so a bad slug must
+            # not abort its siblings.
+            tolerated_failure_percentage=100,
             result_path=sfn.JsonPath.DISCARD,
             item_selector={
                 "slug": sfn.JsonPath.string_at("$$.Map.Item.Value"),

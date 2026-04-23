@@ -36,7 +36,7 @@ class StorePageAlignment(BaseModel):
 
 class CompetitorRef(BaseModel):
     game: str
-    sentiment: Literal["positive", "negative", "neutral", "mixed"]
+    sentiment: Literal["positive", "negative", "mixed"]
     context: str
 
 
@@ -198,7 +198,7 @@ class DevPriority(BaseModel):
 
 class CompetitiveRef(BaseModel):
     game: str
-    comparison_sentiment: Literal["positive", "negative", "neutral", "mixed"]
+    comparison_sentiment: Literal["positive", "negative", "mixed"]
     note: str
 
 

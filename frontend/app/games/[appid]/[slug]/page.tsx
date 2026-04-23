@@ -99,6 +99,7 @@ export default async function GameReportPage({ params }: Props) {
     shortDesc?: string;
     reviewCount?: number;
     reviewCountEnglish?: number | null;
+    reviewCountAllLanguages?: number | null;
     deckCompatibility?: number | null;
     deckTestResults?: Array<{ display_type: number; loc_token: string }>;
     isEarlyAccess?: boolean;
@@ -142,18 +143,21 @@ export default async function GameReportPage({ params }: Props) {
       // Always prefer review_count_english so the number next to positive_pct /
       // review_score_desc stays on the same English-implicit basis; fall back
       // to all-language review_count only when no English count exists (keeps
-      // QuickStats' Reviews tile and MarketReach's X/50 empty state populated).
+      // QuickStats' Reviews tile and MarketReach's X/500 empty state populated).
+      // reviewCountAllLanguages carries the raw all-language total — MarketReach
+      // compares against it to surface "Based on N reviews (all languages)".
       if (g.positive_pct != null) gameData.positivePct = g.positive_pct;
       if (g.review_score_desc != null) gameData.reviewScoreDesc = g.review_score_desc;
       const englishAlignedCount = g.review_count_english ?? g.review_count;
       if (englishAlignedCount != null) gameData.reviewCount = englishAlignedCount;
       if (g.review_count_english != null) gameData.reviewCountEnglish = g.review_count_english;
+      if (g.review_count != null) gameData.reviewCountAllLanguages = g.review_count;
       if (g.meta_crawled_at) gameData.metaCrawledAt = g.meta_crawled_at;
       if (g.review_crawled_at) gameData.reviewCrawledAt = g.review_crawled_at;
       if (g.reviews_completed_at) gameData.reviewsCompletedAt = g.reviews_completed_at;
       if (g.tags_crawled_at) gameData.tagsCrawledAt = g.tags_crawled_at;
       if (g.last_analyzed) gameData.lastAnalyzed = g.last_analyzed;
-      // Boxleiter v1 revenue estimate fields — forwarded to <MarketReach />
+      // Boxleiter v2 revenue estimate fields — forwarded to <MarketReach />
       if (g.estimated_owners != null) gameData.estimatedOwners = g.estimated_owners;
       if (g.estimated_revenue_usd != null) gameData.estimatedRevenueUsd = g.estimated_revenue_usd;
       if (g.revenue_estimate_method) gameData.revenueEstimateMethod = g.revenue_estimate_method;
@@ -328,6 +332,7 @@ export default async function GameReportPage({ params }: Props) {
           shortDesc={gameData.shortDesc}
           reviewCount={gameData.reviewCount}
           reviewCountEnglish={gameData.reviewCountEnglish}
+          reviewCountAllLanguages={gameData.reviewCountAllLanguages}
           deckCompatibility={gameData.deckCompatibility}
           deckTestResults={gameData.deckTestResults}
           isEarlyAccess={gameData.isEarlyAccess}

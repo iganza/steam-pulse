@@ -1,4 +1,4 @@
-"""Backfill Boxleiter v1 revenue estimates for existing games.
+"""Backfill Boxleiter v2 revenue estimates for existing games.
 
 Pure-Python: no LLM calls, no Steam API, no reviews crawled. Reads games,
 genres, and tags straight from the DB and calls `compute_estimate` for each
@@ -29,6 +29,7 @@ surfaces pick up the new values:
     REFRESH MATERIALIZED VIEW CONCURRENTLY mv_genre_games;
     REFRESH MATERIALIZED VIEW CONCURRENTLY mv_tag_games;
     REFRESH MATERIALIZED VIEW CONCURRENTLY mv_price_positioning;
+    REFRESH MATERIALIZED VIEW CONCURRENTLY mv_discovery_feeds;
 """
 
 from __future__ import annotations
@@ -110,7 +111,7 @@ def _fetch_games_bulk(game_repo: GameRepository, appids: list[int]) -> dict[int,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill Boxleiter v1 revenue estimates.")
+    parser = argparse.ArgumentParser(description="Backfill Boxleiter v2 revenue estimates.")
     parser.add_argument("--dry-run", action="store_true", help="Compute but do not write.")
     parser.add_argument(
         "--all",
@@ -230,6 +231,7 @@ def main() -> None:
         print("  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_genre_games;")
         print("  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_tag_games;")
         print("  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_price_positioning;")
+        print("  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_discovery_feeds;")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ interface GameReportClientProps {
   shortDesc?: string;
   reviewCount?: number;
   reviewCountEnglish?: number | null;
+  reviewCountAllLanguages?: number | null;
   deckCompatibility?: number | null;
   deckTestResults?: Array<{ display_type: number; loc_token: string }>;
   isEarlyAccess?: boolean;
@@ -70,7 +71,7 @@ interface GameReportClientProps {
   reviewsCompletedAt?: string | null;
   tagsCrawledAt?: string | null;
   lastAnalyzed?: string | null;
-  // Boxleiter v1 revenue estimate — surfaced by <MarketReach />
+  // Boxleiter v2 revenue estimate — surfaced by <MarketReach />
   estimatedOwners?: number | null;
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
@@ -114,6 +115,7 @@ export function GameReportClient({
   shortDesc,
   reviewCount,
   reviewCountEnglish,
+  reviewCountAllLanguages,
   deckCompatibility,
   deckTestResults,
   isEarlyAccess,
@@ -281,6 +283,7 @@ export function GameReportClient({
         <QuickStats
           reviewCount={reviewCount ?? null}
           reviewCountEnglish={reviewCountEnglish ?? null}
+          reviewCountAllLanguages={reviewCountAllLanguages ?? null}
           totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
           releaseDate={releaseDate}
           price={price}
@@ -292,7 +295,7 @@ export function GameReportClient({
           metaCrawledAt={metaCrawledAt}
         />
 
-        {/* Market Reach — Boxleiter v1 revenue estimate. Independent of the
+        {/* Market Reach — Boxleiter v2 revenue estimate. Independent of the
             LLM pass (review count + price + genre/tags is enough), so it
             renders on unanalyzed pages too. */}
         <MarketReach
@@ -300,7 +303,8 @@ export function GameReportClient({
           estimatedRevenueUsd={estimatedRevenueUsd ?? null}
           method={revenueEstimateMethod ?? null}
           reason={revenueEstimateReason ?? null}
-          reviewCount={reviewCount ?? 0}
+          reviewCount={reviewCountAllLanguages ?? reviewCount ?? 0}
+          reviewCountEnglish={reviewCountEnglish ?? null}
         />
 
         {/* About — only shown on unanalyzed pages. On analyzed pages the

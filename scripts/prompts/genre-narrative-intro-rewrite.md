@@ -67,77 +67,112 @@ Nothing else — frontend already handles `\n\n` splits, schema
 unchanged, tests untouched (synthesizer output is LLM-generated, no
 unit tests for script-level behavior).
 
-## The new prompt rule (drop-in replacement for lines 56-57)
+## Formatting convention: XML-tag structure (MATCH analyzer.py)
+
+**MANDATORY**: This prompt edit MUST follow the existing XML-tag
+convention used throughout `src/library-layer/library_layer/analyzer.py`
+(the Phase-3 single-game analyzer). Specifically:
+
+- Top-level semantic blocks are named XML tags:
+  `<audience>`, `<tone>`, `<accuracy>`, `<rules>`,
+  `<section_definitions>`, `<self_check>`, `<output_format>`,
+  `<anti_duplication_rules>`, `<signal_weighting>`,
+  `<category_definitions>`, etc.
+- Structured field definitions use typed/attributed children, e.g.
+  `<section name="dev_priorities" type="array" constraint="3-5 items">`.
+- Do NOT bury structured sub-definitions as prose bullets inside
+  `<rules>`. Extract them to their own top-level block with proper
+  tags + attributes so the model can attend to them by name.
+
+Apply this convention to the narrative rubric below: it gets its own
+top-level `<narrative_summary_rubric>` block, with `<paragraph>` /
+`<style>` / `<example>` children carrying semantic attributes
+(`role`, `sentences`, `optional`, `genre`).
+
+## The new prompt rule (drop-in replacement for the narrative_summary bullet in `<rules>`)
+
+Replace the existing `narrative_summary` bullet with a short pointer
+that delegates to the rubric block:
 
 ```
-- narrative_summary: 3–4 short paragraphs separated by blank lines
-  (\n\n). Each paragraph does ONE specific job. Do NOT restate the
-  lists below — the reader will see friction_points, wishlist_items,
-  and dev_priorities rendered as sections immediately after.
+- narrative_summary: follow the <narrative_summary_rubric> block below.
+  Emit the field value as a single string containing 3–4 paragraphs,
+  with a blank line between each paragraph. Do NOT include the XML
+  rubric tags in the output — they are prompt structure, not output
+  structure.
+```
 
-  Paragraph 1 (Hook, 1–2 sentences): the single non-obvious thing
-  that defines this genre's players. Lead with a concrete,
-  declarative claim — NOT "Players of X enjoy Y." Start from
-  tension, surprise, or a specific behavior.
+## The new `<narrative_summary_rubric>` block (append after `</rules>`)
 
-  Paragraph 2 (Tribe, 2–3 sentences): what this niche universally
-  expects — the "genre contract." Name at least one benchmark game
-  by its actual title. Describe what a player silently assumes will
-  be true on hour one.
+```
+<narrative_summary_rubric>
+Each paragraph does ONE specific job. Do NOT restate friction_points,
+wishlist_items, or dev_priorities — those render as structured sections
+immediately after the narrative on the page.
 
-  Paragraph 3 (Tension, 2–3 sentences): the specific place where
-  successful games in the niche pull ahead of the pack. Cite
-  patterns from the input reports (e.g. synergy depth, run pacing,
-  meta-progression cadence). If there's a dominant friction that
-  cuts across most inputs, name it here.
+  <paragraph role="hook" sentences="1-2">
+    The single non-obvious thing that defines this genre's players.
+    Lead with a concrete, declarative claim — NOT "Players of X enjoy
+    Y." Start from tension, surprise, or a specific behavior.
+  </paragraph>
+  <paragraph role="tribe" sentences="2-3">
+    What this niche universally expects — the "genre contract." Name
+    at least one benchmark game by its actual title. Describe what a
+    player silently assumes will be true on hour one.
+  </paragraph>
+  <paragraph role="tension" sentences="2-3">
+    The specific place where successful games in the niche pull ahead
+    of the pack. Cite patterns from the input reports (e.g. synergy
+    depth, run pacing, meta-progression cadence). If there's a
+    dominant friction that cuts across most inputs, name it here.
+  </paragraph>
+  <paragraph role="takeaway" sentences="1-2" optional="true">
+    The single thing a developer reading this should walk away with
+    before scrolling. One sentence of plain-English advice. Skip this
+    paragraph if hook/tribe/tension already land the takeaway — do
+    not pad.
+  </paragraph>
 
-  Paragraph 4 (Takeaway, 1–2 sentences, OPTIONAL): the single thing
-  a developer reading this should walk away with before scrolling.
-  One sentence of plain-English advice. Skip this paragraph if
-  paragraphs 1–3 already land the takeaway — do not pad.
-
-  Style:
-  - Short sentences. Active voice. No hedging ("arguably",
-    "somewhat", "in some cases").
-  - Use proper nouns, not placeholders. "Slay the Spire" not
-    "a leading title." "Hour 20" not "later in the game."
+  <style>
+  - Short sentences. Active voice. No hedging ("arguably", "somewhat",
+    "in some cases").
+  - Use proper nouns, not placeholders. "Slay the Spire" not "a
+    leading title." "Hour 20" not "later in the game."
   - No meta-writing. Never say "this report", "this genre", "below
     you'll find", "we analyzed N games."
   - No corporate voice, no marketing adjectives ("immersive",
     "engaging", "rich"). Write like a senior designer talking to
     another senior designer over coffee.
   - Total length: 120–200 words across all paragraphs.
-```
+  </style>
 
-## Worked example (append to rules block, before the "Output MUST be..." line)
+  <example genre="roguelike-deckbuilder">
+    Roguelike deckbuilder players stop playing when winning stops
+    feeling like discovery — not when they lose.
 
-```
-<example genre="roguelike-deckbuilder">
-Roguelike deckbuilder players stop playing when winning stops
-feeling like discovery — not when they lose.
+    The genre contract is unusually strict. Slay the Spire set the
+    template: a run fits in a single sitting, card synergies are the
+    primary skill expression, and meta-progression persists between
+    deaths. Balatro extended the contract by proving the scoring
+    ceiling itself can be the endgame. Anyone shipping in this niche
+    inherits both promises on day one.
 
-The genre contract is unusually strict. Slay the Spire set the
-template: a run fits in a single sitting, card synergies are the
-primary skill expression, and meta-progression persists between
-deaths. Balatro extended the contract by proving the scoring
-ceiling itself can be the endgame. Anyone shipping in this niche
-inherits both promises on day one.
+    The games that pull ahead all do the same thing: they reward
+    discovery over execution. Players consistently cite "the first
+    time a build clicked" as their peak moment, and the sharpest
+    friction across inputs is build homogenization after ~40 hours,
+    when the synergy space feels fully mapped. A second axis of
+    friction is difficulty that spikes on luck rather than on
+    decisions.
 
-The games that pull ahead all do the same thing: they reward
-discovery over execution. Players consistently cite "the first
-time a build clicked" as their peak moment, and the sharpest
-friction across inputs is build homogenization after ~40 hours,
-when the synergy space feels fully mapped. A second axis of
-friction is difficulty that spikes on luck rather than on
-decisions.
+    For a developer shipping here: broad viable build diversity and a
+    difficulty curve that rewards reads over rolls are the two
+    investments this audience pays back.
+  </example>
 
-For a developer shipping here: broad viable build diversity and a
-difficulty curve that rewards reads over rolls are the two
-investments this audience pays back.
-</example>
-
-The example is illustrative. Use the specific input reports for the
-actual synthesis — never copy example phrasing into another genre.
+  The example is illustrative. Use the specific input reports for the
+  actual synthesis — never copy example phrasing into another genre.
+</narrative_summary_rubric>
 ```
 
 ## Regeneration steps (post-edit)

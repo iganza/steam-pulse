@@ -1,8 +1,7 @@
 """Trigger Lambda — SQS shell that starts a matview-refresh SFN execution."""
 
-import hashlib
-import json
 import os
+from datetime import datetime, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -25,20 +24,17 @@ def _get_state_machine_arn() -> str:
     return _cached_arn
 
 
-def _execution_name(event: dict) -> str:
-    """Derive a deterministic SFN execution name from the SQS batch (idempotent on retry)."""
-    ids = [r.get("messageId", "") for r in event.get("Records", []) if isinstance(r, dict)]
-    if ids and all(ids):
-        # Sort — SQS/Lambda doesn't guarantee record order across retries.
-        key = ",".join(sorted(ids))
-    else:
-        key = hashlib.sha256(json.dumps(event, sort_keys=True).encode()).hexdigest()
-    return f"sqs-{hashlib.sha256(key.encode()).hexdigest()[:32]}"
+def _execution_name() -> str:
+    # UTC-date name — duplicate publishes within the same day collide on
+    # ExecutionAlreadyExists (SFN Standard reserves names for 90 days), so
+    # crawler retries and manual re-runs no-op instead of kicking off a
+    # second full 18-view refresh.
+    return f"daily-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
 
 
 @logger.inject_lambda_context
 def handler(event: dict, context: LambdaContext) -> dict:
-    execution_name = _execution_name(event)
+    execution_name = _execution_name()
 
     try:
         resp = _sfn.start_execution(
@@ -48,9 +44,8 @@ def handler(event: dict, context: LambdaContext) -> dict:
         )
         execution_arn = resp["executionArn"]
     except _sfn.exceptions.ExecutionAlreadyExists:
-        # Lambda retry after a successful StartExecution — same execution_name, so no-op.
         logger.info(
-            "SFN execution already exists for this SQS batch — retry no-op",
+            "Matview refresh already ran (or is running) for this UTC day — no-op",
             extra={"execution_name": execution_name},
         )
         return {"execution_name": execution_name, "duplicate": True}

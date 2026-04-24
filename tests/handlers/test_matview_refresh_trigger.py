@@ -7,13 +7,15 @@ from unittest.mock import MagicMock
 from tests.conftest import MockLambdaContext
 
 
-def _make_sqs_event(event_type: str = "catalog-refresh-complete") -> dict:
+def _make_sqs_event(message_id: str = "msg-1") -> dict:
     """Build an SQS event with an SNS-wrapped message body."""
-    sns_message = json.dumps({"event_type": event_type, "execution_id": "exec-1"})
+    sns_message = json.dumps(
+        {"event_type": "catalog-refresh-complete", "execution_id": "exec-1"}
+    )
     return {
         "Records": [
             {
-                "messageId": "msg-1",
+                "messageId": message_id,
                 "body": json.dumps({"Message": sns_message}),
             }
         ]
@@ -56,8 +58,8 @@ def _stub_sfn() -> MagicMock:
     return sfn
 
 
-def test_handler_starts_sfn_with_empty_input() -> None:
-    """Handler starts SFN with `{}` — no event classification, no force flag."""
+def test_handler_starts_sfn_with_empty_input_and_daily_name() -> None:
+    """Handler starts SFN with `{}` and a `daily-YYYY-MM-DD` execution name."""
     sfn = _stub_sfn()
     ssm = _stub_ssm()
     mod = _get_module(sfn, ssm)
@@ -65,42 +67,29 @@ def test_handler_starts_sfn_with_empty_input() -> None:
     mod.handler(_make_sqs_event(), MockLambdaContext())
 
     sfn.start_execution.assert_called_once()
-    assert sfn.start_execution.call_args.kwargs["input"] == "{}"
+    kwargs = sfn.start_execution.call_args.kwargs
+    assert kwargs["input"] == "{}"
+    assert kwargs["name"].startswith("daily-")
+    # YYYY-MM-DD shape — 10 chars after the "daily-" prefix.
+    assert len(kwargs["name"]) == len("daily-YYYY-MM-DD")
 
 
-def test_execution_name_deterministic_per_batch() -> None:
-    """Same SQS batch → same execution name so Lambda retries are idempotent."""
+def test_execution_name_is_date_derived_not_batch_derived() -> None:
+    """Different SQS batches on the same UTC day produce the same execution name.
+
+    This is the idempotency guard: duplicate `catalog-refresh-complete` publishes
+    (crawler retries, manual re-runs) collide on ExecutionAlreadyExists instead of
+    kicking off a second full matview refresh in the same day.
+    """
     sfn = _stub_sfn()
     ssm = _stub_ssm()
     mod = _get_module(sfn, ssm)
 
-    event = _make_sqs_event()
-    mod.handler(event, MockLambdaContext())
+    mod.handler(_make_sqs_event("msg-a"), MockLambdaContext())
     first_name = sfn.start_execution.call_args.kwargs["name"]
 
     sfn.start_execution.reset_mock()
-    mod.handler(event, MockLambdaContext())
-    second_name = sfn.start_execution.call_args.kwargs["name"]
-
-    assert first_name == second_name
-
-
-def test_execution_name_is_order_independent() -> None:
-    """Records reordered on retry must still hash to the same execution name."""
-    sfn = _stub_sfn()
-    ssm = _stub_ssm()
-    mod = _get_module(sfn, ssm)
-
-    body = json.dumps({"Message": json.dumps({"event_type": "catalog-refresh-complete"})})
-    records = [
-        {"messageId": "msg-a", "body": body},
-        {"messageId": "msg-b", "body": body},
-    ]
-    mod.handler({"Records": records}, MockLambdaContext())
-    first_name = sfn.start_execution.call_args.kwargs["name"]
-
-    sfn.start_execution.reset_mock()
-    mod.handler({"Records": list(reversed(records))}, MockLambdaContext())
+    mod.handler(_make_sqs_event("msg-b"), MockLambdaContext())
     second_name = sfn.start_execution.call_args.kwargs["name"]
 
     assert first_name == second_name
@@ -116,4 +105,4 @@ def test_execution_already_exists_is_no_op() -> None:
     result = mod.handler(_make_sqs_event(), MockLambdaContext())
 
     assert result["duplicate"] is True
-    assert "execution_name" in result
+    assert result["execution_name"].startswith("daily-")

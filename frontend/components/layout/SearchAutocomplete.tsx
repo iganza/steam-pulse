@@ -84,10 +84,11 @@ export function SearchAutocomplete({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cacheRef = useRef<Map<string, Game[]>>(new Map());
 
   const debouncedQuery = useDebounce(value, 300);
 
-  // Fetch suggestions
+  // Prior list stays visible behind the spinner so the dropdown never flashes empty during refetch.
   useEffect(() => {
     if (debouncedQuery.length < 2) {
       setSuggestions([]);
@@ -96,22 +97,33 @@ export function SearchAutocomplete({
       return;
     }
 
+    const key = debouncedQuery.toLowerCase().trim();
+    const cached = cacheRef.current.get(key);
+    if (cached) {
+      setSuggestions(cached);
+      setOpen(cached.length > 0);
+      setLoading(false);
+      setActiveIndex(-1);
+      return;
+    }
+
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
 
     setLoading(true);
-    const timeout = setTimeout(() => {
-      if (!signal.aborted) {
-        setSuggestions([]);
-        setLoading(false);
-      }
-    }, 3000);
 
-    getGames({ q: debouncedQuery, limit: 6, sort: "review_count" })
+    getGames(
+      { q: debouncedQuery, limit: 6, sort: "review_count", fields: "compact" },
+      signal,
+    )
       .then((res) => {
         if (signal.aborted) return;
-        clearTimeout(timeout);
+        cacheRef.current.set(key, res.games);
+        if (cacheRef.current.size > 20) {
+          const oldest = cacheRef.current.keys().next().value;
+          if (oldest !== undefined) cacheRef.current.delete(oldest);
+        }
         setSuggestions(res.games);
         setOpen(res.games.length > 0);
         setLoading(false);
@@ -119,12 +131,8 @@ export function SearchAutocomplete({
       })
       .catch(() => {
         if (signal.aborted) return;
-        clearTimeout(timeout);
-        setSuggestions([]);
         setLoading(false);
       });
-
-    return () => clearTimeout(timeout);
   }, [debouncedQuery]);
 
   // Close on route change

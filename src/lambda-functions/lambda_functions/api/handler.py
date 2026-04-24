@@ -116,6 +116,17 @@ async def health() -> dict:
     }
 
 
+_COMPACT_GAME_FIELDS = (
+    "appid",
+    "name",
+    "slug",
+    "header_image",
+    "review_count",
+    "positive_pct",
+    "review_score_desc",
+)
+
+
 @app.get("/api/games")
 async def list_games(
     q: str | None = None,
@@ -133,7 +144,8 @@ async def list_games(
     sort: str = "review_count",
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-) -> dict:
+    fields: Literal["compact"] | None = None,
+) -> JSONResponse:
     result = _game_repo.list_games(
         q=q,
         genre=genre,
@@ -180,7 +192,13 @@ async def list_games(
 
     has_more = (offset + len(games) < total) if total is not None else len(games) == limit
 
-    return {"total": total, "has_more": has_more, "games": games}
+    if fields == "compact":
+        games = [{k: g.get(k) for k in _COMPACT_GAME_FIELDS} for g in games]
+
+    return JSONResponse(
+        content={"total": total, "has_more": has_more, "games": games},
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @app.get("/api/games/basics")

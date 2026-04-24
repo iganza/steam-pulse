@@ -84,47 +84,59 @@ export function SearchAutocomplete({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cacheRef = useRef<Map<string, Game[]>>(new Map());
 
   const debouncedQuery = useDebounce(value, 300);
 
-  // Fetch suggestions
+  // Prior list stays visible behind the spinner so the dropdown never flashes empty during refetch.
   useEffect(() => {
-    if (debouncedQuery.length < 2) {
+    const normalized = debouncedQuery.toLowerCase().trim();
+    if (normalized.length < 2) {
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
       return;
     }
 
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
-    const signal = abortRef.current.signal;
+    const cached = cacheRef.current.get(normalized);
+    if (cached) {
+      setSuggestions(cached);
+      setOpen(cached.length > 0);
+      setLoading(false);
+      setActiveIndex(-1);
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
-    const timeout = setTimeout(() => {
-      if (!signal.aborted) {
-        setSuggestions([]);
-        setLoading(false);
-      }
-    }, 3000);
 
-    getGames({ q: debouncedQuery, limit: 6, sort: "review_count" })
+    getGames(
+      { q: normalized, limit: 6, sort: "review_count", fields: "compact" },
+      controller.signal,
+    )
       .then((res) => {
-        if (signal.aborted) return;
-        clearTimeout(timeout);
+        if (controller.signal.aborted) return;
+        cacheRef.current.set(normalized, res.games);
+        if (cacheRef.current.size > 20) {
+          const oldest = cacheRef.current.keys().next().value;
+          if (oldest !== undefined) cacheRef.current.delete(oldest);
+        }
         setSuggestions(res.games);
         setOpen(res.games.length > 0);
         setLoading(false);
         setActiveIndex(-1);
       })
       .catch(() => {
-        if (signal.aborted) return;
-        clearTimeout(timeout);
+        if (controller.signal.aborted) return;
         setSuggestions([]);
+        setOpen(false);
         setLoading(false);
+        setActiveIndex(-1);
       });
 
-    return () => clearTimeout(timeout);
+    return () => controller.abort();
   }, [debouncedQuery]);
 
   // Close on route change

@@ -125,6 +125,7 @@ export async function getGames(
   sort?: string;
   limit?: number;
   offset?: number;
+  fields?: "compact";
 },
   signal?: AbortSignal,
 ): Promise<GamesResponse> {
@@ -144,11 +145,9 @@ export async function getGames(
   if (params?.sort) qs.set("sort", params.sort);
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
+  if (params?.fields) qs.set("fields", params.fields);
   const query = qs.toString() ? `?${qs.toString()}` : "";
-  return apiFetch<GamesResponse>(`/api/games${query}`, {
-    signal,
-    next: { revalidate: 3600 },
-  });
+  return apiFetch<GamesResponse>(`/api/games${query}`, { signal });
 }
 
 /** Homepage discovery rows — served from mv_discovery_feeds. */

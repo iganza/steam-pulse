@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 import boto3  # type: ignore[import-untyped]
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
@@ -116,8 +116,20 @@ async def health() -> dict:
     }
 
 
+_COMPACT_GAME_FIELDS = (
+    "appid",
+    "name",
+    "slug",
+    "header_image",
+    "review_count",
+    "positive_pct",
+    "review_score_desc",
+)
+
+
 @app.get("/api/games")
 async def list_games(
+    response: Response,
     q: str | None = None,
     genre: str | None = None,
     tag: str | None = None,
@@ -133,6 +145,7 @@ async def list_games(
     sort: str = "review_count",
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    fields: Literal["compact"] | None = None,
 ) -> dict:
     result = _game_repo.list_games(
         q=q,
@@ -180,6 +193,10 @@ async def list_games(
 
     has_more = (offset + len(games) < total) if total is not None else len(games) == limit
 
+    if fields == "compact":
+        games = [{k: g.get(k) for k in _COMPACT_GAME_FIELDS} for g in games]
+
+    response.headers["Cache-Control"] = "private, max-age=300"
     return {"total": total, "has_more": has_more, "games": games}
 
 

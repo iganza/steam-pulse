@@ -1,24 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { ReportSummary, ReportTier } from "@/lib/types";
+import type { ReportSummary } from "@/lib/types";
 
 interface Props {
   report: ReportSummary;
   variant?: "main" | "sidebar";
 }
-
-const TIER_COPY: Record<ReportTier, string> = {
-  indie: "PDF",
-  studio: "PDF + CSV dataset + 1-yr updates",
-  publisher: "PDF + CSV + raw JSON + team license",
-};
-
-const TIER_LABEL: Record<ReportTier, string> = {
-  indie: "Indie",
-  studio: "Studio",
-  publisher: "Publisher",
-};
 
 function formatUsd(cents: number): string {
   const dollars = cents / 100;
@@ -38,17 +26,17 @@ function formatShipDate(iso: string): string {
 }
 
 export function ReportBuyBlock({ report, variant = "main" }: Props) {
-  const [loading, setLoading] = useState<ReportTier | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const checkout = async (tier: ReportTier) => {
-    setLoading(tier);
+  const checkout = async () => {
+    setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/checkout/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report_slug: report.slug, tier }),
+        body: JSON.stringify({ report_slug: report.slug }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { url?: string };
@@ -59,13 +47,14 @@ export function ReportBuyBlock({ report, variant = "main" }: Props) {
       }
     } catch {
       setError("Checkout is temporarily unavailable. Please try again in a moment.");
-      setLoading(null);
+      setLoading(false);
     }
   };
 
   const actionVerb = report.is_pre_order ? "Pre-order" : "Buy";
   const headingSize = variant === "sidebar" ? "text-lg" : "text-xl md:text-2xl";
   const padding = variant === "sidebar" ? "p-5" : "p-6 md:p-8";
+  const priceLabel = formatUsd(report.price_cents);
 
   return (
     <aside
@@ -76,44 +65,35 @@ export function ReportBuyBlock({ report, variant = "main" }: Props) {
       data-state={report.is_pre_order ? "pre-order" : "live"}
     >
       <h2 className={`font-serif ${headingSize} font-bold mb-2`} style={{ letterSpacing: "-0.02em" }}>
-        Want this as a print-ready report?
+        The full report — your next 8 design moves
       </h2>
-      <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+      <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
         {report.is_pre_order
           ? `${report.display_name} ships ${formatShipDate(report.published_at)}.`
           : `${report.display_name} — available now.`}
       </p>
 
-      <ul className="space-y-2 mb-5 text-sm">
-        {report.tiers.map((t) => (
-          <li key={t.tier} className="flex items-baseline gap-3">
-            <span className="font-mono w-20 shrink-0">{TIER_LABEL[t.tier]}</span>
-            <span className="font-mono font-semibold w-14 shrink-0" style={{ color: "var(--teal)" }}>
-              {formatUsd(t.price_cents)}
-            </span>
-            <span style={{ color: "var(--muted-foreground)" }}>{TIER_COPY[t.tier]}</span>
-          </li>
-        ))}
+      <ul className="space-y-1.5 mb-5 text-sm" style={{ color: "var(--muted-foreground)" }}>
+        <li>Hand-written deep-dives on the 5 benchmark games</li>
+        <li>Strategic recommendations — ranked design moves with data citations</li>
+        <li>Dev priorities as a prioritised plan</li>
+        <li>Executive summary + full friction / wishlist lists</li>
+        <li>CSV dataset with source_appid columns</li>
       </ul>
 
-      <div className={`flex ${variant === "sidebar" ? "flex-col" : "flex-wrap"} gap-2 mb-4`}>
-        {report.tiers.map((t) => (
-          <button
-            key={t.tier}
-            type="button"
-            onClick={() => checkout(t.tier)}
-            disabled={loading !== null}
-            className="px-4 py-2.5 rounded-md text-sm font-mono uppercase tracking-widest transition-colors disabled:opacity-60"
-            style={{
-              background: t.tier === "indie" ? "var(--teal)" : "var(--secondary)",
-              color: t.tier === "indie" ? "#0c0c0f" : "var(--foreground)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            {loading === t.tier ? "…" : `${actionVerb} ${TIER_LABEL[t.tier]}`}
-          </button>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={checkout}
+        disabled={loading}
+        className="w-full px-4 py-3 rounded-md text-sm font-mono uppercase tracking-widest transition-colors disabled:opacity-60 mb-4"
+        style={{
+          background: "var(--teal)",
+          color: "#0c0c0f",
+          border: "1px solid var(--border)",
+        }}
+      >
+        {loading ? "…" : `${actionVerb} — ${priceLabel}`}
+      </button>
 
       <p className="text-xs font-mono" style={{ color: "var(--muted-foreground)" }}>
         {report.is_pre_order

@@ -646,18 +646,11 @@ export interface GenreInsights {
 // getter returns null on any non-200.
 // ---------------------------------------------------------------------------
 
-export type ReportTier = "indie" | "studio" | "publisher";
-
-export interface ReportTierPrice {
-  tier: ReportTier;
-  price_cents: number;
-  stripe_price_id: string;
-}
-
 export interface ReportSummary {
   slug: string;
   display_name: string;
-  tiers: ReportTierPrice[];
+  price_cents: number;
+  stripe_price_id: string;
   published_at: string;
   is_pre_order: boolean;
 }

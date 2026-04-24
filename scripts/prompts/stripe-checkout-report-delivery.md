@@ -7,16 +7,18 @@ catalog. Aligned with `steam-pulse.org` → Active Launch Plan and
 memory `project_business_model_2026.md`.
 
 Scope: **one-off purchases of genre market reports** delivered as
-PDF + optional CSV dataset + optional raw JSON via signed-S3 URL
-and magic-link reader access. Three self-serve tiers:
+PDF + CSV dataset via signed-S3 URL and magic-link reader access.
 
-- **Indie — $49** — PDF only
-- **Studio — $149** — PDF + CSV dataset + 1-year update access
-- **Publisher — $499** — PDF + CSV + raw JSON + team license
-
-All three tiers are fully self-serve Stripe buttons. No contact form,
-no manual invoicing, no email scoping — the asynchronous-transactions
+**Single SKU at $49** — one Stripe Price per report, one Checkout
+button. No tier selector, no persona naming, no contact form, no
+manual invoicing, no email scoping — the asynchronous-transactions
 criterion requires it.
+
+Higher-priced SKUs (Genre Q&A $79, All-Access $149, White-label
+$499) are Tier-2 gated and explicitly out of scope for this prompt.
+The DB schema below keeps a `tier` column (defaulting to `'report'`,
+no CHECK constraint) so those future SKUs can land without a schema
+migration once their gates fire.
 
 This prompt covers the end-to-end path from the genre synthesis page
 → Stripe Checkout → webhook → entitlement → email → re-download.
@@ -45,20 +47,21 @@ and does not belong here (see `monetization-strategy.md`).
 -- depends: <prev>
 
 -- Catalog of products available for sale.
+-- tier defaults to 'report' (the $49 base SKU). Future Tier-2-gated
+-- SKUs (q&a, all-access, white-label) land in this column without a
+-- migration once their demand gates fire.
 CREATE TABLE IF NOT EXISTS reports (
     slug TEXT PRIMARY KEY,                      -- "roguelike-deckbuilder-2026-q2"
     genre_slug TEXT NOT NULL,                   -- "roguelike-deckbuilder"
     edition TEXT NOT NULL,                      -- "2026-Q2"
     display_name TEXT NOT NULL,                 -- "Roguelike Deckbuilder Market Report — Q2 2026"
-    tier TEXT NOT NULL,                         -- "indie" | "studio" | "publisher"
+    tier TEXT NOT NULL DEFAULT 'report',        -- "report" at launch; future gated SKUs land here
     price_cents INTEGER NOT NULL,
     stripe_price_id TEXT NOT NULL,              -- Stripe Price object (pre-created in dashboard)
-    pdf_s3_key TEXT NOT NULL,                   -- "reports/rdb-2026-q2/indie.pdf"
-    csv_s3_key TEXT NOT NULL DEFAULT '',        -- "" if tier doesn't include CSV
-    json_s3_key TEXT NOT NULL DEFAULT '',       -- "" unless publisher tier
+    pdf_s3_key TEXT NOT NULL,                   -- "reports/rdb-2026-q2/report.pdf"
+    csv_s3_key TEXT NOT NULL,                   -- "reports/rdb-2026-q2/report.csv" — CSV is always bundled
     published_at TIMESTAMPTZ NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    CONSTRAINT reports_tier_valid CHECK (tier IN ('indie','studio','publisher'))
+    is_active BOOLEAN NOT NULL DEFAULT true
 );
 CREATE INDEX IF NOT EXISTS reports_genre_edition_idx ON reports(genre_slug, edition);
 
@@ -73,7 +76,7 @@ CREATE TABLE IF NOT EXISTS report_purchases (
     stripe_checkout_session_id TEXT NOT NULL UNIQUE,
     stripe_payment_intent_id TEXT NOT NULL,
     amount_paid_cents INTEGER NOT NULL,
-    tier TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT 'report',        -- denormalized from reports.tier at purchase time
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     delivered_at TIMESTAMPTZ,
     last_downloaded_at TIMESTAMPTZ,
@@ -116,14 +119,16 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Literal
 
-Tier = Literal["indie", "studio", "publisher"]
+# At launch only "report" exists. Future Tier-2-gated SKUs add to
+# this union without a schema migration (the DB column has no CHECK).
+Tier = Literal["report"]
 
 class ReportRow(BaseModel):
     slug: str
     genre_slug: str
     edition: str
     display_name: str
-    tier: Tier
+    tier: Tier = "report"
     price_cents: int
     stripe_price_id: str
     pdf_s3_key: str
@@ -138,7 +143,7 @@ class ReportPurchaseRow(BaseModel):
     stripe_checkout_session_id: str
     stripe_payment_intent_id: str
     amount_paid_cents: int
-    tier: Tier
+    tier: Tier = "report"
     purchased_at: datetime
     delivered_at: datetime | None   # None until the signed-URL email is sent
     last_downloaded_at: datetime | None
@@ -199,16 +204,17 @@ the checkout → entitlement → delivery flow. Constructor takes:
 
 ```python
 def create_checkout_session(
-    self, *, email: str, report_slug: str, tier: Tier, success_url: str, cancel_url: str
+    self, *, email: str, report_slug: str, success_url: str, cancel_url: str
 ) -> str:
     """Returns the Stripe Checkout session URL. Records email in leads
     table (pre-purchase lead). Stripe Customer is created/reused
-    keyed on email."""
+    keyed on email. Price is resolved from reports.stripe_price_id —
+    the caller does not pass price or tier."""
 
 def handle_checkout_session_completed(self, *, event: stripe.Event) -> None:
     """Webhook handler. Idempotent on stripe_checkout_session_id.
     1. Verify event signature with webhook secret.
-    2. Extract email, report_slug, tier, amount_paid from metadata.
+    2. Extract email, report_slug, amount_paid from metadata.
     3. Insert report_purchase row with delivered_at = NULL. Skip
        silently on duplicate session_id.
     4. Look up the reports row. Branch on published_at:
@@ -227,7 +233,7 @@ def deliver_now(self, *, purchase: ReportPurchaseRow) -> None:
     2. Send receipt + download email via Resend, with:
        - magic-link to /reports/access?token=...
        - tax receipt text
-       - what-you-got list per tier (PDF / PDF+CSV / PDF+CSV+JSON)
+       - what-you-got list (PDF + CSV — always the same at launch)
     3. Set delivered_at = now() on the purchase row."""
 
 def sweep_pre_order_deliveries(self) -> int:
@@ -246,10 +252,10 @@ def sweep_pre_order_deliveries(self) -> int:
 def generate_download_urls(
     self, *, purchase: ReportPurchaseRow
 ) -> dict[str, str]:
-    """Returns {'pdf': signed_url, 'csv': signed_url | '', 'json': signed_url | ''}.
-    S3 signed URL, 15-min TTL. Caller is responsible for bumping
-    download_count. Raises if purchase.delivered_at IS NULL (pre-order
-    not yet fulfilled)."""
+    """Returns {'pdf': signed_url, 'csv': signed_url}. S3 signed URL,
+    15-min TTL. Caller is responsible for bumping download_count.
+    Raises if purchase.delivered_at IS NULL (pre-order not yet
+    fulfilled)."""
 
 def request_magic_link(self, *, email: str, purpose: str) -> None:
     """Creates a magic-link token for any delivered purchase this email
@@ -273,7 +279,7 @@ logged debug line. Returns 200 within 10s.
 ```python
 @app.post("/api/checkout/start")
 def start_checkout(body: CheckoutStartRequest) -> CheckoutStartResponse:
-    """body: {email, report_slug, tier, success_url, cancel_url}
+    """body: {email, report_slug, success_url, cancel_url}
     Returns {url}. Rate-limited by email + IP (no DDoS on session creation)."""
 
 @app.post("/api/leads/exec-summary")
@@ -294,10 +300,9 @@ def download_report(token: str, report_slug: str) -> RedirectResponse:
     one-use; returns 410 Gone after first consumption."""
 ```
 
-The publisher tier is self-serve at $499 — there is **no** inquiry
-endpoint, lead form, or contact button. All three tiers flow through
-the same `/api/reports/checkout` path. Do not add a manual-invoicing
-code path.
+There is **no** inquiry endpoint, lead form, or contact button. The
+single $49 SKU flows through `/api/checkout/start`. Do not add a
+manual-invoicing code path.
 
 Keep these thin — service layer does the real work.
 
@@ -305,17 +310,16 @@ Keep these thin — service layer does the real work.
 
 The commerce surface is the **genre synthesis page** (`/genre/[slug]/`,
 owned by `genre-insights-page.md`). That page renders a pre-order /
-buy block when a `reports` row exists for the genre. Tier selection
-and Stripe Checkout kick off from there.
+buy block when a `reports` row exists for the genre. A single
+"Buy — $49" (or "Pre-order — $49") button kicks off Stripe Checkout.
 
 Supporting pages under `frontend/app/`:
 
 - `/reports` — catalog page. Lists every active `reports` row grouped
-  by genre. Each card: display_name, narrative summary one-liner, tier
-  price range (e.g. "$49 – $499"), `published_at` status ("ships
-  [date]" if pre-order, "available now" otherwise), link to the
-  synthesis page (not directly to Stripe — the synthesis page is the
-  funnel step).
+  by genre. Each card: display_name, narrative summary one-liner,
+  price ("$49"), `published_at` status ("ships [date]" if pre-order,
+  "available now" otherwise), link to the synthesis page (not directly
+  to Stripe — the synthesis page is the funnel step).
 - `/reports/success` — post-checkout thank-you. Reads `session_id`
   query param. If the report is live, shows "check your email for the
   download link." If the report is a pre-order, shows "check your
@@ -324,10 +328,8 @@ Supporting pages under `frontend/app/`:
   to `/api/reports/download` on page load, shows spinner + fallback
   email-entry form.
 
-No `/publisher` page. No inquiry form. The publisher tier is a
-self-serve Stripe button on the synthesis page, same as indie and
-studio. If a publisher wants a custom cut, they can buy and email —
-that's bonus, not built-in.
+No tier selector. No `/publisher` page. No inquiry form. Framing
+copy reads "landscape vs plan," not "top-5 free vs top-10 paid."
 
 ### 7. CDK wiring — `infra/stacks/`
 
@@ -360,12 +362,9 @@ that's bonus, not built-in.
 Operator does this manually in the Stripe dashboard — not in code:
 
 - Enable **Stripe Tax** (required; no custom tax logic in our code).
-- Create **Products** for each report (one Product per report
-  edition), and **Prices** per tier:
-  - `rdb-2026-q2 / indie` — $49 one-time
-  - `rdb-2026-q2 / studio` — $149 one-time
-  - `rdb-2026-q2 / publisher` — $499 one-time
-- Record each `price_id` in the `reports` table via an ops script
+- Create **one Product per report edition**, and **one Price** at $49 one-time:
+  - `rdb-2026-q2` — $49 one-time
+- Record the `price_id` in the `reports` table via an ops script
   `scripts/ops/seed_report_catalog.py`.
 - Configure Checkout branding (logo, colors).
 - Configure **webhook endpoint** pointing at
@@ -383,11 +382,11 @@ templates are needed:
 
 **`report_receipt_live.py`** — sent when the purchase is for a live
 (already-published) report. Fields: buyer name (optional), report
-display_name, tier, amount paid, tax amount, magic-link URL (30-min
-TTL), what-to-expect block, support email.
+display_name, amount paid, tax amount, magic-link URL (30-min TTL),
+what-to-expect block (PDF + CSV), support email.
 
 **`report_receipt_preorder.py`** — sent when the purchase is for a
-pre-order. Fields: buyer name, report display_name, tier, amount paid,
+pre-order. Fields: buyer name, report display_name, amount paid,
 tax amount, `published_at` formatted as a human-readable ship date,
 what-to-expect block ("you'll receive a download link on [date]"),
 support email. **No magic-link, no signed URL** — there is nothing to
@@ -446,21 +445,18 @@ of these as part of this prompt.
 - **Subscription / NL chat / Pro tier** — Tier 2 gated (see
   `monetization-strategy.md`). No Stripe Subscription code path in
   Tier 1.
-- **Upgrade between tiers** (indie → studio on the same report) —
-  handled manually via Stripe dashboard if a buyer asks; not a
-  product feature.
-- **Dataset-only SKU ($99 CSV+JSON add-on)** — Tier 2 gated (3+
-  buyer emails required before building).
+- **Genre Q&A add-on ($79)** — Tier 2 gated (10+ buyers ask).
+- **1-yr All-Access Pass ($149, same genre family)** — Tier 2 gated
+  (5+ reports shipped AND 100+ unique buyers).
+- **White-label / team license ($499)** — Tier 2 gated (3+ publisher
+  emails requesting). No multi-seat logic in Tier 1.
 - **"Genre Audit" self-serve SKU ($79)** — Tier 2 gated (catalog
   MRR > $3k/mo × 3 months required).
-- **All-Access Pass ($49/yr)** — Tier 2 gated (5+ reports shipped).
 - **Refund automation** — manual via Stripe dashboard for Tier 1;
   volume doesn't justify automation.
 - **Abandoned-checkout re-engagement / lead drip sequences** — no
   newsletter at launch; defer indefinitely.
 - **Affiliate / referral tracking** — not built.
-- **Multi-seat / team licensing beyond the publisher tier's built-in
-  10 seats** — handled by operator email for now.
 
 ## Rollout
 

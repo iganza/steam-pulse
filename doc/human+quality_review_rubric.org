@@ -66,8 +66,8 @@ If yes, that's bad — the report isn't doing game-specific work.
 
 ** 5. Saleability
 
-Score 1 = no one pays for this, 5 = a publisher would pay $49-$499 for this
-report.
+Score 1 = no one pays for this, 5 = an indie dev would pay $49 for this report
+without hesitation.
 
 Gut check. Trust your instinct. This is the dimension that maps most directly
 to the hybrid business model (reports-led).

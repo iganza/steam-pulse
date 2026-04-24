@@ -27,9 +27,10 @@
    one else publishes frequency-weighted cross-game synthesis at
    narrative depth with citation traceability.
 
-   - *Product:* catalog of flagship PDF reports, three self-serve tiers
-     ($49 indie / $149 studio / $499 publisher). Stripe Checkout + S3
-     signed-URL delivery. Zero operator touch per sale.
+   - *Product:* catalog of flagship PDF reports, single self-serve
+     SKU at $49 (PDF + CSV dataset bundled). Stripe Checkout + S3
+     signed-URL delivery. Zero operator touch per sale. Higher-priced
+     SKUs are Tier-2 gated (see below) — not built until demand fires.
    - *Surface:* every per-game page and genre summary page is 100% free
      and indexed for SEO long-tail discovery. No content is gated
      anywhere. Reports are the only paid product.
@@ -110,31 +111,45 @@
 *** Tier 1 — Launch & Run
 
 **** Tier 1 products
-     | Product                              | Price  | Delivery                                        |
-     |--------------------------------------+--------+-------------------------------------------------|
-     | Genre Report — Indie tier            | $49    | Stripe → S3 signed URL PDF (delayed if pre-order) |
-     | Genre Report — Studio tier           | $149   | PDF + CSV dataset + 1-yr update access          |
-     | Genre Report — Publisher tier        | $499   | PDF + CSV + raw JSON + team license             |
-     | =/genre/[slug]/= synthesis page      | $0     | Free forever, SEO-indexed (curated preview)     |
-     | All per-game pages                   | $0     | Free forever, SEO-indexed                       |
+     | Product                              | Price  | Delivery                                                  |
+     |--------------------------------------+--------+-----------------------------------------------------------|
+     | Genre Report                         | $49    | Stripe → S3 signed URL PDF + CSV (delayed if pre-order)   |
+     | =/genre/[slug]/= synthesis page      | $0     | Free forever, SEO-indexed (curated preview)               |
+     | All per-game pages                   | $0     | Free forever, SEO-indexed                                 |
 
-     All three paid tiers are *fully self-serve* Stripe buttons. No
-     contact form, no manual invoicing, no email scoping.
+     Single SKU, one Stripe Checkout button. No tier selector, no
+     contact form, no manual invoicing, no email scoping. CSV dataset
+     is bundled in at $49 (it's cheap to produce and raises perceived
+     value; removes a support surface). Higher-priced SKUs exist only
+     as Tier-2 gated add-ons below.
 
-     *Free vs paid shape.* The =/genre/[slug]/= page is a **curated
-     preview** (author byline + editorial intro + top-5 friction +
-     top-3 wishlist + 3 benchmark cards + churn stat with one-line
-     interpretation + 2-row dev priorities teaser). The paid PDF is
-     the **full synthesis** (all 10 friction / 10 wishlist / 5 benchmarks
-     with full quote sets) plus 15–20 pages of hand-written benchmark
-     deep-dives, executive summary, strategic recommendations,
-     print-ready design, and (Studio/Publisher) CSV + JSON datasets.
-     See =scripts/prompts/monetization-strategy.md= → "Free vs paid"
-     for the canonical table. Curation on the free page is
-     load-bearing: Google's March 2026 core update demotes
-     mass-produced LLM content without named-human editing, and the
-     anti-cannibalisation rule is that AI assistants should be able to
-     cite the preview but not finish the buyer's question from it.
+     *Free vs paid shape — landscape vs plan.* The =/genre/[slug]/=
+     page is a **landscape** ("what the data shows"): author byline,
+     ~200-word editorial intro, top-5 friction clusters with quotes,
+     top-3 wishlist items, 3 benchmark cards with pull-quotes,
+     methodology footer. It does NOT include the churn interpretation
+     or the dev-priorities teaser — those are the author's *opinion*,
+     which is what a buyer pays for.
+
+     The paid PDF is a **plan** ("what you should do"): 15–20 pages
+     of hand-written benchmark deep-dives on the 5 named competitors
+     (original editorial — cannot be synthesized), strategic
+     recommendations chapter (ranked design moves with data
+     citations), dev priorities as a prioritised plan, executive
+     summary, full friction/wishlist lists (6-10, 4-10) as the floor
+     of value, CSV dataset, print-ready design.
+
+     The defensible sentence: *"The free page shows the landscape;
+     the PDF shows your next 8 design moves, with the data behind
+     each."* The structural difference — applied editorial + action
+     plan vs aggregated landscape — is what justifies $49, not the
+     count of items 6-10.
+
+     Curation on the free page is load-bearing: Google's March 2026
+     core update demotes mass-produced LLM content without named-human
+     editing, and the anti-cannibalisation rule is that AI assistants
+     should be able to cite the preview but not finish the buyer's
+     question from it.
 
      Per-game pages (=/games/[appid]/[slug]/=) stay **fully visible,
      full sections, no curation** — commodity-floor parity with
@@ -169,7 +184,7 @@
 
 **** Step 3 — Open pre-orders (Phase B)
      - [ ] Sign up at https://resend.com, verify sending domain
-     - [ ] Stripe account + Products/Prices for RDB report (three tiers $49 / $149 / $499), webhook endpoint, signing secret in SSM
+     - [ ] Stripe account + single Product/Price for RDB report ($49), webhook endpoint, signing secret in SSM
      - [ ] S3 bucket =steampulse-reports-{env}= (versioning on, public access blocked, signed-URL delivery)
      - [ ] Create =reports= catalog row for RDB with =published_at= set 6 weeks out (pre-order mode)
      - [ ] Implement =scripts/prompts/stripe-checkout-report-delivery.md= (Stripe Checkout + signed-S3 delivery + pre-order mode)
@@ -188,7 +203,7 @@
 
      | Signal (2 weeks post-amplification)                  | Action                                                                                                  |
      |------------------------------------------------------+---------------------------------------------------------------------------------------------------------|
-     | ≥ 3 pre-orders at any paid tier ($49 / $149 / $499)  | Step 6 fires. Commit the 60 hours. Write the PDF. Ship.                                                 |
+     | ≥ 3 pre-orders at $49                                | Step 6 fires. Commit the 60 hours. Write the PDF. Ship.                                                 |
      | 1–2 pre-orders                                       | Marginal. Ship Step 6 with tighter scope (fewer benchmark deep-dives if needed to stay under 60 hours). |
      | 0 pre-orders                                         | Do NOT write the PDF. Remove the =reports= row or extend =published_at= indefinitely. Free synthesis page stays live as SEO. Talk to non-converters before iterating. |
 
@@ -200,7 +215,7 @@
      - [ ] Benchmark deep-dives: Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons (15-20 pages)
      - [ ] Strategic recommendations (3-4 pages)
      - [ ] Appendix: full game list, methodology details
-     - [ ] Upload PDF + CSV + JSON assets to S3 at the paths referenced by the =reports= row
+     - [ ] Upload PDF + CSV assets to S3 at the paths referenced by the =reports= row
      - [ ] Flip =reports.published_at= to =now()= — triggers the delivery sweep that emails signed URLs to all pre-order buyers
      - [ ] Self-serve checkout now delivers immediately for new buyers
 
@@ -216,13 +231,18 @@
 
      | Add-on                                         | Gate                                                                       |
      |------------------------------------------------+----------------------------------------------------------------------------|
-     | Dataset add-on ($99 CSV+JSON per report)       | 3+ buyer emails asking for raw data                                        |
+     | Genre Q&A add-on ($79, pre-synth data + LLM)   | 10+ buyers explicitly ask for Q&A over the dataset                         |
+     | 1-yr All-Access Pass ($149, same genre family) | 5+ reports shipped in the family AND 100+ unique buyers                    |
+     | White-label / team license ($499)              | 3+ publisher emails requesting white-label or team share                   |
      | "Alert me when a new report drops" email list  | Monthly uniques > 3k                                                       |
-     | $49/yr All-Access Pass (catalog-wide)          | 5+ reports shipped AND 100+ unique buyers                                  |
      | "Genre Audit" self-serve SKU ($79)             | Catalog MRR > $3k/mo for 3 consecutive months                              |
      | Paid newsletter                                | Free list > 1k engaged subs AND ≥ 5 buyers asking                          |
      | Course ($249 one-off)                          | Newsletter at 1k engaged subs AND ≥ 3 buyers explicitly asking             |
      | Subscription / membership tier                 | ≥ 5 paying buyers explicitly asking for ongoing access                     |
+
+     Note: a standalone dataset SKU ($99 CSV+JSON) was formerly gated
+     here; it's now N/A because CSV is bundled into the base $49. It
+     would only return if CSV were ever removed from the base SKU.
 
      If a gate fires, the add-on earns the right to ship. Otherwise,
      the add-on does not exist.
@@ -233,14 +253,14 @@
    tech.
 
 *** Homepage hero
-    - *Primary:* "Deep market reports for Steam game devs." / "Synthesised from every player review across an entire genre. Free previews, paid PDFs from $49."
+    - *Primary:* "Deep market reports for Steam game devs." / "Synthesised from every player review across an entire genre. Free preview for every report; full PDF + dataset for $49."
     - *Alt (dev-targeted for r/gamedev):* "Know your genre before you ship." / "Market reports that read every review of every competitor so you don't have to."
 
 *** Reports page copy
     - Lead with the single most surprising finding from the published report
     - Show the full table of contents (buyers need to know what they get before paying)
     - Include a 3-page sample PDF download (email capture)
-    - Three clear tiers with feature comparison; all three self-serve Stripe buttons
+    - One "Buy — $49" Stripe Checkout button. No tier selector. Frame copy as "landscape vs plan," not "top-5 free vs top-10 paid."
 
 *** Phrasing to avoid
     - "AI-synthesised player intelligence" → "Player intelligence distilled from thousands of reviews"

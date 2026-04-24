@@ -311,11 +311,8 @@ const _PAST_SHIP_ISO = new Date(_NOW - 3 * 86_400 * 1000).toISOString()
 const MOCK_REPORT_SUMMARY_PREORDER = {
   slug: 'rdb-preorder',
   display_name: 'The Roguelike Deckbuilder Market Report 2026',
-  tiers: [
-    { tier: 'indie', price_cents: 4900, stripe_price_id: 'price_indie_test' },
-    { tier: 'studio', price_cents: 14900, stripe_price_id: 'price_studio_test' },
-    { tier: 'publisher', price_cents: 49900, stripe_price_id: 'price_publisher_test' },
-  ],
+  price_cents: 4900,
+  stripe_price_id: 'price_report_test',
   published_at: _FUTURE_SHIP_ISO,
   is_pre_order: true,
 }

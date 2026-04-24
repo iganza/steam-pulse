@@ -668,11 +668,8 @@ const _PAST_ISO = new Date(_NOW_MS - 3 * 86_400 * 1000).toISOString()
 export const MOCK_REPORT_SUMMARY_PREORDER = {
   slug: 'roguelike-deckbuilder',
   display_name: 'The Roguelike Deckbuilder Market Report 2026',
-  tiers: [
-    { tier: 'indie' as const, price_cents: 4900, stripe_price_id: 'price_indie_test' },
-    { tier: 'studio' as const, price_cents: 14900, stripe_price_id: 'price_studio_test' },
-    { tier: 'publisher' as const, price_cents: 49900, stripe_price_id: 'price_publisher_test' },
-  ],
+  price_cents: 4900,
+  stripe_price_id: 'price_report_test',
   published_at: _FUTURE_ISO,
   is_pre_order: true,
 }

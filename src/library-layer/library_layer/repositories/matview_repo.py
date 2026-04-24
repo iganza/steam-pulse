@@ -31,15 +31,6 @@ MATVIEW_NAMES: tuple[str, ...] = (
     "mv_discovery_feeds",
 )
 
-# Views invalidated by a new report landing — used by the `report-ready` trigger path.
-# Order mirrors MATVIEW_NAMES so the Map (max_concurrency=1) refreshes in the same sequence.
-REPORT_DEPENDENT_VIEWS: tuple[str, ...] = (
-    "mv_new_releases",
-    "mv_analysis_candidates",
-    "mv_catalog_reports",
-    "mv_discovery_feeds",
-)
-
 
 class MatviewRepository(BaseRepository):
     """Read from materialized views and manage refresh cycles."""
@@ -305,34 +296,6 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
     # Refresh management
     # ------------------------------------------------------------------
-
-    def get_last_refresh_time(self) -> float | None:
-        """Epoch seconds of the newest status='complete' cycle, or None."""
-        row = self._fetchone(
-            """
-            SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts
-            FROM matview_refresh_log
-            WHERE status = 'complete'
-            ORDER BY refreshed_at DESC
-            LIMIT 1
-            """,
-        )
-        return float(row["ts"]) if row else None
-
-    def get_running_cycle_id(self, stale_after_seconds: int) -> str | None:
-        """cycle_id of the newest 'running' row inside the stale window, or None."""
-        row = self._fetchone(
-            """
-            SELECT cycle_id
-            FROM matview_refresh_log
-            WHERE status = 'running'
-              AND started_at > NOW() - (%s || ' seconds')::interval
-            ORDER BY started_at DESC
-            LIMIT 1
-            """,
-            (str(stale_after_seconds),),
-        )
-        return row["cycle_id"] if row else None
 
     def refresh_one(self, name: str) -> int:
         """REFRESH MATERIALIZED VIEW CONCURRENTLY <name>. Returns duration_ms."""

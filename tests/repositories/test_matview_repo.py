@@ -5,11 +5,7 @@ from typing import Any
 
 import pytest
 from library_layer.repositories.game_repo import GameRepository
-from library_layer.repositories.matview_repo import (
-    MATVIEW_NAMES,
-    REPORT_DEPENDENT_VIEWS,
-    MatviewRepository,
-)
+from library_layer.repositories.matview_repo import MatviewRepository
 from library_layer.repositories.review_repo import ReviewRepository
 
 # ---------------------------------------------------------------------------
@@ -182,23 +178,6 @@ def test_audience_overlap_limit(
 
 
 # ---------------------------------------------------------------------------
-# View-list constants
-# ---------------------------------------------------------------------------
-
-
-def test_report_dependent_views_is_subset_of_matview_names() -> None:
-    """REPORT_DEPENDENT_VIEWS names must exist in MATVIEW_NAMES and cover the 4 report consumers."""
-    assert len(REPORT_DEPENDENT_VIEWS) == 4
-    assert set(REPORT_DEPENDENT_VIEWS).issubset(set(MATVIEW_NAMES))
-    assert set(REPORT_DEPENDENT_VIEWS) == {
-        "mv_catalog_reports",
-        "mv_analysis_candidates",
-        "mv_new_releases",
-        "mv_discovery_feeds",
-    }
-
-
-# ---------------------------------------------------------------------------
 # Refresh management — refresh_one / start_cycle / complete_cycle
 # ---------------------------------------------------------------------------
 
@@ -344,76 +323,3 @@ def test_complete_cycle_raises_when_no_match(
         )
 
 
-def test_get_running_cycle_id_returns_recent_running(
-    db_conn: Any,
-    matview_repo: MatviewRepository,
-) -> None:
-    """A running cycle started inside the stale window is returned."""
-    matview_repo.start_cycle("cycle-live")
-    got = matview_repo.get_running_cycle_id(stale_after_seconds=3600)
-    assert got == "cycle-live"
-
-
-def test_get_running_cycle_id_ignores_stale(
-    db_conn: Any,
-    matview_repo: MatviewRepository,
-) -> None:
-    """Running rows older than the cutoff are treated as crashed."""
-    with db_conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO matview_refresh_log (cycle_id, status, started_at)
-            VALUES ('cycle-stuck', 'running', NOW() - INTERVAL '2 hours')
-            """,
-        )
-    db_conn.commit()
-
-    assert matview_repo.get_running_cycle_id(stale_after_seconds=3600) is None
-
-
-def test_get_running_cycle_id_ignores_complete(
-    db_conn: Any,
-    matview_repo: MatviewRepository,
-) -> None:
-    """Only status='running' rows count toward the in-flight guard."""
-    matview_repo.start_cycle("cycle-done")
-    matview_repo.complete_cycle(
-        "cycle-done", 100, {"mv_a": {"success": True, "duration_ms": 100, "error": ""}}
-    )
-    assert matview_repo.get_running_cycle_id(stale_after_seconds=3600) is None
-
-
-def test_get_last_refresh_time_only_reads_complete(
-    db_conn: Any,
-    matview_repo: MatviewRepository,
-) -> None:
-    """Running/failed/legacy-NULL rows are ignored by the debounce read."""
-    # Legacy row with NULL status (pre-0054).
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO matview_refresh_log (duration_ms, views_refreshed) VALUES (%s, %s)",
-            (100, ["mv_a"]),
-        )
-    db_conn.commit()
-
-    matview_repo.start_cycle("cycle-running")
-    matview_repo.start_cycle("cycle-done")
-    matview_repo.complete_cycle(
-        "cycle-done", 200, {"mv_a": {"success": True, "duration_ms": 100, "error": ""}}
-    )
-    matview_repo.start_cycle("cycle-fail")
-    matview_repo.complete_cycle(
-        "cycle-fail", 10, {"mv_a": {"success": False, "duration_ms": 0, "error": "boom"}}
-    )
-
-    ts = matview_repo.get_last_refresh_time()
-    assert ts is not None
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT EXTRACT(EPOCH FROM refreshed_at) AS ts FROM matview_refresh_log "
-            "WHERE cycle_id = %s",
-            ("cycle-done",),
-        )
-        done_ts = cur.fetchone()["ts"]
-    assert ts == pytest.approx(float(done_ts), abs=0.001)

@@ -4,7 +4,7 @@ import os
 from typing import Annotated, Literal
 
 import boto3  # type: ignore[import-untyped]
-from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -30,7 +30,6 @@ from library_layer.utils.db import get_conn
 from pydantic import BaseModel, EmailStr
 
 logger = Logger(service="api")
-tracer = Tracer(service="api")
 
 app = FastAPI(title="SteamPulse", version="0.1.0")
 
@@ -920,7 +919,6 @@ try:
     _mangum = Mangum(app, lifespan="off")
 
     @logger.inject_lambda_context(clear_state=True)
-    @tracer.capture_lambda_handler
     def handler(event: dict, context: object) -> dict:  # type: ignore[misc]
         return _mangum(event, context)
 except ImportError:

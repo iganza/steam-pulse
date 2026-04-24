@@ -231,7 +231,7 @@ class ComputeStack(cdk.Stack):
             security_groups=[intra_sg],
             memory_size=512,
             timeout=cdk.Duration.seconds(30),
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=logs.LogGroup(
                 self,
                 "ApiLogs",
@@ -382,7 +382,7 @@ class ComputeStack(cdk.Stack):
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=logs.LogGroup(
                 self,
                 "CrawlerLogs",
@@ -457,8 +457,8 @@ class ComputeStack(cdk.Stack):
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(15),
-            memory_size=1024,
-            tracing=lambda_.Tracing.ACTIVE,
+            memory_size=512,
+            tracing=lambda_.Tracing.DISABLED,
             recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
                 self,
@@ -643,9 +643,6 @@ class ComputeStack(cdk.Stack):
             "MatviewRefreshStart",
             lambda_function=matview_start_fn,
             payload=sfn.TaskInput.from_object({
-                # `.$` form needed — `JsonPath.string_at` would coerce the boolean.
-                "force.$": "$.force",
-                "trigger_event.$": "$.trigger_event",
                 "cycle_id.$": "$$.Execution.Name",
             }),
             payload_response_only=True,
@@ -653,16 +650,6 @@ class ComputeStack(cdk.Stack):
         )
 
         matview_done = sfn.Succeed(self, "MatviewRefreshDone")
-
-        record_start_time = sfn.Pass(
-            self,
-            "MatviewRecordStartTime",
-            parameters={
-                "cycle_id.$": "$.cycle_id",
-                "views.$": "$.views",
-                "start_time_ms.$": "$.start_time_ms",
-            },
-        )
 
         refresh_one_task = tasks.LambdaInvoke(
             self,
@@ -725,17 +712,12 @@ class ComputeStack(cdk.Stack):
             result_path="$.finalize",
         )
 
-        skip_choice = sfn.Choice(self, "MatviewRefreshSkipped?")
-        skip_choice.when(
-            sfn.Condition.boolean_equals("$.skip", True), matview_done
-        ).otherwise(record_start_time.next(fan_out).next(finalize_task).next(matview_done))
-
         matview_state_machine = sfn.StateMachine(
             self,
             "MatviewRefreshMachine",
             state_machine_name=f"steampulse-matview-refresh-{env}",
             definition_body=sfn.DefinitionBody.from_chainable(
-                matview_start_task.next(skip_choice)
+                matview_start_task.next(fan_out).next(finalize_task).next(matview_done)
             ),
             state_machine_type=sfn.StateMachineType.STANDARD,
             logs=sfn.LogOptions(
@@ -797,23 +779,6 @@ class ComputeStack(cdk.Stack):
         # SqsEventSource `max_concurrency` min is 2; `reserved=1` on the fn serializes.
         matview_trigger_fn.add_event_source(
             event_sources.SqsEventSource(cache_invalidation_queue, batch_size=1)
-        )
-
-        # EventBridge fallback — daily at 07:45 UTC (12:45 AM MST), prod only. Report-ready,
-        # batch-analysis-complete, and catalog-refresh-complete all invalidate via SNS, so
-        # this cron is pure safety-net; a full refresh takes long enough that once/day is plenty.
-        events.Rule(
-            self,
-            "MatviewRefreshSchedule",
-            schedule=events.Schedule.cron(minute="45", hour="7"),
-            enabled=config.is_production,
-        ).add_target(
-            events_targets.SfnStateMachine(
-                matview_state_machine,
-                input=events.RuleTargetInput.from_object(
-                    {"force": False, "trigger_event": ""}
-                ),
-            )
         )
 
         # ── DB Loader Lambda (staging only — never deploy to production) ────────
@@ -927,13 +892,11 @@ class ComputeStack(cdk.Stack):
             )
         )
 
-        # Hourly catalog refresh — fetches Steam GetAppList, upserts new apps,
-        # and enqueues any pending metadata crawls.
-        # Prod-only: no cron in staging (catalog discovery is ad-hoc via sp.py).
+        # Daily 06:15 UTC — also the sole trigger for matview refresh (prod only).
         catalog_rule = events.Rule(
             self,
             "CatalogRefreshRule",
-            schedule=events.Schedule.cron(minute="15", hour="*"),
+            schedule=events.Schedule.cron(minute="15", hour="6"),
             enabled=config.is_production,
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))

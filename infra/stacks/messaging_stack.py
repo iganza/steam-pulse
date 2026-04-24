@@ -203,25 +203,13 @@ class MessagingStack(cdk.Stack):
             )
         )
 
-        # cache-invalidation-queue ← content-events (report-ready only)
-        self.content_events_topic.add_subscription(
-            subs.SqsSubscription(
-                self.cache_invalidation_queue,
-                filter_policy={
-                    "event_type": sns.SubscriptionFilter.string_filter(
-                        allowlist=["report-ready"],
-                    ),
-                },
-            )
-        )
-
-        # cache-invalidation-queue ← system-events (catalog-refresh-complete + batch-analysis-complete)
+        # cache-invalidation-queue ← system-events (catalog-refresh-complete only; daily).
         self.system_events_topic.add_subscription(
             subs.SqsSubscription(
                 self.cache_invalidation_queue,
                 filter_policy={
                     "event_type": sns.SubscriptionFilter.string_filter(
-                        allowlist=["catalog-refresh-complete", "batch-analysis-complete"],
+                        allowlist=["catalog-refresh-complete"],
                     ),
                 },
             )

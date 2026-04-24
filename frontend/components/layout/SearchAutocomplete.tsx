@@ -98,9 +98,6 @@ export function SearchAutocomplete({
       return;
     }
 
-    // Abort any in-flight request even on cache hits — its late .then() would otherwise overwrite fresh state.
-    if (abortRef.current) abortRef.current.abort();
-
     const cached = cacheRef.current.get(normalized);
     if (cached) {
       setSuggestions(cached);
@@ -110,17 +107,17 @@ export function SearchAutocomplete({
       return;
     }
 
-    abortRef.current = new AbortController();
-    const signal = abortRef.current.signal;
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
 
     getGames(
       { q: normalized, limit: 6, sort: "review_count", fields: "compact" },
-      signal,
+      controller.signal,
     )
       .then((res) => {
-        if (signal.aborted) return;
+        if (controller.signal.aborted) return;
         cacheRef.current.set(normalized, res.games);
         if (cacheRef.current.size > 20) {
           const oldest = cacheRef.current.keys().next().value;
@@ -132,9 +129,11 @@ export function SearchAutocomplete({
         setActiveIndex(-1);
       })
       .catch(() => {
-        if (signal.aborted) return;
+        if (controller.signal.aborted) return;
         setLoading(false);
       });
+
+    return () => controller.abort();
   }, [debouncedQuery]);
 
   // Close on route change

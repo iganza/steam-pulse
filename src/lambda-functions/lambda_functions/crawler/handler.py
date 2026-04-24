@@ -10,7 +10,7 @@ DB ingest from spoke results is handled by ingest_handler.py (primary region).
 
 import os
 
-from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
@@ -36,7 +36,6 @@ from .events import (
 )
 
 logger = Logger(service="crawler")
-tracer = Tracer(service="crawler")
 metrics = Metrics(namespace="SteamPulse", service="crawler")
 
 _direct_adapter = TypeAdapter(DirectRequest)
@@ -159,7 +158,6 @@ def _dispatch_to_spoke(record: dict) -> None:
 # ── Main dispatcher ──────────────────────────────────────────────────────────
 
 
-@tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     # 1. EventBridge scheduled trigger

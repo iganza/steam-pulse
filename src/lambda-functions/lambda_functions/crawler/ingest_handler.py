@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import boto3
 import httpx
-from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
@@ -45,7 +45,6 @@ from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 
 logger = Logger(service="spoke-ingest")
-tracer = Tracer(service="spoke-ingest")
 metrics = Metrics(namespace="SteamPulse", service="spoke-ingest")
 
 ingest_processor = BatchProcessor(event_type=EventType.SQS)
@@ -104,7 +103,6 @@ _crawl_service = CrawlService(
 )
 
 
-@tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     return process_partial_response(

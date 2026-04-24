@@ -53,8 +53,71 @@ competitive_context targets across the input reports).
   If no hour appears in any input, use 0.
 - dev_priorities.frequency = the number of input GameReports that list
   the same dev_priorities.action (case-insensitive match on action text).
-- narrative_summary: one paragraph, 3-5 sentences. Headline what this
-  genre's players actually want. Plain English, no corporate fluff.
+- narrative_summary: 3–4 short paragraphs separated by blank lines
+  (\n\n). Each paragraph does ONE specific job. Do NOT restate the
+  lists below — the reader will see friction_points, wishlist_items,
+  and dev_priorities rendered as sections immediately after.
+
+  Paragraph 1 (Hook, 1–2 sentences): the single non-obvious thing
+  that defines this genre's players. Lead with a concrete,
+  declarative claim — NOT "Players of X enjoy Y." Start from
+  tension, surprise, or a specific behavior.
+
+  Paragraph 2 (Tribe, 2–3 sentences): what this niche universally
+  expects — the "genre contract." Name at least one benchmark game
+  by its actual title. Describe what a player silently assumes will
+  be true on hour one.
+
+  Paragraph 3 (Tension, 2–3 sentences): the specific place where
+  successful games in the niche pull ahead of the pack. Cite
+  patterns from the input reports (e.g. synergy depth, run pacing,
+  meta-progression cadence). If there's a dominant friction that
+  cuts across most inputs, name it here.
+
+  Paragraph 4 (Takeaway, 1–2 sentences, OPTIONAL): the single thing
+  a developer reading this should walk away with before scrolling.
+  One sentence of plain-English advice. Skip this paragraph if
+  paragraphs 1–3 already land the takeaway — do not pad.
+
+  Style:
+  - Short sentences. Active voice. No hedging ("arguably",
+    "somewhat", "in some cases").
+  - Use proper nouns, not placeholders. "Slay the Spire" not
+    "a leading title." "Hour 20" not "later in the game."
+  - No meta-writing. Never say "this report", "this genre", "below
+    you'll find", "we analyzed N games."
+  - No corporate voice, no marketing adjectives ("immersive",
+    "engaging", "rich"). Write like a senior designer talking to
+    another senior designer over coffee.
+  - Total length: 120–200 words across all paragraphs.
+
+  <example genre="roguelike-deckbuilder">
+  Roguelike deckbuilder players stop playing when winning stops
+  feeling like discovery — not when they lose.
+
+  The genre contract is unusually strict. Slay the Spire set the
+  template: a run fits in a single sitting, card synergies are the
+  primary skill expression, and meta-progression persists between
+  deaths. Balatro extended the contract by proving the scoring
+  ceiling itself can be the endgame. Anyone shipping in this niche
+  inherits both promises on day one.
+
+  The games that pull ahead all do the same thing: they reward
+  discovery over execution. Players consistently cite "the first
+  time a build clicked" as their peak moment, and the sharpest
+  friction across inputs is build homogenization after ~40 hours,
+  when the synergy space feels fully mapped. A second axis of
+  friction is difficulty that spikes on luck rather than on
+  decisions.
+
+  For a developer shipping here: broad viable build diversity and a
+  difficulty curve that rewards reads over rolls are the two
+  investments this audience pays back.
+  </example>
+
+  The example is illustrative. Use the specific input reports for
+  the actual synthesis — never copy example phrasing into another
+  genre.
 - Output MUST be a valid GenreSynthesis object via the tool_use schema.
   No prose outside the structured output.
 </rules>

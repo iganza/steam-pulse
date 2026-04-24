@@ -557,6 +557,36 @@ def test_games_complex_filter_full_page(client: TestClient) -> None:
     assert len(data["games"]) == 24
 
 
+def test_games_serializes_datetime_fields(client: TestClient) -> None:
+    """/api/games must serialize datetime columns (last_analyzed, crawled_at) without crashing."""
+    import datetime as dt
+
+    import lambda_functions.api.handler as api_module
+
+    class _DatetimeGameRepo:
+        def ensure_stub(self, appid: int, name: str | None = None) -> None:
+            pass
+
+        def list_games(self, **kwargs: object) -> dict:
+            return {
+                "total": None,
+                "games": [
+                    {
+                        "appid": 1,
+                        "name": "Test",
+                        "last_analyzed": dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.timezone.utc),
+                        "crawled_at": dt.datetime(2026, 1, 2, 12, 0, tzinfo=dt.timezone.utc),
+                    }
+                ],
+            }
+
+    api_module._game_repo = _DatetimeGameRepo()  # type: ignore[assignment]
+    resp = client.get("/api/games")
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "private, max-age=300"
+    assert resp.json()["games"][0]["last_analyzed"].startswith("2026-01-01")
+
+
 def test_waitlist_rejects_invalid_email(client: TestClient) -> None:
     """POST /api/waitlist with a non-email string returns 422."""
     resp = client.post("/api/waitlist", json={"email": "not-an-email"})

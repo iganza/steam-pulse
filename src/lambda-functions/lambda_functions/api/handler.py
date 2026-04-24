@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 import boto3  # type: ignore[import-untyped]
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
@@ -129,6 +129,7 @@ _COMPACT_GAME_FIELDS = (
 
 @app.get("/api/games")
 async def list_games(
+    response: Response,
     q: str | None = None,
     genre: str | None = None,
     tag: str | None = None,
@@ -145,7 +146,7 @@ async def list_games(
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     fields: Literal["compact"] | None = None,
-) -> JSONResponse:
+) -> dict:
     result = _game_repo.list_games(
         q=q,
         genre=genre,
@@ -195,10 +196,8 @@ async def list_games(
     if fields == "compact":
         games = [{k: g.get(k) for k in _COMPACT_GAME_FIELDS} for g in games]
 
-    return JSONResponse(
-        content={"total": total, "has_more": has_more, "games": games},
-        headers={"Cache-Control": "private, max-age=300"},
-    )
+    response.headers["Cache-Control"] = "private, max-age=300"
+    return {"total": total, "has_more": has_more, "games": games}
 
 
 @app.get("/api/games/basics")

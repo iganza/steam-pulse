@@ -130,7 +130,10 @@ export function SearchAutocomplete({
       })
       .catch(() => {
         if (controller.signal.aborted) return;
+        setSuggestions([]);
+        setOpen(false);
         setLoading(false);
+        setActiveIndex(-1);
       });
 
     return () => controller.abort();

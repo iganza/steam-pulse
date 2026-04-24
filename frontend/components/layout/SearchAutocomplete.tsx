@@ -90,15 +90,18 @@ export function SearchAutocomplete({
 
   // Prior list stays visible behind the spinner so the dropdown never flashes empty during refetch.
   useEffect(() => {
-    if (debouncedQuery.length < 2) {
+    const normalized = debouncedQuery.toLowerCase().trim();
+    if (normalized.length < 2) {
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
       return;
     }
 
-    const key = debouncedQuery.toLowerCase().trim();
-    const cached = cacheRef.current.get(key);
+    // Abort any in-flight request even on cache hits — its late .then() would otherwise overwrite fresh state.
+    if (abortRef.current) abortRef.current.abort();
+
+    const cached = cacheRef.current.get(normalized);
     if (cached) {
       setSuggestions(cached);
       setOpen(cached.length > 0);
@@ -107,19 +110,18 @@ export function SearchAutocomplete({
       return;
     }
 
-    if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
 
     setLoading(true);
 
     getGames(
-      { q: debouncedQuery, limit: 6, sort: "review_count", fields: "compact" },
+      { q: normalized, limit: 6, sort: "review_count", fields: "compact" },
       signal,
     )
       .then((res) => {
         if (signal.aborted) return;
-        cacheRef.current.set(key, res.games);
+        cacheRef.current.set(normalized, res.games);
         if (cacheRef.current.size > 20) {
           const oldest = cacheRef.current.keys().next().value;
           if (oldest !== undefined) cacheRef.current.delete(oldest);

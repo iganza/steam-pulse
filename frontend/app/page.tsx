@@ -11,9 +11,11 @@ import {
   getReviewStats,
   getAudienceOverlap,
   getAnalyticsTrendSentiment,
+  getGenreInsights,
 } from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
 import { ProofBar } from "@/components/home/ProofBar";
+import { FeaturedReport } from "@/components/home/FeaturedReport";
 import { IntelligenceCards } from "@/components/home/IntelligenceCards";
 import { GameShowcase } from "@/components/home/GameShowcase";
 import type { ShowcaseGame } from "@/components/home/GameShowcase";
@@ -21,6 +23,8 @@ import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game, TagGroup } from "@/lib/types";
+
+const FEATURED_REPORT_SLUG = "roguelike-deckbuilder";
 
 const SHOWCASE_GAMES = [
   { appid: 1086940, slug: "baldurs-gate-3-1086940" },   // RPG / fantasy
@@ -61,6 +65,7 @@ export default async function HomePage() {
     genres,
     tags,
     catalogStats,
+    featuredReport,
     // Showcase game 1: Baldur's Gate 3
     sc0Report, sc0Stats, sc0Overlap,
     // Showcase game 2: Stardew Valley
@@ -78,6 +83,7 @@ export default async function HomePage() {
     getGenres(),
     getTagsGrouped(200),
     getCatalogStats(),
+    getGenreInsights(FEATURED_REPORT_SLUG),
     // Per-game showcase fetches (3 games × 3 endpoints = 9 calls)
     getGameReport(SHOWCASE_GAMES[0].appid),
     getReviewStats(SHOWCASE_GAMES[0].appid),
@@ -90,6 +96,9 @@ export default async function HomePage() {
     getAudienceOverlap(SHOWCASE_GAMES[2].appid, 5),
     getAnalyticsTrendSentiment({ granularity: "month", limit: 12 }),
   ]);
+
+  const featuredInsights =
+    featuredReport.status === "fulfilled" ? featuredReport.value : null;
 
   const popularGames: Game[] =
     popular.status === "fulfilled" ? popular.value.games ?? [] : [];
@@ -208,6 +217,9 @@ export default async function HomePage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 pb-24 space-y-16">
+        {/* Featured Report — primary CTA pointing at the live genre synthesis page */}
+        {featuredInsights && <FeaturedReport insights={featuredInsights} />}
+
         {/* Intelligence Preview Cards */}
         {hasIntelCards && showcaseGames.length > 0 && (
           <IntelligenceCards

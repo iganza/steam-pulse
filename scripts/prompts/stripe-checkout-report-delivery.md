@@ -15,9 +15,8 @@ and magic-link reader access. Three self-serve tiers:
 - **Publisher — $499** — PDF + CSV + raw JSON + team license
 
 All three tiers are fully self-serve Stripe buttons. No contact form,
-no manual invoicing, no email scoping — the operating principle
-(sleep test) requires it. See the "Killed forever" list in
-`steam-pulse.org` if tempted to add a manual-invoice path.
+no manual invoicing, no email scoping — the asynchronous-transactions
+criterion requires it.
 
 This prompt covers the end-to-end path from the genre synthesis page
 → Stripe Checkout → webhook → entitlement → email → re-download.

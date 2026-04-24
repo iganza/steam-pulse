@@ -1,22 +1,19 @@
 # Monetization strategy — two-tier catalog model
 
-## Context
+## Operating criterion — asynchronous transactions
 
-SteamPulse sells a self-serve catalog of LLM-synthesised Steam genre
-research reports. This document is the canonical strategic reference
-for pricing, product boundaries, and which add-ons are in/out. It
-stays consistent with `steam-pulse.org` (Active Launch Plan) and the
+Every surface, tier, or feature must support the full transaction
+flow asynchronously: a buyer can discover, sign up, pay, and receive
+value without operator real-time involvement. Stripe Checkout, S3
+signed-URL delivery, recurring subscriptions, and scheduled email
+all qualify. Live sales calls, custom-quoted proposals, and any
+"hop on a call before you can buy" flow do not.
+
+This document is the canonical strategic reference for pricing,
+product boundaries, and which add-ons are in/out. Keep consistent
+with `steam-pulse.org` (Active Launch Plan) and the
 `project_business_model_2026.md` memory. When any of these three
-disagree, `steam-pulse.org` is the source of truth and the others are
-updated to match.
-
-## Operating principle
-
-*"If work can't be built once and sold 1,000 times without my
-involvement, it doesn't belong in this business."*
-
-Every future feature, tier, or surface passes the sleep test or is
-killed/gated. This governs every decision in this document.
+disagree, `steam-pulse.org` is the source of truth.
 
 ## Tier 1 — Launch & Run
 
@@ -33,33 +30,25 @@ Reports launch in three phases. Each phase gates the next.
 | **C** | Week 4–8 | Polished PDF; delivered to pre-order buyers + self-serve | First PDF revenue lands  |
 
 **Phase A** ships the Phase-4 synthesiser output as a free,
-SEO-indexed web page — the proof artifact. No payment. No email
-capture. Just the page.
+SEO-indexed web page — the proof artifact. No payment, no email
+capture.
 
 **Phase B** adds a pre-order block on that same page: *"Get the full
 PDF — $49. Ships [date]."* Stripe Checkout captures payment
 immediately; the Stripe webhook writes a `report_purchases` row; the
 delivery worker sees `reports.published_at > now()` and holds the
-S3-URL email until ship date. Pre-orders are the **real revenue
-signal** — a deposit-based commitment, not a free waitlist. If
-pre-orders are zero after two weeks of traffic, the positioning or
-the product-shape is wrong; do not commit 60 hours of editorial to
-the PDF.
+S3-URL email until ship date. Pre-orders are a deposit-based
+commitment, not a free waitlist. If pre-orders are zero after two
+weeks of traffic, the positioning or the product-shape is wrong; do
+not commit 60 hours of editorial.
 
-**Phase C** is the 60 hours of human editorial work. **It fires only
-if the Phase B → C demand gate fires** — evaluated 2 weeks after
-the pre-order block goes live:
+**Phase C** is the 60 hours of human editorial work. It fires only
+if the Phase B → C demand gate fires — evaluated 2 weeks after the
+pre-order block goes live:
 
 - **≥ 3 pre-orders at any paid tier** → commit the 60 hours. Write the exec summary + benchmark deep-dives + strategic recs. Upload PDF assets. Flip `reports.published_at` to `now()`; the delivery worker sweeps the queue and emails every pre-order buyer their signed URL. Self-serve checkout delivers inline from that point onward.
-- **1–2 pre-orders** → marginal but real demand. Ship Phase C with a tighter scope (fewer benchmark deep-dives if needed to stay under 60 hours).
-- **0 pre-orders** → do NOT write the PDF. Remove the `reports` row or extend `published_at` indefinitely. The free curated-preview page stays live as SEO. Talk to anyone who reached the page but didn't convert before iterating the positioning. No editorial labour committed on speculative demand.
-
-**Do not reverse the sequence.** Building the PDF first means
-committing 60 hours to a product whose demand isn't proven. The
-phased launch costs one extra email to each buyer (the shipping
-notification); it buys you validated demand before the editorial
-investment. The gate exists specifically so the operator can't
-rationalise around a weak signal.
+- **1–2 pre-orders** → marginal but real. Ship Phase C with a tighter scope.
+- **0 pre-orders** → do NOT write the PDF. Remove the `reports` row or extend `published_at` indefinitely. The free curated-preview page stays live as SEO. Talk to anyone who reached the page but didn't convert before iterating positioning.
 
 ### The product
 
@@ -72,17 +61,16 @@ churn timing, ranked dev priorities — all quote-backed.
 
 The free `/genre/[slug]/` page is a **curated preview** with a named
 human author; the paid PDF is the **full analysis**. They share an
-underlying synthesiser run but are **different artifacts**, shaped
-for different jobs:
+underlying synthesiser run but are different artifacts:
 
 - the free page proves the research is real and drives SEO + AI-citation traffic
 - the paid PDF is the depth, the editorial, the dataset, the printable artifact
 
-The curation on the free page is load-bearing for two reasons:
-**Google's March 2026 core update** demotes mass-produced AI content
-without human editing or named-expert attribution, and the
-**anti-cannibalisation rule** is that AI assistants should be able
-to *cite* but not *finish* the buyer's question from what's public.
+Curation on the free page is load-bearing for two reasons: Google's
+March 2026 core update demotes mass-produced AI content without
+human editing or named-expert attribution, and the
+anti-cannibalisation rule is that AI assistants should be able to
+*cite* but not *finish* the buyer's question from what's public.
 
 | Artifact                     | What it is                                                                                                                                                                                                    | Price  |
 |------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
@@ -91,20 +79,18 @@ to *cite* but not *finish* the buyer's question from what's public.
 | Studio PDF + CSV             | Indie + CSV dataset of every friction / wishlist / benchmark with source_appid columns for independent analysis + 1-year update access                                                                        | $149   |
 | Publisher PDF + CSV + JSON   | Studio + raw JSON payload of the synthesis + team license (up to 10 seats)                                                                                                                                     | $499   |
 
-The critical pieces missing from the free page — what justifies the
-$49:
+What justifies the $49 — what's missing from the free page:
 
-1. The **other 5 friction clusters** (items 6–10), each with full quote sets
-2. The **other 7 wishlist items** (items 4–10)
-3. The **other 2 benchmark games** plus 15–20 pages of hand-written deep-dives on all 5 (Slay the Spire / Balatro / Inscryption / Monster Train / Dicey Dungeons)
-4. The **full dev priorities table** with all ranked actions + strategic recommendations chapter
-5. The **executive summary + editorial sequencing + print-ready design** — a fileable, printable artifact a team can pass around
+1. The other 5 friction clusters (items 6–10), each with full quote sets
+2. The other 7 wishlist items (items 4–10)
+3. The other 2 benchmark games plus 15–20 pages of hand-written deep-dives on all 5 (Slay the Spire / Balatro / Inscryption / Monster Train / Dicey Dungeons)
+4. Full dev priorities table + strategic recommendations chapter
+5. Executive summary + editorial sequencing + print-ready design
 
-The deep-dives are **not in the Phase-4 synthesiser output at all** —
-they are hand-written editorial content. That's the structural
-difference between the free page and the PDF: the free page is a
-curated window onto the data; the PDF is the window plus original
-human-written analysis that no amount of reading the free page
+Deep-dives are not in the Phase-4 synthesiser output — they are
+hand-written editorial. That's the structural difference: the free
+page is a curated window onto the data; the PDF is the window plus
+original human-written analysis no amount of reading the free page
 produces.
 
 ### Pricing
@@ -117,186 +103,69 @@ produces.
 | Per-game pages                | $0     | Everyone, indexed for SEO                    | Free forever                                      |
 | Genre summary pages           | $0     | Everyone, indexed for SEO                    | Free forever                                      |
 
-**All three paid tiers are fully self-serve Stripe buttons.** No
-contact form, no manual invoicing, no email scoping. Even the $499
-publisher tier is a self-checkout. The operating principle is
-load-bearing here — if a publisher needs more than what's in the tier,
-they can buy the tier and email; that's a bonus, not a prerequisite.
+All three paid tiers are fully self-serve Stripe buttons. No contact
+form, no manual invoicing, no email scoping. If a publisher needs
+more than what's in the tier, they buy the tier and email; that's a
+bonus, not a prerequisite.
 
 ### Why this pricing
 
-- **$49** is the psychological floor for a 35-45 page research PDF.
-  Below that it reads as "low effort"; above it needs a quality
-  justification for solo devs.
-- **$149** is 3× indie — the standard "I'm buying this with company
-  money" anchor across adjacent infoproduct markets.
-- **$499** captures the studio/publisher buyer willingness-to-pay
-  without needing a sales motion. Published comparables:
-  GameDiscoverCo Company plan $500/yr, IndieWorldOrder-style reports
-  $299-$999 per cut.
-- **Free on-site content** is the SEO engine. Every per-game page is
-  a long-tail landing page. Every genre summary page ranks for
-  mid-tail queries ("best roguelike deckbuilder," "indie survival
-  crafting trends"). Reports are the conversion target at the bottom
-  of that funnel.
+- **$49** is the psychological floor for a 35-45 page research PDF. Below that it reads as "low effort"; above it needs a quality justification for solo devs.
+- **$149** is 3× indie — the standard "I'm buying this with company money" anchor across adjacent infoproduct markets.
+- **$499** captures studio/publisher willingness-to-pay without a sales motion. Comparables: GameDiscoverCo Company plan $500/yr; IndieWorldOrder reports $299–$999.
+- **Free on-site content** is the SEO engine. Every per-game page is a long-tail landing page. Every genre summary page ranks for mid-tail queries. Reports are the conversion target.
 
 ### Architecture
 
-- **Payment:** Stripe Checkout (one-off purchase session, not
-  subscription). See `stripe-checkout-report-delivery.md`.
-- **Delivery:** S3 signed URL emailed on successful webhook. Buyer
-  clicks link, gets PDF/CSV/JSON. No account, no login, no portal.
-- **Content engine:** cross-genre synthesiser matview
-  (`cross-genre-synthesizer-matview.md`) — Phase-4 LLM produces
-  structured first draft; human curates to final report.
-- **No auth stack.** No `usePro()`, no `/api/validate-key`, no magic
-  links, no entitlements table. Delivery is per-sale.
+- **Payment:** Stripe Checkout (one-off purchase session, not subscription). See `stripe-checkout-report-delivery.md`.
+- **Delivery:** S3 signed URL emailed on successful webhook. Buyer clicks link, gets PDF/CSV/JSON. No account, no login, no portal.
+- **Content engine:** cross-genre synthesiser matview (`cross-genre-synthesizer-matview.md`) — Phase-4 LLM produces structured first draft; human curates to final report.
 
 ### Operator load
 
 - ~60 hours editorial for Report #1; ≤ 40 hours for Reports #2+.
 - ~$200 LLM cost per report (analysis + synthesis + prompt iteration).
-- ~2 hours one-time amplification per report (one Reddit, one
-  Bluesky, one community share).
-- Ongoing: nil. No weekly cadence, no per-sale labour, no support
-  rotation. Stripe + S3 deliver while the operator sleeps.
+- ~2 hours one-time amplification per report (one Reddit, one Bluesky, one community share).
 
-## Tier 2 — Gated (do NOT build until the gate fires)
+## Tier 2 — Gated add-ons
 
 Every add-on has a specific numerical gate. Gates are evaluated
-quarterly, honestly. The gates exist to protect the operator from
-speculative complexity. Writing them here so future-me can't
-rationalise around them.
+quarterly. Do not write the prompt or build the surface until the
+corresponding gate fires.
 
-| Add-on                                         | Gate (must fire first)                                                     | Labour once built           |
-|------------------------------------------------|----------------------------------------------------------------------------|-----------------------------|
-| Dataset add-on ($99 CSV+JSON per report)       | 3+ buyer emails asking for raw data                                        | 1 week, then passive        |
-| "Alert me when a new report drops" email list  | Monthly uniques > 3k                                                       | 2 days, then passive        |
-| $49/yr All-Access Pass (catalog-wide)          | 5+ reports shipped AND 100+ unique buyers                                  | 1-2 weeks                   |
-| "Genre Audit" self-serve SKU ($79)             | Catalog MRR > $3k/mo for 3 consecutive months                              | 1-2 weeks, then passive     |
-| Weekly newsletter                              | Catalog MRR > $10k/mo for 3 consecutive months AND operator wants to write | 6-10 hr/week ongoing        |
-| Course ($249 one-off)                          | Newsletter at 1k engaged subs AND ≥ 3 buyers explicitly asking             | 200+ hr upfront, then light |
-| NL chat / SaaS Pro ($25/mo)                    | ≥ 5 paying buyers explicitly asking "can I pay for ongoing access?"        | Heavy eng + 24/7 support    |
-
-## Killed forever (not deferred — structurally incompatible)
-
-These items cannot be "added later" because they fail the sleep test
-at any scale, not just today:
-
-- **1:1 consulting / custom gut-checks** — can't scale without
-  operator time.
-- **Publisher manual-invoice custom briefs** — the self-serve $499
-  tier captures the value without the email dance.
-- **Discord community management** — permanent 24/7 obligation.
-- **Sponsorship / ad sales BD** — ongoing BD labour that never stops.
-- **Product Hunt pre-launch theatre** — wrong audience, zero
-  sleep-value.
-- **Paid ads before measurable free→paid conversion data exists.**
-- **Per-game Pro gating** of `dev_priorities` / `churn_triggers` /
-  `player_wishlist` / audience overlap / any on-site content — 100%
-  of on-site content is free forever.
-- **Pro+ agency tier** as a separate product — folds into Studio/
-  Publisher tiers.
-- **One-off $3 per-game unlock** — cannibalises reports, zero
-  exclusivity for the payer, solves a problem that doesn't exist.
-- **Credit/token ledgers** — metering + billing infra + FAQ burden
-  for no structural benefit.
-- **Lifetime deals** — signals inability to sustain MRR; don't
-  follow.
-
-## Prompts this strategy keeps / drops
-
-### Keep (active or pending)
-
-- `scripts/prompts/stripe-checkout-report-delivery.md` — Tier 1
-  payment engine.
-- `scripts/prompts/cross-genre-synthesizer-matview.md` — Tier 1
-  content engine.
-- `scripts/prompts/genre-insights-page.md` — reframed from
-  "Pro-gated preview" to "free SEO surface." All sections free, no
-  blur, no CTA overlay.
-- `scripts/prompts/soft-launch-seo-discipline.md` — Tier 1 SEO
-  baseline.
-
-### Dropped (do not build; prompt files deleted)
-
-- `cleeng-integration.md` — subscription platform no longer used.
-- `auth0-authentication.md` — no auth stack in Tier 1.
-- `pricing-page.md` — `/pro` page no longer exists; replaced by
-  `/reports` catalog.
-- `pro-plus-export.md` / `pro-plus-api.md` / `report-export-premium.md`
-  — Pro+ tier retired.
-
-### Deferred behind Tier 2 gates (do not write the prompt until gate fires)
-
-- NL chat + text-to-SQL prompt.
-- `pro-subscription-tier.md`.
-- Newsletter / course / audit SKU prompts — all speculative until the
-  relevant gate fires.
-
-## Files likely to touch (when Tier 1 prompts execute)
-
-- `frontend/app/reports/page.tsx` (new) — catalog landing page
-- `frontend/app/reports/[slug]/page.tsx` (new) — per-report landing
-  page with three-tier Stripe buttons
-- `src/lambda-functions/lambda_functions/api/handler.py` — new
-  `/api/stripe/webhook` endpoint; remove `/api/validate-key` stub
-- `src/library-layer/library_layer/services/stripe_client.py` (new)
-- `src/library-layer/library_layer/services/report_delivery.py` (new)
-  — signs S3 URL and triggers Resend email
-- `infra/stacks/compute_stack.py` — S3 bucket for reports, Stripe
-  webhook Lambda + Function URL
-- Secrets Manager: `steampulse/{env}/stripe-api-key`,
-  `steampulse/{env}/stripe-webhook-secret`
-
-### Files to remove (separate implementation task)
-
-- `frontend/lib/pro.tsx` / `usePro()` hook
-- `frontend/components/toolkit/ProLockOverlay.tsx`
-- Per-game blur + overlay CSS patterns
-- `/api/validate-key` stub
-- `NEXT_PUBLIC_PRO_ENABLED` flag references
+| Add-on                                         | Gate                                                                       |
+|------------------------------------------------|----------------------------------------------------------------------------|
+| Dataset add-on ($99 CSV+JSON per report)       | 3+ buyer emails asking for raw data                                        |
+| "Alert me when a new report drops" email list  | Monthly uniques > 3k                                                       |
+| $49/yr All-Access Pass (catalog-wide)          | 5+ reports shipped AND 100+ unique buyers                                  |
+| "Genre Audit" self-serve SKU ($79)             | Catalog MRR > $3k/mo for 3 consecutive months                              |
+| Paid newsletter                                | Free list > 1k engaged subs AND ≥ 5 buyers asking                          |
+| Course ($249 one-off)                          | Newsletter at 1k engaged subs AND ≥ 3 buyers explicitly asking             |
+| Subscription / membership tier                 | ≥ 5 paying buyers explicitly asking for ongoing access                     |
 
 ## Verification — what "working" looks like
 
 ### Tier 1 launch signals (first 30 days after Report #1 ships)
 
-- **First paid sale** lands on any tier — existence proof for the
-  catalog model.
-- **Stripe checkout conversion** from `/reports/[slug]` > 0.5%
-  (realistic for cold traffic, no brand yet).
-- **S3 signed-URL delivery** fires correctly on 100% of paid sales
-  (webhook retry handled).
-- **Plausible** shows ≥ 20 sessions/day by week 2 from SEO + one
-  amplification event.
+- **First paid sale** lands on any tier — existence proof for the catalog model.
+- **Stripe checkout conversion** from `/reports/[slug]` > 0.5%.
+- **S3 signed-URL delivery** fires correctly on 100% of paid sales (webhook retry handled).
+- **Plausible** shows ≥ 20 sessions/day by week 2 from SEO + one amplification event.
 - **Lighthouse SEO** ≥ 90 on a random sample of per-game pages.
 
-### Tier 2 gate triggers (revisit quarterly)
+### Tier 2 gate triggers
 
-Each Tier 2 gate is a numerical trigger. Do not start Tier 2 prompt
-work unless the corresponding gate has fired for the required window.
-"Close enough" does not count.
+Each gate is a numerical trigger. Do not start Tier 2 work unless
+the corresponding gate has fired for the required window. "Close
+enough" does not count.
 
-## Out of scope (permanently or until gate)
+## Market anchors
 
-See "Killed forever" above and the Tier 2 table. No item not
-explicitly listed in Tier 1 above is part of the launch product.
+Reference only — SteamPulse is a one-off catalog; comparables below
+are subscription or breadth platforms.
 
-## Market anchors (verified 2026-04-16 / 2026-04-19)
-
-Reference only — do not infer that SteamPulse competes directly.
-SteamPulse is a one-off catalog; competitors below are subscription or
-breadth platforms.
-
-- [GameDiscoverCo Plus](https://plus.gamediscover.co/) — $15/mo
-  individual, $500/yr company. Weekly newsletter + data suite.
-  SteamPulse does not compete on newsletter cadence; it competes on
-  per-niche depth.
-- [Gamalytic](https://gamalytic.com/pricing) — Starter $25/mo,
-  Professional $75/mo. Breadth platform.
+- [GameDiscoverCo Plus](https://plus.gamediscover.co/) — $15/mo individual, $500/yr company. SteamPulse competes on per-niche depth, not newsletter cadence.
+- [Gamalytic](https://gamalytic.com/pricing) — Starter $25/mo, Professional $75/mo. Breadth platform.
 - [VGInsights](https://vginsights.com/) — indie plan ~$20/mo.
-- [GG Insights](https://www.gginsights.io/) — freemium +
-  lifetime-deal anchor.
-- [Chris Zukowski, Wishlist & Visibility Masterclass](https://www.progamemarketing.com/p/visibility-and-wishlist-masterclass)
-  — $400 course; reference for indie-dev willingness-to-pay on
-  one-off infoproducts.
+- [GG Insights](https://www.gginsights.io/) — freemium + lifetime-deal anchor.
+- [Chris Zukowski Wishlist & Visibility Masterclass](https://www.progamemarketing.com/p/visibility-and-wishlist-masterclass) — $400 course; reference for indie-dev willingness-to-pay on one-off infoproducts.

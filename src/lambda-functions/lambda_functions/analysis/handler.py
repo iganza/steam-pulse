@@ -155,6 +155,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
             ReportReadyEvent(
                 appid=req.appid,
                 game_name=name,
+                slug=game.slug,
                 review_score_desc=game.review_score_desc,
             ),
         )

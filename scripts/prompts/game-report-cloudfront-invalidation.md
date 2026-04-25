@@ -1,12 +1,30 @@
 # CloudFront Edge Invalidation for Game Report Pages
 
+## Depends on
+
+This prompt assumes the origin-side cache loop fully works. That requires the
+following PRs to be in place first (in any order, all pre-requisites):
+
+- `feature/game-report-cache-invalidation` — wires `revalidateTag` webhook + queue
+- `feature/opennext-revalidation-pipeline` — provisions OpenNext's internal
+  re-render queue + Lambda
+- `feature/pin-next-build-id` — pins Next BUILD_ID to git SHA so tag namespaces
+  align across deploys
+- `feature/revalidate-page-and-tag` — adds `revalidatePath` alongside
+  `revalidateTag` so the page HTML actually busts (not just the underlying
+  fetches)
+
+Without those four, this CloudFront work would mask deeper origin-cache bugs
+behind aggressive edge invalidations.
+
 ## Context
 
-`feature/game-report-cache-invalidation` (PR #130) closed the Next.js
-data-cache half of "cache-until-changed" for `/games/[appid]/[slug]`:
-re-analysis fires `ReportReadyEvent` → SQS → `RevalidateFrontendFn` →
-POST `/api/revalidate` → `revalidateTag('game-${appid}', 'max')`. The
-OpenNext data cache (S3 + DynamoDB) is now correctly busted.
+After the four PRs above land, the cache-until-changed loop is correct at
+the **origin** (Lambda + OpenNext data cache): re-analysis → `ReportReadyEvent`
+→ SQS → `RevalidateFrontendFn` → POST `/api/revalidate` →
+`revalidatePath` + `revalidateTag('game-${appid}', 'max')` → page HTML and
+underlying fetches both invalidate → next origin hit serves fresh content via
+`OpenNextRevalidationFn`.
 
 **The remaining gap**: CloudFront edge HTML cache is *not* invalidated.
 With `revalidate = 31536000` on the page, OpenNext emits

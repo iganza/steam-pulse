@@ -1,7 +1,10 @@
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import type { NextRequest } from "next/server";
 
-// 'max' = stale served while a fresh fetch fills the cache in the background.
+// Pair documented by Next.js as "complementary primitives often used together":
+// revalidatePath busts the rendered page HTML; revalidateTag busts the shared
+// fetches. Both are needed for dynamic routes — tag alone leaves the page HTML
+// fresh in OpenNext's S3 cache.
 export async function POST(req: NextRequest) {
   const expectedToken = process.env.REVALIDATE_TOKEN;
   if (!expectedToken) {
@@ -22,10 +25,15 @@ export async function POST(req: NextRequest) {
   }
 
   const appid = (body as { appid?: unknown })?.appid;
+  const slug = (body as { slug?: unknown })?.slug;
   if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) {
     return Response.json({ ok: false, error: "bad_appid" }, { status: 400 });
   }
+  if (typeof slug !== "string" || slug.length === 0) {
+    return Response.json({ ok: false, error: "bad_slug" }, { status: 400 });
+  }
 
+  revalidatePath(`/games/${appid}/${slug}`);
   revalidateTag(`game-${appid}`, "max");
-  return Response.json({ ok: true, appid, now: Date.now() });
+  return Response.json({ ok: true, appid, slug, now: Date.now() });
 }

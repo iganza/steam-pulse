@@ -109,3 +109,4 @@ terraform.tfstate*
 backups/
 /frontend/.open-next/
 /review_backfill_gaps.csv
+/tmp/

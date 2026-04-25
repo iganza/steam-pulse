@@ -56,6 +56,7 @@ class ComputeStack(cdk.Stack):
         spoke_results_queue: sqs.IQueue,
         email_queue: sqs.IQueue,
         cache_invalidation_queue: sqs.IQueue,
+        frontend_revalidation_queue: sqs.IQueue,
         spoke_crawl_queue_urls: str,
         **kwargs: object,
     ) -> None:
@@ -281,6 +282,14 @@ class ComputeStack(cdk.Stack):
             frontend_handler = "index.handler"
             frontend_runtime = lambda_.Runtime.PYTHON_3_12
 
+        # Shared secret used by /api/revalidate to authenticate webhook calls
+        # from revalidate_frontend. Resolved at deploy time from SSM so rotating
+        # the secret is a parameter update + redeploy, not a code change.
+        revalidate_token_value = ssm.StringParameter.value_for_string_parameter(
+            self,
+            f"/steampulse/{env}/frontend/revalidate-token",
+        )
+
         frontend_fn = lambda_.Function(
             self,
             "FrontendFn",
@@ -313,6 +322,7 @@ class ComputeStack(cdk.Stack):
                 # with a `local` fallback for dev synth.
                 "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+                "REVALIDATE_TOKEN": revalidate_token_value,
             },
         )
         cdk.Tags.of(frontend_fn).add("steampulse:service", "frontend")
@@ -888,6 +898,70 @@ class ComputeStack(cdk.Stack):
             event_sources.SqsEventSource(
                 email_queue,
                 batch_size=1,
+                report_batch_item_failures=True,
+            )
+        )
+
+        # ── Revalidate-Frontend Lambda (SQS → POST /api/revalidate) ─────────────
+        # Drains frontend_revalidation_queue (one report-ready per message),
+        # POSTs the Next.js /api/revalidate route with a shared-secret token,
+        # which calls revalidateTag(`game-${appid}`, 'max') in the OpenNext
+        # data cache. No VPC, no DB — pure outbound HTTPS to the frontend
+        # Lambda's Function URL.
+        revalidate_token_param = (
+            f"/steampulse/{env}/frontend/revalidate-token"
+        )
+        revalidate_role = iam.Role(
+            self,
+            "RevalidateFrontendRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaSQSQueueExecutionRole",
+                ),
+            ],
+        )
+        revalidate_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}"
+                    f":parameter{revalidate_token_param}"
+                ],
+            )
+        )
+        revalidate_fn = PythonFunction(
+            self,
+            "RevalidateFrontendFn",
+            entry="src/lambda-functions",
+            index="lambda_functions/revalidate_frontend/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            layers=[library_layer],
+            role=revalidate_role,
+            timeout=cdk.Duration.seconds(30),
+            memory_size=256,
+            log_group=logs.LogGroup(
+                self,
+                "RevalidateFrontendLogs",
+                log_group_name=f"/steampulse/{env}/revalidate-frontend",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment=config.to_lambda_env(
+                POWERTOOLS_SERVICE_NAME="revalidate-frontend",
+                POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
+                FRONTEND_BASE_URL=self.frontend_fn_url.url,
+                REVALIDATE_TOKEN_PARAM=revalidate_token_param,
+            ),
+        )
+        cdk.Tags.of(revalidate_fn).add("steampulse:service", "frontend")
+        cdk.Tags.of(revalidate_fn).add("steampulse:tier", "standard")
+        revalidate_fn.add_event_source(
+            event_sources.SqsEventSource(
+                frontend_revalidation_queue,
+                batch_size=10,
+                max_batching_window=cdk.Duration.seconds(5),
                 report_batch_item_failures=True,
             )
         )

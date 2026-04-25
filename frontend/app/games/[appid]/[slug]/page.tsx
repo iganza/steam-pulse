@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGameReport, getRelatedAnalyzedGames } from "@/lib/api";
+import {
+  getBenchmarks,
+  getGameReport,
+  getRelatedAnalyzedGames,
+  getReviewStats,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api";
-import type { RelatedAnalyzedGame } from "@/lib/types";
+import type { Benchmarks, RelatedAnalyzedGame, ReviewStats } from "@/lib/types";
 import { GameReportClient } from "./GameReportClient";
 import { AUTHOR_NAME, ABOUT_URL } from "@/lib/author";
 
@@ -84,6 +89,8 @@ export default async function GameReportPage({ params }: Props) {
   const fallbackImage = `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppid}/header.jpg`;
 
   let report = null;
+  let reviewStats: ReviewStats | null = null;
+  let benchmarks: Benchmarks | null = null;
   let headerImage = fallbackImage;
   let gameData: {
     gameName?: string;
@@ -118,7 +125,17 @@ export default async function GameReportPage({ params }: Props) {
   } = {};
 
   try {
-    const reportData = await getGameReport(numericAppid);
+    // Fetch report + Steam-derived stats together so the data cache stores
+    // them under one shared `game-${appid}` tag and one revalidation
+    // invalidates all three. reviewStats / benchmarks failures are
+    // non-fatal — the chart sections simply won't render.
+    const [reportData, reviewStatsResult, benchmarksResult] = await Promise.all([
+      getGameReport(numericAppid),
+      getReviewStats(numericAppid).catch(() => null),
+      getBenchmarks(numericAppid).catch(() => null),
+    ]);
+    reviewStats = reviewStatsResult;
+    benchmarks = benchmarksResult;
     if (reportData.status === "available" && reportData.report) {
       report = reportData.report;
     }
@@ -348,11 +365,16 @@ export default async function GameReportPage({ params }: Props) {
           revenueEstimateMethod={gameData.revenueEstimateMethod}
           revenueEstimateReason={gameData.revenueEstimateReason}
           relatedAnalyzed={relatedAnalyzed}
+          reviewStats={reviewStats}
+          benchmarks={benchmarks}
         />
       </main>
     </>
   );
 }
 
-// ISR: revalidate every 24 hours
-export const revalidate = 86400;
+// Cache-until-changed: a 1-year ISR window backed by the
+// `game-${appid}` tag. The revalidate_frontend Lambda calls
+// revalidateTag(...) when a new report is published, so the time-based
+// expiry is just a safety net.
+export const revalidate = 31536000;

@@ -97,7 +97,7 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
     signal,
-    next: { revalidate: 3600, tags: [`report-${appid}`] },
+    next: { revalidate: 31536000, tags: [`game-${appid}`] },
   });
 }
 
@@ -207,13 +207,16 @@ export async function getTagsGrouped(
 /** GET /api/games/{appid}/review-stats */
 export async function getReviewStats(appid: number): Promise<ReviewStats> {
   return apiFetch<ReviewStats>(`/api/games/${appid}/review-stats`, {
-    next: { revalidate: 3600 },
+    next: { revalidate: 31536000, tags: [`game-${appid}`] },
   });
 }
 
 /** GET /api/games/{appid}/benchmarks */
 export async function getBenchmarks(appid: number, signal?: AbortSignal): Promise<Benchmarks> {
-  return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`, { signal });
+  return apiFetch<Benchmarks>(`/api/games/${appid}/benchmarks`, {
+    signal,
+    next: { revalidate: 31536000, tags: [`game-${appid}`] },
+  });
 }
 
 // ---------------------------------------------------------------------------

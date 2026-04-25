@@ -572,6 +572,7 @@ def _collect_synthesis(
             ReportReadyEvent(
                 appid=appid,
                 game_name=game.name,
+                slug=game.slug,
                 review_score_desc=game.review_score_desc,
             ),
         )

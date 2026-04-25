@@ -17,7 +17,7 @@ So when `revalidateTag` runs, OpenNext finds nothing in the tag table linking th
 
 The official Next.js 16 [`revalidatePath` docs](https://nextjs.org/docs/app/api-reference/functions/revalidatePath#building-revalidation-utilities) document the canonical pattern explicitly:
 
-> **`revalidatePath` and `updateTag` are complementary primitives that are often used together** in utility functions to ensure comprehensive data consistency across your application.
+> **`revalidatePath` and `revalidateTag` are complementary primitives that are often used together** in utility functions to ensure comprehensive data consistency across your application.
 
 We implemented half the pattern. This prompt adds the other half.
 
@@ -27,7 +27,7 @@ We implemented half the pattern. This prompt adds the other half.
 
 ## Best-practice foundation
 
-- **Specific path beats pattern form for our use case**. `revalidatePath('/games/[appid]/[slug]', 'page')` would over-invalidate (every report-ready busts every cached game page). `revalidatePath('/games/${appid}/${slug}')` busts exactly one. We have the slug in `ReportReadyEvent.game_name` and `games.slug` in the DB — trivial to thread through.
+- **Specific path beats pattern form for our use case**. `revalidatePath('/games/[appid]/[slug]', 'page')` would over-invalidate (every report-ready busts every cached game page). `revalidatePath('/games/${appid}/${slug}')` busts exactly one. We thread `games.slug` into `ReportReadyEvent.slug` so the exact path is trivial to construct.
 - **No `type` parameter needed for literal paths**. Per docs: "Use a literal path when you want to refresh a single page" — no `type` arg.
 - **Order doesn't matter**. Both calls are sync state mutations on the cache layer; they compose.
 - **Idempotent**. Re-firing the same revalidation is harmless — no double-invalidation cost.

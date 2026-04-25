@@ -282,9 +282,7 @@ class ComputeStack(cdk.Stack):
             frontend_handler = "index.handler"
             frontend_runtime = lambda_.Runtime.PYTHON_3_12
 
-        # Shared secret used by /api/revalidate to authenticate webhook calls
-        # from revalidate_frontend. Resolved at deploy time from SSM so rotating
-        # the secret is a parameter update + redeploy, not a code change.
+        # Shared secret /api/revalidate verifies; rotate via SSM + redeploy.
         revalidate_token_value = ssm.StringParameter.value_for_string_parameter(
             self,
             f"/steampulse/{env}/frontend/revalidate-token",
@@ -903,11 +901,6 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── Revalidate-Frontend Lambda (SQS → POST /api/revalidate) ─────────────
-        # Drains frontend_revalidation_queue (one report-ready per message),
-        # POSTs the Next.js /api/revalidate route with a shared-secret token,
-        # which calls revalidateTag(`game-${appid}`, 'max') in the OpenNext
-        # data cache. No VPC, no DB — pure outbound HTTPS to the frontend
-        # Lambda's Function URL.
         revalidate_token_param = (
             f"/steampulse/{env}/frontend/revalidate-token"
         )
@@ -960,7 +953,8 @@ class ComputeStack(cdk.Stack):
         revalidate_fn.add_event_source(
             event_sources.SqsEventSource(
                 frontend_revalidation_queue,
-                batch_size=10,
+                # Serial handler + 5s POST timeout — keep within 30s Lambda budget.
+                batch_size=2,
                 max_batching_window=cdk.Duration.seconds(5),
                 report_batch_item_failures=True,
             )

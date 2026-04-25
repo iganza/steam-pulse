@@ -134,8 +134,7 @@ class MessagingStack(cdk.Stack):
                 queue=self.email_dlq,
             ),
         )
-        # Frontend cache invalidation — fed by ReportReadyEvent, drained by
-        # revalidate_frontend Lambda which POSTs /api/revalidate.
+        # Fed by ReportReadyEvent, drained by revalidate_frontend Lambda.
         self.frontend_revalidation_queue = sqs.Queue(
             self,
             "FrontendRevalidationQueue",
@@ -235,9 +234,6 @@ class MessagingStack(cdk.Stack):
         )
 
         # frontend-revalidation-queue ← content-events (report-ready only).
-        # One message per re-analysis; drained by revalidate_frontend Lambda
-        # which POSTs the Next.js /api/revalidate endpoint to bust the
-        # game-${appid} tag.
         self.content_events_topic.add_subscription(
             subs.SqsSubscription(
                 self.frontend_revalidation_queue,

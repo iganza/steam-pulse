@@ -75,8 +75,6 @@ interface GameReportClientProps {
   /** Pre-fetched neighbors for the "More games like this" section on
    *  un-analyzed pages. Empty on analyzed pages. */
   relatedAnalyzed?: RelatedAnalyzedGame[];
-  /** Steam-derived stats fetched server-side alongside the report so the
-   *  shared `game-${appid}` cache tag covers both. */
   reviewStats: ReviewStats | null;
   benchmarks: Benchmarks | null;
 }
@@ -133,10 +131,6 @@ export function GameReportClient({
   reviewStats,
   benchmarks,
 }: GameReportClientProps) {
-  // review_stats + benchmarks are server-fetched alongside the report and
-  // passed in as props, so chart data is already present on first paint —
-  // no client fetch, no skeleton flash.
-
   const name = report?.game_name ?? gameName ?? "Game Report";
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
   const primaryGenre = genres?.[0];

@@ -1,12 +1,7 @@
 import { revalidateTag } from "next/cache";
 import type { NextRequest } from "next/server";
 
-// Cache-until-changed companion: the revalidate_frontend Lambda POSTs here
-// after every ReportReadyEvent to bust the `game-${appid}` tag, which
-// covers getGameReport / getReviewStats / getBenchmarks in one shot.
-// The 'max' second arg gives stale-while-revalidate semantics — stale
-// served immediately while a fresh fetch fills the cache in the
-// background.
+// 'max' = stale served while a fresh fetch fills the cache in the background.
 export async function POST(req: NextRequest) {
   const expectedToken = process.env.REVALIDATE_TOKEN;
   if (!expectedToken) {

@@ -125,10 +125,7 @@ export default async function GameReportPage({ params }: Props) {
   } = {};
 
   try {
-    // Fetch report + Steam-derived stats together so the data cache stores
-    // them under one shared `game-${appid}` tag and one revalidation
-    // invalidates all three. reviewStats / benchmarks failures are
-    // non-fatal — the chart sections simply won't render.
+    // Co-fetch under the shared game-${appid} tag; stats failures are non-fatal.
     const [reportData, reviewStatsResult, benchmarksResult] = await Promise.all([
       getGameReport(numericAppid),
       getReviewStats(numericAppid).catch(() => null),
@@ -373,8 +370,5 @@ export default async function GameReportPage({ params }: Props) {
   );
 }
 
-// Cache-until-changed: a 1-year ISR window backed by the
-// `game-${appid}` tag. The revalidate_frontend Lambda calls
-// revalidateTag(...) when a new report is published, so the time-based
-// expiry is just a safety net.
+// 1y safety net; the game-${appid} tag is the real invalidation signal.
 export const revalidate = 31536000;

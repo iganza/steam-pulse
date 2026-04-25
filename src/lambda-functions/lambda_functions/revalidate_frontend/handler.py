@@ -1,15 +1,4 @@
-"""Revalidate-Frontend Lambda — SQS → POST /api/revalidate.
-
-Drains frontend_revalidation_queue (SNS-wrapped ReportReadyEvent), calls
-the Next.js /api/revalidate route on the frontend Lambda's Function URL.
-That route runs `revalidateTag(`game-${appid}`, 'max')`, which busts the
-shared cache tag covering getGameReport / getReviewStats / getBenchmarks
-in one shot.
-
-Idempotent — re-delivering the same message just calls revalidateTag
-again, which is a cheap no-op when nothing is cached. Failures raise so
-SQS retries; persistent failures land on the DLQ.
-"""
+"""SQS consumer that POSTs /api/revalidate to bust the game-${appid} tag."""
 
 import json
 import os
@@ -28,11 +17,21 @@ _REVALIDATE_TOKEN: str = get_parameter(  # type: ignore[assignment]
     os.environ["REVALIDATE_TOKEN_PARAM"],
     decrypt=True,
 )
-_HTTP_TIMEOUT_SECONDS = 10.0
+_HTTP_TIMEOUT_SECONDS = 5.0
+
+# Lazy-init so connections pool across records and warm invocations.
+_http_client: httpx.Client | None = None
+
+
+def _get_http_client() -> httpx.Client:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS)
+    return _http_client
 
 
 def _extract_appid(record: dict) -> int:
-    """Parse SNS-wrapped ReportReadyEvent body and return the appid."""
+    """Parse the SNS-wrapped ReportReadyEvent body and return the appid."""
     body = json.loads(record["body"])
     inner_raw = body.get("Message", body)
     inner = json.loads(inner_raw) if isinstance(inner_raw, str) else inner_raw
@@ -43,14 +42,13 @@ def _extract_appid(record: dict) -> int:
 
 
 def _post_revalidate(appid: int) -> None:
-    response = httpx.post(
+    response = _get_http_client().post(
         f"{_FRONTEND_BASE_URL}/api/revalidate",
         headers={
             "x-revalidate-token": _REVALIDATE_TOKEN,
             "content-type": "application/json",
         },
         json={"appid": appid},
-        timeout=_HTTP_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
 

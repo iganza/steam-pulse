@@ -25,7 +25,7 @@ import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 import aws_cdk.aws_stepfunctions as sfn
 import aws_cdk.aws_stepfunctions_tasks as tasks
-from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
+from aws_cdk.aws_lambda_python_alpha import BundlingOptions, PythonFunction, PythonLayerVersion
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
 
@@ -84,6 +84,10 @@ class ComputeStack(cdk.Stack):
             "LibraryLayer",
             entry="src/library-layer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            compatible_architectures=[lambda_.Architecture.ARM_64],
+            # Pin Docker bundling to arm64 — psycopg2-binary / pydantic-core wheels
+            # would otherwise resolve to host arch and crash at import on Lambda.
+            bundling=BundlingOptions(platform="linux/arm64"),
             layer_version_name=f"{config.ENVIRONMENT}-steampulse-lambda-library-layer",
             description="Shared deps (httpx, psycopg2, boto3, anthropic) + steampulse framework",
         )
@@ -136,6 +140,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/analysis/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=analysis_role,
             vpc=vpc,
@@ -227,6 +232,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/api/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=api_role,
             vpc=vpc,
@@ -290,6 +296,26 @@ class ComputeStack(cdk.Stack):
             f"/steampulse/{env}/frontend/revalidate-token",
         )
 
+        # Shared OpenNext cache env — both FrontendFn (writer) and
+        # OpenNextRevalidationFn (reader/re-renderer) MUST point at the same
+        # bucket + key prefix + DynamoDB table or the revalidation pipeline
+        # silently writes to a different cache than the SSR Lambda reads from.
+        # Per-build key prefix: each deploy writes to a fresh cache/{BUILD_ID}/
+        # namespace; old prefixes age out via the 7-day S3 lifecycle rule on
+        # frontend_bucket (data_stack.py). BUILD_ID comes from the CDK context
+        # var `build-id` (set by scripts/deploy.sh from `git rev-parse --short HEAD`),
+        # with a `local` fallback for dev synth.
+        opennext_cache_env = {
+            "NODE_ENV": "production",
+            # Absolute URL for SSR — Next.js server components need this to call
+            # the API from inside Lambda (relative URLs don't work in Lambda).
+            "API_URL": self.api_fn_url.url,
+            "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
+            "CACHE_BUCKET_REGION": self.region,
+            "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
+            "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+        }
+
         frontend_fn = lambda_.Function(
             self,
             "FrontendFn",
@@ -305,23 +331,7 @@ class ComputeStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment={
-                "NODE_ENV": "production",
-                # Absolute URL for SSR — Next.js server components need this to call
-                # the API from inside Lambda (relative URLs don't work in Lambda).
-                "API_URL": self.api_fn_url.url,
-                # OpenNext ISR cache — must point at a real bucket or every
-                # cache read/write will fail with NoSuchBucket.
-                "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
-                "CACHE_BUCKET_REGION": self.region,
-                # Per-build key prefix — each deploy writes to a fresh
-                # cache/{BUILD_ID}/ namespace, so the new Lambda can never
-                # read pre-deploy HTML. Old prefixes age out via the 7-day
-                # S3 lifecycle rule on frontend_bucket (data_stack.py).
-                # BUILD_ID comes from the CDK context var `build-id`
-                # (set by scripts/deploy.sh from `git rev-parse --short HEAD`),
-                # with a `local` fallback for dev synth.
-                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
-                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+                **opennext_cache_env,
                 "REVALIDATE_TOKEN": revalidate_token_value,
                 "REVALIDATION_QUEUE_URL": opennext_revalidation_queue.queue_url,
                 "REVALIDATION_QUEUE_REGION": self.region,
@@ -361,14 +371,7 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                "NODE_ENV": "production",
-                "API_URL": self.api_fn_url.url,
-                "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
-                "CACHE_BUCKET_REGION": self.region,
-                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
-                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
-            },
+            environment=opennext_cache_env,
         )
         cdk.Tags.of(opennext_revalidation_fn).add("steampulse:service", "frontend")
         cdk.Tags.of(opennext_revalidation_fn).add("steampulse:tier", "critical")
@@ -433,6 +436,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/crawler/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=crawler_role,
             vpc=vpc,
@@ -509,13 +513,14 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/crawler/ingest_handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=crawler_role,
             vpc=vpc,
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(15),
-            memory_size=512,
+            memory_size=384,
             tracing=lambda_.Tracing.DISABLED,
             recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
@@ -558,6 +563,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/admin/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=iam.Role(
                 self,
@@ -594,6 +600,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/admin/migrate_handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=iam.Role(
                 self,
@@ -654,6 +661,7 @@ class ComputeStack(cdk.Stack):
                 index=index,
                 handler="handler",
                 runtime=lambda_.Runtime.PYTHON_3_12,
+                architecture=lambda_.Architecture.ARM_64,
                 layers=[library_layer],
                 role=matview_refresh_role,
                 vpc=vpc,
@@ -805,6 +813,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/matview_refresh/trigger.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             timeout=cdk.Duration.seconds(30),
             memory_size=256,
@@ -871,6 +880,7 @@ class ComputeStack(cdk.Stack):
                 index="lambda_functions/db_loader/handler.py",
                 handler="handler",
                 runtime=lambda_.Runtime.PYTHON_3_12,
+                architecture=lambda_.Architecture.ARM_64,
                 layers=[library_layer],
                 role=db_loader_role,
                 vpc=vpc,
@@ -922,6 +932,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/email/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=email_role,
             timeout=cdk.Duration.seconds(30),
@@ -980,6 +991,7 @@ class ComputeStack(cdk.Stack):
             index="lambda_functions/revalidate_frontend/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=revalidate_role,
             timeout=cdk.Duration.seconds(30),

@@ -15,7 +15,7 @@ import uuid
 
 import boto3
 import httpx
-from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
@@ -37,7 +37,6 @@ from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler-spoke")
-tracer = Tracer(service="crawler-spoke")
 metrics = Metrics(namespace="SteamPulse", service="crawler-spoke")
 
 _config = SteamPulseConfig()
@@ -103,7 +102,6 @@ def _process_record(record: dict) -> None:
             raise ValueError(f"Unknown task: {task}")
 
 
-@tracer.capture_lambda_handler
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     return process_partial_response(

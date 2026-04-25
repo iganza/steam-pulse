@@ -112,3 +112,36 @@ def test_alarm_topic_output(template: Template) -> None:
 def test_no_cloudwatch_dashboards(template: Template) -> None:
     """Spoke monitoring is alarms-only; no CloudWatch dashboards should be created."""
     template.resource_count_is("AWS::CloudWatch::Dashboard", 0)
+
+
+def test_two_alarms_only(template: Template) -> None:
+    """Spoke creates exactly two alarms: SpokeErrors + SpokeDlq."""
+    template.resource_count_is("AWS::CloudWatch::Alarm", 2)
+
+
+def test_spoke_errors_alarm(template: Template) -> None:
+    """Lambda Errors alarm fires on >=1 fault."""
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {
+            "AlarmName": "SteamPulse-Staging-Spoke-us-east-1-SpokeErrors",
+            "MetricName": "Errors",
+            "Namespace": "AWS/Lambda",
+            "Statistic": "Sum",
+            "Threshold": 1,
+        },
+    )
+
+
+def test_spoke_dlq_alarm(template: Template) -> None:
+    """DLQ depth alarm fires on >=1 stuck message."""
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {
+            "AlarmName": "SteamPulse-Staging-Spoke-us-east-1-SpokeDlq",
+            "MetricName": "ApproximateNumberOfMessagesVisible",
+            "Namespace": "AWS/SQS",
+            "Statistic": "Maximum",
+            "Threshold": 1,
+        },
+    )

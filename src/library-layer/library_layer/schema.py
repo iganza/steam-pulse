@@ -235,7 +235,9 @@ TABLES: tuple[str, ...] = (
         discovered_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         -- GetAppList metadata (0041)
         steam_last_modified TIMESTAMPTZ,             -- last_modified from IStoreService/GetAppList
-        price_change_number INTEGER                  -- price version counter from GetAppList
+        price_change_number INTEGER,                 -- price version counter from GetAppList
+        -- 0055: gate review refetches on net-new English review delta
+        review_count_at_last_fetch INTEGER NOT NULL DEFAULT 0
     )
     """,
     """
@@ -460,6 +462,8 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS requirements_linux TEXT",
     # 0046_denormalize_has_ea_reviews
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS has_early_access_reviews BOOLEAN DEFAULT FALSE",
+    # 0055_review_count_at_last_fetch — delta gate for review refetch dispatcher
+    "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_count_at_last_fetch INTEGER NOT NULL DEFAULT 0",
 )
 
 # Indexes — kept for test suite use only.

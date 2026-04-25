@@ -149,6 +149,11 @@ class SteamPulseConfig(BaseSettings):
     REFRESH_META_BATCH_LIMIT: int = 600
     REFRESH_REVIEWS_BATCH_LIMIT: int = 500
 
+    # Minimum net-new English reviews since last review fetch required to enqueue
+    # a refetch. Tier window remains the upper-bound staleness guarantee; this
+    # adds a minimum-change requirement to skip near-no-op refetches.
+    REFRESH_REVIEWS_MIN_DELTA: int = 1000
+
     @model_validator(mode="after")
     def _validate_refresh_tier_config(self) -> Self:
         """Guard against env overrides that would break the dispatcher SQL.
@@ -171,6 +176,7 @@ class SteamPulseConfig(BaseSettings):
             "REFRESH_TIER_B_REVIEW_COUNT",
             "REFRESH_META_BATCH_LIMIT",
             "REFRESH_REVIEWS_BATCH_LIMIT",
+            "REFRESH_REVIEWS_MIN_DELTA",
         )
         for name in day_fields:
             if getattr(self, name) < 1:

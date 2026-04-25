@@ -124,18 +124,36 @@ def _seed_game_row(
     appid: int,
     coming_soon: bool = False,
     review_count: int = 0,
+    review_count_english: int | None = None,
 ) -> None:
-    """Insert a minimal `games` row for the JOIN in tiered refresh queries."""
+    """Insert a minimal `games` row for the JOIN in tiered refresh queries.
+
+    review_count_english defaults to review_count so existing callers pass the
+    delta gate without explicitly setting it.
+    """
+    rce = review_count if review_count_english is None else review_count_english
     with catalog_repo.conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO games (appid, name, slug, type, coming_soon, review_count)
-            VALUES (%s, %s, %s, 'game', %s, %s)
+            INSERT INTO games (appid, name, slug, type, coming_soon, review_count, review_count_english)
+            VALUES (%s, %s, %s, 'game', %s, %s, %s)
             ON CONFLICT (appid) DO UPDATE SET
                 coming_soon = EXCLUDED.coming_soon,
-                review_count = EXCLUDED.review_count
+                review_count = EXCLUDED.review_count,
+                review_count_english = EXCLUDED.review_count_english
             """,
-            (appid, f"Game {appid}", f"game-{appid}", coming_soon, review_count),
+            (appid, f"Game {appid}", f"game-{appid}", coming_soon, review_count, rce),
+        )
+    catalog_repo.conn.commit()
+
+
+def _set_review_count_at_last_fetch(
+    catalog_repo: CatalogRepository, appid: int, n: int
+) -> None:
+    with catalog_repo.conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_catalog SET review_count_at_last_fetch = %s WHERE appid = %s",
+            (n, appid),
         )
     catalog_repo.conn.commit()
 
@@ -374,3 +392,79 @@ def test_find_due_reviews_nulls_first(catalog_repo: CatalogRepository) -> None:
 
     appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
     assert 8500 in appids
+
+
+# ── delta-gate (0055) ───────────────────────────────────────────────────────
+
+
+def test_find_due_reviews_skips_when_delta_below_threshold(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Tier window elapsed but only a handful of new reviews → skip refetch."""
+    catalog_repo.bulk_upsert([{"appid": 8600, "name": "QuietGame"}])
+    catalog_repo.set_meta_status(8600, "done")
+    # B tier: 14d window. review_count_english=1010, last fetch snapshot=1000 → delta=10.
+    _seed_game_row(catalog_repo, 8600, review_count=200, review_count_english=1010)
+    _set_review_count_at_last_fetch(catalog_repo, 8600, 1000)
+    _set_review_crawled_at(catalog_repo, 8600, days_ago=20)  # past 14d + smear
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8600 not in appids
+
+
+def test_find_due_reviews_returns_when_delta_meets_threshold(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Tier-due AND ≥1000 net-new English reviews → refetch."""
+    catalog_repo.bulk_upsert([{"appid": 8601, "name": "BusyGame"}])
+    catalog_repo.set_meta_status(8601, "done")
+    _seed_game_row(catalog_repo, 8601, review_count=2_500, review_count_english=2_500)
+    _set_review_count_at_last_fetch(catalog_repo, 8601, 1_000)  # delta=1500
+    _set_review_crawled_at(catalog_repo, 8601, days_ago=20)  # past 14d + smear
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8601 in appids
+
+
+def test_find_due_reviews_returns_when_30d_safety_trips(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """No delta movement, but >30d since last fetch — refetch anyway to catch
+    review edits / vote shifts / score-label changes that don't move the count.
+    """
+    catalog_repo.bulk_upsert([{"appid": 8602, "name": "StaleGame"}])
+    catalog_repo.set_meta_status(8602, "done")
+    _seed_game_row(catalog_repo, 8602, review_count=200, review_count_english=1_005)
+    _set_review_count_at_last_fetch(catalog_repo, 8602, 1_000)  # delta=5
+    _set_review_crawled_at(catalog_repo, 8602, days_ago=35)  # past 30d safety floor
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8602 in appids
+
+
+def test_find_due_reviews_returns_when_never_crawled_regardless_of_delta(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """First-fetch bootstrap branch ignores the delta gate."""
+    catalog_repo.bulk_upsert([{"appid": 8603, "name": "NewGame"}])
+    catalog_repo.set_meta_status(8603, "done")
+    _seed_game_row(catalog_repo, 8603, review_count=200, review_count_english=200)
+    # Delta would be 200 — well below 1000 — but review_crawled_at IS NULL
+    # (default), so the bootstrap branch returns it.
+
+    appids = [e.appid for e in catalog_repo.find_due_reviews(limit=10, config=_config())]
+    assert 8603 in appids
+
+
+def test_mark_reviews_complete_and_crawled_updates_review_count_at_last_fetch(
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Snapshot review_count_english into the gating column on every completion."""
+    catalog_repo.bulk_upsert([{"appid": 8700, "name": "G"}])
+    _seed_game_row(catalog_repo, 8700, review_count=1_500, review_count_english=1_234)
+
+    catalog_repo.mark_reviews_complete_and_crawled(8700)
+
+    entry = catalog_repo.find_by_appid(8700)
+    assert entry is not None
+    assert entry.review_count_at_last_fetch == 1_234

@@ -19,6 +19,7 @@ class CatalogEntry(BaseModel):
     discovered_at: datetime | None = None
     steam_last_modified: datetime | None = None
     price_change_number: int | None = None
+    review_count_at_last_fetch: int = 0
     # Populated only by CatalogRepository.find_due_meta / find_due_reviews
     # so downstream enqueue logs can emit per-tier counts without re-deriving.
     # 0=S, 1=A, 2=B. Tier C (long tail) is refresh-exempt and never appears.

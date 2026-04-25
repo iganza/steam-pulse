@@ -82,7 +82,7 @@ class DataStack(cdk.Stack):
                 allocated_storage=50,
                 max_allocated_storage=100,
                 deletion_protection=True,
-                backup_retention=cdk.Duration.days(7),
+                backup_retention=cdk.Duration.days(3),
                 storage_encrypted=True,
                 multi_az=False,
                 removal_policy=cdk.RemovalPolicy.RETAIN,

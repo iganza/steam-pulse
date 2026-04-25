@@ -9,7 +9,7 @@ ALTER TABLE app_catalog
 -- doesn't treat every previously-fetched game as way overdue. Day-1 delta is 0;
 -- the gate naturally trips again as new reviews accrue.
 UPDATE app_catalog ac
-SET    review_count_at_last_fetch = COALESCE(g.review_count_english, 0)
+SET    review_count_at_last_fetch = COALESCE(g.review_count_english, g.review_count, 0)
 FROM   games g
 WHERE  ac.appid = g.appid
   AND  ac.review_crawled_at IS NOT NULL;

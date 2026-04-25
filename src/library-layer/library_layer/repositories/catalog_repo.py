@@ -179,7 +179,7 @@ class CatalogRepository(BaseRepository):
             WITH tiered AS (
               SELECT
                 ac.*,
-                COALESCE(g.review_count_english, 0) AS rce,
+                COALESCE(g.review_count_english, g.review_count, 0) AS rce,
                 CASE
                   WHEN g.review_count >= %(s_threshold)s THEN %(s_secs)s
                   WHEN gg.genre_id IS NOT NULL
@@ -286,7 +286,7 @@ class CatalogRepository(BaseRepository):
                            COALESCE(ac.reviews_completed_at, '1970-01-01'::timestamptz), %s
                        ),
                        review_crawled_at = NOW(),
-                       review_count_at_last_fetch = COALESCE(g.review_count_english, 0)
+                       review_count_at_last_fetch = COALESCE(g.review_count_english, g.review_count, 0)
                    FROM games g
                    WHERE ac.appid = %s AND g.appid = ac.appid""",
                 (ts, appid),

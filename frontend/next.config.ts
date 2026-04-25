@@ -1,6 +1,19 @@
+import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
 
+// Pin Next BUILD_ID to git short SHA — same value CACHE_BUCKET_KEY_PREFIX
+// uses, so OpenNext tag namespaces stay aligned across deploys and
+// revalidateTag actually busts the entries readers see.
+function gitBuildId(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+  } catch {
+    return "local";
+  }
+}
+
 const nextConfig: NextConfig = {
+  generateBuildId: gitBuildId,
   // In local dev, proxy /api/* to the FastAPI server.
   // In production/staging, CloudFront handles this routing at the CDN layer.
   // To point at staging API instead of local: API_URL=https://d218hpg56ignkd.cloudfront.net npm run dev

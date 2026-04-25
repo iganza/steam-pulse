@@ -74,6 +74,11 @@ class MessagingStack(cdk.Stack):
             "FrontendRevalidationDlq",
             retention_period=cdk.Duration.days(14),
         )
+        self.opennext_revalidation_dlq = sqs.Queue(
+            self,
+            "OpenNextRevalidationDlq",
+            retention_period=cdk.Duration.days(14),
+        )
         # Deterministic names — spokes in other regions construct ARN/URL
         # strings from these names (CDK tokens can't cross regions).
         self.app_crawl_queue = sqs.Queue(
@@ -144,6 +149,16 @@ class MessagingStack(cdk.Stack):
                 queue=self.frontend_revalidation_dlq,
             ),
         )
+        # OpenNext writes here when a stale data-cache entry needs re-rendering.
+        self.opennext_revalidation_queue = sqs.Queue(
+            self,
+            "OpenNextRevalidationQueue",
+            visibility_timeout=cdk.Duration.minutes(5),
+            dead_letter_queue=sqs.DeadLetterQueue(
+                max_receive_count=3,
+                queue=self.opennext_revalidation_dlq,
+            ),
+        )
 
         # ── Tags ────────────────────────────────────────────────────────────
         for q in (
@@ -167,6 +182,9 @@ class MessagingStack(cdk.Stack):
             cdk.Tags.of(q).add("steampulse:service", "frontend")
 
         for q in (self.frontend_revalidation_queue, self.frontend_revalidation_dlq):
+            cdk.Tags.of(q).add("steampulse:service", "frontend")
+
+        for q in (self.opennext_revalidation_queue, self.opennext_revalidation_dlq):
             cdk.Tags.of(q).add("steampulse:service", "frontend")
 
         cdk.Tags.of(self.game_events_topic).add("steampulse:service", "crawler")
@@ -367,6 +385,24 @@ class MessagingStack(cdk.Stack):
             "FrontendRevalidationDlqArnParam",
             parameter_name=f"/steampulse/{env}/messaging/frontend-revalidation-dlq-arn",
             string_value=self.frontend_revalidation_dlq.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "OpenNextRevalidationQueueUrlParam",
+            parameter_name=f"/steampulse/{env}/messaging/opennext-revalidation-queue-url",
+            string_value=self.opennext_revalidation_queue.queue_url,
+        )
+        ssm.StringParameter(
+            self,
+            "OpenNextRevalidationQueueArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/opennext-revalidation-queue-arn",
+            string_value=self.opennext_revalidation_queue.queue_arn,
+        )
+        ssm.StringParameter(
+            self,
+            "OpenNextRevalidationDlqArnParam",
+            parameter_name=f"/steampulse/{env}/messaging/opennext-revalidation-dlq-arn",
+            string_value=self.opennext_revalidation_dlq.queue_arn,
         )
         # Eligibility threshold SSM param
         ssm.StringParameter(

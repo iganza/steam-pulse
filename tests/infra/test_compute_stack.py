@@ -39,6 +39,7 @@ def template() -> assertions.Template:
     email_queue = sqs.Queue(stack, "EmailQueue")
     cache_invalidation_queue = sqs.Queue(stack, "CacheInvalidationQueue")
     frontend_revalidation_queue = sqs.Queue(stack, "FrontendRevalidationQueue")
+    opennext_revalidation_queue = sqs.Queue(stack, "OpenNextRevalidationQueue")
 
     config = SteamPulseConfig(
         ENVIRONMENT="production",
@@ -72,6 +73,7 @@ def template() -> assertions.Template:
         email_queue=email_queue,
         cache_invalidation_queue=cache_invalidation_queue,
         frontend_revalidation_queue=frontend_revalidation_queue,
+        opennext_revalidation_queue=opennext_revalidation_queue,
         spoke_crawl_queue_urls="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
     )
     return assertions.Template.from_stack(compute)
@@ -105,6 +107,39 @@ def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Temp
             "BatchSize": 40,
             "MaximumBatchingWindowInSeconds": 5,
             "ScalingConfig": {"MaximumConcurrency": 6},
+            "FunctionResponseTypes": ["ReportBatchItemFailures"],
+        },
+    )
+
+
+def test_frontend_fn_wires_opennext_revalidation_queue_env(
+    template: assertions.Template,
+) -> None:
+    """FrontendFn must expose REVALIDATION_QUEUE_URL/REGION so OpenNext can enqueue."""
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Environment": {
+                "Variables": assertions.Match.object_like(
+                    {
+                        "REVALIDATION_QUEUE_URL": assertions.Match.any_value(),
+                        "REVALIDATION_QUEUE_REGION": assertions.Match.any_value(),
+                    }
+                )
+            }
+        },
+    )
+
+
+def test_opennext_revalidation_event_source_wired(
+    template: assertions.Template,
+) -> None:
+    """OpenNextRevalidationFn drains the revalidation queue with the expected batching."""
+    template.has_resource_properties(
+        "AWS::Lambda::EventSourceMapping",
+        {
+            "BatchSize": 5,
+            "MaximumBatchingWindowInSeconds": 2,
             "FunctionResponseTypes": ["ReportBatchItemFailures"],
         },
     )

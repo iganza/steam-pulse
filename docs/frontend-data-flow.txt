@@ -117,11 +117,21 @@
   FrontendFn  /api/revalidate route
     │  verify x-revalidate-token == REVALIDATE_TOKEN env
     │  revalidateTag(`game-${appid}`, "max")
-    │   └─ "max" gives stale-while-revalidate semantics: stale served
-    │      immediately while a fresh fetch fills the cache in background
+    │   └─ "max" gives stale-while-revalidate semantics: next request
+    │      gets the stale entry immediately and triggers a background
+    │      re-render via the OpenNext revalidation queue
     ▼
   OpenNext data cache (S3 + DynamoDB)
-    │  next request for /games/${appid}/* re-renders from fresh API data
+    │  next request to /games/${appid}/* → cache returns STALE entry
+    │  AND publishes a re-render request to OpenNextRevalidationQueue
+    ▼
+  SQS  OpenNextRevalidationQueue   (DLQ after 3 retries)
+    │
+    ▼
+  OpenNextRevalidationFn  (batch_size=5, reserved_concurrency=5)
+    │  re-renders the page server-side using the same FastAPI fetches
+    │  writes the fresh entry back to S3 + DynamoDB
+    │  subsequent requests now return HIT with fresh content
     ▼
   CloudFront edge HTML cache  ⚠ NOT INVALIDATED by this loop
     Tracked in scripts/prompts/game-report-cloudfront-invalidation.md.
@@ -152,10 +162,18 @@
             never exposed to browser
     REVALIDATE_TOKEN  ← SSM /steampulse/{env}/frontend/revalidate-token
         └── verified by /api/revalidate route handler
+    REVALIDATION_QUEUE_URL    = OpenNextRevalidationQueue URL
+    REVALIDATION_QUEUE_REGION = self.region
+        └── OpenNext enqueues re-render requests here when serving STALE
 
-  RevalidateFrontendFn (SQS consumer)
+  RevalidateFrontendFn (SQS consumer of report-ready events)
     FRONTEND_BASE_URL       = FrontendFn Function URL  (bypasses CloudFront)
     REVALIDATE_TOKEN_PARAM  = SSM path read at cold start
+
+  OpenNextRevalidationFn (SQS consumer of stale-page re-render requests)
+    API_URL                  = same as FrontendFn
+    CACHE_BUCKET_*           = same as FrontendFn (writes refreshed entries)
+    CACHE_DYNAMO_TABLE       = same as FrontendFn
 
   Browser JS
     NEXT_PUBLIC_API_URL = ""   (same-origin, CloudFront handles routing)

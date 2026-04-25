@@ -164,6 +164,12 @@ class CatalogRepository(BaseRepository):
             release detection happens via metadata crawl, and the game
             naturally enters review refresh once review_count crosses the
             B-tier threshold)
+
+        Delta gate (0055): once a game has been fetched at least once, the
+        tier-window-elapsed check is paired with a minimum net-new English
+        review delta. The 30-day branch is a max-staleness floor that catches
+        review edits / vote shifts / score-label changes that don't move the
+        count.
         """
         s_secs = config.REFRESH_REVIEWS_TIER_S_DAYS * 86400
         a_secs = config.REFRESH_REVIEWS_TIER_A_DAYS * 86400
@@ -173,6 +179,7 @@ class CatalogRepository(BaseRepository):
             WITH tiered AS (
               SELECT
                 ac.*,
+                COALESCE(g.review_count_english, g.review_count, 0) AS rce,
                 CASE
                   WHEN g.review_count >= %(s_threshold)s THEN %(s_secs)s
                   WHEN gg.genre_id IS NOT NULL
@@ -191,14 +198,20 @@ class CatalogRepository(BaseRepository):
               WHERE ac.meta_status = 'done'
                 AND COALESCE(g.coming_soon, FALSE) = FALSE
                 AND g.review_count >= %(b_threshold)s
+            ),
+            window_due AS (
+              SELECT * FROM tiered
+              WHERE review_crawled_at IS NULL
+                 OR review_crawled_at
+                    + (window_secs * INTERVAL '1 second')
+                    + ((abs(hashtext(appid::text)::bigint) %% window_secs) * INTERVAL '1 second')
+                    < NOW()
             )
-            SELECT * FROM tiered
+            SELECT * FROM window_due
             WHERE
               review_crawled_at IS NULL
-              OR review_crawled_at
-                 + (window_secs * INTERVAL '1 second')
-                 + ((abs(hashtext(appid::text)::bigint) %% window_secs) * INTERVAL '1 second')
-                 < NOW()
+              OR (rce - review_count_at_last_fetch) >= %(min_delta)s
+              OR review_crawled_at < NOW() - INTERVAL '30 days'
             ORDER BY tier_rank, review_crawled_at ASC NULLS FIRST
             LIMIT %(limit)s
             """,
@@ -209,6 +222,7 @@ class CatalogRepository(BaseRepository):
                 "s_secs": s_secs,
                 "a_secs": a_secs,
                 "b_secs": b_secs,
+                "min_delta": config.REFRESH_REVIEWS_MIN_DELTA,
                 "limit": limit,
             },
         )
@@ -260,17 +274,21 @@ class CatalogRepository(BaseRepository):
 
         One UPDATE + one commit instead of two. Called at review-termination
         branches (exhausted / early_stop / target_hit) where both timestamps
-        always advance together.
+        always advance together. Snapshots review_count_english into
+        review_count_at_last_fetch so the next dispatcher run can gate refetch
+        on net-new delta.
         """
         ts = completed_at or datetime.now(tz=timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
-                """UPDATE app_catalog
+                """UPDATE app_catalog ac
                    SET reviews_completed_at = GREATEST(
-                           COALESCE(reviews_completed_at, '1970-01-01'::timestamptz), %s
+                           COALESCE(ac.reviews_completed_at, '1970-01-01'::timestamptz), %s
                        ),
-                       review_crawled_at = NOW()
-                   WHERE appid = %s""",
+                       review_crawled_at = NOW(),
+                       review_count_at_last_fetch = COALESCE(g.review_count_english, g.review_count, 0)
+                   FROM games g
+                   WHERE ac.appid = %s AND g.appid = ac.appid""",
                 (ts, appid),
             )
         self.conn.commit()

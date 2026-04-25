@@ -92,6 +92,19 @@ def test_refresh_tier_b_matches_when_overridden_together() -> None:
     assert cfg.REFRESH_TIER_B_REVIEW_COUNT == 100
 
 
+def test_refresh_reviews_min_delta_default() -> None:
+    """Default delta gate is 1000 net-new English reviews."""
+    cfg = SteamPulseConfig(**_ALL_REQUIRED)
+    assert cfg.REFRESH_REVIEWS_MIN_DELTA == 1000
+
+
+def test_refresh_reviews_min_delta_zero_rejected() -> None:
+    """Zero/negative delta would refetch every game on every dispatcher run."""
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(**_ALL_REQUIRED, REFRESH_REVIEWS_MIN_DELTA=0)
+    assert "REFRESH_REVIEWS_MIN_DELTA" in str(exc.value)
+
+
 def test_model_for_returns_configured_model_for_genre_synthesis() -> None:
     """model_for() resolves the genre-synthesis task configured in _ALL_REQUIRED."""
     config = SteamPulseConfig(**_ALL_REQUIRED)

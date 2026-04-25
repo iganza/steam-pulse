@@ -47,36 +47,86 @@
 
 
 ╔══════════════════════════════════════════════════════════════════════╗
-║                     ISR CACHE FLOW (OpenNext)                        ║
+║       ISR CACHE FLOW — cache-until-changed (game report pages)       ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
   Browser
-    │  GET /games/440/team-fortress-2-440
+    │  GET /games/3205380/omelet-you-cook-3205380
     ▼
-  CloudFront
-    │
+  CloudFront  (s-maxage=31536000 from origin → edge caches for 1y
+    │                                          or until manual invalidation)
+    │   miss?
     ▼
-  Next.js Lambda
+  Next.js Lambda (FrontendFn)
     │
-    ├─── Check S3 cache (steampulse-assets-staging/cache/)
-    │         hit? ──► serve cached HTML  ──► Browser
-    │         miss?
+    ├─── Check S3 cache (steampulse-frontend-{env}/cache/{BUILD_ID}/)
+    │         hit?  ─► serve cached HTML ─► CloudFront ─► Browser
+    │         miss / tag-invalidated?
     │              │
-    │              ├─── Check DynamoDB (steampulse-opennext-cache-staging)
+    │              ├─── Check DynamoDB (OpenNextCacheTable)
     │              │    GSI: revalidate (path + revalidatedAt)
-    │              │    "has this path been tag-invalidated?"
+    │              │    "has the game-${appid} tag been busted since
+    │              │     this entry was written?"
     │              │
     │              ▼
-    │         fetch(API_URL + "/api/games/440/report")
+    │         Promise.all([
+    │           fetch(API_URL + "/api/games/${appid}/report"),
+    │           fetch(API_URL + "/api/games/${appid}/review-stats"),
+    │           fetch(API_URL + "/api/games/${appid}/benchmarks"),
+    │         ])  — all three tagged `game-${appid}`
     │              │
     │              ▼
     │         FastAPI Lambda ──► RDS ──► JSON
     │              │
-    │         render HTML
+    │         render HTML (server component)
     │              │
-    │         write to S3 cache  (TTL: revalidate = 3600s)
+    │         write to S3 cache  (revalidate = 31536000s — 1y safety net;
+    │                             tag is the real invalidation signal)
     │              │
-    └─────────────►│──► Browser
+    └─────────────►│──► CloudFront ──► Browser
+
+  Footgun (Next.js 16): dynamic-segment routes ([appid]/[slug]) only honor
+    `export const revalidate` when the page also exports `generateStaticParams`
+    (an empty array `() => []` is enough). Without it the route is treated
+    as fully dynamic SSR — every request hits the API, and `revalidateTag`
+    has nothing to invalidate. See app/games/[appid]/[slug]/page.tsx.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║      TAG INVALIDATION (cache-until-changed write path)               ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  AnalysisFn  (Step Functions task — runs after every re-analysis)
+    │  publish ReportReadyEvent { event_type: "report-ready", appid, … }
+    ▼
+  SNS  content_events_topic
+    │   filter: event_type = "report-ready"
+    ▼
+  SQS  frontend_revalidation_queue   (DLQ after 3 retries)
+    │
+    ▼
+  RevalidateFrontendFn  (batch_size=2, 5s POST timeout, 30s Lambda budget)
+    │  POST {FRONTEND_BASE_URL}/api/revalidate
+    │  headers: x-revalidate-token: <SSM /steampulse/{env}/frontend/revalidate-token>
+    │  body:    { "appid": <int> }
+    │
+    │  IMPORTANT: FRONTEND_BASE_URL is the FrontendFn Function URL, not
+    │  CloudFront. The /api/* CloudFront behaviour routes to FastAPI, so
+    │  going through CloudFront would 404.
+    ▼
+  FrontendFn  /api/revalidate route
+    │  verify x-revalidate-token == REVALIDATE_TOKEN env
+    │  revalidateTag(`game-${appid}`, "max")
+    │   └─ "max" gives stale-while-revalidate semantics: stale served
+    │      immediately while a fresh fetch fills the cache in background
+    ▼
+  OpenNext data cache (S3 + DynamoDB)
+    │  next request for /games/${appid}/* re-renders from fresh API data
+    ▼
+  CloudFront edge HTML cache  ⚠ NOT INVALIDATED by this loop
+    Tracked in scripts/prompts/game-report-cloudfront-invalidation.md.
+    Until that lands, CloudFront edges hold stale HTML up to s-maxage
+    (1 year). Manual flush: scripts/invalidate-cdn.sh.
 
 
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -100,6 +150,12 @@
         │
         └── used only server-side (SSR)
             never exposed to browser
+    REVALIDATE_TOKEN  ← SSM /steampulse/{env}/frontend/revalidate-token
+        └── verified by /api/revalidate route handler
+
+  RevalidateFrontendFn (SQS consumer)
+    FRONTEND_BASE_URL       = FrontendFn Function URL  (bypasses CloudFront)
+    REVALIDATE_TOKEN_PARAM  = SSM path read at cold start
 
   Browser JS
     NEXT_PUBLIC_API_URL = ""   (same-origin, CloudFront handles routing)

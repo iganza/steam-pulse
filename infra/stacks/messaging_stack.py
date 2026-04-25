@@ -240,16 +240,19 @@ class MessagingStack(cdk.Stack):
         )
 
         # cache-invalidation-queue ← system-events (catalog-refresh-complete only; daily).
-        self.system_events_topic.add_subscription(
-            subs.SqsSubscription(
-                self.cache_invalidation_queue,
-                filter_policy={
-                    "event_type": sns.SubscriptionFilter.string_filter(
-                        allowlist=["catalog-refresh-complete"],
-                    ),
-                },
-            )
-        )
+        # DISABLED: matview refresh auto-schedule turned off — operator runs
+        # `REFRESH MATERIALIZED VIEW` from a local cron that doesn't have
+        # the Lambda 15-min timeout. Re-enable by uncommenting this block.
+        # self.system_events_topic.add_subscription(
+        #     subs.SqsSubscription(
+        #         self.cache_invalidation_queue,
+        #         filter_policy={
+        #             "event_type": sns.SubscriptionFilter.string_filter(
+        #                 allowlist=["catalog-refresh-complete"],
+        #             ),
+        #         },
+        #     )
+        # )
 
         # frontend-revalidation-queue ← content-events (report-ready only).
         self.content_events_topic.add_subscription(

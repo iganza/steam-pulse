@@ -73,21 +73,22 @@ Deliberately **not** subscribed to any SNS topic — the producer is `FrontendFn
 
 ```python
 _OPEN_NEXT_REVALIDATION = "frontend/.open-next/revalidation-function"
-if os.path.isdir(_OPEN_NEXT_REVALIDATION):
-    revalidation_code = lambda_.Code.from_asset(_OPEN_NEXT_REVALIDATION)
-    revalidation_runtime = lambda_.Runtime.NODEJS_22_X
-else:
-    revalidation_code = lambda_.Code.from_inline(
-        "exports.handler = async () => ({ statusCode: 200 });"
+# Fail loudly if the bundle wasn't built — no placeholder fallback that
+# would silently deploy a stub Lambda. Validates the entrypoint file
+# itself, not just the directory, so a partial/empty build also errors.
+if not os.path.isfile(os.path.join(_OPEN_NEXT_REVALIDATION, "index.mjs")):
+    raise FileNotFoundError(
+        f"OpenNext revalidation bundle missing or incomplete at "
+        f"{_OPEN_NEXT_REVALIDATION} (no index.mjs). "
+        "Run `cd frontend && npm run build:open-next` before cdk synth/deploy."
     )
-    revalidation_runtime = lambda_.Runtime.NODEJS_22_X
 
 opennext_revalidation_fn = lambda_.Function(
     self,
     "OpenNextRevalidationFn",
-    runtime=revalidation_runtime,
+    runtime=lambda_.Runtime.NODEJS_22_X,
     handler="index.handler",
-    code=revalidation_code,
+    code=lambda_.Code.from_asset(_OPEN_NEXT_REVALIDATION),
     memory_size=512,
     timeout=cdk.Duration.minutes(2),
     reserved_concurrent_executions=5,

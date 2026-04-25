@@ -372,3 +372,9 @@ export default async function GameReportPage({ params }: Props) {
 
 // 1y safety net; the game-${appid} tag is the real invalidation signal.
 export const revalidate = 31536000;
+
+// Empty list opts the route into on-demand ISR — Next 16 won't treat the
+// dynamic segments as pure SSR and will honor the `revalidate` window above.
+export async function generateStaticParams() {
+  return [];
+}

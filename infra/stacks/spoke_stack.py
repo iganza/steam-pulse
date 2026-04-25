@@ -7,6 +7,8 @@ No DB access. Connects to public internet (Steam) and cross-region S3/SQS.
 """
 
 import aws_cdk as cdk
+import aws_cdk.aws_cloudwatch as cloudwatch
+import aws_cdk.aws_cloudwatch_actions as cw_actions
 import aws_cdk.aws_iam as iam
 import aws_cdk.aws_lambda as lambda_
 import aws_cdk.aws_lambda_event_sources as event_sources
@@ -15,15 +17,6 @@ import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
-from cdk_monitoring_constructs import (
-    AlarmFactoryDefaults,
-    DefaultDashboardFactory,
-    ErrorCountThreshold,
-    MaxMessageAgeThreshold,
-    MaxMessageCountThreshold,
-    MonitoringFacade,
-    SnsAlarmActionStrategy,
-)
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
 
@@ -52,6 +45,7 @@ class CrawlSpokeStack(cdk.Stack):
             "LibraryLayer",
             entry="src/library-layer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            compatible_architectures=[lambda_.Architecture.ARM_64],
             description=f"SteamPulse shared layer (spoke-{spoke_region})",
         )
 
@@ -136,6 +130,7 @@ class CrawlSpokeStack(cdk.Stack):
             index="lambda_functions/crawler/spoke_handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=role,
             timeout=cdk.Duration.minutes(10),
@@ -208,38 +203,36 @@ class CrawlSpokeStack(cdk.Stack):
             description=f"Spoke alarm topic for {spoke_region}",
         )
 
-        spoke_monitoring = MonitoringFacade(
+        # Two raw alarms only — replaces cdk-monitoring-constructs MonitoringFacade
+        # to drop the auto-tracked metrics it subscribes for the dashboard layer
+        # (the real CloudWatch cost driver across 11 spoke regions).
+        sns_action = cw_actions.SnsAction(alarm_topic)
+        alarm_prefix = f"SteamPulse-{environment.capitalize()}-Spoke-{spoke_region}"
+
+        cloudwatch.Alarm(
             self,
-            "SpokeMonitoring",
-            dashboard_factory=DefaultDashboardFactory(
-                self, "NoDashboard",
-                dashboard_name_prefix=f"SteamPulse-Spoke-{spoke_region}",
-                create_dashboard=False,
+            "SpokeErrorsAlarm",
+            alarm_name=f"{alarm_prefix}-SpokeErrors",
+            metric=spoke_fn.metric_errors(
+                period=cdk.Duration.minutes(5),
+                statistic="Sum",
             ),
-            alarm_factory_defaults=AlarmFactoryDefaults(
-                actions_enabled=True,
-                alarm_name_prefix=f"SteamPulse-{environment.capitalize()}-Spoke-{spoke_region}",
-                action=SnsAlarmActionStrategy(on_alarm_topic=alarm_topic),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        ).add_alarm_action(sns_action)
+
+        cloudwatch.Alarm(
+            self,
+            "SpokeDlqAlarm",
+            alarm_name=f"{alarm_prefix}-SpokeDlq",
+            metric=spoke_dlq.metric_approximate_number_of_messages_visible(
+                period=cdk.Duration.minutes(5),
+                statistic="Maximum",
             ),
-        )
-
-        spoke_monitoring.monitor_lambda_function(
-            lambda_function=spoke_fn,
-            human_readable_name=f"Spoke Crawler ({spoke_region})",
-            alarm_friendly_name=f"SpokeCrawler-{spoke_region}",
-            add_fault_count_alarm={"SpokeErrors": ErrorCountThreshold(max_error_count=0)},
-            add_throttles_count_alarm={"SpokeThrottles": ErrorCountThreshold(max_error_count=0)},
-        )
-
-        spoke_monitoring.monitor_sqs_queue_with_dlq(
-            queue=spoke_crawl_queue,
-            dead_letter_queue=spoke_dlq,
-            human_readable_name=f"Spoke Queue ({spoke_region})",
-            alarm_friendly_name=f"SpokeQueue-{spoke_region}",
-            add_queue_max_message_age_alarm={
-                "SpokeQueueAge": MaxMessageAgeThreshold(max_age_in_seconds=3600),
-            },
-            add_dead_letter_queue_max_size_alarm={
-                "SpokeDlq": MaxMessageCountThreshold(max_message_count=0),
-            },
-        )
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        ).add_alarm_action(sns_action)

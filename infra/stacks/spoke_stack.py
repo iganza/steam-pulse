@@ -16,7 +16,7 @@ import aws_cdk.aws_logs as logs
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sqs as sqs
 import aws_cdk.aws_ssm as ssm
-from aws_cdk.aws_lambda_python_alpha import PythonFunction, PythonLayerVersion
+from aws_cdk.aws_lambda_python_alpha import BundlingOptions, PythonFunction, PythonLayerVersion
 from constructs import Construct
 from library_layer.config import SteamPulseConfig
 
@@ -46,6 +46,9 @@ class CrawlSpokeStack(cdk.Stack):
             entry="src/library-layer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
             compatible_architectures=[lambda_.Architecture.ARM_64],
+            # Pin Docker bundling to arm64 — psycopg2-binary / pydantic-core wheels
+            # would otherwise resolve to host arch and crash at import on Lambda.
+            bundling=BundlingOptions(platform="linux/arm64"),
             description=f"SteamPulse shared layer (spoke-{spoke_region})",
         )
 

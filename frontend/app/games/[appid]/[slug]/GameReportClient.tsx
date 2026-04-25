@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -15,17 +14,14 @@ import {
   Users,
 } from "lucide-react";
 import type { GameReport, ReviewStats, Benchmarks, RelatedAnalyzedGame } from "@/lib/types";
-import { getReviewStats, getBenchmarks } from "@/lib/api";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import {
   SentimentTimeline,
-  SentimentTimelineSkeleton,
   SentimentTimelineStub,
 } from "@/components/game/SentimentTimeline";
 import {
   PlaytimeChart,
-  PlaytimeChartSkeleton,
   computePlaytimeInsight,
 } from "@/components/game/PlaytimeChart";
 import { CompetitiveBenchmark } from "@/components/game/CompetitiveBenchmark";
@@ -79,6 +75,8 @@ interface GameReportClientProps {
   /** Pre-fetched neighbors for the "More games like this" section on
    *  un-analyzed pages. Empty on analyzed pages. */
   relatedAnalyzed?: RelatedAnalyzedGame[];
+  reviewStats: ReviewStats | null;
+  benchmarks: Benchmarks | null;
 }
 
 function formatMonth(iso: string): string | null {
@@ -130,52 +128,9 @@ export function GameReportClient({
   revenueEstimateMethod,
   revenueEstimateReason,
   relatedAnalyzed = [],
+  reviewStats,
+  benchmarks,
 }: GameReportClientProps) {
-  const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
-  const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-
-  useEffect(() => {
-    // Two independent fetches — benchmarks is intentionally decoupled from
-    // statsLoading so a slow benchmarks response never keeps the Sentiment
-    // History / Playtime Sentiment skeletons on screen after review-stats
-    // have already resolved. Reset state at the start of each effect run
-    // so an appid change never briefly shows the previous game's data, and
-    // so a failed fetch clears (rather than preserves) the stale value.
-    // The AbortController cancels the in-flight benchmarks request on
-    // appid change / unmount so rapid navigations don't waste network
-    // cycles (getReviewStats doesn't accept a signal today, so only
-    // benchmarks are aborted — its state update is still gated by
-    // `active`).
-    let active = true;
-    const benchController = new AbortController();
-    setStatsLoading(true);
-    setReviewStats(null);
-    setBenchmarks(null);
-    (async () => {
-      try {
-        const stats = await getReviewStats(appid);
-        if (active) setReviewStats(stats);
-      } catch {
-        // charts simply won't render
-      } finally {
-        if (active) setStatsLoading(false);
-      }
-    })();
-    (async () => {
-      try {
-        const bench = await getBenchmarks(appid, benchController.signal);
-        if (active && bench) setBenchmarks(bench);
-      } catch {
-        // benchmark section simply won't render (includes AbortError)
-      }
-    })();
-    return () => {
-      active = false;
-      benchController.abort();
-    };
-  }, [appid]);
-
   const name = report?.game_name ?? gameName ?? "Game Report";
   const price = isFree ? "Free" : priceUsd ? `$${priceUsd.toFixed(2)}` : "\u2014";
   const primaryGenre = genres?.[0];
@@ -289,7 +244,7 @@ export function GameReportClient({
           price={price}
           lastAnalyzed={report?.last_analyzed ?? lastAnalyzed ?? null}
           reviewStats={reviewStats}
-          statsLoading={statsLoading}
+          statsLoading={false}
           reviewCrawledAt={reviewCrawledAt}
           reviewsCompletedAt={reviewsCompletedAt}
           metaCrawledAt={metaCrawledAt}
@@ -581,12 +536,7 @@ export function GameReportClient({
             the chart populate over time. Analyzed pages still hide the
             section below the threshold. --- */}
 
-        {statsLoading ? (
-          <section>
-            <SectionLabel>Sentiment History</SectionLabel>
-            <SentimentTimelineSkeleton />
-          </section>
-        ) : showSentimentHistory ? (
+        {showSentimentHistory ? (
           <section>
             <SectionLabel>Sentiment History</SectionLabel>
             <SentimentTimeline timeline={reviewStats!.timeline} />
@@ -604,12 +554,7 @@ export function GameReportClient({
           </section>
         ) : null}
 
-        {statsLoading ? (
-          <section>
-            <SectionLabel>Playtime Sentiment</SectionLabel>
-            <PlaytimeChartSkeleton />
-          </section>
-        ) : showPlaytimeSentiment ? (
+        {showPlaytimeSentiment ? (
           <section>
             <SectionLabel>Playtime Sentiment</SectionLabel>
             <PlaytimeChart

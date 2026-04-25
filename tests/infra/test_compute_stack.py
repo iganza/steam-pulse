@@ -39,6 +39,7 @@ def template() -> assertions.Template:
     email_queue = sqs.Queue(stack, "EmailQueue")
     cache_invalidation_queue = sqs.Queue(stack, "CacheInvalidationQueue")
     frontend_revalidation_queue = sqs.Queue(stack, "FrontendRevalidationQueue")
+    opennext_revalidation_queue = sqs.Queue(stack, "OpenNextRevalidationQueue")
 
     config = SteamPulseConfig(
         ENVIRONMENT="production",
@@ -72,6 +73,7 @@ def template() -> assertions.Template:
         email_queue=email_queue,
         cache_invalidation_queue=cache_invalidation_queue,
         frontend_revalidation_queue=frontend_revalidation_queue,
+        opennext_revalidation_queue=opennext_revalidation_queue,
         spoke_crawl_queue_urls="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
     )
     return assertions.Template.from_stack(compute)

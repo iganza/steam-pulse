@@ -36,6 +36,7 @@ _PLACEHOLDER_HANDLER = (
     "'body': '<h1>Frontend not yet deployed</h1>'}"
 )
 _OPEN_NEXT_SERVER = "frontend/.open-next/server-functions/default"
+_OPEN_NEXT_REVALIDATION = "frontend/.open-next/revalidation-function"
 
 
 class ComputeStack(cdk.Stack):
@@ -57,6 +58,7 @@ class ComputeStack(cdk.Stack):
         email_queue: sqs.IQueue,
         cache_invalidation_queue: sqs.IQueue,
         frontend_revalidation_queue: sqs.IQueue,
+        opennext_revalidation_queue: sqs.IQueue,
         spoke_crawl_queue_urls: str,
         **kwargs: object,
     ) -> None:
@@ -321,6 +323,8 @@ class ComputeStack(cdk.Stack):
                 "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
                 "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
                 "REVALIDATE_TOKEN": revalidate_token_value,
+                "REVALIDATION_QUEUE_URL": opennext_revalidation_queue.queue_url,
+                "REVALIDATION_QUEUE_REGION": self.region,
             },
         )
         cdk.Tags.of(frontend_fn).add("steampulse:service", "frontend")
@@ -328,9 +332,49 @@ class ComputeStack(cdk.Stack):
 
         frontend_bucket.grant_read_write(frontend_fn)
         opennext_cache_table.grant_read_write_data(frontend_fn)
+        opennext_revalidation_queue.grant_send_messages(frontend_fn)
 
         self.frontend_fn_url = frontend_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
+        )
+
+        # ── OpenNext Revalidation Lambda (drains stale-page re-render queue) ──
+        opennext_revalidation_fn = lambda_.Function(
+            self,
+            "OpenNextRevalidationFn",
+            runtime=lambda_.Runtime.NODEJS_22_X,
+            handler="index.handler",
+            code=lambda_.Code.from_asset(_OPEN_NEXT_REVALIDATION),
+            memory_size=512,
+            timeout=cdk.Duration.minutes(2),
+            reserved_concurrent_executions=5,
+            log_group=logs.LogGroup(
+                self,
+                "OpenNextRevalidationLogs",
+                log_group_name=f"/steampulse/{env}/opennext-revalidation",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=cdk.RemovalPolicy.DESTROY,
+            ),
+            environment={
+                "NODE_ENV": "production",
+                "API_URL": self.api_fn_url.url,
+                "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
+                "CACHE_BUCKET_REGION": self.region,
+                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
+                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+            },
+        )
+        cdk.Tags.of(opennext_revalidation_fn).add("steampulse:service", "frontend")
+        cdk.Tags.of(opennext_revalidation_fn).add("steampulse:tier", "critical")
+        frontend_bucket.grant_read_write(opennext_revalidation_fn)
+        opennext_cache_table.grant_read_write_data(opennext_revalidation_fn)
+        opennext_revalidation_fn.add_event_source(
+            event_sources.SqsEventSource(
+                opennext_revalidation_queue,
+                batch_size=5,
+                max_batching_window=cdk.Duration.seconds(2),
+                report_batch_item_failures=True,
+            )
         )
 
         # ── Crawler Lambda ────────────────────────────────────────────────────

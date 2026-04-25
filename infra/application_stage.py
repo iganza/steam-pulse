@@ -110,6 +110,7 @@ class ApplicationStage(cdk.Stage):
             email_queue=messaging.email_queue,
             cache_invalidation_queue=messaging.cache_invalidation_queue,
             frontend_revalidation_queue=messaging.frontend_revalidation_queue,
+            opennext_revalidation_queue=messaging.opennext_revalidation_queue,
             spoke_crawl_queue_urls=spoke_crawl_queue_urls,
             env=cdk_env,
         )

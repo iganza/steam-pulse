@@ -1,0 +1,1798 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2026-04-24 Fri 17:39 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STATE OF ROGUELIKE DECKBUILDER — A SteamPulse Deep Dive</title>
+<meta name="author" content="[Your name], SteamPulse Research" />
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">STATE OF ROGUELIKE DECKBUILDER — A SteamPulse Deep Dive
+<br />
+<span class="subtitle"># [TODO: write a one-line subtitle naming the genre's central tension]</span>
+</h1>
+<div id="outline-container-org95ee2c7" class="outline-2">
+<h2 id="org95ee2c7">At a Glance</h2>
+<div class="outline-text-2" id="text-org95ee2c7">
+<p>
+<b>At a Glance</b>
+</p>
+
+<ol class="org-ol">
+<li>The #1 friction across the genre — <b>Item/Card Pool Dilution Degrades Build Agency at High Unlock Counts</b> — was mentioned in 12 of the 120 games analyzed.</li>
+<li>The most-requested feature in player wishlists — <b>Randomized Daily/Weekly Runs With Global Leaderboards</b> — appears in 10 games' reviews.</li>
+<li>Median player churn occurs at hour <b>20</b>. Primary reason: Build convergence: players identify the dominant strategy or exhaust the effective card/item pool and stop experiencing discovery.</li>
+<li>The benchmark games that anchor this niche: <b>Slay the Spire, Balatro, Monster Train</b>.</li>
+<li>The single highest-impact design move per the dev-priorities ranking: <b>Ship an item/card pool filter or ban mechanic so players can exclude weak or irrelevant unlocks from appearing in runs</b> (mentioned by 12 games, effort: medium).</li>
+<li>Dataset: 120 games analyzed; average positive review % is 88%; median review count 853.</li>
+<li># [TODO: write a 7th headline finding, or trim to 6]</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgb4a8deb" class="outline-2">
+<h2 id="orgb4a8deb">How to read this report</h2>
+<div class="outline-text-2" id="text-orgb4a8deb">
+<p>
+Roguelike deckbuilder players stop playing when winning stops feeling like discovery — not when they lose.
+</p>
+
+<p>
+The genre contract is unusually strict. Slay the Spire set the template: a run fits in a single sitting, card synergies are the primary skill expression, and meta-progression persists between deaths. Balatro extended the contract by proving the scoring ceiling itself can be the endgame. Monster Train demonstrated that a genuinely novel spatial mechanic — three floors of positional defense — earns hundreds of hours on its own. Any game shipping in this niche inherits all three promises on day one: strategic depth, run variety, and a reason to return after every loss.
+</p>
+
+<p>
+The games that pull ahead all do the same thing: they reward discovery over execution. Players consistently cite "the first time a build clicked" as their peak moment. The sharpest cross-genre friction is build homogenization after 30–80 hours, when the synergy space feels fully mapped and the item or card pool has been diluted by unlocks. A second axis of friction — present in nearly every report — is RNG that spikes at the exact difficulty tier where players expect their accumulated skill to matter most, converting earned progress into a luck check.
+</p>
+
+<p>
+For a developer shipping here: broad viable build diversity and a difficulty curve that rewards reads over rolls are the two investments this audience pays back. Everything else is polish.
+</p>
+</div>
+</div>
+<div id="outline-container-org76cd5d5" class="outline-2">
+<h2 id="org76cd5d5">SECTION 1 — THE MARKET</h2>
+<div class="outline-text-2" id="text-org76cd5d5">
+</div>
+<div id="outline-container-org10f7647" class="outline-3">
+<h3 id="org10f7647">At a Glance — The Market</h3>
+<div class="outline-text-3" id="text-org10f7647">
+</div>
+</div>
+<div id="outline-container-org85e3341" class="outline-3">
+<h3 id="org85e3341">Market size and growth</h3>
+<div class="outline-text-3" id="text-org85e3341">
+<p>
+<a href="./charts/releases_per_year.pdf">./charts/releases_per_year.pdf</a>
+</p>
+</div>
+</div>
+<div id="outline-container-orgac50153" class="outline-3">
+<h3 id="orgac50153">Pricing and discounting</h3>
+<div class="outline-text-3" id="text-orgac50153">
+<p>
+<a href="./charts/price_distribution.pdf">./charts/price_distribution.pdf</a>
+</p>
+</div>
+</div>
+<div id="outline-container-orge80ce18" class="outline-3">
+<h3 id="orge80ce18">Recent wins and recent losses</h3>
+<div class="outline-text-3" id="text-orge80ce18">
+</div>
+</div>
+<div id="outline-container-org474bcf4" class="outline-3">
+<h3 id="org474bcf4">Implications for The Market</h3>
+<div class="outline-text-3" id="text-org474bcf4">
+</div>
+</div>
+</div>
+<div id="outline-container-orgd158784" class="outline-2">
+<h2 id="orgd158784">SECTION 2 — THE PLAYERS</h2>
+<div class="outline-text-2" id="text-orgd158784">
+</div>
+<div id="outline-container-orga211f45" class="outline-3">
+<h3 id="orga211f45">At a Glance — The Players</h3>
+<div class="outline-text-3" id="text-orga211f45">
+</div>
+</div>
+<div id="outline-container-orgadc4e7d" class="outline-3">
+<h3 id="orgadc4e7d">Who plays this genre</h3>
+<div class="outline-text-3" id="text-orgadc4e7d">
+</div>
+</div>
+<div id="outline-container-org8e6422c" class="outline-3">
+<h3 id="org8e6422c">The churn wall</h3>
+<div class="outline-text-3" id="text-org8e6422c">
+<p>
+Median player drop-off in this genre occurs at hour <b>20</b>.
+</p>
+
+<p>
+The primary reason cited across the dataset:
+</p>
+
+<p>
+Build convergence: players identify the dominant strategy or exhaust the effective card/item pool and stop experiencing discovery. Runs feel like execution of a known solution rather than exploration of a possibility space. This is distinct from difficulty frustration — many of these players are winning; they simply have nothing left to find.
+</p>
+
+<blockquote>
+<p>
+<i>After 80–200 hours of completing all content, high-engagement players go dormant waiting for a content update that has no public ETA, converting fans into vocal critics</i>
+</p>
+
+<p>
+— quoted from <i>Balatro</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orge186cc8" class="outline-3">
+<h3 id="orge186cc8">Audience overlap</h3>
+<div class="outline-text-3" id="text-orge186cc8">
+</div>
+</div>
+<div id="outline-container-org4f3ae5d" class="outline-3">
+<h3 id="org4f3ae5d">Implications for The Players</h3>
+<div class="outline-text-3" id="text-org4f3ae5d">
+</div>
+</div>
+</div>
+<div id="outline-container-org8845a29" class="outline-2">
+<h2 id="org8845a29">SECTION 3 — THE FRICTION &amp; THE OPPORTUNITY</h2>
+<div class="outline-text-2" id="text-org8845a29">
+</div>
+<div id="outline-container-org64bd84c" class="outline-3">
+<h3 id="org64bd84c">At a Glance — Friction &amp; Opportunity</h3>
+<div class="outline-text-3" id="text-org64bd84c">
+<ul class="org-ul">
+<li><b>Friction:</b> Item/Card Pool Dilution Degrades Build Agency at High Unlock Counts (12 games)</li>
+<li><b>Friction:</b> RNG Dominates Outcomes at Higher Difficulty Tiers, Undermining Skill Expression (18 games)</li>
+<li><b>Wishlist:</b> Randomized Daily/Weekly Runs With Global Leaderboards (10 games)</li>
+<li><b>Wishlist:</b> Item Pool Filter or Ban Mechanic to Exclude Weak or Unwanted Unlocks (12 games)</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org14d391c" class="outline-3">
+<h3 id="org14d391c">Friction clusters</h3>
+<div class="outline-text-3" id="text-org14d391c">
+<p>
+<a href="./charts/friction_counts.pdf">./charts/friction_counts.pdf</a>
+</p>
+</div>
+<div id="outline-container-org81f5888" class="outline-4">
+<h4 id="org81f5888">Item/Card Pool Dilution Degrades Build Agency at High Unlock Counts</h4>
+<div class="outline-text-4" id="text-org81f5888">
+<p>
+As players unlock more cards, jokers, or items, the pool expands to include weak options that crowd out viable synergy pieces. Players report that runs become progressively harder to pilot toward an intended build as the pool grows, paradoxically making progression feel like a punishment.
+</p>
+
+<p>
+Mentioned in 12 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Unlocking more jokers dilutes the item pool with weak options, reducing the probability of finding viable builds — and there is no way to filter or disable unlocked items</i>
+</p>
+
+<p>
+— quoted from <i>Balatro</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgb47e870" class="outline-4">
+<h4 id="orgb47e870">RNG Dominates Outcomes at Higher Difficulty Tiers, Undermining Skill Expression</h4>
+<div class="outline-text-4" id="text-orgb47e870">
+<p>
+Across virtually every game in the genre, players who invest 20–100 hours and push to higher ascension or difficulty levels report that run outcomes increasingly feel decided by early card/item offerings rather than player decisions, converting what should be a mastery payoff into a luck check.
+</p>
+
+<p>
+Mentioned in 18 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>RNG card offerings can produce runs that feel unwinnable from early acts — a consistent complaint from players with 5–64 hours, driving perception of 'luck simulator'</i>
+</p>
+
+<p>
+— quoted from <i>Slay the Spire</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgc2dac64" class="outline-4">
+<h4 id="orgc2dac64">Boss and Elite Encounters Hard-Counter Entire Build Archetypes Without Counterplay</h4>
+<div class="outline-text-4" id="text-orgc2dac64">
+<p>
+In multiple titles, specific boss mechanics — ability-disabling, stat-erasing, or build-invalidating phases — arrive without telegraph and negate hours of deck construction. Players describe these as 'instant brick' moments that feel punitive rather than challenging.
+</p>
+
+<p>
+Mentioned in 14 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Doormaker boss is severely overtuned: stacked mechanics (card exhaustion, draw prevention, energy drain, high burst damage) invalidate most deck archetypes and force players to build specifically around it or abandon runs</i>
+</p>
+
+<p>
+— quoted from <i>Slay the Spire 2</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgd57b4d5" class="outline-4">
+<h4 id="orgd57b4d5">Content Exhaustion After 15–40 Hours: Full Card/Enemy Pool Visible Too Early</h4>
+<div class="outline-text-4" id="text-orgd57b4d5">
+<p>
+Players in mid-tier titles consistently report seeing the complete card pool within two to four runs, at which point the discovery loop — the genre's primary retention driver — collapses. The 'one more run' compulsion requires the possibility of encountering something new.
+</p>
+
+<p>
+Mentioned in 15 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Players hit a build that 'goes infinite' in their first few runs exit within 4–6 hours, concluding the game has no meaningful ceiling</i>
+</p>
+
+<p>
+— quoted from <i>Luck be a Landlord</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgda77008" class="outline-4">
+<h4 id="orgda77008">Absence of Meta-Progression Removes Forward Momentum After Failed Runs</h4>
+<div class="outline-text-4" id="text-orgda77008">
+<p>
+Games without any persistent unlock or reward structure between runs see players disengage after content exhaustion or repeated losses, because there is no incremental signal of progress. The genre standard — set by Hades and Slay the Spire — is that every run, win or lose, advances something.
+</p>
+
+<p>
+Mentioned in 16 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>The single largest churn driver post-floor-20 is feeling 'done' with nothing to return for. Meta-progression is the structural fix that converts one-time completers into returning players.</i>
+</p>
+
+<p>
+— quoted from <i>Luck be a Landlord</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgb958f2f" class="outline-4">
+<h4 id="orgb958f2f">Slow Animations With No Speed Toggle Create Pacing Friction Across Every Run</h4>
+<div class="outline-text-4" id="text-orgb958f2f">
+<p>
+Unskippable or insufficiently fast card play, boss attack, and result animations are a near-universal complaint across the genre. Players who replay content hundreds of times find default pacing multiplies session time without adding value.
+</p>
+
+<p>
+Mentioned in 14 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>No animation speed-up option — slow dice-slot and spell-resolve animations make turns and full runs feel significantly longer than equivalent deckbuilder peers, cited by 42 reviewers</i>
+</p>
+
+<p>
+— quoted from <i>SpellRogue</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orgc44e954" class="outline-4">
+<h4 id="orgc44e954">Forced or Unavoidable Card/Item Additions Bloat Decks and Remove Curation Agency</h4>
+<div class="outline-text-4" id="text-orgc44e954">
+<p>
+Multiple titles require players to add cards or items after every encounter with no skip, no removal, and no alternative. This directly contradicts the deckbuilder fantasy of intentional construction and is one of the genre's most-cited structural design failures.
+</p>
+
+<p>
+Mentioned in 10 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Deck bloat with no meaningful removal tools — decks balloon to 60+ cards; the only card-removal mechanics add more cards, violating standard deckbuilder conventions</i>
+</p>
+
+<p>
+— quoted from <i>Cardboard Town</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orge7c3eb1" class="outline-4">
+<h4 id="orge7c3eb1">Opaque Mechanics and Missing Tooltips Force Players to Wiki</h4>
+<div class="outline-text-4" id="text-orge7c3eb1">
+<p>
+Status effects, keyword interactions, and hidden enemy mechanics are consistently underdocumented across the genre. Players describe discovering core rules through deaths rather than UI, creating frustration-dropout in the first 1–3 hours before the strategic layer can hook them.
+</p>
+
+<p>
+Mentioned in 11 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Tutorial and tooltips are insufficient for hidden mechanics: card self-leveling, enchantment vs. tome distinction, and Nomad King unit interactions are discovered only after many hours</i>
+</p>
+
+<p>
+— quoted from <i>9 Kings</i>
+</p>
+</blockquote>
+</div>
+</div>
+</div>
+<div id="outline-container-org9813b68" class="outline-3">
+<h3 id="org9813b68">Wishlist signals</h3>
+<div class="outline-text-3" id="text-org9813b68">
+<p>
+<a href="./charts/wishlist_counts.pdf">./charts/wishlist_counts.pdf</a>
+</p>
+</div>
+<div id="outline-container-orge783b23" class="outline-4">
+<h4 id="orge783b23">Randomized Daily/Weekly Runs With Global Leaderboards</h4>
+<div class="outline-text-4" id="text-orge783b23">
+<p>
+Players across high-playtime cohorts consistently request seeded daily runs that provide a shared challenge with competitive scoring. This is positioned as the primary reactivation mechanism for players who have exhausted standard content.
+</p>
+
+<p>
+Mentioned in 10 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Randomized daily runs with global leaderboards — the most-requested missing feature among high-playtime players</i>
+</p>
+
+<p>
+— quoted from <i>Balatro</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-org3606560" class="outline-4">
+<h4 id="org3606560">Item Pool Filter or Ban Mechanic to Exclude Weak or Unwanted Unlocks</h4>
+<div class="outline-text-4" id="text-org3606560">
+<p>
+Players who have unlocked the full game content want control over what appears in their pools, preventing weak or contextually irrelevant items from diluting runs. Vampire Survivors' item locking is frequently cited as the model.
+</p>
+
+<p>
+Mentioned in 12 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Option to filter or exclude specific unlocked jokers from the item pool</i>
+</p>
+
+<p>
+— quoted from <i>Balatro</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-org8121475" class="outline-4">
+<h4 id="org8121475">Meaningful Post-Completion Ascension or Endgame Challenge Layer</h4>
+<div class="outline-text-4" id="text-org8121475">
+<p>
+The genre's most engaged players universally want structured post-completion difficulty — a Slay the Spire-style ascension ladder, heat system, or endless modifier stack — that gives a reason to keep running after all content is cleared.
+</p>
+
+<p>
+Mentioned in 14 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Ascension / escalation system (Slay the Spire-style) for structured post-true-ending progression goals</i>
+</p>
+
+<p>
+— quoted from <i>StarVaders</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-org7aa737b" class="outline-4">
+<h4 id="org7aa737b">Co-op Multiplayer (Synchronous or Asynchronous) for the Core Roguelike Loop</h4>
+<div class="outline-text-4" id="text-org7aa737b">
+<p>
+Players across the genre repeatedly request co-op modes — either full synchronous runs or asynchronous PvP/score challenge. The Slay the Spire 2 co-op implementation is the current reference point generating the strongest positive signal.
+</p>
+
+<p>
+Mentioned in 10 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Co-op multiplayer for up to 4 players adds cross-character synergies and is widely cited as the single biggest upgrade over STS1</i>
+</p>
+
+<p>
+— quoted from <i>Slay the Spire 2</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-org25c518c" class="outline-4">
+<h4 id="org25c518c">Damage/Outcome Preview Before Committing a Play</h4>
+<div class="outline-text-4" id="text-org25c518c">
+<p>
+Players in multiple titles request a real-time or pre-commit preview showing how much incoming damage will resolve or what the outcome of a card play will be. Monster Train's damage preview overlay is the most-cited benchmark.
+</p>
+
+<p>
+Mentioned in 9 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>Add a damage/consequence preview system showing how much incoming damage will resolve before the player commits a card play</i>
+</p>
+
+<p>
+— quoted from <i>Wildfrost</i>
+</p>
+</blockquote>
+</div>
+</div>
+<div id="outline-container-orga80992c" class="outline-4">
+<h4 id="orga80992c">Expanded Boss and Enemy Roster to Reduce Encounter Repetition</h4>
+<div class="outline-text-4" id="text-orga80992c">
+<p>
+Across games with 3–5 bosses and a shallow enemy pool, players with 30+ hours explicitly request additional boss types and elite encounters as the primary content investment that would extend their engagement.
+</p>
+
+<p>
+Mentioned in 13 games in the dataset.
+</p>
+
+<blockquote>
+<p>
+<i>More enemy variety — additional elite and boss types per act to reduce rotation fatigue across extended play</i>
+</p>
+
+<p>
+— quoted from <i>Slay the Spire</i>
+</p>
+</blockquote>
+</div>
+</div>
+</div>
+<div id="outline-container-org323065f" class="outline-3">
+<h3 id="org323065f">The promise gap</h3>
+<div class="outline-text-3" id="text-org323065f">
+</div>
+</div>
+<div id="outline-container-org9833d46" class="outline-3">
+<h3 id="org9833d46">Implications for Friction &amp; Opportunity</h3>
+<div class="outline-text-3" id="text-org9833d46">
+</div>
+</div>
+</div>
+<div id="outline-container-org78d099f" class="outline-2">
+<h2 id="org78d099f">SECTION 4 — THE PLAYBOOK</h2>
+<div class="outline-text-2" id="text-org78d099f">
+</div>
+<div id="outline-container-org05a82be" class="outline-3">
+<h3 id="org05a82be">At a Glance — The Playbook</h3>
+<div class="outline-text-3" id="text-org05a82be">
+<ul class="org-ul">
+<li>Ship an item/card pool filter or ban mechanic so players can exclude weak or irrelevant unlocks from appearing in runs</li>
+<li>Add an animation speed toggle (minimum 2x, ideally 4x or instant-resolve) as a first-session accessible setting</li>
+<li>Implement a global or account-level difficulty progression so players exploring new characters or decks do not restart from difficulty 1</li>
+<li>Design a meaningful meta-progression layer with at minimum a lightweight unlock ladder that rewards every run, win or lose</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orga7534c4" class="outline-3">
+<h3 id="orga7534c4">Ranked priorities for builders</h3>
+<div class="outline-text-3" id="text-orga7534c4">
+<p>
+<a href="./charts/dev_priorities.pdf">./charts/dev_priorities.pdf</a>
+</p>
+</div>
+<div id="outline-container-org5b6259e" class="outline-4">
+<h4 id="org5b6259e">1. Ship an item/card pool filter or ban mechanic so players can exclude weak or irrelevant unlocks from appearing in runs</h4>
+<div class="outline-text-4" id="text-org5b6259e">
+<p>
+<b>Effort:</b> medium | <b>Mentioned by:</b> 12 games
+</p>
+
+<p>
+Pool dilution is the single most consistent cross-game friction — it paradoxically makes progression feel like punishment, converting the genre's core retention loop (unlock → more options) into a negative. Every game with a large unlock pool faces this problem, and the fix is table-stakes for long-term replayability.
+</p>
+</div>
+</div>
+<div id="outline-container-org76076b6" class="outline-4">
+<h4 id="org76076b6">2. Add an animation speed toggle (minimum 2x, ideally 4x or instant-resolve) as a first-session accessible setting</h4>
+<div class="outline-text-4" id="text-org76076b6">
+<p>
+<b>Effort:</b> low | <b>Mentioned by:</b> 14 games
+</p>
+
+<p>
+Slow animations are cited in nearly every game in the corpus, always as friction and never as a positive. The cost of this fix is minimal; the retention impact for high-playtime players running their 50th+ session is significant.
+</p>
+</div>
+</div>
+<div id="outline-container-org58f5457" class="outline-4">
+<h4 id="org58f5457">3. Implement a global or account-level difficulty progression so players exploring new characters or decks do not restart from difficulty 1</h4>
+<div class="outline-text-4" id="text-org58f5457">
+<p>
+<b>Effort:</b> medium | <b>Mentioned by:</b> 8 games
+</p>
+
+<p>
+Per-character ascension resets are the leading structural reason players abandon character variety — the genre's primary replayability axis. The Slay the Spire model (shared ascension unlocked incrementally) is the established solution.
+</p>
+</div>
+</div>
+<div id="outline-container-org63823e9" class="outline-4">
+<h4 id="org63823e9">4. Design a meaningful meta-progression layer with at minimum a lightweight unlock ladder that rewards every run, win or lose</h4>
+<div class="outline-text-4" id="text-org63823e9">
+<p>
+<b>Effort:</b> high | <b>Mentioned by:</b> 16 games
+</p>
+
+<p>
+The absence of inter-run progression is the primary churn driver in games without it, and the standard has been set by genre leaders. Players who have no incremental signal of progress after a loss have no structural reason to start the next run.
+</p>
+</div>
+</div>
+<div id="outline-container-org43c67a9" class="outline-4">
+<h4 id="org43c67a9">5. Audit and redesign boss/elite encounters that hard-counter build archetypes without counterplay — replace flat invalidation with readable pressure mechanics</h4>
+<div class="outline-text-4" id="text-org43c67a9">
+<p>
+<b>Effort:</b> high | <b>Mentioned by:</b> 14 games
+</p>
+
+<p>
+Build-invalidating boss encounters appear in the friction data of nearly every game surveyed and are the top driver of run-abandonment at peak investment (30–90 minutes into a run). These are the moments that convert fans into negative reviewers.
+</p>
+</div>
+</div>
+<div id="outline-container-org9ea8d03" class="outline-4">
+<h4 id="org9ea8d03">6. Add a daily or weekly seeded run mode with a global leaderboard</h4>
+<div class="outline-text-4" id="text-org9ea8d03">
+<p>
+<b>Effort:</b> medium | <b>Mentioned by:</b> 10 games
+</p>
+
+<p>
+This is the single most-requested feature across high-playtime player cohorts in multiple games (Balatro, Slay the Spire, Monster Train 2, SpellRogue). It reactivates dormant players who have cleared base content and provides recurring organic community touchpoints.
+</p>
+</div>
+</div>
+<div id="outline-container-org481daad" class="outline-4">
+<h4 id="org481daad">7. Rebalance the card/item pool so that at least 60–70% of available options are viable in at least one endgame build archetype</h4>
+<div class="outline-text-4" id="text-org481daad">
+<p>
+<b>Effort:</b> high | <b>Mentioned by:</b> 15 games
+</p>
+
+<p>
+Build homogenization — runs converging to 2–5 dominant strategies — is the primary long-term replayability killer across the corpus. Players explicitly name card count and variety as purchase justifications; when the effective pool is a fraction of the total, trust in the game's systems erodes.
+</p>
+</div>
+</div>
+<div id="outline-container-org37f0de0" class="outline-4">
+<h4 id="org37f0de0">8. Implement a pre-commit outcome or damage preview for key card or ability plays</h4>
+<div class="outline-text-4" id="text-org37f0de0">
+<p>
+<b>Effort:</b> medium | <b>Mentioned by:</b> 9 games
+</p>
+
+<p>
+Opaque death states — 'I don't know what killed me' — are a top early-session churn trigger. Monster Train's damage preview is the cited benchmark. This converts frustration-dropout into learning-retention.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org4bb1e3a" class="outline-3">
+<h3 id="org4bb1e3a">Opportunity map</h3>
+<div class="outline-text-3" id="text-org4bb1e3a">
+</div>
+</div>
+<div id="outline-container-orga9ee48b" class="outline-3">
+<h3 id="orga9ee48b">What to avoid</h3>
+<div class="outline-text-3" id="text-orga9ee48b">
+<p>
+The most common mistakes builders make in this genre — each is the inverse of a friction cluster from Section 3:
+</p>
+
+<ol class="org-ol">
+<li><b>Don't ship item/card pool dilution degrades build agency at high unlock counts</b> — see Section 3 for the full pattern. # [TODO: add a specific game that fell into this trap, with one quote.]</li>
+<li><b>Don't ship rng dominates outcomes at higher difficulty tiers, undermining skill expression</b> — see Section 3 for the full pattern. # [TODO: add a specific game that fell into this trap, with one quote.]</li>
+<li><b>Don't ship boss and elite encounters hard-counter entire build archetypes without counterplay</b> — see Section 3 for the full pattern. # [TODO: add a specific game that fell into this trap, with one quote.]</li>
+<li><b>Don't ship content exhaustion after 15–40 hours: full card/enemy pool visible too early</b> — see Section 3 for the full pattern. # [TODO: add a specific game that fell into this trap, with one quote.]</li>
+<li><b>Don't ship absence of meta-progression removes forward momentum after failed runs</b> — see Section 3 for the full pattern. # [TODO: add a specific game that fell into this trap, with one quote.]</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-org93997ed" class="outline-3">
+<h3 id="org93997ed">Implications for The Playbook</h3>
+<div class="outline-text-3" id="text-org93997ed">
+</div>
+</div>
+</div>
+<div id="outline-container-orgb11336c" class="outline-2">
+<h2 id="orgb11336c">APPENDIX A — Benchmark game profiles</h2>
+<div class="outline-text-2" id="text-orgb11336c">
+<p>
+<a href="./charts/top_games_by_reviews.pdf">./charts/top_games_by_reviews.pdf</a>
+</p>
+</div>
+<div id="outline-container-orgc2f3444" class="outline-3">
+<h3 id="orgc2f3444">Slay the Spire (appid 646570)</h3>
+<div class="outline-text-3" id="text-orgc2f3444">
+<p>
+The single most-cited reference across the entire input set — present in competitive_context for nearly every game analyzed. Establishes the genre baseline for card pool depth, ascension difficulty, run pacing, and the standard against which all other deckbuilders are measured.
+</p>
+</div>
+</div>
+<div id="outline-container-orgdc9a066" class="outline-3">
+<h3 id="orgdc9a066">Balatro (appid 2379780)</h3>
+<div class="outline-text-3" id="text-orgdc9a066">
+<p>
+The second most frequently referenced game across the input corpus, cited as a peer or aspirational comparison in dozens of reports. Represents the current ceiling for accessible deckbuilder design: high player agency, exceptional dopamine loop, and the 'scoring ceiling as endgame' innovation.
+</p>
+</div>
+</div>
+<div id="outline-container-org54fdc58" class="outline-3">
+<h3 id="org54fdc58">Monster Train (appid 1102190)</h3>
+<div class="outline-text-3" id="text-org54fdc58">
+<p>
+Appears in competitive_context for the majority of input reports, consistently cited as the top-tier alternative to Slay the Spire. Establishes the standard for spatial mechanical differentiation, dual-faction combinatorics, and run pacing in the 30–60 minute sweet spot.
+</p>
+</div>
+</div>
+<div id="outline-container-org9af2e22" class="outline-3">
+<h3 id="org9af2e22">Slay the Spire 2 (appid 2868840)</h3>
+<div class="outline-text-3" id="text-org9af2e22">
+<p>
+Heavily referenced in reports from late 2025 and 2026, cited as the current active benchmark for co-op deckbuilding and as a direct replacement signal for multiple games in the corpus. Its April patch controversy is the most widely discussed live-balance event in the dataset.
+</p>
+</div>
+</div>
+<div id="outline-container-org9f0f2f9" class="outline-3">
+<h3 id="org9f0f2f9">Hades (appid 1016730)</h3>
+<div class="outline-text-3" id="text-org9f0f2f9">
+<p>
+Consistently invoked across the input corpus — not as a direct deckbuilder but as the benchmark for meta-progression design, narrative-in-roguelike integration, and the 'every run advances something' design principle that players cite when criticizing absent persistence systems.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org4228ae1" class="outline-2">
+<h2 id="org4228ae1">APPENDIX B — Methodology</h2>
+<div class="outline-text-2" id="text-org4228ae1">
+<p>
+This report synthesizes player-stated signal from <b>120 games</b> tagged "Roguelike Deckbuilder" on Steam, analyzed via the SteamPulse 3-phase LLM pipeline (prompt_version=v1). Synthesis computed: 2026-04-24.
+</p>
+
+<p>
+<b>Coverage:</b>
+</p>
+<ul class="org-ul">
+<li>Games included: 120 (full list in Appendix C)</li>
+<li>Average positive-review percentage across the dataset: 88%</li>
+<li>Median review count per included game: 853</li>
+</ul>
+
+<p>
+<a href="./charts/positive_pct_distribution.pdf">./charts/positive_pct_distribution.pdf</a>
+</p>
+</div>
+</div>
+<div id="outline-container-orgd2db063" class="outline-2">
+<h2 id="orgd2db063">APPENDIX C — Games included in this analysis</h2>
+<div class="outline-text-2" id="text-orgd2db063">
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-right" />
+
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-right">Appid</th>
+<th scope="col" class="org-left">Name</th>
+<th scope="col" class="org-right">Reviews</th>
+<th scope="col" class="org-right">Positive %</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-right">646570</td>
+<td class="org-left">Slay the Spire</td>
+<td class="org-right">212706</td>
+<td class="org-right">98%</td>
+</tr>
+
+<tr>
+<td class="org-right">2379780</td>
+<td class="org-left">Balatro</td>
+<td class="org-right">189318</td>
+<td class="org-right">98%</td>
+</tr>
+
+<tr>
+<td class="org-right">2868840</td>
+<td class="org-left">Slay the Spire 2</td>
+<td class="org-right">145402</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">1557740</td>
+<td class="org-left">ROUNDS</td>
+<td class="org-right">42435</td>
+<td class="org-right">96%</td>
+</tr>
+
+<tr>
+<td class="org-right">1102190</td>
+<td class="org-left">Monster Train</td>
+<td class="org-right">22787</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">2784470</td>
+<td class="org-left">9 Kings</td>
+<td class="org-right">20895</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">2427700</td>
+<td class="org-left">Backpack Battles</td>
+<td class="org-right">19997</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">601840</td>
+<td class="org-left">Griftlands</td>
+<td class="org-right">14324</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">1188930</td>
+<td class="org-left">Chrono Ark</td>
+<td class="org-right">13372</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">1385380</td>
+<td class="org-left">Across the Obelisk</td>
+<td class="org-right">12829</td>
+<td class="org-right">82%</td>
+</tr>
+
+<tr>
+<td class="org-right">861540</td>
+<td class="org-left">Dicey Dungeons</td>
+<td class="org-right">11539</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">1404850</td>
+<td class="org-left">Luck be a Landlord</td>
+<td class="org-right">11373</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">769560</td>
+<td class="org-left">月圆之夜 (Night of Full Moon)</td>
+<td class="org-right">10873</td>
+<td class="org-right">80%</td>
+</tr>
+
+<tr>
+<td class="org-right">266510</td>
+<td class="org-left">Hand of Fate</td>
+<td class="org-right">10641</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">449960</td>
+<td class="org-left">Book of Demons</td>
+<td class="org-right">9456</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">2742830</td>
+<td class="org-left">Monster Train 2</td>
+<td class="org-right">9390</td>
+<td class="org-right">96%</td>
+</tr>
+
+<tr>
+<td class="org-right">1811990</td>
+<td class="org-left">Wildfrost</td>
+<td class="org-right">8635</td>
+<td class="org-right">92%</td>
+</tr>
+
+<tr>
+<td class="org-right">1970580</td>
+<td class="org-left">Backpack Hero</td>
+<td class="org-right">8318</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">2084000</td>
+<td class="org-left">Shogun Showdown</td>
+<td class="org-right">6646</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">981430</td>
+<td class="org-left">Gordian Quest</td>
+<td class="org-right">5935</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">456670</td>
+<td class="org-left">Hand of Fate 2</td>
+<td class="org-right">5762</td>
+<td class="org-right">84%</td>
+</tr>
+
+<tr>
+<td class="org-right">2289750</td>
+<td class="org-left">Super Fantasy Kingdom</td>
+<td class="org-right">5487</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">1108370</td>
+<td class="org-left">Ratropolis</td>
+<td class="org-right">5485</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">2501600</td>
+<td class="org-left">DICEOMANCER</td>
+<td class="org-right">5469</td>
+<td class="org-right">95%</td>
+</tr>
+
+<tr>
+<td class="org-right">2719030</td>
+<td class="org-left">Meme Mayhem</td>
+<td class="org-right">5052</td>
+<td class="org-right">92%</td>
+</tr>
+
+<tr>
+<td class="org-right">998740</td>
+<td class="org-left">Ring of Pain</td>
+<td class="org-right">5027</td>
+<td class="org-right">92%</td>
+</tr>
+
+<tr>
+<td class="org-right">3444020</td>
+<td class="org-left">Demonic Mahjong</td>
+<td class="org-right">4976</td>
+<td class="org-right">96%</td>
+</tr>
+
+<tr>
+<td class="org-right">1201540</td>
+<td class="org-left">HELLCARD</td>
+<td class="org-right">4546</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">1755830</td>
+<td class="org-left">Astrea: Six-Sided Oracles</td>
+<td class="org-right">4438</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">1076200</td>
+<td class="org-left">Roguebook</td>
+<td class="org-right">4352</td>
+<td class="org-right">84%</td>
+</tr>
+
+<tr>
+<td class="org-right">1919460</td>
+<td class="org-left">Seraph's Last Stand</td>
+<td class="org-right">4302</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">2179850</td>
+<td class="org-left">Cobalt Core</td>
+<td class="org-right">4164</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">2097570</td>
+<td class="org-left">StarVaders</td>
+<td class="org-right">4028</td>
+<td class="org-right">98%</td>
+</tr>
+
+<tr>
+<td class="org-right">2181610</td>
+<td class="org-left">Heretic's Fork</td>
+<td class="org-right">4006</td>
+<td class="org-right">86%</td>
+</tr>
+
+<tr>
+<td class="org-right">3052450</td>
+<td class="org-left">Morimens</td>
+<td class="org-right">3901</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">1668690</td>
+<td class="org-left">Alina of the Arena</td>
+<td class="org-right">3889</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">1793250</td>
+<td class="org-left">Take Me To The Dungeon!!</td>
+<td class="org-right">3838</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">1265820</td>
+<td class="org-left">Fights in Tight Spaces</td>
+<td class="org-right">3808</td>
+<td class="org-right">92%</td>
+</tr>
+
+<tr>
+<td class="org-right">2824490</td>
+<td class="org-left">He is Coming</td>
+<td class="org-right">3760</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">2693930</td>
+<td class="org-left">Dice &amp; Fold</td>
+<td class="org-right">3668</td>
+<td class="org-right">83%</td>
+</tr>
+
+<tr>
+<td class="org-right">2459550</td>
+<td class="org-left">Emberward</td>
+<td class="org-right">3640</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">2738490</td>
+<td class="org-left">Sol Cesto</td>
+<td class="org-right">3490</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">2356780</td>
+<td class="org-left">Dungeon Clawler</td>
+<td class="org-right">3426</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">3784030</td>
+<td class="org-left">RACCOIN: Coin Pusher Roguelike</td>
+<td class="org-right">3376</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">2400510</td>
+<td class="org-left">Dungeons &amp; Degenerate Gamblers</td>
+<td class="org-right">3313</td>
+<td class="org-right">84%</td>
+</tr>
+
+<tr>
+<td class="org-right">1038370</td>
+<td class="org-left">Trials of Fire</td>
+<td class="org-right">3240</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">1075740</td>
+<td class="org-left">Banners of Ruin</td>
+<td class="org-right">3185</td>
+<td class="org-right">79%</td>
+</tr>
+
+<tr>
+<td class="org-right">919370</td>
+<td class="org-left">Overdungeon</td>
+<td class="org-right">3103</td>
+<td class="org-right">79%</td>
+</tr>
+
+<tr>
+<td class="org-right">1135810</td>
+<td class="org-left">Vault of the Void</td>
+<td class="org-right">2954</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">698640</td>
+<td class="org-left">Deep Sky Derelicts</td>
+<td class="org-right">2860</td>
+<td class="org-right">73%</td>
+</tr>
+
+<tr>
+<td class="org-right">1232580</td>
+<td class="org-left">Knock on the Coffin Lid</td>
+<td class="org-right">2847</td>
+<td class="org-right">82%</td>
+</tr>
+
+<tr>
+<td class="org-right">3265700</td>
+<td class="org-left">Vampire Crawlers: The Turbo Wildcard from Vampire Survivors</td>
+<td class="org-right">2803</td>
+<td class="org-right">98%</td>
+</tr>
+
+<tr>
+<td class="org-right">2697930</td>
+<td class="org-left">Commander Quest</td>
+<td class="org-right">2800</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">2026820</td>
+<td class="org-left">Die in the Dungeon</td>
+<td class="org-right">2767</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">2735630</td>
+<td class="org-left">Frostrain</td>
+<td class="org-right">2697</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">317820</td>
+<td class="org-left">Guild of Dungeoneering Ultimate Edition</td>
+<td class="org-right">2614</td>
+<td class="org-right">75%</td>
+</tr>
+
+<tr>
+<td class="org-right">2056210</td>
+<td class="org-left">LONESTAR</td>
+<td class="org-right">2351</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">2644610</td>
+<td class="org-left">Menace from the Deep</td>
+<td class="org-right">2325</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">2198070</td>
+<td class="org-left">Cardboard Town</td>
+<td class="org-right">2144</td>
+<td class="org-right">71%</td>
+</tr>
+
+<tr>
+<td class="org-right">1140150</td>
+<td class="org-left">Touhou: Lost Branch of Legend</td>
+<td class="org-right">1992</td>
+<td class="org-right">98%</td>
+</tr>
+
+<tr>
+<td class="org-right">1260590</td>
+<td class="org-left">Hadean Tactics</td>
+<td class="org-right">1860</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">2870340</td>
+<td class="org-left">Decktamer</td>
+<td class="org-right">1789</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">1337890</td>
+<td class="org-left">Choice of Life: Middle Ages</td>
+<td class="org-right">1784</td>
+<td class="org-right">79%</td>
+</tr>
+
+<tr>
+<td class="org-right">1569090</td>
+<td class="org-left">Vivid Knight</td>
+<td class="org-right">1703</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">1803400</td>
+<td class="org-left">Beneath Oresa</td>
+<td class="org-right">1666</td>
+<td class="org-right">78%</td>
+</tr>
+
+<tr>
+<td class="org-right">1990110</td>
+<td class="org-left">SpellRogue</td>
+<td class="org-right">1590</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">3205380</td>
+<td class="org-left">Omelet You Cook</td>
+<td class="org-right">1383</td>
+<td class="org-right">99%</td>
+</tr>
+
+<tr>
+<td class="org-right">2118810</td>
+<td class="org-left">Breachway</td>
+<td class="org-right">1366</td>
+<td class="org-right">80%</td>
+</tr>
+
+<tr>
+<td class="org-right">3410180</td>
+<td class="org-left">Overlooting</td>
+<td class="org-right">1358</td>
+<td class="org-right">81%</td>
+</tr>
+
+<tr>
+<td class="org-right">1127610</td>
+<td class="org-left">Iris and the Giant</td>
+<td class="org-right">1305</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">496620</td>
+<td class="org-left">Monster Slayers</td>
+<td class="org-right">1254</td>
+<td class="org-right">79%</td>
+</tr>
+
+<tr>
+<td class="org-right">1711950</td>
+<td class="org-left">GWENT: Rogue Mage (Single-Player Expansion)</td>
+<td class="org-right">1246</td>
+<td class="org-right">60%</td>
+</tr>
+
+<tr>
+<td class="org-right">1709900</td>
+<td class="org-left">Tower Tactics: Liberation</td>
+<td class="org-right">1229</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">2825880</td>
+<td class="org-left">Death Howl</td>
+<td class="org-right">1206</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">1769830</td>
+<td class="org-left">As We Descend</td>
+<td class="org-right">1132</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">2113040</td>
+<td class="org-left">RUNGORE</td>
+<td class="org-right">1124</td>
+<td class="org-right">81%</td>
+</tr>
+
+<tr>
+<td class="org-right">3617620</td>
+<td class="org-left">My Card Is Better Than Your Card!</td>
+<td class="org-right">1085</td>
+<td class="org-right">96%</td>
+</tr>
+
+<tr>
+<td class="org-right">3066570</td>
+<td class="org-left">Aotenjo: Infinite Hands</td>
+<td class="org-right">1067</td>
+<td class="org-right">95%</td>
+</tr>
+
+<tr>
+<td class="org-right">1016730</td>
+<td class="org-left">Deck of Ashes</td>
+<td class="org-right">1062</td>
+<td class="org-right">63%</td>
+</tr>
+
+<tr>
+<td class="org-right">2917350</td>
+<td class="org-left">Spin Hero</td>
+<td class="org-right">1034</td>
+<td class="org-right">64%</td>
+</tr>
+
+<tr>
+<td class="org-right">1996430</td>
+<td class="org-left">Dicefolk</td>
+<td class="org-right">983</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">2691350</td>
+<td class="org-left">.Forty-Five</td>
+<td class="org-right">973</td>
+<td class="org-right">95%</td>
+</tr>
+
+<tr>
+<td class="org-right">1073320</td>
+<td class="org-left">Meteorfall: Krumit's Tale</td>
+<td class="org-right">885</td>
+<td class="org-right">92%</td>
+</tr>
+
+<tr>
+<td class="org-right">2852980</td>
+<td class="org-left">Necroking</td>
+<td class="org-right">873</td>
+<td class="org-right">76%</td>
+</tr>
+
+<tr>
+<td class="org-right">920680</td>
+<td class="org-left">Fate Hunters</td>
+<td class="org-right">871</td>
+<td class="org-right">80%</td>
+</tr>
+
+<tr>
+<td class="org-right">1054550</td>
+<td class="org-left">Phantom Rose</td>
+<td class="org-right">869</td>
+<td class="org-right">87%</td>
+</tr>
+
+<tr>
+<td class="org-right">1142080</td>
+<td class="org-left">Pawnbarian</td>
+<td class="org-right">863</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">770100</td>
+<td class="org-left">One Deck Dungeon</td>
+<td class="org-right">861</td>
+<td class="org-right">79%</td>
+</tr>
+
+<tr>
+<td class="org-right">2113050</td>
+<td class="org-left">RUNGORE: Beginner Experience</td>
+<td class="org-right">858</td>
+<td class="org-right">89%</td>
+</tr>
+
+<tr>
+<td class="org-right">1619570</td>
+<td class="org-left">Death Roads: Tournament</td>
+<td class="org-right">793</td>
+<td class="org-right">82%</td>
+</tr>
+
+<tr>
+<td class="org-right">1638390</td>
+<td class="org-left">Indies' Lies</td>
+<td class="org-right">781</td>
+<td class="org-right">77%</td>
+</tr>
+
+<tr>
+<td class="org-right">2116060</td>
+<td class="org-left">Epic Auto Towers</td>
+<td class="org-right">766</td>
+<td class="org-right">69%</td>
+</tr>
+
+<tr>
+<td class="org-right">2464880</td>
+<td class="org-left">Terracards</td>
+<td class="org-right">746</td>
+<td class="org-right">86%</td>
+</tr>
+
+<tr>
+<td class="org-right">1046300</td>
+<td class="org-left">Pirates Outlaws</td>
+<td class="org-right">741</td>
+<td class="org-right">80%</td>
+</tr>
+
+<tr>
+<td class="org-right">2019680</td>
+<td class="org-left">Lewd Gym</td>
+<td class="org-right">737</td>
+<td class="org-right">88%</td>
+</tr>
+
+<tr>
+<td class="org-right">2468100</td>
+<td class="org-left">Pyrene</td>
+<td class="org-right">727</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">2229560</td>
+<td class="org-left">Zet Zillions</td>
+<td class="org-right">726</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">930780</td>
+<td class="org-left">Blood Card</td>
+<td class="org-right">722</td>
+<td class="org-right">81%</td>
+</tr>
+
+<tr>
+<td class="org-right">2305500</td>
+<td class="org-left">FAIRY TAIL: DUNGEONS</td>
+<td class="org-right">719</td>
+<td class="org-right">95%</td>
+</tr>
+
+<tr>
+<td class="org-right">2459750</td>
+<td class="org-left">Yohane the Parhelion - NUMAZU in the MIRAGE -</td>
+<td class="org-right">691</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">1389360</td>
+<td class="org-left">Mech Armada</td>
+<td class="org-right">678</td>
+<td class="org-right">83%</td>
+</tr>
+
+<tr>
+<td class="org-right">2316330</td>
+<td class="org-left">Shogun Showdown: Prologue</td>
+<td class="org-right">678</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">3430340</td>
+<td class="org-left">Dice A Million</td>
+<td class="org-right">676</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">1071140</td>
+<td class="org-left">ORX</td>
+<td class="org-right">671</td>
+<td class="org-right">68%</td>
+</tr>
+
+<tr>
+<td class="org-right">1766390</td>
+<td class="org-left">FORWARD: Escape the Fold - Ultimate Edition</td>
+<td class="org-right">670</td>
+<td class="org-right">83%</td>
+</tr>
+
+<tr>
+<td class="org-right">3435260</td>
+<td class="org-left">Dice With Death</td>
+<td class="org-right">651</td>
+<td class="org-right">93%</td>
+</tr>
+
+<tr>
+<td class="org-right">1958340</td>
+<td class="org-left">Cube Chaos</td>
+<td class="org-right">614</td>
+<td class="org-right">96%</td>
+</tr>
+
+<tr>
+<td class="org-right">264690</td>
+<td class="org-left">Coin Crypt</td>
+<td class="org-right">607</td>
+<td class="org-right">84%</td>
+</tr>
+
+<tr>
+<td class="org-right">1893620</td>
+<td class="org-left">Circadian Dice</td>
+<td class="org-right">591</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">2311990</td>
+<td class="org-left">Rack and Slay</td>
+<td class="org-right">591</td>
+<td class="org-right">91%</td>
+</tr>
+
+<tr>
+<td class="org-right">2789810</td>
+<td class="org-left">Bingle Bingle</td>
+<td class="org-right">575</td>
+<td class="org-right">84%</td>
+</tr>
+
+<tr>
+<td class="org-right">1146230</td>
+<td class="org-left">DungeonTop</td>
+<td class="org-right">573</td>
+<td class="org-right">83%</td>
+</tr>
+
+<tr>
+<td class="org-right">463980</td>
+<td class="org-left">Solitairica</td>
+<td class="org-right">562</td>
+<td class="org-right">75%</td>
+</tr>
+
+<tr>
+<td class="org-right">3839300</td>
+<td class="org-left">Dogpile</td>
+<td class="org-right">558</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">2348090</td>
+<td class="org-left">Crop Rotation</td>
+<td class="org-right">546</td>
+<td class="org-right">94%</td>
+</tr>
+
+<tr>
+<td class="org-right">1163740</td>
+<td class="org-left">Card Hog</td>
+<td class="org-right">538</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">1709050</td>
+<td class="org-left">Nitro Kid</td>
+<td class="org-right">533</td>
+<td class="org-right">90%</td>
+</tr>
+
+<tr>
+<td class="org-right">1494560</td>
+<td class="org-left">Rogue Voltage</td>
+<td class="org-right">525</td>
+<td class="org-right">97%</td>
+</tr>
+
+<tr>
+<td class="org-right">3166810</td>
+<td class="org-left">Insider Trading</td>
+<td class="org-right">508</td>
+<td class="org-right">82%</td>
+</tr>
+
+<tr>
+<td class="org-right">1434540</td>
+<td class="org-left">Zoeti</td>
+<td class="org-right">502</td>
+<td class="org-right">60%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="outline-container-org8f82409" class="outline-2">
+<h2 id="org8f82409">APPENDIX D — Glossary</h2>
+<div class="outline-text-2" id="text-org8f82409">
+</div>
+</div>
+<div id="outline-container-org2406292" class="outline-2">
+<h2 id="org2406292">About SteamPulse</h2>
+<div class="outline-text-2" id="text-org2406292">
+</div>
+<div id="outline-container-orgf9a20d2" class="outline-3">
+<h3 id="orgf9a20d2">What this report is</h3>
+<div class="outline-text-3" id="text-orgf9a20d2">
+</div>
+</div>
+<div id="outline-container-org6baaa53" class="outline-3">
+<h3 id="org6baaa53">Commission custom research</h3>
+<div class="outline-text-3" id="text-org6baaa53">
+</div>
+</div>
+<div id="outline-container-org651186c" class="outline-3">
+<h3 id="org651186c">Other reports in this series</h3>
+<div class="outline-text-3" id="text-org651186c">
+</div>
+</div>
+<div id="outline-container-org17c7d82" class="outline-3">
+<h3 id="org17c7d82">Newsletter</h3>
+<div class="outline-text-3" id="text-org17c7d82">
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="date">Date: [Month Year]</p>
+<p class="author">Author: [Your name], SteamPulse Research</p>
+<p class="date">Created: 2026-04-24 Fri 17:39</p>
+<p class="validation"><a href="https://validator.w3.org/check?uri=referer">Validate</a></p>
+</div>
+</body>
+</html>

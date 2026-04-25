@@ -296,6 +296,26 @@ class ComputeStack(cdk.Stack):
             f"/steampulse/{env}/frontend/revalidate-token",
         )
 
+        # Shared OpenNext cache env — both FrontendFn (writer) and
+        # OpenNextRevalidationFn (reader/re-renderer) MUST point at the same
+        # bucket + key prefix + DynamoDB table or the revalidation pipeline
+        # silently writes to a different cache than the SSR Lambda reads from.
+        # Per-build key prefix: each deploy writes to a fresh cache/{BUILD_ID}/
+        # namespace; old prefixes age out via the 7-day S3 lifecycle rule on
+        # frontend_bucket (data_stack.py). BUILD_ID comes from the CDK context
+        # var `build-id` (set by scripts/deploy.sh from `git rev-parse --short HEAD`),
+        # with a `local` fallback for dev synth.
+        opennext_cache_env = {
+            "NODE_ENV": "production",
+            # Absolute URL for SSR — Next.js server components need this to call
+            # the API from inside Lambda (relative URLs don't work in Lambda).
+            "API_URL": self.api_fn_url.url,
+            "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
+            "CACHE_BUCKET_REGION": self.region,
+            "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
+            "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+        }
+
         frontend_fn = lambda_.Function(
             self,
             "FrontendFn",
@@ -311,23 +331,7 @@ class ComputeStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment={
-                "NODE_ENV": "production",
-                # Absolute URL for SSR — Next.js server components need this to call
-                # the API from inside Lambda (relative URLs don't work in Lambda).
-                "API_URL": self.api_fn_url.url,
-                # OpenNext ISR cache — must point at a real bucket or every
-                # cache read/write will fail with NoSuchBucket.
-                "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
-                "CACHE_BUCKET_REGION": self.region,
-                # Per-build key prefix — each deploy writes to a fresh
-                # cache/{BUILD_ID}/ namespace, so the new Lambda can never
-                # read pre-deploy HTML. Old prefixes age out via the 7-day
-                # S3 lifecycle rule on frontend_bucket (data_stack.py).
-                # BUILD_ID comes from the CDK context var `build-id`
-                # (set by scripts/deploy.sh from `git rev-parse --short HEAD`),
-                # with a `local` fallback for dev synth.
-                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
-                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
+                **opennext_cache_env,
                 "REVALIDATE_TOKEN": revalidate_token_value,
                 "REVALIDATION_QUEUE_URL": opennext_revalidation_queue.queue_url,
                 "REVALIDATION_QUEUE_REGION": self.region,
@@ -367,14 +371,7 @@ class ComputeStack(cdk.Stack):
                 retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
-            environment={
-                "NODE_ENV": "production",
-                "API_URL": self.api_fn_url.url,
-                "CACHE_BUCKET_NAME": frontend_bucket.bucket_name,
-                "CACHE_BUCKET_REGION": self.region,
-                "CACHE_BUCKET_KEY_PREFIX": f"cache/{self.node.try_get_context('build-id') or 'local'}/",
-                "CACHE_DYNAMO_TABLE": opennext_cache_table.table_name,
-            },
+            environment=opennext_cache_env,
         )
         cdk.Tags.of(opennext_revalidation_fn).add("steampulse:service", "frontend")
         cdk.Tags.of(opennext_revalidation_fn).add("steampulse:tier", "critical")

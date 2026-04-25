@@ -339,9 +339,10 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── OpenNext Revalidation Lambda (drains stale-page re-render queue) ──
-        if not os.path.isdir(_OPEN_NEXT_REVALIDATION):
+        if not os.path.isfile(os.path.join(_OPEN_NEXT_REVALIDATION, "index.mjs")):
             raise FileNotFoundError(
-                f"OpenNext revalidation bundle missing at {_OPEN_NEXT_REVALIDATION}. "
+                f"OpenNext revalidation bundle missing or incomplete at "
+                f"{_OPEN_NEXT_REVALIDATION} (no index.mjs). "
                 "Run `cd frontend && npm run build:open-next` before cdk synth/deploy."
             )
         opennext_revalidation_fn = lambda_.Function(

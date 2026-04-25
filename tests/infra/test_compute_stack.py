@@ -110,3 +110,36 @@ def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Temp
             "FunctionResponseTypes": ["ReportBatchItemFailures"],
         },
     )
+
+
+def test_frontend_fn_wires_opennext_revalidation_queue_env(
+    template: assertions.Template,
+) -> None:
+    """FrontendFn must expose REVALIDATION_QUEUE_URL/REGION so OpenNext can enqueue."""
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Environment": {
+                "Variables": assertions.Match.object_like(
+                    {
+                        "REVALIDATION_QUEUE_URL": assertions.Match.any_value(),
+                        "REVALIDATION_QUEUE_REGION": assertions.Match.any_value(),
+                    }
+                )
+            }
+        },
+    )
+
+
+def test_opennext_revalidation_event_source_wired(
+    template: assertions.Template,
+) -> None:
+    """OpenNextRevalidationFn drains the revalidation queue with the expected batching."""
+    template.has_resource_properties(
+        "AWS::Lambda::EventSourceMapping",
+        {
+            "BatchSize": 5,
+            "MaximumBatchingWindowInSeconds": 2,
+            "FunctionResponseTypes": ["ReportBatchItemFailures"],
+        },
+    )

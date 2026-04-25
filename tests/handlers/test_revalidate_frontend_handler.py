@@ -51,9 +51,18 @@ def _get_module() -> Any:
     return h
 
 
+def _slug(appid: int) -> str:
+    return f"test-game-{appid}"
+
+
 def _sns_wrapped_event(appid: int, message_id: str = "msg-1") -> dict:
     """Build an SQS record whose body is the SNS notification envelope."""
-    inner = {"event_type": "report-ready", "appid": appid, "game_name": "Test"}
+    inner = {
+        "event_type": "report-ready",
+        "appid": appid,
+        "game_name": "Test",
+        "slug": _slug(appid),
+    }
     body = {
         "Type": "Notification",
         "TopicArn": "arn:aws:sns:us-east-1:123:content-events",
@@ -80,7 +89,11 @@ def _multi_record_event(records: list[tuple[int, str]]) -> dict:
                     {
                         "Type": "Notification",
                         "Message": json.dumps(
-                            {"event_type": "report-ready", "appid": appid}
+                            {
+                                "event_type": "report-ready",
+                                "appid": appid,
+                                "slug": _slug(appid),
+                            }
                         ),
                     }
                 ),
@@ -92,11 +105,11 @@ def _multi_record_event(records: list[tuple[int, str]]) -> dict:
 
 
 @mock_aws
-def test_happy_path_posts_revalidate_with_token_and_appid(httpx_mock: HTTPXMock) -> None:
+def test_happy_path_posts_revalidate_with_token_appid_slug(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="POST",
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
-        json={"ok": True, "appid": 12345, "now": 0},
+        json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
     )
     handler = _get_module()
     result = handler.handler(_sns_wrapped_event(12345), MockLambdaContext())
@@ -106,7 +119,7 @@ def test_happy_path_posts_revalidate_with_token_and_appid(httpx_mock: HTTPXMock)
     assert len(requests) == 1
     req = requests[0]
     assert req.headers["x-revalidate-token"] == _TOKEN
-    assert json.loads(req.content) == {"appid": 12345}
+    assert json.loads(req.content) == {"appid": 12345, "slug": _slug(12345)}
 
 
 @mock_aws
@@ -148,6 +161,31 @@ def test_missing_appid_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None
 
 
 @mock_aws
+def test_missing_slug_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
+    handler = _get_module()
+    bad_event = {
+        "Records": [
+            {
+                "messageId": "bad-slug",
+                "body": json.dumps(
+                    {
+                        "Type": "Notification",
+                        "Message": json.dumps(
+                            {"event_type": "report-ready", "appid": 5}
+                        ),
+                    }
+                ),
+                "receiptHandle": "r",
+            }
+        ],
+    }
+    result = handler.handler(bad_event, MockLambdaContext())
+
+    assert result == {"batchItemFailures": [{"itemIdentifier": "bad-slug"}]}
+    assert httpx_mock.get_requests() == []
+
+
+@mock_aws
 def test_partial_batch_failure_only_reports_failed_record(
     httpx_mock: HTTPXMock,
 ) -> None:
@@ -177,14 +215,16 @@ def test_unwrapped_sqs_body_also_parses(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="POST",
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
-        json={"ok": True, "appid": 7, "now": 0},
+        json={"ok": True, "appid": 7, "slug": _slug(7), "now": 0},
     )
     handler = _get_module()
     direct_event = {
         "Records": [
             {
                 "messageId": "direct-1",
-                "body": json.dumps({"event_type": "report-ready", "appid": 7}),
+                "body": json.dumps(
+                    {"event_type": "report-ready", "appid": 7, "slug": _slug(7)}
+                ),
                 "receiptHandle": "r",
             }
         ],

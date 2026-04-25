@@ -34,25 +34,28 @@ def _get_http_client() -> httpx.Client:
     return _http_client
 
 
-def _extract_appid(record: dict) -> int:
-    """Parse the SNS-wrapped ReportReadyEvent body and return the appid."""
+def _extract_event(record: dict) -> tuple[int, str]:
+    """Parse the SNS-wrapped ReportReadyEvent body; return (appid, slug)."""
     body = json.loads(record["body"])
     inner_raw = body.get("Message", body)
     inner = json.loads(inner_raw) if isinstance(inner_raw, str) else inner_raw
     appid = inner.get("appid")
+    slug = inner.get("slug")
     if not isinstance(appid, int):
         raise ValueError(f"missing/invalid appid in event: {inner!r}")
-    return appid
+    if not isinstance(slug, str) or not slug:
+        raise ValueError(f"missing/invalid slug in event: {inner!r}")
+    return appid, slug
 
 
-def _post_revalidate(appid: int) -> None:
+def _post_revalidate(appid: int, slug: str) -> None:
     response = _get_http_client().post(
         f"{_FRONTEND_BASE_URL}/api/revalidate",
         headers={
             "x-revalidate-token": _REVALIDATE_TOKEN,
             "content-type": "application/json",
         },
-        json={"appid": appid},
+        json={"appid": appid, "slug": slug},
     )
     response.raise_for_status()
 
@@ -65,10 +68,10 @@ def handler(event: dict, _context: LambdaContext) -> dict:
     for record in event.get("Records", []):
         message_id = record.get("messageId", "")
         try:
-            appid = _extract_appid(record)
-            _post_revalidate(appid)
+            appid, slug = _extract_event(record)
+            _post_revalidate(appid, slug)
             metrics.add_metric(name="RevalidationsSucceeded", unit=MetricUnit.Count, value=1)
-            logger.info("Revalidated", extra={"appid": appid})
+            logger.info("Revalidated", extra={"appid": appid, "slug": slug})
         except Exception:
             logger.exception("Failed to revalidate", extra={"message_id": message_id})
             metrics.add_metric(name="RevalidationsFailed", unit=MetricUnit.Count, value=1)

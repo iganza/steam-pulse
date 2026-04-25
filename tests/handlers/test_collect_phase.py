@@ -161,6 +161,7 @@ def _stub_backend(cp: Any) -> MagicMock:
 def _install_fake_game(cp: Any) -> Any:
     game = MagicMock()
     game.name = "TF2"
+    game.slug = "tf2-440"
     game.positive_pct = 85
     game.review_count = 500
     game.review_score_desc = "Very Positive"

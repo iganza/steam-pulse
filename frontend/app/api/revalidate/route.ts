@@ -29,14 +29,13 @@ export async function POST(req: NextRequest) {
   if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) {
     return Response.json({ ok: false, error: "bad_appid" }, { status: 400 });
   }
-  // Slug format matches lib/format.ts slugify output (^[a-z0-9-]+$, no
-  // leading/trailing hyphens, ≤100 chars). Defense in depth — caller is
-  // already token-authenticated, but constraining the path keeps a
-  // misformed event from probing unintended routes.
+  // Slug format matches lib/format.ts slugify output: lowercase alphanumerics
+  // separated by single hyphens, no leading/trailing hyphens. Defense in
+  // depth — caller is already token-authenticated, but constraining the path
+  // keeps a malformed event from probing unintended routes.
   if (
     typeof slug !== "string" ||
     slug.length === 0 ||
-    slug.length > 100 ||
     !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)
   ) {
     return Response.json({ ok: false, error: "bad_slug" }, { status: 400 });

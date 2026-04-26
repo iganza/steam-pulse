@@ -202,12 +202,16 @@ def test_s3_per_key_errors_returns_batch_item_failure(
     assert result == {"batchItemFailures": [{"itemIdentifier": "s3-partial"}]}
 
 
+@mock_aws
 def test_module_load_rejects_malformed_cache_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Fail fast at cold start if CACHE_BUCKET_KEY_PREFIX is wrong shape."""
     import sys
 
+    # Seed SSM so the token lookup at module load doesn't fail before reaching
+    # the prefix validation.
+    _seed_ssm_and_bucket()
     monkeypatch.setenv("CACHE_BUCKET_KEY_PREFIX", "not-cache/foo/")
     sys.modules.pop("lambda_functions.revalidate_frontend.handler", None)
     with pytest.raises(ValueError, match="must match 'cache/"):

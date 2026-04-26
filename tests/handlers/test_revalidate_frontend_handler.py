@@ -95,14 +95,19 @@ def _page_cache_keys_present(appid: int, slug: str) -> bool:
     return resp.get("KeyCount", 0) > 0
 
 
-def _get_module() -> Any:
-    """Re-seed SSM, reset the lazy http client, and stub CloudFront between tests."""
+def _get_module() -> tuple[Any, list[dict]]:
+    """Re-seed SSM, reset the lazy http client, stub CloudFront, return (handler, captured).
+
+    The returned `captured` list accumulates kwargs of every
+    `create_invalidation` call made through the stubbed client. Tests that
+    don't care about CloudFront can ignore it.
+    """
     _seed_ssm_and_bucket()
     import lambda_functions.revalidate_frontend.handler as h
 
     h._http_client = None
-    _stub_cloudfront(h)
-    return h
+    captured = _stub_cloudfront(h)
+    return h, captured
 
 
 def _slug(appid: int) -> str:
@@ -167,7 +172,7 @@ def test_happy_path_posts_revalidate_and_deletes_s3_page_cache(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     _put_page_cache(12345, _slug(12345))
     assert _page_cache_keys_present(12345, _slug(12345))
 
@@ -194,7 +199,7 @@ def test_s3_delete_failure_returns_batch_item_failure(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 1, "slug": _slug(1), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("simulated S3 outage")
@@ -216,7 +221,7 @@ def test_s3_per_key_errors_returns_batch_item_failure(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 2, "slug": _slug(2), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
 
     def _partial_failure(*_args: object, **_kwargs: object) -> dict:
         return {
@@ -256,7 +261,7 @@ def test_non_2xx_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
         status_code=500,
         json={"ok": False, "error": "boom"},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     result = handler.handler(_sns_wrapped_event(99, message_id="msg-99"), MockLambdaContext())
 
     assert result == {"batchItemFailures": [{"itemIdentifier": "msg-99"}]}
@@ -264,7 +269,7 @@ def test_non_2xx_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
 
 @mock_aws
 def test_missing_appid_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
-    handler = _get_module()
+    handler, _ = _get_module()
     bad_event = {
         "Records": [
             {
@@ -288,7 +293,7 @@ def test_missing_appid_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None
 
 @mock_aws
 def test_missing_slug_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
-    handler = _get_module()
+    handler, _ = _get_module()
     bad_event = {
         "Records": [
             {
@@ -326,7 +331,7 @@ def test_partial_batch_failure_only_reports_failed_record(
         status_code=502,
         json={"ok": False},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     result = handler.handler(
         _multi_record_event([(1, "ok-msg"), (2, "fail-msg")]),
         MockLambdaContext(),
@@ -343,7 +348,7 @@ def test_unwrapped_sqs_body_also_parses(httpx_mock: HTTPXMock) -> None:
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 7, "slug": _slug(7), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     direct_event = {
         "Records": [
             {
@@ -368,8 +373,7 @@ def test_happy_path_creates_cloudfront_invalidation(httpx_mock: HTTPXMock) -> No
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
     )
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
     _put_page_cache(12345, _slug(12345))
 
     result = handler.handler(_sns_wrapped_event(12345), MockLambdaContext())
@@ -393,8 +397,7 @@ def test_batched_invalidation_for_multiple_records(httpx_mock: HTTPXMock) -> Non
             url=f"{_FRONTEND_BASE_URL}/api/revalidate",
             json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
         )
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
     for appid in (10, 20, 30):
         _put_page_cache(appid, _slug(appid))
 
@@ -420,7 +423,7 @@ def test_cloudfront_failure_marks_all_succeeded_records_as_failed(
             url=f"{_FRONTEND_BASE_URL}/api/revalidate",
             json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
         )
-    handler = _get_module()
+    handler, _ = _get_module()
 
     def _boom(**_kwargs: Any) -> dict:
         raise RuntimeError("simulated CloudFront outage")
@@ -464,8 +467,7 @@ def test_per_record_failure_does_not_block_invalidation_for_others(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 300, "slug": _slug(300), "now": 0},
     )
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
     _put_page_cache(100, _slug(100))
     _put_page_cache(300, _slug(300))
 
@@ -506,8 +508,7 @@ def test_caller_reference_is_deterministic_across_retries(
                 url=f"{_FRONTEND_BASE_URL}/api/revalidate",
                 json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
             )
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
     for appid in (10, 20):
         _put_page_cache(appid, _slug(appid))
 
@@ -534,8 +535,7 @@ def test_caller_reference_differs_across_distinct_batches(
             url=f"{_FRONTEND_BASE_URL}/api/revalidate",
             json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
         )
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
     for appid in (10, 20):
         _put_page_cache(appid, _slug(appid))
 
@@ -552,8 +552,7 @@ def test_caller_reference_differs_across_distinct_batches(
 @mock_aws
 def test_no_records_skips_cloudfront_call(httpx_mock: HTTPXMock) -> None:
     """Empty / all-failed batches must NOT issue an invalidation."""
-    handler = _get_module()
-    captured = _stub_cloudfront(handler)
+    handler, captured = _get_module()
 
     result = handler.handler({"Records": []}, MockLambdaContext())
 

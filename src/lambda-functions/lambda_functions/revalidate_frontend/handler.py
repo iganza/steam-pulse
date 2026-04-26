@@ -3,6 +3,7 @@
 import json
 import os
 
+import boto3
 import httpx
 from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
@@ -21,7 +22,13 @@ _REVALIDATE_TOKEN: str = get_parameter(  # type: ignore[assignment]
     os.environ["REVALIDATE_TOKEN_PARAM"],
     decrypt=True,
 )
+_FRONTEND_BUCKET: str = os.environ["FRONTEND_BUCKET"]
+_CACHE_KEY_PREFIX: str = os.environ["CACHE_BUCKET_KEY_PREFIX"]
+# OpenNext writes pages under cache/{BUILD_ID}/{BUILD_ID}/... — the prefix
+# is "cache/{BUILD_ID}/" and the inner BUILD_ID matches after pinning.
+_BUILD_ID: str = _CACHE_KEY_PREFIX.removeprefix("cache/").rstrip("/")
 _HTTP_TIMEOUT_SECONDS = 5.0
+_s3 = boto3.client("s3")
 
 # Lazy-init so connections pool across records and warm invocations.
 _http_client: httpx.Client | None = None
@@ -60,6 +67,24 @@ def _post_revalidate(appid: int, slug: str) -> None:
     response.raise_for_status()
 
 
+def _delete_page_cache(appid: int, slug: str) -> None:
+    """Delete the OpenNext S3 page cache file (and .meta) for this game.
+
+    Required workaround: OpenNext doesn't tag dynamic-route page entries
+    in DynamoDB, so revalidatePath/revalidateTag don't bust them.
+    """
+    base_key = f"{_CACHE_KEY_PREFIX}{_BUILD_ID}/games/{appid}/{slug}"
+    _s3.delete_objects(
+        Bucket=_FRONTEND_BUCKET,
+        Delete={
+            "Objects": [
+                {"Key": f"{base_key}.cache"},
+                {"Key": f"{base_key}.cache.meta"},
+            ]
+        },
+    )
+
+
 @logger.inject_lambda_context(clear_state=True)
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, _context: LambdaContext) -> dict:
@@ -70,7 +95,9 @@ def handler(event: dict, _context: LambdaContext) -> dict:
         try:
             appid, slug = _extract_event(record)
             _post_revalidate(appid, slug)
+            _delete_page_cache(appid, slug)
             metrics.add_metric(name="RevalidationsSucceeded", unit=MetricUnit.Count, value=1)
+            metrics.add_metric(name="PageCacheBust", unit=MetricUnit.Count, value=1)
             logger.info("Revalidated", extra={"appid": appid, "slug": slug})
         except Exception:
             logger.exception("Failed to revalidate", extra={"message_id": message_id})

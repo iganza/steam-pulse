@@ -14,6 +14,9 @@ from tests.conftest import MockLambdaContext
 _FRONTEND_BASE_URL = "https://frontend.example.lambda-url.us-west-2.on.aws"
 _REVALIDATE_TOKEN_PARAM = "/steampulse/test/frontend/revalidate-token"
 _TOKEN = "test-token-abc123"
+_FRONTEND_BUCKET = "test-frontend-bucket"
+_CACHE_KEY_PREFIX = "cache/test-build/"
+_BUILD_ID = "test-build"
 
 
 @pytest.fixture(autouse=True)
@@ -29,10 +32,12 @@ def _reset_module_state() -> None:
 def _env() -> None:
     os.environ["FRONTEND_BASE_URL"] = _FRONTEND_BASE_URL
     os.environ["REVALIDATE_TOKEN_PARAM"] = _REVALIDATE_TOKEN_PARAM
+    os.environ["FRONTEND_BUCKET"] = _FRONTEND_BUCKET
+    os.environ["CACHE_BUCKET_KEY_PREFIX"] = _CACHE_KEY_PREFIX
     os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
 
-def _seed_ssm() -> None:
+def _seed_ssm_and_bucket() -> None:
     ssm = boto3.client("ssm", region_name="us-east-1")
     ssm.put_parameter(
         Name=_REVALIDATE_TOKEN_PARAM,
@@ -40,11 +45,30 @@ def _seed_ssm() -> None:
         Type="String",
         Overwrite=True,
     )
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket=_FRONTEND_BUCKET)
+
+
+def _cache_key(appid: int, slug: str) -> str:
+    return f"{_CACHE_KEY_PREFIX}{_BUILD_ID}/games/{appid}/{slug}"
+
+
+def _put_page_cache(appid: int, slug: str) -> None:
+    s3 = boto3.client("s3", region_name="us-east-1")
+    base = _cache_key(appid, slug)
+    s3.put_object(Bucket=_FRONTEND_BUCKET, Key=f"{base}.cache", Body=b"<html/>")
+    s3.put_object(Bucket=_FRONTEND_BUCKET, Key=f"{base}.cache.meta", Body=b"{}")
+
+
+def _page_cache_keys_present(appid: int, slug: str) -> bool:
+    s3 = boto3.client("s3", region_name="us-east-1")
+    resp = s3.list_objects_v2(Bucket=_FRONTEND_BUCKET, Prefix=_cache_key(appid, slug))
+    return resp.get("KeyCount", 0) > 0
 
 
 def _get_module() -> Any:
     """Re-seed SSM and reset the lazy http client between tests."""
-    _seed_ssm()
+    _seed_ssm_and_bucket()
     import lambda_functions.revalidate_frontend.handler as h
 
     h._http_client = None
@@ -105,13 +129,18 @@ def _multi_record_event(records: list[tuple[int, str]]) -> dict:
 
 
 @mock_aws
-def test_happy_path_posts_revalidate_with_token_appid_slug(httpx_mock: HTTPXMock) -> None:
+def test_happy_path_posts_revalidate_and_deletes_s3_page_cache(
+    httpx_mock: HTTPXMock,
+) -> None:
     httpx_mock.add_response(
         method="POST",
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
     )
     handler = _get_module()
+    _put_page_cache(12345, _slug(12345))
+    assert _page_cache_keys_present(12345, _slug(12345))
+
     result = handler.handler(_sns_wrapped_event(12345), MockLambdaContext())
 
     assert result == {"batchItemFailures": []}
@@ -120,6 +149,30 @@ def test_happy_path_posts_revalidate_with_token_appid_slug(httpx_mock: HTTPXMock
     req = requests[0]
     assert req.headers["x-revalidate-token"] == _TOKEN
     assert json.loads(req.content) == {"appid": 12345, "slug": _slug(12345)}
+    assert not _page_cache_keys_present(12345, _slug(12345)), (
+        "page cache file + .meta should be deleted from S3"
+    )
+
+
+@mock_aws
+def test_s3_delete_failure_returns_batch_item_failure(
+    httpx_mock: HTTPXMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        json={"ok": True, "appid": 1, "slug": _slug(1), "now": 0},
+    )
+    handler = _get_module()
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated S3 outage")
+
+    monkeypatch.setattr(handler._s3, "delete_objects", _boom)
+    result = handler.handler(_sns_wrapped_event(1, message_id="s3-fail"), MockLambdaContext())
+
+    assert result == {"batchItemFailures": [{"itemIdentifier": "s3-fail"}]}
 
 
 @mock_aws

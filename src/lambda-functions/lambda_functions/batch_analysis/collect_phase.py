@@ -33,7 +33,7 @@ from decimal import Decimal
 
 import boto3
 import psycopg2.extensions
-from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import (
@@ -60,7 +60,6 @@ from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.scores import compute_hidden_gem_score, compute_sentiment_trend
 
 logger = Logger(service="batch-collect-phase")
-tracer = Tracer(service="batch-collect-phase")
 
 _config = SteamPulseConfig()
 _BATCH_BUCKET = os.environ["BATCH_BUCKET_NAME"]
@@ -91,7 +90,6 @@ def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     )
 
 
-@tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     appid = int(event["appid"])
     phase = event["phase"]

@@ -147,7 +147,7 @@ class CrawlSpokeStack(cdk.Stack):
                 self,
                 "SpokeLogs",
                 log_group_name=f"/steampulse/{environment}/spoke/{spoke_region}",
-                retention=logs.RetentionDays.ONE_MONTH,
+                retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment=config.to_lambda_env(

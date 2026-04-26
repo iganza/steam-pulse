@@ -15,8 +15,7 @@ import uuid
 
 import boto3
 import httpx
-from aws_lambda_powertools import Logger, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
     EventType,
@@ -34,13 +33,10 @@ from lambda_functions.crawler.events import (
 )
 from library_layer.config import SteamPulseConfig
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
-from library_layer.utils.steam_metrics import make_steam_metrics_callback
 
 logger = Logger(service="crawler-spoke")
-metrics = Metrics(namespace="SteamPulse", service="crawler-spoke")
 
 _config = SteamPulseConfig()
-metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
 _PRIMARY_REGION = os.environ["PRIMARY_REGION"]
 _SPOKE_RESULTS_QUEUE_URL = os.environ["SPOKE_RESULTS_QUEUE_URL"]
 
@@ -52,11 +48,9 @@ _steam_api_key: str = _sm.get_secret_value(SecretId=_config.STEAM_API_KEY_SECRET
     "SecretString"
 ]
 
-_steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT, metrics)
 _steam = DirectSteamSource(
     httpx.Client(timeout=90.0),
     api_key=_steam_api_key,
-    on_request=_steam_metrics_callback,
 )
 _sqs = boto3.client("sqs", region_name=_PRIMARY_REGION)
 _s3 = boto3.client("s3", region_name=_PRIMARY_REGION)
@@ -82,27 +76,26 @@ def _process_record(record: dict) -> None:
             logger.append_keys(appid=req.appid, task=task)
             logger.info("START metadata")
             ok = _process_metadata(req.appid)
-            metrics.add_metric(name="MetadataFetched", unit=MetricUnit.Count, value=1 if ok else 0)
+            logger.info("metadata_fetched", extra={"appid": req.appid, "ok": ok})
 
         case "reviews":
             req = ReviewSpokeRequest.model_validate(body)
             logger.append_keys(appid=req.appid, task=task)
             logger.info("START reviews", extra={"cursor": req.cursor, "target": req.target})
             count, _ = _process_reviews(req.appid, req.cursor, req.target, req.started_at)
-            metrics.add_metric(name="ReviewsFetched", unit=MetricUnit.Count, value=count)
+            logger.info("reviews_fetched", extra={"appid": req.appid, "count": count})
 
         case "tags":
             req = TagsSpokeRequest.model_validate(body)
             logger.append_keys(appid=req.appid, task=task)
             logger.info("START tags")
             ok = _process_tags(req.appid)
-            metrics.add_metric(name="TagsFetched", unit=MetricUnit.Count, value=1 if ok else 0)
+            logger.info("tags_fetched", extra={"appid": req.appid, "ok": ok})
 
         case _:
             raise ValueError(f"Unknown task: {task}")
 
 
-@metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     return process_partial_response(
         event=event,

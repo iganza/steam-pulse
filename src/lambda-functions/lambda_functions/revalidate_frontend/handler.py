@@ -11,8 +11,7 @@ import os
 
 import boto3
 import httpx
-from aws_lambda_powertools import Logger, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -20,8 +19,6 @@ from library_layer.config import SteamPulseConfig
 _config = SteamPulseConfig()
 
 logger = Logger(service="revalidate-frontend")
-metrics = Metrics(namespace="SteamPulse", service="revalidate-frontend")
-metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
 
 
 def _require_param(name: str, value: object) -> str:
@@ -46,22 +43,16 @@ _FRONTEND_BUCKET: str = os.environ["FRONTEND_BUCKET"]
 def _parse_cache_key_prefix(prefix: str) -> tuple[str, str]:
     """Validate "cache/{BUILD_ID}/" and return (prefix, build_id)."""
     if not prefix.startswith("cache/") or not prefix.endswith("/"):
-        raise ValueError(
-            f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}"
-        )
-    build_id = prefix[len("cache/"): -1]
+        raise ValueError(f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}")
+    build_id = prefix[len("cache/") : -1]
     if not build_id or "/" in build_id:
-        raise ValueError(
-            f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}"
-        )
+        raise ValueError(f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}")
     return prefix, build_id
 
 
 # OpenNext writes pages under cache/{BUILD_ID}/{BUILD_ID}/... — the prefix
 # is "cache/{BUILD_ID}/" and the inner BUILD_ID matches after pinning.
-_CACHE_KEY_PREFIX, _BUILD_ID = _parse_cache_key_prefix(
-    os.environ["CACHE_BUCKET_KEY_PREFIX"]
-)
+_CACHE_KEY_PREFIX, _BUILD_ID = _parse_cache_key_prefix(os.environ["CACHE_BUCKET_KEY_PREFIX"])
 _HTTP_TIMEOUT_SECONDS = 5.0
 _s3 = boto3.client("s3")
 _cloudfront = boto3.client("cloudfront")
@@ -131,9 +122,9 @@ def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
     paths = sorted({f"/games/{appid}/*" for _, appid in records})
     # Deterministic CallerReference: same messageId set → same key, so an SQS
     # retry after a successful CreateInvalidation reuses the existing one.
-    digest = hashlib.sha256(
-        "|".join(sorted(msg_id for msg_id, _ in records)).encode()
-    ).hexdigest()[:32]
+    digest = hashlib.sha256("|".join(sorted(msg_id for msg_id, _ in records)).encode()).hexdigest()[
+        :32
+    ]
     _cloudfront.create_invalidation(
         DistributionId=_DISTRIBUTION_ID,
         InvalidationBatch={
@@ -144,7 +135,6 @@ def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
 
 
 @logger.inject_lambda_context(clear_state=True)
-@metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, _context: LambdaContext) -> dict:
     batch_item_failures: list[dict[str, str]] = []
     successful_records: list[tuple[str, int]] = []
@@ -155,30 +145,23 @@ def handler(event: dict, _context: LambdaContext) -> dict:
             appid, slug = _extract_event(record)
             _post_revalidate(appid, slug)
             _delete_page_cache(appid, slug)
-            # Origin-side metrics: per-record, per-attempt. Re-emitted on
-            # SQS retry — full-pipeline success is CdnInvalidations below.
-            metrics.add_metric(name="OriginRevalidationsSucceeded", unit=MetricUnit.Count, value=1)
-            metrics.add_metric(name="PageCacheBust", unit=MetricUnit.Count, value=1)
             logger.info("Revalidated", extra={"appid": appid, "slug": slug})
             if message_id:
                 successful_records.append((message_id, appid))
         except Exception:
             logger.exception("Failed to revalidate", extra={"message_id": message_id})
-            metrics.add_metric(name="OriginRevalidationsFailed", unit=MetricUnit.Count, value=1)
             if message_id:
                 batch_item_failures.append({"itemIdentifier": message_id})
 
     if successful_records:
         try:
             _invalidate_cdn(successful_records)
-            metrics.add_metric(name="CdnInvalidations", unit=MetricUnit.Count, value=1)
             logger.info(
                 "CloudFront invalidation issued",
                 extra={"appids": [appid for _, appid in successful_records]},
             )
         except Exception:
             logger.exception("CloudFront invalidation failed")
-            metrics.add_metric(name="CdnInvalidationsFailed", unit=MetricUnit.Count, value=1)
             for message_id, _ in successful_records:
                 batch_item_failures.append({"itemIdentifier": message_id})
 

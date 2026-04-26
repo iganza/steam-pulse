@@ -10,8 +10,7 @@ machine in infra/stacks/batch_analysis_stack.py.
 """
 
 import boto3
-from aws_lambda_powertools import Logger, Metrics, Tracer
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import AnalyzerSettings, analyze_game
@@ -33,8 +32,6 @@ from library_layer.utils.events import EventPublishError, publish_event
 from .events import AnalyzeRequest
 
 logger = Logger(service="analysis")
-tracer = Tracer(service="analysis")
-metrics = Metrics(namespace="SteamPulse", service="analysis")
 
 
 # ── Module-level repo + backend wiring. DB connection is lazy; ConverseBackend
@@ -57,12 +54,9 @@ _backend = make_converse_backend(
     max_workers=_analysis_config.ANALYSIS_CONVERSE_MAX_WORKERS,
     max_retries=_analysis_config.ANALYSIS_CONVERSE_MAX_RETRIES,
 )
-metrics.set_default_dimensions(environment=_analysis_config.ENVIRONMENT)
 _content_events_topic_arn = get_parameter(_analysis_config.CONTENT_EVENTS_TOPIC_PARAM_NAME)
 
 
-@tracer.capture_lambda_handler
-@metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     """Step Functions task. Input: {"appid": <int>, "game_name": <str>}"""
     req = AnalyzeRequest.model_validate(event)
@@ -162,7 +156,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
     except EventPublishError:
         logger.warning("Failed to publish report-ready", extra={"appid": req.appid})
 
-    metrics.add_metric(name="ReportsGenerated", unit=MetricUnit.Count, value=1)
+    logger.info("report_generated", extra={"appid": req.appid})
 
     return {
         "appid": req.appid,

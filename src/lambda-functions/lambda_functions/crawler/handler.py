@@ -21,16 +21,15 @@ from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.utils.db import get_conn
-from library_layer.utils.steam_metrics import make_steam_metrics_callback
 from pydantic import TypeAdapter, ValidationError
 
 from .events import (
     CatalogRefreshRequest,
     CrawlAppsRequest,
     CrawlReviewsRequest,
+    DirectRequest,
     RefreshMetaRequest,
     RefreshReviewsRequest,
-    DirectRequest,
     parse_spoke_request,
     spoke_index_for_appid,
 )
@@ -60,7 +59,6 @@ _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _crawler_config = SteamPulseConfig()
 metrics.set_default_dimensions(environment=_crawler_config.ENVIRONMENT)
-_steam_metrics_callback = make_steam_metrics_callback(_crawler_config.ENVIRONMENT, metrics)
 
 # Resolve SSM parameter names → actual values at cold start
 _sfn_arn = get_parameter(_crawler_config.SFN_PARAM_NAME)
@@ -83,7 +81,7 @@ _crawl_service = CrawlService(
     review_repo=ReviewRepository(get_conn),
     catalog_repo=CatalogRepository(get_conn),
     tag_repo=TagRepository(get_conn),
-    steam=DirectSteamSource(httpx.Client(timeout=60.0), on_request=_steam_metrics_callback),
+    steam=DirectSteamSource(httpx.Client(timeout=60.0)),
     sqs_client=_sqs,
     review_queue_url=_review_queue_url,
     sfn_arn=_sfn_arn,
@@ -152,24 +150,26 @@ def _dispatch_to_spoke(record: dict) -> None:
     )
 
     sqs_client.send_message(QueueUrl=queue_url, MessageBody=req.model_dump_json())
-    metrics.add_metric(name="SpokeDispatched", unit=MetricUnit.Count, value=1)
+    logger.info("spoke_dispatched", extra={"appid": req.appid, "queue_url": queue_url})
 
 
 # ── Main dispatcher ──────────────────────────────────────────────────────────
 
 
-@metrics.log_metrics(capture_cold_start_metric=True)
+@metrics.log_metrics(capture_cold_start_metric=False)
 def handler(event: dict, context: LambdaContext) -> dict:
     # 1. EventBridge scheduled trigger
     if event.get("source") == "aws.events":
         logger.info("EventBridge trigger — running catalog refresh")
         result = _catalog_service.refresh()
+        # Heartbeat metric for CatalogRefreshHeartbeat alarm — only metric retained.
         metrics.add_metric(name="CatalogRefreshRun", unit=MetricUnit.Count, value=1)
-        metrics.add_metric(
-            name="CatalogAppsDiscovered", unit=MetricUnit.Count, value=result.get("new_rows", 0)
-        )
-        metrics.add_metric(
-            name="CatalogAppsEnqueued", unit=MetricUnit.Count, value=result.get("enqueued", 0)
+        logger.info(
+            "catalog_refresh_done",
+            extra={
+                "new_rows": result.get("new_rows", 0),
+                "enqueued": result.get("enqueued", 0),
+            },
         )
         return result
 
@@ -186,29 +186,15 @@ def handler(event: dict, context: LambdaContext) -> dict:
                 logger.append_keys(appid=req.appid, task="metadata")
                 ok = _crawl_service.crawl_app(req.appid)
                 logger.info("crawl_app complete", extra={"appid": req.appid, "success": ok})
-                metrics.add_metric(
-                    name="GamesUpserted", unit=MetricUnit.Count, value=1 if ok else 0
-                )
                 return {"appid": req.appid, "success": ok}
             case CrawlReviewsRequest():
                 logger.append_keys(appid=req.appid, task="reviews")
                 n = _crawl_service.crawl_reviews(req.appid, max_reviews=req.max_reviews)
                 logger.info("crawl_reviews complete", extra={"appid": req.appid, "upserted": n})
-                metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=n)
                 return {"appid": req.appid, "reviews_upserted": n}
             case CatalogRefreshRequest():
                 result = _catalog_service.refresh()
                 logger.info("catalog_refresh complete", extra={**result})
-                metrics.add_metric(
-                    name="CatalogAppsDiscovered",
-                    unit=MetricUnit.Count,
-                    value=result.get("new_rows", 0),
-                )
-                metrics.add_metric(
-                    name="CatalogAppsEnqueued",
-                    unit=MetricUnit.Count,
-                    value=result.get("enqueued", 0),
-                )
                 return result
             case RefreshMetaRequest():
                 count = _catalog_service.enqueue_refresh_meta(limit=req.limit)
@@ -216,18 +202,12 @@ def handler(event: dict, context: LambdaContext) -> dict:
                     "refresh_meta complete",
                     extra={"enqueued": count, "limit": req.limit},
                 )
-                metrics.add_metric(
-                    name="RefreshMetaEnqueued", unit=MetricUnit.Count, value=count
-                )
                 return {"enqueued": count, "limit": req.limit}
             case RefreshReviewsRequest():
                 count = _catalog_service.enqueue_refresh_reviews(limit=req.limit)
                 logger.info(
                     "refresh_reviews complete",
                     extra={"enqueued": count, "limit": req.limit},
-                )
-                metrics.add_metric(
-                    name="RefreshReviewsEnqueued", unit=MetricUnit.Count, value=count
                 )
                 return {"enqueued": count, "limit": req.limit}
 

@@ -150,6 +150,17 @@ class DataStack(cdk.Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
+            lifecycle_rules=[
+                # Spoke uploads under spoke-results/ are deleted by ingest on
+                # success; this safety net catches DLQ-orphaned objects whose
+                # SQS message exhausted retries. Happy path deletes within
+                # seconds — 7 days is generous.
+                s3.LifecycleRule(
+                    id="ExpireOrphanSpokeResults",
+                    prefix="spoke-results/",
+                    expiration=cdk.Duration.days(7),
+                ),
+            ],
         )
 
         cdk.Tags.of(self.assets_bucket).add("steampulse:service", "database")

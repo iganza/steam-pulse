@@ -27,7 +27,7 @@ Output (batch submitted):
 """
 
 import psycopg2.extensions
-from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.analyzer import PIPELINE_VERSION
 from library_layer.config import SteamPulseConfig
@@ -42,11 +42,8 @@ from library_layer.services.genre_synthesis_service import GenreSynthesisService
 from library_layer.utils.db import get_conn
 
 logger = Logger(service="batch-genre-synthesis-prepare")
-tracer = Tracer(service="batch-genre-synthesis-prepare")
-metrics = Metrics(namespace="SteamPulse", service="batch-genre-synthesis-prepare")
 
 _config = SteamPulseConfig()
-metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
 
 _BATCH_CONNECT_TIMEOUT = 60
 
@@ -68,7 +65,6 @@ _service = GenreSynthesisService(
     synthesis_repo=_synthesis_repo,
     batch_exec_repo=_batch_exec_repo,
     config=_config,
-    metrics=metrics,
     required_pipeline_version=PIPELINE_VERSION,
 )
 
@@ -81,8 +77,6 @@ def _backend_for(execution_id: str) -> AnthropicBatchBackend:
     )
 
 
-@tracer.capture_lambda_handler
-@metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     slug: str = event["slug"]
     prompt_version: str = event["prompt_version"]

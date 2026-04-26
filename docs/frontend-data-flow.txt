@@ -142,6 +142,269 @@
 
 
 ╔══════════════════════════════════════════════════════════════════════╗
+║       THE THREE CACHES — WHAT EACH ONE PROTECTS AGAINST              ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Three caches stack between the browser and Postgres. Each protects a
+  different bottleneck:
+
+       Browser
+          │
+          ▼
+   ┌─────────────────────┐  CloudFront edge cache       skips Lambda
+   │  CloudFront PoP     │  (HTTP response — HTML +
+   │  (worldwide PoPs)   │   headers, keyed by URL)     <20ms TTFB
+   └─────────┬───────────┘
+             │ MISS / invalidated
+             ▼
+   ┌─────────────────────┐  OpenNext page cache         skips React render
+   │  FrontendFn (us-w-2)│  (rendered HTML in S3 at
+   │  └─ S3 .cache file  │   cache/{BUILD_ID}/<route>)
+   └─────────┬───────────┘
+             │ MISS / stale
+             ▼
+   ┌─────────────────────┐  OpenNext data cache         skips fetch + DB
+   │  React server render│  (fetch() results keyed
+   │  └─ DynamoDB lookup │   by tag in DynamoDB)
+   └─────────┬───────────┘
+             │ MISS
+             ▼
+   ┌─────────────────────┐
+   │  FastAPI ──► RDS    │  origin of truth
+   └─────────────────────┘
+
+  CloudFront's HTML cache policy has default_ttl=0; the per-page TTL is
+  driven entirely by the origin's `Cache-Control: s-maxage=N` header,
+  where N comes from `export const revalidate = N` on the page.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║       PER-PAGE CACHE STRATEGY — time-based vs push-invalidate        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Two distinct strategies coexist. The page's `revalidate` value picks:
+
+  ┌────────────────────────────────┬──────────┬──────────┬─────────────┐
+  │ Page                           │ revalid. │ Edge TTL │ Strategy    │
+  ├────────────────────────────────┼──────────┼──────────┼─────────────┤
+  │ /                              │     300s │   5 min  │ time-based  │
+  │ /genre/[slug]                  │   3 600s │   1 hr   │ time-based  │
+  │ /tag/[slug]                    │   3 600s │   1 hr   │ time-based  │
+  │ /developer/[slug]              │  86 400s │   1 day  │ time-based  │
+  │ /publisher/[slug]              │  86 400s │   1 day  │ time-based  │
+  │ /games/[appid]/[slug]          │ 31536000 │   1 yr   │ push-inval. │
+  │ /sitemap.xml                   │   3 600s │   1 hr   │ time-based  │
+  │ /api/*                         │     —    │   none   │ never cache │
+  └────────────────────────────────┴──────────┴──────────┴─────────────┘
+
+  Time-based: cache holds for N seconds, then the next request after
+    expiry triggers revalidation against origin (stale-while-revalidate
+    semantics). Cheap, simple, no upstream signal needed.
+
+  Push-invalidate: cache holds ~forever, busted explicitly via the
+    pipeline in the previous section. Used for game reports because
+    re-analysis is a discrete event producing materially-different
+    content; viewers expect to see the LATEST report immediately.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║       SCENARIO A — first viewer hits /genre/roguelike-deckbuilder    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Cold start (nobody has visited this genre page yet):
+
+    Browser ──► CloudFront PoP        MISS  (TTL 0, never seen)
+                    │ forward
+                    ▼
+                FrontendFn  (cold start)
+                    │
+                    ├─► S3 page cache MISS
+                    │
+                    ├─► React server-render
+                    │       │
+                    │       ├─► OpenNext data cache MISS
+                    │       │       │ fetch
+                    │       │       ▼
+                    │       │   FastAPI ─► Postgres
+                    │       │       │
+                    │       │       └─► data cache: STORE (tagged)
+                    │       │
+                    │       └─► render HTML
+                    │
+                    ├─► S3 page cache: STORE
+                    │
+                    └─► response: Cache-Control: s-maxage=3600, ...
+                    │
+    CloudFront PoP: STORE for 1h ─► Browser
+
+  Second viewer (same PoP, 30 min later):
+
+    Browser ──► CloudFront PoP   HIT  ─► response served, never touches
+                                         Lambda, S3, DynamoDB, RDS
+
+  61 minutes later:
+
+    Browser ──► CloudFront PoP   MISS  (s-maxage expired)
+                    │ forward
+                    ▼
+                FrontendFn
+                    │
+                    ├─► S3 page cache HIT but past `revalidate`
+                    │     │ serve stale immediately
+                    │     │ enqueue re-render to OpenNextRevalidationQueue
+                    │     │
+                    │     └─► return stale HTML
+                    │
+    CloudFront PoP: re-cache stale for another 1h
+    Browser: gets stale this request
+    Background: OpenNextRevalidationFn re-renders, refreshes both caches
+    Subsequent viewers: fresh content
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║   SCENARIO B — admin updates the description of a genre in the DB    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  The DB is updated. NO upstream event signal exists for genre pages,
+  so NOTHING tells any cache. Each viewer sees this:
+
+    t=0 min   admin commits UPDATE in Postgres
+              │
+              ├─ Postgres:           ✓ FRESH
+              ├─ OpenNext data cache: ✗ stale (last fetched < 1h ago)
+              ├─ S3 page cache:       ✗ stale HTML
+              └─ CloudFront PoPs:     ✗ stale HTML at every PoP
+
+    t=15 min  Tokyo viewer
+              CloudFront Tokyo PoP: HIT → OLD content
+
+    t=55 min  Frankfurt viewer
+              CloudFront Frankfurt PoP: HIT → OLD content
+              (Tokyo and Frankfurt PoPs are independent)
+
+    t=61 min  São Paulo viewer (PoP s-maxage just expired)
+              CloudFront São Paulo: MISS → forward to FrontendFn
+              FrontendFn: S3 page cache HIT but past `revalidate`
+                          → serve stale + enqueue re-render
+              Viewer: still gets OLD this request
+              Background: re-render fetches fresh from Postgres
+                          updates data cache + S3 page cache
+
+    t=61–~120 min  Each PoP's cache expires independently;
+                   each MISS triggers an independent re-render check
+                   (the OpenNext page cache is now fresh, so the second
+                   PoP-MISS gets fresh HTML on the first try)
+
+  Worst-case staleness for a genre page = revalidate window (1h) + a few
+  minutes propagation across PoPs. For developer/publisher pages that's
+  up to 24h. Tolerated by design — these are browse-style pages where
+  hour-scale staleness is acceptable.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║   SCENARIO C — re-analysis completes for a game report page          ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  This is the path the cache-until-changed pipeline (and this PR) covers
+  end-to-end:
+
+    t=0s     ReportReadyEvent { appid: 646570, slug: "slay-the-spire" }
+                │
+                ▼ SNS → SQS
+    t=1s     RevalidateFrontendFn picks up the message
+                │
+                ├─► POST /api/revalidate { appid, slug }
+                │   FrontendFn handles:
+                │     revalidatePath("/games/646570/slay-the-spire")
+                │     revalidateTag("game-646570", "max")
+                │     │
+                │     └─► OpenNext data cache: tag entries marked invalid
+                │
+                ├─► S3.delete_objects(.cache + .cache.meta)
+                │     │
+                │     └─► S3 page cache: GONE
+                │
+                └─► cloudfront.create_invalidation(["/games/646570/*"])
+                      │
+                      └─► CloudFront control plane propagates the
+                          invalidation marker to every PoP worldwide
+                          (typical: 30s, max: ~5min)
+
+    t=2-30s  Each PoP marks the path as invalid
+
+    First viewer post-invalidation (any PoP):
+
+      Browser ──► CloudFront PoP    MISS (invalidated)
+                      │
+                      ▼
+                  FrontendFn
+                      │
+                      ├─► S3 page cache MISS (deleted)
+                      │
+                      ├─► React server-render
+                      │       └─► data cache MISS (tag busted)
+                      │             │ fetch
+                      │             ▼
+                      │           FastAPI ─► fresh report from Postgres
+                      │
+                      └─► response: FRESH HTML
+                      │
+      CloudFront PoP: cache fresh HTML for 1y
+      Browser: FRESH content
+
+  End-to-end staleness: <30 seconds worst case across the whole world.
+  Compare to up-to-1-year before the cache-busting pipeline existed.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║       SUMMARY — cascade and freshness guarantees                     ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Cache hit cascade per request (any page):
+
+    request
+      │
+      ▼
+    CloudFront PoP
+      │ HIT  ─► serve from edge, done. No Lambda invoked.
+      │ MISS ─► forward to FrontendFn
+              │
+              ▼
+            FrontendFn
+              │
+              ▼
+            S3 page cache
+              │ HIT  + within revalidate ─► serve cached HTML, done.
+              │ HIT  + past revalidate   ─► serve stale + queue re-render
+              │ MISS ─► render
+                       │
+                       ▼
+                     OpenNext data cache
+                       │ HIT  + tag valid   ─► reuse fetch result
+                       │ HIT  + tag invalid ─► refetch from FastAPI
+                       │ MISS ─► fetch from FastAPI ─► Postgres
+
+  Worst-case viewer-staleness by route (assuming hot caches, no
+  upstream invalidation other than what's wired):
+
+    ┌────────────────────────────────────┬─────────────────────────┐
+    │ Page                               │ Worst-case staleness    │
+    ├────────────────────────────────────┼─────────────────────────┤
+    │ /games/[appid]/[slug] (this PR)    │ <30 seconds             │
+    │ /                                  │   5 minutes             │
+    │ /genre/[slug], /tag/[slug]         │   1 hour + propagation  │
+    │ /developer/[slug], /publisher/...  │  24 hours + propagation │
+    │ /api/*                             │   real-time (no cache)  │
+    └────────────────────────────────────┴─────────────────────────┘
+
+  Extending push-invalidation to a non-report page (e.g. genre) would
+  require: (1) a domain event signal upstream (e.g. GenreUpdatedEvent),
+  (2) wire it through SQS → revalidateTag('genre-${slug}') + cloudfront
+  invalidate, (3) accept the additional ~$5–25/mo CloudFront invalidation
+  cost. Currently NOT wired; staleness window is tolerated by design.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
 ║                     KEY ROUTING RULES (CloudFront)                   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 

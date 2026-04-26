@@ -99,6 +99,10 @@ if [[ "$SKIP_FRONTEND" == "false" ]]; then
     echo "▶ Step 1/4 — Building Next.js frontend (OpenNext)"
     cd "$REPO_ROOT/frontend"
     npm ci --silent
+    # Clean prior build artifacts: stale .next can produce confusing
+    # "Module not found: @vercel/turbopack-next/internal/font/..." or
+    # missing build-manifest.json errors during open-next bundling.
+    rm -rf .next .open-next
     npm run build:open-next
     cd "$REPO_ROOT"
     echo "✓ Frontend build complete"

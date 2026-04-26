@@ -176,6 +176,45 @@ def test_s3_delete_failure_returns_batch_item_failure(
 
 
 @mock_aws
+def test_s3_per_key_errors_returns_batch_item_failure(
+    httpx_mock: HTTPXMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """delete_objects returns 200 with `Errors` list — must surface as failure."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        json={"ok": True, "appid": 2, "slug": _slug(2), "now": 0},
+    )
+    handler = _get_module()
+
+    def _partial_failure(*_args: object, **_kwargs: object) -> dict:
+        return {
+            "Deleted": [{"Key": "ok-key"}],
+            "Errors": [{"Key": "bad-key", "Code": "AccessDenied"}],
+        }
+
+    monkeypatch.setattr(handler._s3, "delete_objects", _partial_failure)
+    result = handler.handler(
+        _sns_wrapped_event(2, message_id="s3-partial"), MockLambdaContext()
+    )
+
+    assert result == {"batchItemFailures": [{"itemIdentifier": "s3-partial"}]}
+
+
+def test_module_load_rejects_malformed_cache_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail fast at cold start if CACHE_BUCKET_KEY_PREFIX is wrong shape."""
+    import sys
+
+    monkeypatch.setenv("CACHE_BUCKET_KEY_PREFIX", "not-cache/foo/")
+    sys.modules.pop("lambda_functions.revalidate_frontend.handler", None)
+    with pytest.raises(ValueError, match="must match 'cache/"):
+        import lambda_functions.revalidate_frontend.handler  # noqa: F401
+
+
+@mock_aws
 def test_non_2xx_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="POST",

@@ -23,10 +23,27 @@ _REVALIDATE_TOKEN: str = get_parameter(  # type: ignore[assignment]
     decrypt=True,
 )
 _FRONTEND_BUCKET: str = os.environ["FRONTEND_BUCKET"]
-_CACHE_KEY_PREFIX: str = os.environ["CACHE_BUCKET_KEY_PREFIX"]
+
+
+def _parse_cache_key_prefix(prefix: str) -> tuple[str, str]:
+    """Validate "cache/{BUILD_ID}/" and return (prefix, build_id)."""
+    if not prefix.startswith("cache/") or not prefix.endswith("/"):
+        raise ValueError(
+            f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}"
+        )
+    build_id = prefix[len("cache/"): -1]
+    if not build_id or "/" in build_id:
+        raise ValueError(
+            f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}"
+        )
+    return prefix, build_id
+
+
 # OpenNext writes pages under cache/{BUILD_ID}/{BUILD_ID}/... — the prefix
 # is "cache/{BUILD_ID}/" and the inner BUILD_ID matches after pinning.
-_BUILD_ID: str = _CACHE_KEY_PREFIX.removeprefix("cache/").rstrip("/")
+_CACHE_KEY_PREFIX, _BUILD_ID = _parse_cache_key_prefix(
+    os.environ["CACHE_BUCKET_KEY_PREFIX"]
+)
 _HTTP_TIMEOUT_SECONDS = 5.0
 _s3 = boto3.client("s3")
 
@@ -74,7 +91,7 @@ def _delete_page_cache(appid: int, slug: str) -> None:
     in DynamoDB, so revalidatePath/revalidateTag don't bust them.
     """
     base_key = f"{_CACHE_KEY_PREFIX}{_BUILD_ID}/games/{appid}/{slug}"
-    _s3.delete_objects(
+    response = _s3.delete_objects(
         Bucket=_FRONTEND_BUCKET,
         Delete={
             "Objects": [
@@ -83,6 +100,11 @@ def _delete_page_cache(appid: int, slug: str) -> None:
             ]
         },
     )
+    # delete_objects returns 200 even when individual keys fail (e.g.,
+    # AccessDenied). Surface those so SQS retries / DLQ catches them.
+    errors = response.get("Errors") or []
+    if errors:
+        raise RuntimeError(f"S3 delete_objects errors: {errors}")
 
 
 @logger.inject_lambda_context(clear_state=True)

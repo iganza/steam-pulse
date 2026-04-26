@@ -88,7 +88,40 @@ Rules:
 - Do NOT include "WIP", "misc", or vague words like "updates" or "changes"
 - **Single line only** — no body, no Co-Authored-By trailer
 
-### 6. Stage and commit
+### 6. Run linters and unit tests — HARD GATE
+
+**Do not commit, push, or open a PR until the full unit-test suite is
+green.** This applies even when failing tests look unrelated to the diff
+— a pre-existing failure on `main` still blocks shipping. Either fix the
+test, or stop and tell the user the PR cannot be shipped until it is fixed.
+
+Run the same command locally that CI would run, and verify zero failures:
+
+```bash
+poetry run ruff check $(git diff --name-only HEAD | grep '\.py$')
+poetry run ruff format --check $(git diff --name-only HEAD | grep '\.py$')
+poetry run pytest tests/ -q --ignore=tests/integration
+```
+
+Rules:
+- **Tests:** the suite must end with `N passed, 0 failed`. Use
+  `--deselect` only to skip tests that genuinely cannot run in this
+  environment (e.g. integration tests that need a live DB) — never to
+  paper over a real failure.
+- **Lint errors that this PR introduced:** fix them.
+- **Lint errors that pre-date this PR (untouched lines):** acceptable to
+  leave; do not chase repo-wide lint debt in a shipping PR.
+- **Format diffs on files this PR touched:** auto-fix with
+  `poetry run ruff format <files>` and re-run tests.
+- **Frontend changes:** also run `cd frontend && npm run lint`.
+
+If you find broken tests that are unrelated to the work — for example a
+field that became required on `main` while you were branched off — the
+right move is to fix them in this PR and call them out in the PR
+description as drive-by fixes. Do not commit with red tests and do not
+open a PR with red tests.
+
+### 7. Stage and commit
 
 Stage only the files identified in step 3, by name:
 
@@ -99,7 +132,7 @@ git commit -m "<message>"
 
 Never use `git add -A` or `git add .` — they pick up unrelated files.
 
-### 7. Locate the prompt file
+### 8. Locate the prompt file
 
 This repo tracks work-to-prompt mapping under `scripts/prompts/`. For a branch
 like `feature/<slug>` or `fix/<slug>`, the prompt file is typically
@@ -113,7 +146,7 @@ Resolve the prompt path by:
 
 Remember the resolved `<PROMPT_FILE>` path (repo-relative) for the PR body.
 
-### 8. Push the branch
+### 9. Push the branch
 
 ```bash
 git push -u origin <branch-name>
@@ -122,7 +155,7 @@ git push -u origin <branch-name>
 If the push is rejected (non-fast-forward), check with the user before force-pushing.
 Never `git push --force` without explicit user confirmation.
 
-### 9. Create the pull request
+### 10. Create the pull request
 
 First, check whether a PR already exists for this branch:
 
@@ -164,17 +197,21 @@ gh pr create \
   --base main
 ```
 
-### 10. Print the result
+### 11. Print the result
 
 Output the PR URL so the user can open it.
 
 ## Conventions for This Repo
 
 - Default base branch: `main`
-- Run `poetry run ruff check .` and `poetry run ruff format .` before committing Python changes
+- **Tests must be 100% green before committing.** Run
+  `poetry run pytest tests/ -q --ignore=tests/integration` and verify
+  zero failures (see step 6). Pre-existing failures still block; fix
+  them in this PR or stop and surface to the user.
+- Run `poetry run ruff check` and `poetry run ruff format` on the
+  Python files this PR touches; do not chase repo-wide lint debt
 - Run `cd frontend && npm run lint` before committing frontend changes
-- If linting fails, fix the issues before committing (do not commit with lint errors)
-- Tests: `poetry run pytest -v` — run if Python source files changed
+- If linting on touched files fails, fix the issues before committing
 
 ## Error Handling
 
@@ -183,5 +220,10 @@ Output the PR URL so the user can open it.
 - **Push rejected**: show the error, ask before force-pushing
 - **`gh` not installed**: fall back to printing the `git push` URL and a link to
   `https://github.com/new/pull` with the branch pre-filled
-- **Lint errors**: fix them, then proceed with commit
+- **Failing tests (any reason, including pre-existing)**: do not commit;
+  fix the test in this PR (and call it out in the PR body as a drive-by
+  fix), or stop and tell the user the PR cannot ship until the suite is
+  green
+- **Lint errors on lines this PR touched**: fix them, then proceed
+- **Lint errors on untouched lines (pre-existing debt)**: leave alone
 - **Prompt file not found**: ask the user for the path instead of guessing

@@ -163,6 +163,8 @@ These three layers together produce qualitative content for every game that's ge
 
 ## Free vs paid — the feature matrix
 
+> The full Decision Pack table-of-contents (the canonical $99 PDF contract) lives in `monetization-strategy.md`. The matrix below maps each section/signal to its visibility tier so the front-end and PDF generator stay aligned.
+
 | Section                              | Free (every game)                          | $99 Decision Pack (this game)                          | $79/mo Pro (any game) |
 |--------------------------------------|---------------------------------------------|---------------------------------------------------------|------------------------|
 | Header + game stats                  | ✓                                           | ✓                                                       | ✓                      |

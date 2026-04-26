@@ -42,21 +42,72 @@ Curation on the free page is load-bearing: Google's March 2026 core update demot
 
 **Buyer:** Solo indie dev, marketer prepping a launch, consultant doing client research.
 
-**Content (single game, comprehensive):**
-- Full LLM `GameReport` (all sections, no truncation)
-- Hedonic fair-value with confidence band + SHAP feature importance
-- Survival curve for archetype + projected lifecycle position
-- Time-to-milestone with P10/P50/P90 bands vs cohort
-- 50-competitor positioning (audience-overlap + feature-similarity)
-- Top association rules for tag combo
-- Vocabulary fingerprint vs genre norms
-- Anomaly flags + sentiment over/underperformance with feature drivers
-- Cohort z-score
-- Genre-space map with target game pinned
-
 **Sales hook:** "Replaces a $1,500 pricing study. Read it tonight."
 
 **Why $99:** It's one consultant hour, one Steam asset purchase. Painless for anyone with a real game in development. A $19/$49 floor signals "amateur tool" and attracts customers who'll generate disproportionate support load. $99 says serious.
+
+#### Canonical Decision Pack TOC — ~30–40 page PDF for one game
+
+```
+  COVER + EXECUTIVE SUMMARY (2–3 pp)
+  └ TL;DR: top 3 strengths · top 3 frictions · top 3 dev priorities · quick stats
+
+  1. AUDIENCE & POSITIONING (4–5 pp)
+  └ LLM audience profile · archetype + profile sheet · genre-space map
+    pinned · top-50 audience-overlap competitors · top-20 feature-similarity neighbors
+
+  2. SENTIMENT & QUALITY (4–5 pp)
+  └ Health score with 5-component breakdown · over/underperformance vs
+    tag-predicted (with SHAP top-5 features) · sentiment trend timeline +
+    change-point detection · per-theme sentiment
+
+  3. GAMEPLAY & REVIEWER THEMES (5–7 pp)  ← the LLM heart
+  └ Design strengths · gameplay friction · player wishlist · churn triggers ·
+    technical issues · community health · monetization sentiment · content
+    depth — every claim quote-backed with helpfulness/playtime context
+
+  4. PRICING & VALUE (3–4 pp)
+  └ Hedonic fair-value prediction + 25/75 confidence band + SHAP top-5
+    drivers · comparable-set price distribution · sentiment-by-price-band ·
+    revenue intelligence
+
+  5. LIFECYCLE & FORECAST (3–4 pp)
+  └ Time-to-milestone with P10/P50/P90 bands + your projection · survival
+    curve (cohort + your projection + Cox hazard ratio drivers) ·
+    cohort z-score · anomaly flag explanations
+
+  6. TAG & VOCABULARY STRATEGY (2–3 pp)
+  └ Tag votes ranked + sentiment cross-cut · tag association rules
+    (synergies + anti-patterns) · vocabulary fingerprint vs genre ·
+    store-page optimization suggestions
+
+  7. DEV PRIORITIES (2–3 pp)  ← the actionable heart
+  └ 5 ranked actions with {action, why_it_matters, frequency, effort}
+    derived from the LLM, each tied to which friction it addresses
+
+  8. REFUND & RETENTION SIGNALS (1–2 pp)
+  └ Refund-window risk + drivers · engagement cliff distribution ·
+    helpfulness skew · funny-vote anomaly · free-key bias · EA loyalty
+
+  9. METHODOLOGY + APPENDIX (5–10 pp)
+  └ How it was made (sources, models, freshness) · raw data tables
+    (full 50-competitor matrix, all review clusters, top 20 helpful
+    quotes per polarity, complete tag votes, all numeric metrics for
+    spreadsheet import)
+```
+
+**The structural promise:** Sections 1–2, 4–6, 8 come from sklearn + structured data (cheap, deterministic, runnable on every game). Sections 3 + 7 are the LLM heart (themes + actionable priorities) — that's what the buyer is paying $99 for. Section 9's appendix gives spreadsheet-warriors raw data for their own modeling.
+
+#### Buyer journey
+
+1. Visitor lands on free game page (SEO or share)
+2. Sees badges + headline content + locked CTAs ("See all 5 dev priorities in the Decision Pack →")
+3. Clicks → Stripe Checkout ($99)
+4. **If pre-analyzed** (wedge / featured / previously-purchased): instant S3 PDF download
+5. **If not analyzed**: confirmation page sets ~10-min expectation; email arrives with S3 signed-URL when LLM analysis completes
+6. 30-day money-back guarantee link included in email
+
+See `scripts/prompts/exploration/unanalyzed-game-free-tier.md` for the on-demand-analysis architecture, free-vs-paid feature matrix, and pre-analysis trigger strategy.
 
 ### Per-Genre Market Atlas — $499 one-time
 

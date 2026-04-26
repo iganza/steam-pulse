@@ -984,6 +984,14 @@ class ComputeStack(cdk.Stack):
                 ],
             )
         )
+        # Direct delete of the OpenNext page-cache file — the only reliable
+        # way to bust dynamic-route page HTML (see scripts/prompts/s3-page-cache-bust.md).
+        revalidate_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:DeleteObject"],
+                resources=[f"{frontend_bucket.bucket_arn}/cache/*"],
+            )
+        )
         revalidate_fn = PythonFunction(
             self,
             "RevalidateFrontendFn",
@@ -1008,6 +1016,8 @@ class ComputeStack(cdk.Stack):
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
                 FRONTEND_BASE_URL=self.frontend_fn_url.url,
                 REVALIDATE_TOKEN_PARAM=revalidate_token_param,
+                FRONTEND_BUCKET=frontend_bucket.bucket_name,
+                CACHE_BUCKET_KEY_PREFIX=f"cache/{self.node.try_get_context('build-id') or 'local'}/",
             ),
         )
         cdk.Tags.of(revalidate_fn).add("steampulse:service", "frontend")

@@ -28,19 +28,20 @@ if [[ "$ENV" != "production" && "$ENV" != "staging" ]]; then
     exit 2
 fi
 
-# Per-env legacy paths.
+# Per-env legacy paths. Convention: leading slash. The no-leading-slash
+# duplicates (if any still exist) are wrong and not deleted by this script.
 TARGETS=()
 if [[ "$ENV" == "production" ]]; then
     TARGETS=(
-        "steampulse/production/steam-api-key"
+        "/steampulse/production/steam-api-key"
         "/steampulse/production/anthropic-api-key"
-        "steampulse/production/resend-api-key"
+        "/steampulse/production/resend-api-key"
     )
 else
     TARGETS=(
-        "steampulse/staging/steam-api-key"
+        "/steampulse/staging/steam-api-key"
         "/steampulse/staging/anthropic-apikey"
-        "steampulse/staging/resend-api-key"
+        "/steampulse/staging/resend-api-key"
     )
 fi
 

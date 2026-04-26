@@ -1043,6 +1043,9 @@ class ComputeStack(cdk.Stack):
                 batch_size=2,
                 max_batching_window=cdk.Duration.seconds(5),
                 report_batch_item_failures=True,
+                # Cap concurrent Lambdas (and thus concurrent CloudFront
+                # invalidations) below CloudFront's 15-per-distribution limit.
+                max_concurrency=10,
             )
         )
 

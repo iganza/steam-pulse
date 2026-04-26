@@ -155,14 +155,16 @@ def handler(event: dict, _context: LambdaContext) -> dict:
             appid, slug = _extract_event(record)
             _post_revalidate(appid, slug)
             _delete_page_cache(appid, slug)
-            metrics.add_metric(name="RevalidationsSucceeded", unit=MetricUnit.Count, value=1)
+            # Origin-side metrics: per-record, per-attempt. Re-emitted on
+            # SQS retry — full-pipeline success is CdnInvalidations below.
+            metrics.add_metric(name="OriginRevalidationsSucceeded", unit=MetricUnit.Count, value=1)
             metrics.add_metric(name="PageCacheBust", unit=MetricUnit.Count, value=1)
             logger.info("Revalidated", extra={"appid": appid, "slug": slug})
             if message_id:
                 successful_records.append((message_id, appid))
         except Exception:
             logger.exception("Failed to revalidate", extra={"message_id": message_id})
-            metrics.add_metric(name="RevalidationsFailed", unit=MetricUnit.Count, value=1)
+            metrics.add_metric(name="OriginRevalidationsFailed", unit=MetricUnit.Count, value=1)
             if message_id:
                 batch_item_failures.append({"itemIdentifier": message_id})
 

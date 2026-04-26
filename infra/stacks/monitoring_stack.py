@@ -321,10 +321,14 @@ class MonitoringStack(cdk.Stack):
             ],
         )
 
+        # Name suffix avoids a CFN collision with the legacy facade-generated
+        # dashboard "SteamPulse-{env}", which was managed under a different
+        # logical ID. Renaming sidesteps the create-before-delete ordering
+        # bug for fixed-name resources.
         dashboard = Dashboard(
             self,
             "Dashboard",
-            dashboard_name=f"SteamPulse-{env_cap}",
+            dashboard_name=f"SteamPulse-{env_cap}-Ops",
             period_override=PeriodOverride.AUTO,
         )
         dashboard.add_widgets(

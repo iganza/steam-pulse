@@ -1,6 +1,6 @@
 # SteamPulse Data Intelligence Roadmap
 
-> **Merge note.** This supersedes both `scripts/prompts/data-intelligence-features.md` (18 descriptive/aggregation features) and `scripts/prompts/exploration/classical-ml-insights-catalog.md` (16 sklearn modeling techniques). When this roadmap is accepted as the master plan, both source files should be archived. The features here are re-prioritized by combined ROI across descriptive and predictive work, not separated by engineering type.
+> **Pairs with `monetization-strategy.md`.** That doc defines the six-tier packaging (Free / $99 Decision Pack PDF / $499 Atlas PDF / $79/mo Pro / $499/mo Studio / Enterprise). This roadmap defines what features feed each tier. Per-feature "Free/Pro" annotations in this document map to the packaging as: **Free** = the public per-game / per-genre web page; **Pro** = the $79/mo subscription and above; **PDF** items appear in the $99 Decision Pack (per-game) or $499 Atlas (per-genre).
 
 ## Table of Contents
 
@@ -108,16 +108,16 @@ From Chris Zukowski (howtomarketagame.com), GDC talks, dev forums, and market re
 - Steam hit 42M concurrent users in Jan 2026
 - Academic research confirms tags can be classified as fads, fashions, or stable classics (arxiv 2506.08881v1)
 
-### Stakeholder priorities
+### Stakeholder priorities (mapped to packaging tiers)
 
-| Stakeholder           | Primary questions                                                                                | WTP             |
-|-----------------------|--------------------------------------------------------------------------------------------------|-----------------|
-| **Indie developer**   | Pre-launch competitive research, pricing, launch timing, milestones, what players love/hate     | Medium ($10–25/mo) |
-| **Marketing / UA**    | Positioning narrative, audience targeting, store-page optimization, archetype, vocabulary       | Medium-High      |
-| **Studio executive**  | Genre health, ROI horizon, cohort comparison, franchise trajectory, lifecycle survival          | High            |
-| **Publisher / investor** | Portfolio intelligence, acquisition targets, hit rate, dev networks, anomaly screening      | High ($50–100/mo) |
-| **IP owner**          | Franchise health, sequel performance arcs, brand strength signals, audience inheritance         | High            |
-| **Gamer / consumer**  | Should I buy this? Hidden gems with anomaly rigor. Genre-space discovery.                       | Free tier only  |
+| Stakeholder              | Primary questions                                                                          | Likely tier                                  |
+|--------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------|
+| **Indie developer**      | Pre-launch research, pricing, launch timing, milestones, what players love/hate            | Free + occasional $99 PDF, then Pro $79/mo    |
+| **Marketing / UA**       | Positioning, audience targeting, store-page optimization, archetype, vocabulary            | Pro $79/mo                                    |
+| **Studio executive**     | Genre health, ROI horizon, cohort comparison, franchise trajectory, lifecycle survival     | Studio $499/mo (often via Atlas $499 first)   |
+| **Publisher / investor** | Portfolio intelligence, acquisition targets, hit rate, dev networks, anomaly screening     | Studio $499/mo or Enterprise                  |
+| **IP owner**             | Franchise health, sequel performance arcs, brand strength signals, audience inheritance    | Studio $499/mo or Enterprise                  |
+| **Gamer / consumer**     | Should I buy this? Hidden gems. Genre-space discovery.                                     | Free tier only                                |
 
 <a id="feature-catalog"></a>
 

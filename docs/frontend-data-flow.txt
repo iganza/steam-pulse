@@ -133,10 +133,12 @@
     │  writes the fresh entry back to S3 + DynamoDB
     │  subsequent requests now return HIT with fresh content
     ▼
-  CloudFront edge HTML cache  ⚠ NOT INVALIDATED by this loop
-    Tracked in scripts/prompts/game-report-cloudfront-invalidation.md.
-    Until that lands, CloudFront edges hold stale HTML up to s-maxage
-    (1 year). Manual flush: scripts/invalidate-cdn.sh.
+  CloudFront edge HTML cache  ✓ invalidated by this loop
+    RevalidateFrontendFn issues `cloudfront:CreateInvalidation` for
+    `/games/{appid}/*` after the /api/revalidate POST + S3 page-cache
+    delete succeed. One invalidation per SQS batch (deterministic
+    CallerReference from sorted messageIds → SQS retries reuse the
+    existing invalidation). Manual escape hatch: scripts/invalidate-cdn.sh.
 
 
 ╔══════════════════════════════════════════════════════════════════════╗

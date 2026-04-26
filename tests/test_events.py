@@ -99,10 +99,13 @@ def test_reviews_ready_event_valid() -> None:
 
 # 8. ReportReadyEvent round-trip
 def test_report_ready_event_valid() -> None:
-    e = ReportReadyEvent(appid=440, game_name="TF2", review_score_desc="Very Positive")
+    e = ReportReadyEvent(
+        appid=440, game_name="TF2", slug="tf2", review_score_desc="Very Positive"
+    )
     assert e.event_type == "report-ready"
     data = json.loads(e.model_dump_json())
     assert data["review_score_desc"] == "Very Positive"
+    assert data["slug"] == "tf2"
 
 
 # 9. BatchAnalysisCompleteEvent round-trip

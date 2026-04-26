@@ -14,6 +14,8 @@ from tests.conftest import MockLambdaContext
 _FRONTEND_BASE_URL = "https://frontend.example.lambda-url.us-west-2.on.aws"
 _REVALIDATE_TOKEN_PARAM = "/steampulse/test/frontend/revalidate-token"
 _TOKEN = "test-token-abc123"
+_DISTRIBUTION_ID_PARAM = "/steampulse/test/delivery/distribution-id"
+_DISTRIBUTION_ID = "EDFDVBD6EXAMPLE"
 _FRONTEND_BUCKET = "test-frontend-bucket"
 _CACHE_KEY_PREFIX = "cache/test-build/"
 _BUILD_ID = "test-build"
@@ -32,6 +34,7 @@ def _reset_module_state() -> None:
 def _env() -> None:
     os.environ["FRONTEND_BASE_URL"] = _FRONTEND_BASE_URL
     os.environ["REVALIDATE_TOKEN_PARAM"] = _REVALIDATE_TOKEN_PARAM
+    os.environ["DISTRIBUTION_ID_PARAM"] = _DISTRIBUTION_ID_PARAM
     os.environ["FRONTEND_BUCKET"] = _FRONTEND_BUCKET
     os.environ["CACHE_BUCKET_KEY_PREFIX"] = _CACHE_KEY_PREFIX
     os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
@@ -45,8 +48,34 @@ def _seed_ssm_and_bucket() -> None:
         Type="String",
         Overwrite=True,
     )
+    ssm.put_parameter(
+        Name=_DISTRIBUTION_ID_PARAM,
+        Value=_DISTRIBUTION_ID,
+        Type="String",
+        Overwrite=True,
+    )
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket=_FRONTEND_BUCKET)
+
+
+def _stub_cloudfront(handler: Any) -> list[dict]:
+    """Replace handler._cloudfront.create_invalidation with a capturing stub.
+
+    Returns the list that captures kwargs for each call.
+    """
+    captured: list[dict] = []
+
+    def _capture(**kwargs: Any) -> dict:
+        captured.append(kwargs)
+        return {
+            "Invalidation": {
+                "Id": f"I{len(captured)}",
+                "Status": "InProgress",
+            }
+        }
+
+    handler._cloudfront.create_invalidation = _capture  # type: ignore[method-assign]
+    return captured
 
 
 def _cache_key(appid: int, slug: str) -> str:
@@ -66,13 +95,19 @@ def _page_cache_keys_present(appid: int, slug: str) -> bool:
     return resp.get("KeyCount", 0) > 0
 
 
-def _get_module() -> Any:
-    """Re-seed SSM and reset the lazy http client between tests."""
+def _get_module() -> tuple[Any, list[dict]]:
+    """Re-seed SSM, reset the lazy http client, stub CloudFront, return (handler, captured).
+
+    The returned `captured` list accumulates kwargs of every
+    `create_invalidation` call made through the stubbed client. Tests that
+    don't care about CloudFront can ignore it.
+    """
     _seed_ssm_and_bucket()
     import lambda_functions.revalidate_frontend.handler as h
 
     h._http_client = None
-    return h
+    captured = _stub_cloudfront(h)
+    return h, captured
 
 
 def _slug(appid: int) -> str:
@@ -137,7 +172,7 @@ def test_happy_path_posts_revalidate_and_deletes_s3_page_cache(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     _put_page_cache(12345, _slug(12345))
     assert _page_cache_keys_present(12345, _slug(12345))
 
@@ -164,7 +199,7 @@ def test_s3_delete_failure_returns_batch_item_failure(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 1, "slug": _slug(1), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("simulated S3 outage")
@@ -186,7 +221,7 @@ def test_s3_per_key_errors_returns_batch_item_failure(
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 2, "slug": _slug(2), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
 
     def _partial_failure(*_args: object, **_kwargs: object) -> dict:
         return {
@@ -226,7 +261,7 @@ def test_non_2xx_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
         status_code=500,
         json={"ok": False, "error": "boom"},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     result = handler.handler(_sns_wrapped_event(99, message_id="msg-99"), MockLambdaContext())
 
     assert result == {"batchItemFailures": [{"itemIdentifier": "msg-99"}]}
@@ -234,7 +269,7 @@ def test_non_2xx_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
 
 @mock_aws
 def test_missing_appid_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
-    handler = _get_module()
+    handler, _ = _get_module()
     bad_event = {
         "Records": [
             {
@@ -258,7 +293,7 @@ def test_missing_appid_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None
 
 @mock_aws
 def test_missing_slug_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
-    handler = _get_module()
+    handler, _ = _get_module()
     bad_event = {
         "Records": [
             {
@@ -296,7 +331,7 @@ def test_partial_batch_failure_only_reports_failed_record(
         status_code=502,
         json={"ok": False},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     result = handler.handler(
         _multi_record_event([(1, "ok-msg"), (2, "fail-msg")]),
         MockLambdaContext(),
@@ -313,7 +348,7 @@ def test_unwrapped_sqs_body_also_parses(httpx_mock: HTTPXMock) -> None:
         url=f"{_FRONTEND_BASE_URL}/api/revalidate",
         json={"ok": True, "appid": 7, "slug": _slug(7), "now": 0},
     )
-    handler = _get_module()
+    handler, _ = _get_module()
     direct_event = {
         "Records": [
             {
@@ -329,3 +364,198 @@ def test_unwrapped_sqs_body_also_parses(httpx_mock: HTTPXMock) -> None:
 
     assert result == {"batchItemFailures": []}
     assert len(httpx_mock.get_requests()) == 1
+
+
+@mock_aws
+def test_happy_path_creates_cloudfront_invalidation(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        json={"ok": True, "appid": 12345, "slug": _slug(12345), "now": 0},
+    )
+    handler, captured = _get_module()
+    _put_page_cache(12345, _slug(12345))
+
+    result = handler.handler(_sns_wrapped_event(12345), MockLambdaContext())
+
+    assert result == {"batchItemFailures": []}
+    assert len(captured) == 1
+    call = captured[0]
+    assert call["DistributionId"] == _DISTRIBUTION_ID
+    assert call["InvalidationBatch"]["Paths"] == {
+        "Quantity": 1,
+        "Items": ["/games/12345/*"],
+    }
+    assert call["InvalidationBatch"]["CallerReference"].startswith("revalidate-")
+
+
+@mock_aws
+def test_batched_invalidation_for_multiple_records(httpx_mock: HTTPXMock) -> None:
+    for appid in (10, 20, 30):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+            json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+        )
+    handler, captured = _get_module()
+    for appid in (10, 20, 30):
+        _put_page_cache(appid, _slug(appid))
+
+    result = handler.handler(
+        _multi_record_event([(10, "m-10"), (20, "m-20"), (30, "m-30")]),
+        MockLambdaContext(),
+    )
+
+    assert result == {"batchItemFailures": []}
+    assert len(captured) == 1, "expected ONE invalidation covering all appids"
+    paths = captured[0]["InvalidationBatch"]["Paths"]
+    assert paths["Quantity"] == 3
+    assert paths["Items"] == ["/games/10/*", "/games/20/*", "/games/30/*"]
+
+
+@mock_aws
+def test_cloudfront_failure_marks_all_succeeded_records_as_failed(
+    httpx_mock: HTTPXMock,
+) -> None:
+    for appid in (1, 2):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+            json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+        )
+    handler, _ = _get_module()
+
+    def _boom(**_kwargs: Any) -> dict:
+        raise RuntimeError("simulated CloudFront outage")
+
+    handler._cloudfront.create_invalidation = _boom  # type: ignore[method-assign]
+
+    for appid in (1, 2):
+        _put_page_cache(appid, _slug(appid))
+
+    result = handler.handler(
+        _multi_record_event([(1, "ok-1"), (2, "ok-2")]),
+        MockLambdaContext(),
+    )
+
+    assert result == {
+        "batchItemFailures": [
+            {"itemIdentifier": "ok-1"},
+            {"itemIdentifier": "ok-2"},
+        ]
+    }
+
+
+@mock_aws
+def test_per_record_failure_does_not_block_invalidation_for_others(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Records that succeed at /api/revalidate still get invalidated even if a sibling fails."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        json={"ok": True, "appid": 100, "slug": _slug(100), "now": 0},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        status_code=500,
+        json={"ok": False},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+        json={"ok": True, "appid": 300, "slug": _slug(300), "now": 0},
+    )
+    handler, captured = _get_module()
+    _put_page_cache(100, _slug(100))
+    _put_page_cache(300, _slug(300))
+
+    result = handler.handler(
+        _multi_record_event([(100, "m-100"), (200, "m-200"), (300, "m-300")]),
+        MockLambdaContext(),
+    )
+
+    assert result == {"batchItemFailures": [{"itemIdentifier": "m-200"}]}
+    assert len(captured) == 1
+    paths = captured[0]["InvalidationBatch"]["Paths"]
+    assert paths["Items"] == ["/games/100/*", "/games/300/*"]
+
+
+@mock_aws
+def test_module_load_requires_distribution_id_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cold start must fail loudly if DISTRIBUTION_ID_PARAM is unset."""
+    import sys
+
+    _seed_ssm_and_bucket()
+    monkeypatch.delenv("DISTRIBUTION_ID_PARAM", raising=False)
+    sys.modules.pop("lambda_functions.revalidate_frontend.handler", None)
+    with pytest.raises(KeyError):
+        import lambda_functions.revalidate_frontend.handler  # noqa: F401
+
+
+@mock_aws
+def test_caller_reference_is_deterministic_across_retries(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Same messageId set must produce the same CallerReference so CloudFront dedupes retries."""
+    for _ in range(2):
+        for appid in (10, 20):
+            httpx_mock.add_response(
+                method="POST",
+                url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+                json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+            )
+    handler, captured = _get_module()
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+
+    event = _multi_record_event([(10, "msg-A"), (20, "msg-B")])
+    handler.handler(event, MockLambdaContext())
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+    handler.handler(event, MockLambdaContext())
+
+    assert len(captured) == 2
+    assert captured[0]["InvalidationBatch"]["CallerReference"] == captured[1][
+        "InvalidationBatch"
+    ]["CallerReference"]
+
+
+@mock_aws
+def test_caller_reference_differs_across_distinct_batches(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Distinct messageId sets must produce distinct CallerReferences."""
+    for appid in (10, 20):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+            json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+        )
+    handler, captured = _get_module()
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+
+    handler.handler(_multi_record_event([(10, "msg-A")]), MockLambdaContext())
+    handler.handler(_multi_record_event([(20, "msg-B")]), MockLambdaContext())
+
+    assert len(captured) == 2
+    assert (
+        captured[0]["InvalidationBatch"]["CallerReference"]
+        != captured[1]["InvalidationBatch"]["CallerReference"]
+    )
+
+
+@mock_aws
+def test_no_records_skips_cloudfront_call(httpx_mock: HTTPXMock) -> None:
+    """Empty / all-failed batches must NOT issue an invalidation."""
+    handler, captured = _get_module()
+
+    result = handler.handler({"Records": []}, MockLambdaContext())
+
+    assert result == {"batchItemFailures": []}
+    assert captured == []
+    assert httpx_mock.get_requests() == []

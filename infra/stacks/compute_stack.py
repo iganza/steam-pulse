@@ -965,6 +965,7 @@ class ComputeStack(cdk.Stack):
         revalidate_token_param = (
             f"/steampulse/{env}/frontend/revalidate-token"
         )
+        distribution_id_param = f"/steampulse/{env}/delivery/distribution-id"
         revalidate_role = iam.Role(
             self,
             "RevalidateFrontendRole",
@@ -980,7 +981,9 @@ class ComputeStack(cdk.Stack):
                 actions=["ssm:GetParameter"],
                 resources=[
                     f"arn:aws:ssm:{self.region}:{self.account}"
-                    f":parameter{revalidate_token_param}"
+                    f":parameter{revalidate_token_param}",
+                    f"arn:aws:ssm:{self.region}:{self.account}"
+                    f":parameter{distribution_id_param}",
                 ],
             )
         )
@@ -990,6 +993,16 @@ class ComputeStack(cdk.Stack):
             iam.PolicyStatement(
                 actions=["s3:DeleteObject"],
                 resources=[f"{frontend_bucket.bucket_arn}/cache/*"],
+            )
+        )
+        # CloudFront edge invalidation — distribution ID is resolved at runtime
+        # so the resource ARN must be wildcarded.
+        revalidate_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["cloudfront:CreateInvalidation"],
+                resources=[
+                    f"arn:aws:cloudfront::{self.account}:distribution/*"
+                ],
             )
         )
         revalidate_fn = PythonFunction(
@@ -1016,6 +1029,7 @@ class ComputeStack(cdk.Stack):
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
                 FRONTEND_BASE_URL=self.frontend_fn_url.url,
                 REVALIDATE_TOKEN_PARAM=revalidate_token_param,
+                DISTRIBUTION_ID_PARAM=distribution_id_param,
                 FRONTEND_BUCKET=frontend_bucket.bucket_name,
                 CACHE_BUCKET_KEY_PREFIX=f"cache/{self.node.try_get_context('build-id') or 'local'}/",
             ),
@@ -1029,6 +1043,9 @@ class ComputeStack(cdk.Stack):
                 batch_size=2,
                 max_batching_window=cdk.Duration.seconds(5),
                 report_batch_item_failures=True,
+                # Cap concurrent Lambdas (and thus concurrent CloudFront
+                # invalidations) below CloudFront's 15-per-distribution limit.
+                max_concurrency=10,
             )
         )
 

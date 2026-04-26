@@ -63,7 +63,7 @@ No DeliveryStack changes. Bucket already exists; the path glob covers all build 
   )
   ```
   `delete_objects` is idempotent at the per-key level: deleting non-existent keys returns 200 with no `Errors` array. We don't need to inspect `Errors` unless we want a strict mode.
-- Add a `PageCacheBust` metric increment alongside the existing `RevalidationsSucceeded`.
+- Add a `PageCacheBust` metric increment alongside the existing `OriginRevalidationsSucceeded` (the per-record origin success counter; renamed from `RevalidationsSucceeded` in `feature/game-report-cloudfront-invalidation` once full-pipeline success became a separate `CdnInvalidations` metric).
 - Failure handling unchanged — exceptions bubble, SQS retries, eventual DLQ.
 
 ### 3. Tests
@@ -78,7 +78,7 @@ No DeliveryStack changes. Bucket already exists; the path glob covers all build 
 ### 4. Out of scope
 
 - Touching `/api/revalidate`, `frontend/lib/api.ts`, the page tsx, or any other PR's diff. Pure additive change to the Lambda + IAM.
-- CloudFront edge invalidation (separate prompt: `game-report-cloudfront-invalidation.md`).
+- CloudFront edge invalidation (separate prompt: `game-report-cloudfront-invalidation.md` — *landed*; `RevalidateFrontendFn` now also issues `cloudfront:CreateInvalidation` after the S3 delete succeeds).
 - Migrating off the workaround once OpenNext supports dynamic-route tag invalidation upstream — file an issue and revisit.
 
 ## Critical files

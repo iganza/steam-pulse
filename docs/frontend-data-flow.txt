@@ -180,3 +180,40 @@
         │
         └── fetch("" + "/api/games") = fetch("/api/games")
             CloudFront routes /api/* → ApiFn
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         GOTCHAS — non-obvious requirements for cache-until-changed   ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Each of these was discovered by end-to-end debugging in prod. Removing
+  any one re-breaks the loop.
+
+  1. Pin Next BUILD_ID to git SHA (next.config.ts → generateBuildId).
+     Without it, every deploy gets a new BUILD_ID; tag namespaces drift
+     and revalidateTag writes to a different namespace than reads.
+
+  2. Deploy OpenNext's revalidation queue + Lambda (compute_stack.py).
+     OpenNext enqueues stale-page re-render requests to an internal SQS
+     queue. Without the consumer, the cache stays STALE forever.
+
+  3. Add `generateStaticParams() => []` to dynamic routes (next 16+).
+     Without it the route is fully dynamic SSR with no ISR; the
+     `revalidate` export is silently ignored.
+
+  4. Direct S3 delete is the ONLY way to bust dynamic-route page HTML.
+     OpenNext doesn't pre-populate page-tag entries for dynamic routes,
+     so neither `revalidatePath` nor `revalidateTag` invalidates the
+     rendered HTML in S3. RevalidateFrontendFn must `s3:DeleteObject`
+     the .cache and .cache.meta files directly.
+
+  5. Clean .next/.open-next before every build (deploy.sh).
+     Stale build artifacts cause sporadic Turbopack font-resolution
+     and missing-build-manifest errors during open-next bundling.
+
+  Regression test: scripts/smoke/cache_invalidation.sh covers the full
+  origin-side loop (prime → invalidate → S3 delete → re-render). Run
+  after every prod deploy:
+      bash scripts/smoke/cache_invalidation.sh
+  Exits non-zero on any regression. Wire into scripts/deploy.sh as a
+  final post-deploy step.

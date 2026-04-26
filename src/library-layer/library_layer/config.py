@@ -11,8 +11,10 @@ Two usage patterns:
       config = SteamPulseConfig()
 
 The naming convention for env files is encapsulated here.
-Secrets (DB password, Steam API key) never appear in env files —
-they live in Secrets Manager and are fetched at runtime.
+Secret *values* never appear in env files — only the names/paths used to
+look them up at runtime. As of T2: API keys (Steam, Anthropic, Resend)
+live in SSM Parameter Store as SecureString. DB credentials still live in
+Secrets Manager pending the T4/T5 migration.
 """
 
 from typing import Literal, Self
@@ -47,10 +49,10 @@ class SteamPulseConfig(BaseSettings):
     @model_validator(mode="after")
     def _validate_anthropic_config(self) -> Self:
         if self.LLM_BACKEND == "anthropic":
-            if not self.ANTHROPIC_API_KEY and not self.ANTHROPIC_API_KEY_SECRET_NAME:
+            if not self.ANTHROPIC_API_KEY and not self.ANTHROPIC_API_KEY_PARAM_NAME:
                 raise ValueError(
                     "LLM_BACKEND=anthropic requires ANTHROPIC_API_KEY or "
-                    "ANTHROPIC_API_KEY_SECRET_NAME to be set."
+                    "ANTHROPIC_API_KEY_PARAM_NAME to be set."
                 )
         return self
 
@@ -78,10 +80,22 @@ class SteamPulseConfig(BaseSettings):
             )
         return self.LLM_MODEL[task]
 
-    # ── Secrets Manager names (Lambda calls get_secret_value(SecretId=name)) ──
+    # ── Secrets Manager names — DB credentials only after T2. ─────────────
+    # The STEAM/RESEND *_SECRET_NAME fields are unused at runtime (the new
+    # *_PARAM_NAME block below replaced them) but kept in the schema until
+    # T3-A so env files don't break across the deploy boundary. New API-key
+    # callsites must use the *_PARAM_NAME fields, NOT *_SECRET_NAME.
     DB_SECRET_NAME: str
     STEAM_API_KEY_SECRET_NAME: str
     RESEND_API_KEY_SECRET_NAME: str
+
+    # ── SSM SecureString param names — API keys (T2 supersedes *_SECRET_NAME). ─
+    # DB_PASSWORD_PARAM_NAME is staged for T4 (DB-credentials migration) and
+    # is not consumed at runtime in T2.
+    STEAM_API_KEY_PARAM_NAME: str
+    ANTHROPIC_API_KEY_PARAM_NAME: str
+    RESEND_API_KEY_PARAM_NAME: str
+    DB_PASSWORD_PARAM_NAME: str
 
     # ── SSM parameter names (resolved at Lambda cold start via get_parameter()) ─
     SFN_PARAM_NAME: str

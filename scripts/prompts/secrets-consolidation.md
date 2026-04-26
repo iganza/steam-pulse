@@ -29,13 +29,13 @@ The DB-credentials migration (T4) is more involved than the API-key migration (T
 
 The user runs these commands (Claude does not run AWS write APIs). Each block reads the current value from the existing Secrets Manager secret and writes it byte-for-byte into a new SecureString parameter — no manual retyping, no source-of-truth files. This guarantees the migration is a relocation, not a rotation.
 
+**Operator runs `bash scripts/migrate-secrets-to-ssm.sh --env <env>`**, which encapsulates the loops below. Reference shape:
+
 ```bash
-# API keys — pulled directly from the existing Secrets Manager secrets.
-# All 3 are stored as plain strings in SecretString (not JSON), so the
-# raw SecretString value is the key.
+# Steam + Anthropic — plain-string SecretString.
 for env in production staging; do
-  for k in steam-api-key anthropic-api-key resend-api-key; do
-    short=${k%-api-key}                # steam | anthropic | resend
+  for k in steam-api-key anthropic-api-key; do
+    short=${k%-api-key}                # steam | anthropic
     value=$(aws secretsmanager get-secret-value \
       --secret-id "/steampulse/${env}/${k}" \
       --query 'SecretString' --output text)
@@ -45,6 +45,19 @@ for env in production staging; do
       --value "$value"
     unset value
   done
+done
+
+# Resend — JSON-shaped SecretString: {"api_key": "..."}. Extract the field.
+for env in production staging; do
+  value=$(aws secretsmanager get-secret-value \
+    --secret-id "/steampulse/${env}/resend-api-key" \
+    --query 'SecretString' --output text \
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['api_key'], end='')")
+  aws ssm put-parameter \
+    --name "/steampulse/${env}/api-keys/resend" \
+    --type SecureString \
+    --value "$value"
+  unset value
 done
 
 # DB passwords — pulled from the JSON-shaped db-credentials secret.
@@ -114,10 +127,12 @@ Expect 8 `OK` lines. Any `MISMATCH` blocks the rest of the migration — re-run 
 `src/library-layer/library_layer/config.py` — add four fields (alongside the existing `*_SECRET_NAME` fields, which stay until T5):
 
 ```python
-STEAM_API_KEY_PARAM_NAME: str = ""       # /steampulse/{env}/api-keys/steam
-ANTHROPIC_API_KEY_PARAM_NAME: str = ""   # /steampulse/{env}/api-keys/anthropic
-RESEND_API_KEY_PARAM_NAME: str = ""      # /steampulse/{env}/api-keys/resend
-DB_PASSWORD_PARAM_NAME: str = ""         # /steampulse/{env}/db-password (used in T4)
+# No defaults — every env file MUST wire these explicitly. Pydantic-settings
+# fails loudly at config load if any are missing.
+STEAM_API_KEY_PARAM_NAME: str       # /steampulse/{env}/api-keys/steam
+ANTHROPIC_API_KEY_PARAM_NAME: str   # /steampulse/{env}/api-keys/anthropic
+RESEND_API_KEY_PARAM_NAME: str      # /steampulse/{env}/api-keys/resend
+DB_PASSWORD_PARAM_NAME: str         # /steampulse/{env}/db-password (used in T4)
 ```
 
 Wire them through `.env.production`, `.env.staging`, `.env.example`, and `tests/conftest.py` defaults.

@@ -17,6 +17,10 @@ _TEST_CONFIG = SteamPulseConfig(
     ENVIRONMENT="staging",
     DB_SECRET_NAME="steampulse/test/db-credentials",
     STEAM_API_KEY_SECRET_NAME="steampulse/test/steam-api-key",
+    STEAM_API_KEY_PARAM_NAME="/steampulse/test/api-keys/steam",
+    ANTHROPIC_API_KEY_PARAM_NAME="/steampulse/test/api-keys/anthropic",
+    RESEND_API_KEY_PARAM_NAME="/steampulse/test/api-keys/resend",
+    DB_PASSWORD_PARAM_NAME="/steampulse/test/db-password",
     SFN_PARAM_NAME="/steampulse/test/compute/sfn-arn",
     STEP_FUNCTIONS_PARAM_NAME="/steampulse/test/compute/sfn-arn",
     APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/app-crawl-queue-url",
@@ -42,7 +46,7 @@ def template() -> Template:
         environment="staging",
         spoke_results_queue_url="https://sqs.us-west-2.amazonaws.com/123456789012/SpokeResultsQueue",
         assets_bucket_name="steampulse-assets-test",
-        steam_api_key_secret_name="steampulse/test/steam-api-key",
+        steam_api_key_param_name="/steampulse/test/api-keys/steam",
         env=cdk.Environment(account="123456789012", region="us-east-1"),
     )
     return Template.from_stack(stack)

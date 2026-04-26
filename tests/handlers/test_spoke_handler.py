@@ -19,11 +19,14 @@ from moto import mock_aws
 
 
 def _seed_secrets() -> None:
-    sm = boto3.client("secretsmanager", region_name="us-east-1")
-    try:
-        sm.create_secret(Name="steampulse/test/steam-api-key", SecretString="test-key")
-    except sm.exceptions.ResourceExistsException:
-        pass
+    # Spoke handler reads STEAM_API_KEY_PARAM_NAME cross-region from PRIMARY_REGION (us-east-1 in tests).
+    ssm = boto3.client("ssm", region_name="us-east-1")
+    ssm.put_parameter(
+        Name="/steampulse/test/api-keys/steam",
+        Value="test-key",
+        Type="SecureString",
+        Overwrite=True,
+    )
 
 
 def _get_handler_module() -> Any:

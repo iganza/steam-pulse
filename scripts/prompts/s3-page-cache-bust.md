@@ -63,7 +63,7 @@ No DeliveryStack changes. Bucket already exists; the path glob covers all build 
   )
   ```
   `delete_objects` is idempotent at the per-key level: deleting non-existent keys returns 200 with no `Errors` array. We don't need to inspect `Errors` unless we want a strict mode.
-- Add a `PageCacheBust` metric increment alongside the existing `RevalidationsSucceeded`.
+- Add a `PageCacheBust` metric increment alongside the existing `OriginRevalidationsSucceeded` (the per-record origin success counter; renamed from `RevalidationsSucceeded` in `feature/game-report-cloudfront-invalidation` once full-pipeline success became a separate `CdnInvalidations` metric).
 - Failure handling unchanged — exceptions bubble, SQS retries, eventual DLQ.
 
 ### 3. Tests

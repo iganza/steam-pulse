@@ -2,6 +2,8 @@
 
 import json
 import os
+import time
+from uuid import uuid4
 
 import boto3
 import httpx
@@ -21,6 +23,9 @@ _FRONTEND_BASE_URL: str = os.environ["FRONTEND_BASE_URL"].rstrip("/")
 _REVALIDATE_TOKEN: str = get_parameter(  # type: ignore[assignment]
     os.environ["REVALIDATE_TOKEN_PARAM"],
     decrypt=True,
+)
+_DISTRIBUTION_ID: str = get_parameter(  # type: ignore[assignment]
+    os.environ["DISTRIBUTION_ID_PARAM"],
 )
 _FRONTEND_BUCKET: str = os.environ["FRONTEND_BUCKET"]
 
@@ -46,6 +51,7 @@ _CACHE_KEY_PREFIX, _BUILD_ID = _parse_cache_key_prefix(
 )
 _HTTP_TIMEOUT_SECONDS = 5.0
 _s3 = boto3.client("s3")
+_cloudfront = boto3.client("cloudfront")
 
 # Lazy-init so connections pool across records and warm invocations.
 _http_client: httpx.Client | None = None
@@ -107,10 +113,23 @@ def _delete_page_cache(appid: int, slug: str) -> None:
         raise RuntimeError(f"S3 delete_objects errors: {errors}")
 
 
+def _invalidate_cdn(appids: list[int]) -> None:
+    """Issue one CloudFront invalidation covering /games/{appid}/* for each appid."""
+    paths = sorted({f"/games/{appid}/*" for appid in appids})
+    _cloudfront.create_invalidation(
+        DistributionId=_DISTRIBUTION_ID,
+        InvalidationBatch={
+            "Paths": {"Quantity": len(paths), "Items": paths},
+            "CallerReference": f"revalidate-{int(time.time() * 1000)}-{uuid4().hex[:8]}",
+        },
+    )
+
+
 @logger.inject_lambda_context(clear_state=True)
 @metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, _context: LambdaContext) -> dict:
     batch_item_failures: list[dict[str, str]] = []
+    successful_records: list[tuple[str, int]] = []
 
     for record in event.get("Records", []):
         message_id = record.get("messageId", "")
@@ -121,10 +140,26 @@ def handler(event: dict, _context: LambdaContext) -> dict:
             metrics.add_metric(name="RevalidationsSucceeded", unit=MetricUnit.Count, value=1)
             metrics.add_metric(name="PageCacheBust", unit=MetricUnit.Count, value=1)
             logger.info("Revalidated", extra={"appid": appid, "slug": slug})
+            if message_id:
+                successful_records.append((message_id, appid))
         except Exception:
             logger.exception("Failed to revalidate", extra={"message_id": message_id})
             metrics.add_metric(name="RevalidationsFailed", unit=MetricUnit.Count, value=1)
             if message_id:
+                batch_item_failures.append({"itemIdentifier": message_id})
+
+    if successful_records:
+        try:
+            _invalidate_cdn([appid for _, appid in successful_records])
+            metrics.add_metric(name="CdnInvalidations", unit=MetricUnit.Count, value=1)
+            logger.info(
+                "CloudFront invalidation issued",
+                extra={"appids": [appid for _, appid in successful_records]},
+            )
+        except Exception:
+            logger.exception("CloudFront invalidation failed")
+            metrics.add_metric(name="CdnInvalidationsFailed", unit=MetricUnit.Count, value=1)
+            for message_id, _ in successful_records:
                 batch_item_failures.append({"itemIdentifier": message_id})
 
     return {"batchItemFailures": batch_item_failures}

@@ -121,7 +121,7 @@ class BatchAnalysisStack(cdk.Stack):
                 actions=["states:StartExecution"],
                 resources=[
                     f"arn:aws:states:{self.region}:{self.account}:stateMachine:steampulse-batch-*-{env}",
-                    f"arn:aws:states:{self.region}:{self.account}:execution:steampulse-batch-*-{env}:*"
+                    f"arn:aws:states:{self.region}:{self.account}:execution:steampulse-batch-*-{env}:*",
                 ],
             )
         )
@@ -156,7 +156,7 @@ class BatchAnalysisStack(cdk.Stack):
                 security_groups=[intra_sg],
                 timeout=cdk.Duration.minutes(10),
                 memory_size=1024,
-                tracing=lambda_.Tracing.ACTIVE,
+                tracing=lambda_.Tracing.DISABLED,
                 log_group=logs.LogGroup(
                     self,
                     f"{construct_id}Logs",
@@ -452,7 +452,7 @@ class BatchAnalysisStack(cdk.Stack):
             # even one connect retry on a cold VPC ENI acquisition.
             timeout=cdk.Duration.seconds(60),
             memory_size=256,
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=logs.LogGroup(
                 self,
                 "DispatchBatchLogs",
@@ -485,9 +485,7 @@ class BatchAnalysisStack(cdk.Stack):
             parameters={
                 "appids": sfn.JsonPath.list_at("$.appids"),
                 "max_concurrency": sfn.JsonPath.number_at("$.max_concurrency"),
-                "appids_count": sfn.JsonPath.array_length(
-                    sfn.JsonPath.list_at("$.appids")
-                ),
+                "appids_count": sfn.JsonPath.array_length(sfn.JsonPath.list_at("$.appids")),
             },
         )
 
@@ -514,10 +512,12 @@ class BatchAnalysisStack(cdk.Stack):
                 "RunPerGame",
                 state_machine=state_machine,
                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                input=sfn.TaskInput.from_object({
-                    "appid": sfn.JsonPath.number_at("$"),
-                    "start_at": sfn.JsonPath.string_at("$$.Execution.Input.start_at"),
-                }),
+                input=sfn.TaskInput.from_object(
+                    {
+                        "appid": sfn.JsonPath.number_at("$"),
+                        "start_at": sfn.JsonPath.string_at("$$.Execution.Input.start_at"),
+                    }
+                ),
             )
         )
 
@@ -530,11 +530,13 @@ class BatchAnalysisStack(cdk.Stack):
             self,
             "PublishBatchAnalysisComplete",
             lambda_function=dispatch_fn,
-            payload=sfn.TaskInput.from_object({
-                "action": "post_batch",
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-                "appids_count": sfn.JsonPath.number_at("$.appids_count"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "action": "post_batch",
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                    "appids_count": sfn.JsonPath.number_at("$.appids_count"),
+                }
+            ),
             payload_response_only=True,
             retry_on_service_exceptions=True,
         )
@@ -619,11 +621,13 @@ class BatchAnalysisStack(cdk.Stack):
             self,
             "PrepareGenreSynthesis",
             lambda_function=genre_prepare_fn,
-            payload=sfn.TaskInput.from_object({
-                "slug": sfn.JsonPath.string_at("$.slug"),
-                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
-                "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "slug": sfn.JsonPath.string_at("$.slug"),
+                    "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+                    "execution_id": sfn.JsonPath.string_at("$$.Execution.Name"),
+                }
+            ),
             payload_response_only=True,
             # Overwrite the input — PrepareResult.model_dump() already
             # includes slug, prompt_version, and execution_id.
@@ -639,9 +643,7 @@ class BatchAnalysisStack(cdk.Stack):
             self,
             "CheckGenreSynthesisStatus",
             lambda_function=check_status_fn,
-            payload=sfn.TaskInput.from_object(
-                {"job_id": sfn.JsonPath.string_at("$.job_id")}
-            ),
+            payload=sfn.TaskInput.from_object({"job_id": sfn.JsonPath.string_at("$.job_id")}),
             payload_response_only=True,
             result_path="$.status_result",
         )
@@ -650,25 +652,27 @@ class BatchAnalysisStack(cdk.Stack):
             self,
             "CollectGenreSynthesis",
             lambda_function=genre_collect_fn,
-            payload=sfn.TaskInput.from_object({
-                "slug": sfn.JsonPath.string_at("$.slug"),
-                "job_id": sfn.JsonPath.string_at("$.job_id"),
-                "execution_id": sfn.JsonPath.string_at("$.execution_id"),
-                "selected_appids": sfn.JsonPath.list_at("$.selected_appids"),
-                "display_name": sfn.JsonPath.string_at("$.display_name"),
-                "avg_positive_pct": sfn.JsonPath.number_at("$.avg_positive_pct"),
-                "median_review_count": sfn.JsonPath.number_at("$.median_review_count"),
-                "input_hash": sfn.JsonPath.string_at("$.input_hash"),
-                "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "slug": sfn.JsonPath.string_at("$.slug"),
+                    "job_id": sfn.JsonPath.string_at("$.job_id"),
+                    "execution_id": sfn.JsonPath.string_at("$.execution_id"),
+                    "selected_appids": sfn.JsonPath.list_at("$.selected_appids"),
+                    "display_name": sfn.JsonPath.string_at("$.display_name"),
+                    "avg_positive_pct": sfn.JsonPath.number_at("$.avg_positive_pct"),
+                    "median_review_count": sfn.JsonPath.number_at("$.median_review_count"),
+                    "input_hash": sfn.JsonPath.string_at("$.input_hash"),
+                    "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.collected",
         )
 
         genre_prepare.next(genre_skip_check)
-        genre_skip_check.when(
-            sfn.Condition.boolean_equals("$.skip", True), genre_done
-        ).otherwise(genre_wait)
+        genre_skip_check.when(sfn.Condition.boolean_equals("$.skip", True), genre_done).otherwise(
+            genre_wait
+        )
         genre_wait.next(genre_check).next(genre_done_choice)
         genre_done_choice.when(
             sfn.Condition.string_equals("$.status_result.status", "Completed"),
@@ -741,10 +745,12 @@ class BatchAnalysisStack(cdk.Stack):
                 "RunPerSlug",
                 state_machine=genre_state_machine,
                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                input=sfn.TaskInput.from_object({
-                    "slug": sfn.JsonPath.string_at("$.slug"),
-                    "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
-                }),
+                input=sfn.TaskInput.from_object(
+                    {
+                        "slug": sfn.JsonPath.string_at("$.slug"),
+                        "prompt_version": sfn.JsonPath.string_at("$.prompt_version"),
+                    }
+                ),
             )
         )
         genre_orchestrator_done = sfn.Succeed(self, "GenreOrchestrationComplete")

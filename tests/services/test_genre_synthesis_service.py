@@ -6,7 +6,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from aws_lambda_powertools import Metrics
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.backend import BatchCollectResult
 from library_layer.models.genre_synthesis import (
@@ -138,7 +137,6 @@ def service_parts() -> dict[str, Any]:
     game_repo = MagicMock()
     synthesis_repo = MagicMock()
     batch_exec_repo = MagicMock()
-    metrics = Metrics(namespace="SteamPulseTest", service="genre-synthesis-test")
     canned = _canned_synthesis()
     backend = FakeBatchBackend(collect_response=_canned_collect_result(canned))
 
@@ -162,7 +160,6 @@ def service_parts() -> dict[str, Any]:
         synthesis_repo=synthesis_repo,
         batch_exec_repo=batch_exec_repo,
         config=config,
-        metrics=metrics,
         required_pipeline_version="3.0/test",
     )
     return {
@@ -418,7 +415,6 @@ def test_collect_batch_unknown_model_does_not_strand_row(
         synthesis_repo=service_parts["synthesis_repo"],
         batch_exec_repo=service_parts["batch_exec_repo"],
         config=config,
-        metrics=service_parts["service"]._metrics,
         required_pipeline_version="3.0/test",
     )
 
@@ -586,7 +582,6 @@ def test_service_rejects_min_reports_below_mention_floor(
             synthesis_repo=MagicMock(),
             batch_exec_repo=MagicMock(),
             config=config,
-            metrics=service_parts["service"]._metrics,
             required_pipeline_version="3.0/test",
         )
 

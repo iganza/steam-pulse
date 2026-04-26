@@ -21,14 +21,13 @@ invoked by a human operator.
 """
 
 import boto3
-from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.events import BatchAnalysisCompleteEvent
 from library_layer.utils.events import publish_event
 
 logger = Logger(service="batch-dispatch")
-tracer = Tracer(service="batch-dispatch")
 
 _config = SteamPulseConfig()
 _sns = boto3.client("sns")
@@ -111,9 +110,7 @@ _sns = boto3.client("sns")
 
 def _get_system_events_topic_arn() -> str:
     ssm = boto3.client("ssm")
-    return ssm.get_parameter(
-        Name=_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME
-    )["Parameter"]["Value"]
+    return ssm.get_parameter(Name=_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME)["Parameter"]["Value"]
 
 
 def _handle_post_batch(event: dict) -> dict:
@@ -141,7 +138,6 @@ def _handle_post_batch(event: dict) -> dict:
     return {"status": "published", "execution_id": execution_id}
 
 
-@tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     action = event.get("action")
     if action == "post_batch":

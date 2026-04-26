@@ -10,7 +10,7 @@ Output: {status: "Running"|"Completed"|"Failed", message: str}
 import anthropic
 import boto3
 import psycopg2.extensions
-from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.llm import resolve_anthropic_api_key
@@ -18,7 +18,6 @@ from library_layer.repositories.batch_execution_repo import BatchExecutionReposi
 from library_layer.utils.db import get_conn
 
 logger = Logger(service="batch-check-status")
-tracer = Tracer(service="batch-check-status")
 
 _config = SteamPulseConfig()
 _BATCH_CONNECT_TIMEOUT = 60  # cold-start burst tolerance
@@ -81,7 +80,6 @@ def _check_anthropic(job_id: str) -> dict:
     return {"status": mapped_status, "message": raw_status, "raw": raw_status}
 
 
-@tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     job_id: str = event["job_id"]
 

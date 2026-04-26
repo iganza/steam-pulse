@@ -25,8 +25,7 @@ import statistics
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from aws_lambda_powertools import Logger, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools import Logger
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.backend import LLMRequest, estimate_batch_cost_usd
@@ -101,7 +100,6 @@ class GenreSynthesisService:
         synthesis_repo: GenreSynthesisRepository,
         batch_exec_repo: BatchExecutionRepository,
         config: SteamPulseConfig,
-        metrics: Metrics,
         required_pipeline_version: str,
     ) -> None:
         """`required_pipeline_version` gates which Phase-3 reports count as
@@ -128,7 +126,6 @@ class GenreSynthesisService:
         self._synthesis_repo = synthesis_repo
         self._batch_exec_repo = batch_exec_repo
         self._config = config
-        self._metrics = metrics
         self._required_pipeline_version = required_pipeline_version
 
     # ------------------------------------------------------------------
@@ -197,9 +194,6 @@ class GenreSynthesisService:
                     "prompt_version": prompt_version,
                 },
             )
-            self._metrics.add_metric(
-                name="GenreSynthesisCacheHit", unit=MetricUnit.Count, value=1
-            )
             return PrepareResult(
                 slug=slug,
                 skip=True,
@@ -227,14 +221,8 @@ class GenreSynthesisService:
             response_model=GenreSynthesis,
         )
 
-        self._metrics.add_metric(
-            name="GenreSynthesisRuns", unit=MetricUnit.Count, value=1
-        )
-
         prepared = backend.prepare([request], phase=GENRE_SYNTHESIS_PHASE)
-        job_id = backend.submit(
-            prepared, "genre_synthesis", phase=GENRE_SYNTHESIS_PHASE
-        )
+        job_id = backend.submit(prepared, "genre_synthesis", phase=GENRE_SYNTHESIS_PHASE)
 
         # Log after submit so job_id is present — ops dashboards
         # (scripts/logs.py synthesis-activity) join on job_id to
@@ -315,9 +303,7 @@ class GenreSynthesisService:
         cost visible. On failure to build the row, the tracking row is
         flipped to ``failed`` with the failure reason captured.
         """
-        collect_result = backend.collect(
-            job_id, default_response_model=GenreSynthesis
-        )
+        collect_result = backend.collect(job_id, default_response_model=GenreSynthesis)
 
         # Validate the result shape before recording counts so
         # ``mark_completed`` sees accurate succeeded/failed figures even
@@ -350,9 +336,7 @@ class GenreSynthesisService:
                     f"{expected_record_id!r}, got {record_id!r}"
                 )
             elif not isinstance(obj, GenreSynthesis):
-                validation_error = (
-                    f"Expected GenreSynthesis, got {type(obj).__name__}"
-                )
+                validation_error = f"Expected GenreSynthesis, got {type(obj).__name__}"
             else:
                 synthesis_obj = obj
 
@@ -533,9 +517,7 @@ class GenreSynthesisService:
         return avg_positive, median_reviews
 
 
-def _compute_input_hash(
-    *, prompt_version: str, pipeline_version: str, appids: list[int]
-) -> str:
+def _compute_input_hash(*, prompt_version: str, pipeline_version: str, appids: list[int]) -> str:
     """Stable cache key for (prompt_version, pipeline_version, appid set).
 
     Including `pipeline_version` matters because a Phase-3 PIPELINE_VERSION

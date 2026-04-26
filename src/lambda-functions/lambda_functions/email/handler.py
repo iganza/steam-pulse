@@ -10,7 +10,7 @@ up to the configured maxReceiveCount before landing on the DLQ.
 
 import json
 
-from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.parameters import get_secret
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
@@ -18,7 +18,6 @@ from library_layer.events import WaitlistConfirmationMessage
 from library_layer.utils.email import ResendEmailSender
 
 logger = Logger(service="email")
-tracer = Tracer(service="email")
 
 _config = SteamPulseConfig()
 _resend_api_key: str = get_secret(_config.RESEND_API_KEY_SECRET_NAME)  # type: ignore[assignment]
@@ -42,7 +41,6 @@ def _handle_waitlist_confirmation(email: str) -> None:
 
 
 @logger.inject_lambda_context(clear_state=True)
-@tracer.capture_lambda_handler
 def handler(event: dict, context: LambdaContext) -> dict:
     """Process SQS email queue records with partial-batch failure reporting.
 

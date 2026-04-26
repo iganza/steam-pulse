@@ -12,12 +12,11 @@ Routes on message["task"]:
 import gzip
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 import httpx
-from aws_lambda_powertools import Logger, Metrics
-from aws_lambda_powertools.metrics import MetricUnit
+from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.batch import (
     BatchProcessor,
     EventType,
@@ -41,11 +40,7 @@ from library_layer.services.crawl_service import CrawlService
 from library_layer.steam_source import DirectSteamSource
 from library_layer.utils.db import get_conn
 
-from library_layer.utils.steam_metrics import make_steam_metrics_callback
-
-
 logger = Logger(service="spoke-ingest")
-metrics = Metrics(namespace="SteamPulse", service="spoke-ingest")
 
 ingest_processor = BatchProcessor(event_type=EventType.SQS)
 
@@ -53,8 +48,6 @@ _sqs = boto3.client("sqs")
 _sns = boto3.client("sns")
 _s3 = boto3.client("s3")
 _config = SteamPulseConfig()
-metrics.set_default_dimensions(environment=_config.ENVIRONMENT)
-_steam_metrics_callback = make_steam_metrics_callback(_config.ENVIRONMENT, metrics)
 
 # Resolve SSM params — ingest runs in primary region, SSM works normally
 _review_crawl_queue_url = get_parameter(_config.REVIEW_CRAWL_QUEUE_PARAM_NAME)
@@ -91,7 +84,7 @@ _crawl_service = CrawlService(
     review_repo=_review_repo,
     catalog_repo=_catalog_repo,
     tag_repo=TagRepository(get_conn),
-    steam=DirectSteamSource(httpx.Client(timeout=60.0), on_request=_steam_metrics_callback),
+    steam=DirectSteamSource(httpx.Client(timeout=60.0)),
     sqs_client=_sqs,
     review_queue_url=_review_crawl_queue_url,
     sns_client=_sns,
@@ -103,7 +96,6 @@ _crawl_service = CrawlService(
 )
 
 
-@metrics.log_metrics(capture_cold_start_metric=True)
 def handler(event: dict, context: LambdaContext) -> dict:
     return process_partial_response(
         event=event,
@@ -145,7 +137,9 @@ def _ingest_record(record: dict) -> None:
 def _handle_metadata(msg: MetadataSpokeResult) -> None:
     if not msg.success:
         # Permanent failure (e.g. game delisted) — log and skip, don't retry.
-        logger.warning("Spoke reported metadata failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning(
+            "Spoke reported metadata failure", extra={"appid": msg.appid, "error": msg.error}
+        )
         _catalog_repo.set_meta_status(msg.appid, "failed")
         return
 
@@ -161,8 +155,7 @@ def _handle_metadata(msg: MetadataSpokeResult) -> None:
     success = _crawl_service.ingest_spoke_metadata(appid, data)
     if not success:
         raise RuntimeError(f"Metadata ingest failed for appid={appid}")
-    logger.info("Ingested metadata", extra={"appid": appid})
-    metrics.add_metric(name="GamesUpserted", unit=MetricUnit.Count, value=1)
+    logger.info("Ingested metadata", extra={"appid": appid, "games_upserted": 1})
 
     _s3.delete_object(Bucket=_assets_bucket_name, Key=s3_key)
 
@@ -171,7 +164,9 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
     if not msg.success:
         # Spoke should not send success=False for tags anymore (transient errors
         # propagate as exceptions in the spoke). This is a safety net.
-        logger.warning("Spoke reported tags failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning(
+            "Spoke reported tags failure", extra={"appid": msg.appid, "error": msg.error}
+        )
         return
 
     if not msg.s3_key:
@@ -198,7 +193,7 @@ def _handle_tags(msg: TagsSpokeResult) -> None:
         logger.info("Tags upserted", extra={"appid": msg.appid, "count": len(tags)})
         _catalog_repo.mark_tags_crawled(msg.appid)
 
-    metrics.add_metric(name="TagsIngested", unit=MetricUnit.Count, value=len(tags))
+    logger.info("Tags ingested", extra={"appid": msg.appid, "tags_ingested": len(tags)})
     _s3.delete_object(Bucket=_assets_bucket_name, Key=msg.s3_key)
 
 
@@ -206,7 +201,9 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     if not msg.success:
         # Spoke should not send success=False for reviews anymore (transient errors
         # propagate as exceptions in the spoke). This is a safety net.
-        logger.warning("Spoke reported review failure", extra={"appid": msg.appid, "error": msg.error})
+        logger.warning(
+            "Spoke reported review failure", extra={"appid": msg.appid, "error": msg.error}
+        )
         return
 
     appid = msg.appid
@@ -228,7 +225,6 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
 
     upserted = _crawl_service.ingest_spoke_reviews(appid, data)
     logger.info("Reviews ingested", extra={"appid": appid, "upserted": upserted})
-    metrics.add_metric(name="ReviewsUpserted", unit=MetricUnit.Count, value=upserted)
 
     # Termination + re-queue logic — must complete before S3 delete.
     # If any of these raise (DB hiccup, SQS failure), the SQS record retries
@@ -242,7 +238,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
     early_stop = (
         reviews_completed_at is not None
         and min_batch_ts > 0
-        and datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) < reviews_completed_at
+        and datetime.fromtimestamp(min_batch_ts, tz=UTC) < reviews_completed_at
     )
 
     # `target` means "remaining reviews to fetch in this chain" — decremented by batch count
@@ -256,7 +252,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
         # posted *during* this crawl are not skipped on the next re-crawl.
         # On exhaustion, pass None → mark_reviews_complete defaults to NOW() (correct:
         # we have every review up to this moment).
-        boundary = datetime.fromtimestamp(min_batch_ts, tz=timezone.utc) if early_stop else None
+        boundary = datetime.fromtimestamp(min_batch_ts, tz=UTC) if early_stop else None
         _catalog_repo.mark_reviews_complete_and_crawled(appid, completed_at=boundary)
         if early_stop:
             logger.info(
@@ -265,9 +261,7 @@ def _handle_reviews(msg: ReviewSpokeResult) -> None:
                     "appid": appid,
                     "reason": "early_stop",
                     "batch_count": msg.count,
-                    "min_batch_ts": datetime.fromtimestamp(
-                        min_batch_ts, tz=timezone.utc
-                    ).isoformat()
+                    "min_batch_ts": datetime.fromtimestamp(min_batch_ts, tz=UTC).isoformat()
                     if min_batch_ts
                     else None,
                     "watermark": reviews_completed_at.isoformat() if reviews_completed_at else None,

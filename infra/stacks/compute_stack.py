@@ -148,7 +148,7 @@ class ComputeStack(cdk.Stack):
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(10),
             memory_size=1024,
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=logs.LogGroup(
                 self,
                 "AnalysisLogs",
@@ -449,7 +449,7 @@ class ComputeStack(cdk.Stack):
                 self,
                 "CrawlerLogs",
                 log_group_name=f"/steampulse/{env}/crawler",
-                retention=logs.RetentionDays.ONE_MONTH,
+                retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment=config.to_lambda_env(
@@ -527,7 +527,7 @@ class ComputeStack(cdk.Stack):
                 self,
                 "SpokeIngestLogs",
                 log_group_name=f"/steampulse/{env}/ingest",
-                retention=logs.RetentionDays.ONE_MONTH,
+                retention=logs.RetentionDays.ONE_WEEK,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
             environment=config.to_lambda_env(
@@ -708,9 +708,11 @@ class ComputeStack(cdk.Stack):
             self,
             "MatviewRefreshStart",
             lambda_function=matview_start_fn,
-            payload=sfn.TaskInput.from_object({
-                "cycle_id.$": "$$.Execution.Name",
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "cycle_id.$": "$$.Execution.Name",
+                }
+            ),
             payload_response_only=True,
             result_path="$",
         )
@@ -721,15 +723,21 @@ class ComputeStack(cdk.Stack):
             self,
             "MatviewRefreshOne",
             lambda_function=matview_worker_fn,
-            payload=sfn.TaskInput.from_object({
-                "name": sfn.JsonPath.string_at("$.name"),
-                "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "name": sfn.JsonPath.string_at("$.name"),
+                    "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
+                }
+            ),
             payload_response_only=True,
         )
         # Retry only on Lambda service errors; REFRESH failures are returned as data.
         refresh_one_task.add_retry(
-            errors=["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+            errors=[
+                "Lambda.ServiceException",
+                "Lambda.AWSLambdaException",
+                "Lambda.SdkClientException",
+            ],
             interval=cdk.Duration.seconds(5),
             max_attempts=2,
             backoff_rate=2,
@@ -769,11 +777,13 @@ class ComputeStack(cdk.Stack):
             self,
             "MatviewRefreshFinalize",
             lambda_function=matview_finalize_fn,
-            payload=sfn.TaskInput.from_object({
-                "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
-                "start_time_ms": sfn.JsonPath.number_at("$.start_time_ms"),
-                "results": sfn.JsonPath.list_at("$.results"),
-            }),
+            payload=sfn.TaskInput.from_object(
+                {
+                    "cycle_id": sfn.JsonPath.string_at("$.cycle_id"),
+                    "start_time_ms": sfn.JsonPath.number_at("$.start_time_ms"),
+                    "results": sfn.JsonPath.list_at("$.results"),
+                }
+            ),
             payload_response_only=True,
             result_path="$.finalize",
         )
@@ -937,7 +947,7 @@ class ComputeStack(cdk.Stack):
             role=email_role,
             timeout=cdk.Duration.seconds(30),
             memory_size=256,
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=logs.LogGroup(
                 self,
                 "EmailLogs",
@@ -962,9 +972,7 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── Revalidate-Frontend Lambda (SQS → POST /api/revalidate) ─────────────
-        revalidate_token_param = (
-            f"/steampulse/{env}/frontend/revalidate-token"
-        )
+        revalidate_token_param = f"/steampulse/{env}/frontend/revalidate-token"
         distribution_id_param = f"/steampulse/{env}/delivery/distribution-id"
         revalidate_role = iam.Role(
             self,
@@ -980,10 +988,8 @@ class ComputeStack(cdk.Stack):
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
                 resources=[
-                    f"arn:aws:ssm:{self.region}:{self.account}"
-                    f":parameter{revalidate_token_param}",
-                    f"arn:aws:ssm:{self.region}:{self.account}"
-                    f":parameter{distribution_id_param}",
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter{revalidate_token_param}",
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter{distribution_id_param}",
                 ],
             )
         )
@@ -1000,9 +1006,7 @@ class ComputeStack(cdk.Stack):
         revalidate_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["cloudfront:CreateInvalidation"],
-                resources=[
-                    f"arn:aws:cloudfront::{self.account}:distribution/*"
-                ],
+                resources=[f"arn:aws:cloudfront::{self.account}:distribution/*"],
             )
         )
         revalidate_fn = PythonFunction(

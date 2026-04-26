@@ -12,7 +12,7 @@ Two usage patterns:
 
 The naming convention for env files is encapsulated here.
 Secrets (DB password, Steam API key) never appear in env files —
-they live in Secrets Manager and are fetched at runtime.
+they live in SSM Parameter Store as SecureString and are fetched at runtime.
 """
 
 from typing import Literal, Self
@@ -47,10 +47,10 @@ class SteamPulseConfig(BaseSettings):
     @model_validator(mode="after")
     def _validate_anthropic_config(self) -> Self:
         if self.LLM_BACKEND == "anthropic":
-            if not self.ANTHROPIC_API_KEY and not self.ANTHROPIC_API_KEY_SECRET_NAME:
+            if not self.ANTHROPIC_API_KEY and not self.ANTHROPIC_API_KEY_PARAM_NAME:
                 raise ValueError(
                     "LLM_BACKEND=anthropic requires ANTHROPIC_API_KEY or "
-                    "ANTHROPIC_API_KEY_SECRET_NAME to be set."
+                    "ANTHROPIC_API_KEY_PARAM_NAME to be set."
                 )
         return self
 
@@ -82,6 +82,12 @@ class SteamPulseConfig(BaseSettings):
     DB_SECRET_NAME: str
     STEAM_API_KEY_SECRET_NAME: str
     RESEND_API_KEY_SECRET_NAME: str
+
+    # ── SSM SecureString param names (T2 supersedes the *_SECRET_NAME block above) ─
+    STEAM_API_KEY_PARAM_NAME: str
+    ANTHROPIC_API_KEY_PARAM_NAME: str
+    RESEND_API_KEY_PARAM_NAME: str
+    DB_PASSWORD_PARAM_NAME: str
 
     # ── SSM parameter names (resolved at Lambda cold start via get_parameter()) ─
     SFN_PARAM_NAME: str

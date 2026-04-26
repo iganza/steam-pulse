@@ -30,18 +30,18 @@ _SSM_PARAMS = {
     "/steampulse/test/data/assets-bucket-name": "test-assets-bucket",
 }
 
+_SSM_SECURE_PARAMS = {
+    "/steampulse/test/api-keys/steam": "test-steam-key",
+}
+
 
 def _seed_ssm() -> None:
-    """Create SSM parameters and secrets in moto so handler's module-level init works."""
+    """Create SSM parameters in moto so handler's module-level init works."""
     ssm = boto3.client("ssm", region_name="us-east-1")
     for name, value in _SSM_PARAMS.items():
         ssm.put_parameter(Name=name, Value=value, Type="String", Overwrite=True)
-    # Seed Steam API key secret (Secrets Manager)
-    sm = boto3.client("secretsmanager", region_name="us-east-1")
-    try:
-        sm.create_secret(Name="steampulse/test/steam-api-key", SecretString="test-steam-key")
-    except sm.exceptions.ResourceExistsException:
-        pass
+    for name, value in _SSM_SECURE_PARAMS.items():
+        ssm.put_parameter(Name=name, Value=value, Type="SecureString", Overwrite=True)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -22,11 +22,6 @@ def _seed_ssm_and_secrets() -> None:
         "/steampulse/test/messaging/content-events-topic-arn": "arn:aws:sns:us-east-1:123:content-events",
     }.items():
         ssm.put_parameter(Name=name, Value=value, Type="String", Overwrite=True)
-    sm = boto3.client("secretsmanager", region_name="us-east-1")
-    try:
-        sm.create_secret(Name="steampulse/test/steam-api-key", SecretString="test-key")
-    except sm.exceptions.ResourceExistsException:
-        pass
 
 
 def _get_module() -> Any:
@@ -180,7 +175,9 @@ def test_reviews_exhausted_marks_complete(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(
+        440, completed_at=None
+    )
     mock_spoke_sqs.send_message.assert_not_called()
 
 
@@ -313,7 +310,9 @@ def test_reviews_target_hit_marks_complete(lambda_context: Any) -> None:
     )
     ih.handler(event, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(
+        440, completed_at=None
+    )
     mock_spoke_sqs.send_message.assert_not_called()
 
 
@@ -414,7 +413,9 @@ def test_reviews_two_batch_chain_completes_at_cap(lambda_context: Any) -> None:
     )
     ih.handler(hop2, lambda_context)
 
-    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(440, completed_at=None)
+    ih._catalog_repo.mark_reviews_complete_and_crawled.assert_called_once_with(
+        440, completed_at=None
+    )
     mock_spoke_sqs.send_message.assert_not_called()
 
 

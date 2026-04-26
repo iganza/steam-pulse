@@ -17,6 +17,10 @@ _TEST_CONFIG = SteamPulseConfig(
     DB_SECRET_NAME="steampulse/test/db-credentials",
     STEAM_API_KEY_SECRET_NAME="steampulse/test/steam-api-key",
     RESEND_API_KEY_SECRET_NAME="steampulse/test/resend-api-key",
+    STEAM_API_KEY_PARAM_NAME="/steampulse/test/api-keys/steam",
+    ANTHROPIC_API_KEY_PARAM_NAME="/steampulse/test/api-keys/anthropic",
+    RESEND_API_KEY_PARAM_NAME="/steampulse/test/api-keys/resend",
+    DB_PASSWORD_PARAM_NAME="/steampulse/test/db-password",
     SFN_PARAM_NAME="/steampulse/test/compute/sfn-arn",
     STEP_FUNCTIONS_PARAM_NAME="/steampulse/test/compute/sfn-arn",
     APP_CRAWL_QUEUE_PARAM_NAME="/steampulse/test/messaging/app-crawl-queue-url",
@@ -62,7 +66,8 @@ def test_ssm_discovery_no_cross_stack_refs(template: Template) -> None:
     # with Default pointing to the SSM path — check those exist.
     params = body.get("Parameters", {})
     ssm_params = [
-        k for k, v in params.items()
+        k
+        for k, v in params.items()
         if v.get("Type") == "AWS::SSM::Parameter::Value<String>"
         and v.get("Default", "").startswith("/steampulse/")
     ]

@@ -70,11 +70,10 @@ _content_events_topic_arn = get_parameter(_crawler_config.CONTENT_EVENTS_TOPIC_P
 _system_events_topic_arn = get_parameter(_crawler_config.SYSTEM_EVENTS_TOPIC_PARAM_NAME)
 _assets_bucket_name = get_parameter(_crawler_config.ASSETS_BUCKET_PARAM_NAME)
 
-# Resolve Steam API key from Secrets Manager at cold start
-_sm = boto3.client("secretsmanager")
-_steam_api_key: str = _sm.get_secret_value(SecretId=_crawler_config.STEAM_API_KEY_SECRET_NAME)[
-    "SecretString"
-]
+# Resolve Steam API key from SSM SecureString at cold start
+_steam_api_key: str = get_parameter(  # type: ignore[assignment]
+    _crawler_config.STEAM_API_KEY_PARAM_NAME, decrypt=True
+)
 
 _crawl_service = CrawlService(
     game_repo=GameRepository(get_conn),

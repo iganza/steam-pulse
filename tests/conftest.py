@@ -70,6 +70,10 @@ _TEST_ENV_DEFAULTS = {
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
     "RESEND_API_KEY_SECRET_NAME": "steampulse/test/resend-api-key",
+    "STEAM_API_KEY_PARAM_NAME": "/steampulse/test/api-keys/steam",
+    "ANTHROPIC_API_KEY_PARAM_NAME": "/steampulse/test/api-keys/anthropic",
+    "RESEND_API_KEY_PARAM_NAME": "/steampulse/test/api-keys/resend",
+    "DB_PASSWORD_PARAM_NAME": "/steampulse/test/db-password",
     "EMAIL_QUEUE_PARAM_NAME": "/steampulse/test/messaging/email-queue-url",
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__MERGING": "anthropic.claude-sonnet-test-v1:0",
@@ -130,6 +134,7 @@ def refresh_matviews(db_conn: Any) -> Any:
     Analytics tests that seed data and then query matview-backed methods
     must call this after seeding: ``refresh_matviews()``
     """
+
     def _refresh() -> None:
         prev = db_conn.autocommit
         db_conn.autocommit = True

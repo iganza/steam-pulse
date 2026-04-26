@@ -42,11 +42,12 @@ _SPOKE_RESULTS_QUEUE_URL = os.environ["SPOKE_RESULTS_QUEUE_URL"]
 
 BATCH_SIZE = 1000
 
-# Steam API key — resolve cross-region from primary's Secrets Manager
-_sm = boto3.client("secretsmanager", region_name=_PRIMARY_REGION)
-_steam_api_key: str = _sm.get_secret_value(SecretId=_config.STEAM_API_KEY_SECRET_NAME)[
-    "SecretString"
-]
+# Steam API key — resolve cross-region from primary's SSM SecureString.
+# Powertools get_parameter doesn't accept region_name, so use raw boto3.
+_ssm = boto3.client("ssm", region_name=_PRIMARY_REGION)
+_steam_api_key: str = _ssm.get_parameter(
+    Name=_config.STEAM_API_KEY_PARAM_NAME, WithDecryption=True
+)["Parameter"]["Value"]
 
 _steam = DirectSteamSource(
     httpx.Client(timeout=90.0),

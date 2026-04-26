@@ -188,7 +188,7 @@ class ApplicationStage(cdk.Stage):
         # fetch from Steam → S3 → SQS → IngestFn (primary region, above).
         # Plain strings — CDK tokens can't cross regions. Queues + bucket
         # have deterministic physical names for this reason.
-        steam_secret_name = f"steampulse/{environment}/steam-api-key"
+        steam_api_key_param_name = config.STEAM_API_KEY_PARAM_NAME
         primary_region = self.region
         results_q_name = f"steampulse-spoke-results-{environment}"
         bucket_name = f"steampulse-assets-{environment}"
@@ -203,7 +203,7 @@ class ApplicationStage(cdk.Stage):
                 environment=environment,
                 spoke_results_queue_url=f"https://sqs.{primary_region}.amazonaws.com/{acct}/{results_q_name}",
                 assets_bucket_name=bucket_name,
-                steam_api_key_secret_name=steam_secret_name,
+                steam_api_key_param_name=steam_api_key_param_name,
                 env=cdk.Environment(account=self.account, region=region),
             )
             spoke.add_dependency(messaging)

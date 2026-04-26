@@ -32,7 +32,7 @@ class CrawlSpokeStack(cdk.Stack):
         environment: str,
         spoke_results_queue_url: str,
         assets_bucket_name: str,
-        steam_api_key_secret_name: str,
+        steam_api_key_param_name: str,
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -85,15 +85,21 @@ class CrawlSpokeStack(cdk.Stack):
             )
         )
 
-        # Cross-region Secrets Manager: Steam API key only
-        steam_api_key_secret_arn = (
-            f"arn:aws:secretsmanager:{primary_region}:{account}"
-            f":secret:{steam_api_key_secret_name}-*"
+        # Cross-region SSM SecureString: Steam API key only.
+        # parameter_name has a leading slash, so concatenate as parameter{name} (no extra /).
+        steam_api_key_param_arn = (
+            f"arn:aws:ssm:{primary_region}:{account}:parameter{steam_api_key_param_name}"
         )
         role.add_to_policy(
             iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue"],
-                resources=[steam_api_key_secret_arn],
+                actions=["ssm:GetParameter"],
+                resources=[steam_api_key_param_arn],
+            )
+        )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["kms:Decrypt"],
+                resources=[f"arn:aws:kms:{primary_region}:{account}:alias/aws/ssm"],
             )
         )
 
@@ -156,7 +162,7 @@ class CrawlSpokeStack(cdk.Stack):
                 PRIMARY_REGION=primary_region,
                 SPOKE_RESULTS_QUEUE_URL=spoke_results_queue_url,
                 ASSETS_BUCKET_PARAM_NAME=assets_bucket_name,
-                STEAM_API_KEY_SECRET_NAME=steam_api_key_secret_name,
+                STEAM_API_KEY_PARAM_NAME=steam_api_key_param_name,
                 POWERTOOLS_SERVICE_NAME=f"crawler-spoke-{spoke_region}",
                 POWERTOOLS_METRICS_NAMESPACE="SteamPulse",
             ),

@@ -11,7 +11,7 @@ up to the configured maxReceiveCount before landing on the DLQ.
 import json
 
 from aws_lambda_powertools import Logger
-from aws_lambda_powertools.utilities.parameters import get_secret
+from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
@@ -20,7 +20,9 @@ from library_layer.utils.email import ResendEmailSender
 logger = Logger(service="email")
 
 _config = SteamPulseConfig()
-_resend_api_key: str = get_secret(_config.RESEND_API_KEY_SECRET_NAME)  # type: ignore[assignment]
+_resend_api_key: str = get_parameter(  # type: ignore[assignment]
+    _config.RESEND_API_KEY_PARAM_NAME, decrypt=True
+)
 _sender = ResendEmailSender(_resend_api_key)
 
 _FROM_ADDR = "hello@steampulse.io"

@@ -21,8 +21,8 @@ persistence, Python-computed scores) all live in library_layer/analyzer.py
 and are invoked identically by both backends.
 """
 
-import boto3
 from aws_lambda_powertools import Logger
+from aws_lambda_powertools.utilities.parameters import get_parameter
 from library_layer.config import SteamPulseConfig
 from library_layer.llm.anthropic_batch import AnthropicBatchBackend
 from library_layer.llm.anthropic_converse import AnthropicConverseBackend
@@ -38,16 +38,16 @@ from library_layer.llm.converse import ConverseBackend
 logger = Logger()
 
 # Module-level cache so repeated factory calls (e.g. warm Lambda invocations)
-# don't hit Secrets Manager on every call.
+# don't hit SSM on every call.
 resolved_api_key: str = ""
 
 
 def resolve_anthropic_api_key(config: SteamPulseConfig) -> str:
-    """Return the Anthropic API key, resolving from Secrets Manager if needed.
+    """Return the Anthropic API key, resolving from SSM SecureString if needed.
 
     Resolution order:
     1. If ``ANTHROPIC_API_KEY`` is set directly (local dev), use it.
-    2. If ``ANTHROPIC_API_KEY_SECRET_NAME`` is set, fetch from Secrets Manager.
+    2. If ``ANTHROPIC_API_KEY_PARAM_NAME`` is set, fetch from SSM SecureString.
     3. Fail loudly if neither is available.
     """
     global resolved_api_key
@@ -58,20 +58,19 @@ def resolve_anthropic_api_key(config: SteamPulseConfig) -> str:
         resolved_api_key = config.ANTHROPIC_API_KEY
         return resolved_api_key
 
-    if config.ANTHROPIC_API_KEY_SECRET_NAME:
-        sm = boto3.client("secretsmanager")
-        resolved_api_key = sm.get_secret_value(
-            SecretId=config.ANTHROPIC_API_KEY_SECRET_NAME
-        )["SecretString"]
+    if config.ANTHROPIC_API_KEY_PARAM_NAME:
+        resolved_api_key = get_parameter(  # type: ignore[assignment]
+            config.ANTHROPIC_API_KEY_PARAM_NAME, decrypt=True
+        )
         logger.info(
             "anthropic_api_key_resolved",
-            extra={"secret_name": config.ANTHROPIC_API_KEY_SECRET_NAME},
+            extra={"param_name": config.ANTHROPIC_API_KEY_PARAM_NAME},
         )
         return resolved_api_key
 
     raise ValueError(
         "LLM_BACKEND=anthropic but no API key available. "
-        "Set ANTHROPIC_API_KEY (local dev) or ANTHROPIC_API_KEY_SECRET_NAME (Lambda)."
+        "Set ANTHROPIC_API_KEY (local dev) or ANTHROPIC_API_KEY_PARAM_NAME (Lambda)."
     )
 
 

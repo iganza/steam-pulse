@@ -111,12 +111,12 @@ class ComputeStack(cdk.Stack):
             ],
         )
         db_secret.grant_read(analysis_role)
-        anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
+        anthropic_param = ssm.StringParameter.from_secure_string_parameter_attributes(
             self,
             "AnalysisAnthropicApiKey",
-            f"/steampulse/{env}/anthropic-api-key",
+            parameter_name=config.ANTHROPIC_API_KEY_PARAM_NAME,
         )
-        anthropic_secret.grant_read(analysis_role)
+        anthropic_param.grant_read(analysis_role)
         analysis_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
@@ -387,10 +387,10 @@ class ComputeStack(cdk.Stack):
         )
 
         # ── Crawler Lambda ────────────────────────────────────────────────────
-        steam_secret = secretsmanager.Secret.from_secret_name_v2(
+        steam_param = ssm.StringParameter.from_secure_string_parameter_attributes(
             self,
             "SteamApiKey",
-            f"steampulse/{env}/steam-api-key",
+            parameter_name=config.STEAM_API_KEY_PARAM_NAME,
         )
 
         crawler_role = iam.Role(
@@ -407,7 +407,7 @@ class ComputeStack(cdk.Stack):
             ],
         )
         db_secret.grant_read(crawler_role)
-        steam_secret.grant_read(crawler_role)
+        steam_param.grant_read(crawler_role)
         crawler_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["states:StartExecution"],
@@ -909,10 +909,10 @@ class ComputeStack(cdk.Stack):
             )
 
         # ── Email Lambda (SQS-triggered transactional email sender) ─────────────
-        resend_secret = secretsmanager.Secret.from_secret_name_v2(
+        resend_param = ssm.StringParameter.from_secure_string_parameter_attributes(
             self,
             "ResendApiKey",
-            config.RESEND_API_KEY_SECRET_NAME,
+            parameter_name=config.RESEND_API_KEY_PARAM_NAME,
         )
 
         email_role = iam.Role(
@@ -925,7 +925,7 @@ class ComputeStack(cdk.Stack):
                 ),
             ],
         )
-        resend_secret.grant_read(email_role)
+        resend_param.grant_read(email_role)
         email_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],

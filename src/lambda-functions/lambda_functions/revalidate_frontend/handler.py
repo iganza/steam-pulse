@@ -1,9 +1,8 @@
 """SQS consumer that POSTs /api/revalidate to bust the game-${appid} tag."""
 
+import hashlib
 import json
 import os
-import time
-from uuid import uuid4
 
 import boto3
 import httpx
@@ -113,14 +112,19 @@ def _delete_page_cache(appid: int, slug: str) -> None:
         raise RuntimeError(f"S3 delete_objects errors: {errors}")
 
 
-def _invalidate_cdn(appids: list[int]) -> None:
-    """Issue one CloudFront invalidation covering /games/{appid}/* for each appid."""
-    paths = sorted({f"/games/{appid}/*" for appid in appids})
+def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
+    """Issue one CloudFront invalidation covering /games/{appid}/* for the batch."""
+    paths = sorted({f"/games/{appid}/*" for _, appid in records})
+    # Deterministic CallerReference: same messageId set → same key, so an SQS
+    # retry after a successful CreateInvalidation reuses the existing one.
+    digest = hashlib.sha256(
+        "|".join(sorted(msg_id for msg_id, _ in records)).encode()
+    ).hexdigest()[:32]
     _cloudfront.create_invalidation(
         DistributionId=_DISTRIBUTION_ID,
         InvalidationBatch={
             "Paths": {"Quantity": len(paths), "Items": paths},
-            "CallerReference": f"revalidate-{int(time.time() * 1000)}-{uuid4().hex[:8]}",
+            "CallerReference": f"revalidate-{digest}",
         },
     )
 
@@ -150,7 +154,7 @@ def handler(event: dict, _context: LambdaContext) -> dict:
 
     if successful_records:
         try:
-            _invalidate_cdn([appid for _, appid in successful_records])
+            _invalidate_cdn(successful_records)
             metrics.add_metric(name="CdnInvalidations", unit=MetricUnit.Count, value=1)
             logger.info(
                 "CloudFront invalidation issued",

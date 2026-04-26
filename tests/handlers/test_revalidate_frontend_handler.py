@@ -495,6 +495,61 @@ def test_module_load_requires_distribution_id_param(
 
 
 @mock_aws
+def test_caller_reference_is_deterministic_across_retries(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Same messageId set must produce the same CallerReference so CloudFront dedupes retries."""
+    for _ in range(2):
+        for appid in (10, 20):
+            httpx_mock.add_response(
+                method="POST",
+                url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+                json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+            )
+    handler = _get_module()
+    captured = _stub_cloudfront(handler)
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+
+    event = _multi_record_event([(10, "msg-A"), (20, "msg-B")])
+    handler.handler(event, MockLambdaContext())
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+    handler.handler(event, MockLambdaContext())
+
+    assert len(captured) == 2
+    assert captured[0]["InvalidationBatch"]["CallerReference"] == captured[1][
+        "InvalidationBatch"
+    ]["CallerReference"]
+
+
+@mock_aws
+def test_caller_reference_differs_across_distinct_batches(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Distinct messageId sets must produce distinct CallerReferences."""
+    for appid in (10, 20):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{_FRONTEND_BASE_URL}/api/revalidate",
+            json={"ok": True, "appid": appid, "slug": _slug(appid), "now": 0},
+        )
+    handler = _get_module()
+    captured = _stub_cloudfront(handler)
+    for appid in (10, 20):
+        _put_page_cache(appid, _slug(appid))
+
+    handler.handler(_multi_record_event([(10, "msg-A")]), MockLambdaContext())
+    handler.handler(_multi_record_event([(20, "msg-B")]), MockLambdaContext())
+
+    assert len(captured) == 2
+    assert (
+        captured[0]["InvalidationBatch"]["CallerReference"]
+        != captured[1]["InvalidationBatch"]["CallerReference"]
+    )
+
+
+@mock_aws
 def test_no_records_skips_cloudfront_call(httpx_mock: HTTPXMock) -> None:
     """Empty / all-failed batches must NOT issue an invalidation."""
     handler = _get_module()

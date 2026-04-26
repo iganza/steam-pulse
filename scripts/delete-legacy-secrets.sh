@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
-# Force-delete the 3 legacy API-key secrets in Secrets Manager (no recovery window).
+# Force-delete remaining legacy API-key secrets in Secrets Manager (no recovery window).
 # Run only AFTER the SSM SecureString migration has deployed and been verified end-to-end.
-# Skips db-credentials — that goes with the T4/T5 DB-credentials migration.
+#
+# CRITICAL: do NOT delete `steampulse/{env}/db-credentials` (no leading slash) —
+# that is the CANONICAL DB secret in active use:
+#   - .env.production:DB_SECRET_NAME points here
+#   - infra/stacks/data_stack.py wires the RDS Master Password from here
+#   - library_layer/utils/db.py:get_db_url reads full {username,password,host,port,dbname} JSON
+# The DB-secret migration is T4/T5; until then this stays.
+#
+# This script targets the duplicates only:
+#   - leading-slash db-credentials (duplicate; never read)
+#   - no-slash steam-api-key / resend-api-key (duplicates; T2 Lambdas no longer read them)
 #
 # Usage:
 #   bash scripts/delete-legacy-secrets.sh --env production
@@ -28,20 +38,20 @@ if [[ "$ENV" != "production" && "$ENV" != "staging" ]]; then
     exit 2
 fi
 
-# Per-env legacy paths. Convention: leading slash. The no-leading-slash
-# duplicates (if any still exist) are wrong and not deleted by this script.
+# Duplicates safe to delete in T3.
+# Skips: `steampulse/{env}/db-credentials` (canonical, in active use until T4).
 TARGETS=()
 if [[ "$ENV" == "production" ]]; then
     TARGETS=(
-        "/steampulse/production/steam-api-key"
-        "/steampulse/production/anthropic-api-key"
-        "/steampulse/production/resend-api-key"
+        "/steampulse/production/db-credentials"
+        "steampulse/production/steam-api-key"
+        "steampulse/production/resend-api-key"
     )
 else
     TARGETS=(
-        "/steampulse/staging/steam-api-key"
-        "/steampulse/staging/anthropic-apikey"
-        "/steampulse/staging/resend-api-key"
+        "/steampulse/staging/db-credentials"
+        "steampulse/staging/steam-api-key"
+        "steampulse/staging/resend-api-key"
     )
 fi
 

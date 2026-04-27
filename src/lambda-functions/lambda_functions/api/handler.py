@@ -1,6 +1,7 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
 import os
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 import boto3  # type: ignore[import-untyped]
@@ -822,6 +823,78 @@ async def catalog_stats() -> JSONResponse:
     return JSONResponse(
         content={"total_games": _matview_repo.get_total_games_count()},
         headers={"Cache-Control": _DISCOVERY_CACHE},
+    )
+
+
+_HOME_INTEL_SAMPLE_APPID = 1086940  # BG3 — same SEO anchor used by the FeaturedReport strip
+_HOME_INTEL_CACHE = "public, s-maxage=21600, stale-while-revalidate=86400"
+
+
+@app.get("/api/home/intel-snapshot")
+async def home_intel_snapshot() -> JSONResponse:
+    """Single-call snapshot for the homepage 'What You Get' cards.
+
+    Orchestrates the same repo methods that back
+    /api/games/{appid}/review-stats, /audience-overlap, /report, and
+    /api/analytics/trends/sentiment — but in one Lambda invocation, with
+    each sub-call independently failure-isolated so a single slow
+    sub-query can't blank the whole section.
+
+    Upgrade path if Option A (this) is too slow: pre-join into a new
+    matview `mv_home_intel_snapshot` and read it in one query.
+    """
+    sentiment_sample: dict | None
+    try:
+        stats = _review_repo.find_review_stats(_HOME_INTEL_SAMPLE_APPID)
+        sentiment_sample = {
+            "appid": _HOME_INTEL_SAMPLE_APPID,
+            "timeline": stats.get("timeline", []),
+        }
+    except Exception:
+        logger.exception("home_intel_snapshot: review_stats failed")
+        sentiment_sample = None
+
+    overlap_sample: dict | None
+    try:
+        overlap = _matview_repo.get_audience_overlap(_HOME_INTEL_SAMPLE_APPID, limit=5)
+        overlap_sample = {
+            "appid": _HOME_INTEL_SAMPLE_APPID,
+            "overlaps": overlap.get("overlaps", []),
+            "total_reviewers": overlap.get("total_reviewers", 0),
+        }
+    except Exception:
+        logger.exception("home_intel_snapshot: audience_overlap failed")
+        overlap_sample = None
+
+    trend_sample: dict | None
+    try:
+        trend_sample = _analytics_service.get_sentiment_distribution(
+            granularity="month",
+            limit=12,
+        )
+    except Exception:
+        logger.exception("home_intel_snapshot: sentiment_trend failed")
+        trend_sample = None
+
+    report_sample: dict | None
+    try:
+        report_json = _get_report(_HOME_INTEL_SAMPLE_APPID)
+        report_sample = (
+            {"appid": _HOME_INTEL_SAMPLE_APPID, "report": report_json} if report_json else None
+        )
+    except Exception:
+        logger.exception("home_intel_snapshot: report failed")
+        report_sample = None
+
+    return JSONResponse(
+        content={
+            "sentiment_sample": sentiment_sample,
+            "overlap_sample": overlap_sample,
+            "trend_sample": trend_sample,
+            "report_sample": report_sample,
+            "computed_at": datetime.now(UTC).isoformat(),
+        },
+        headers={"Cache-Control": _HOME_INTEL_CACHE},
     )
 
 

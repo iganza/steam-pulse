@@ -398,6 +398,67 @@ const server = createServer((req, res) => {
     }
   }
 
+  // Homepage 'What You Get' snapshot — single-call aggregator backing
+  // the 4 IntelligenceCards.
+  if (path === '/api/home/intel-snapshot') {
+    return respond(res, 200, {
+      sentiment_sample: {
+        appid: 1086940,
+        timeline: [
+          { week: '2025-W01', total: 100, positive: 92, pct_positive: 92 },
+          { week: '2025-W02', total: 110, positive: 100, pct_positive: 91 },
+          { week: '2025-W03', total: 120, positive: 113, pct_positive: 94 },
+          { week: '2025-W04', total: 105, positive: 99, pct_positive: 94 },
+        ],
+      },
+      overlap_sample: {
+        appid: 1086940,
+        total_reviewers: 5000,
+        overlaps: [
+          {
+            appid: 413150, name: 'Stardew Valley', slug: 'stardew-valley-413150',
+            header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/413150/header.jpg',
+            positive_pct: 99, review_count: 740000,
+            overlap_count: 250, overlap_pct: 5.0, shared_sentiment_pct: 95,
+          },
+          {
+            appid: 1091500, name: 'Cyberpunk 2077', slug: 'cyberpunk-2077-1091500',
+            header_image: 'https://cdn.akamai.steamstatic.com/steam/apps/1091500/header.jpg',
+            positive_pct: 89, review_count: 680000,
+            overlap_count: 180, overlap_pct: 3.6, shared_sentiment_pct: 88,
+          },
+        ],
+      },
+      trend_sample: {
+        granularity: 'month',
+        periods: [
+          { period: '2025-09', total: 100, positive_count: 80, mixed_count: 15, negative_count: 5, positive_pct: 80, avg_steam_pct: 82, avg_metacritic: null },
+          { period: '2025-10', total: 110, positive_count: 90, mixed_count: 15, negative_count: 5, positive_pct: 82, avg_steam_pct: 83, avg_metacritic: null },
+          { period: '2025-11', total: 120, positive_count: 100, mixed_count: 15, negative_count: 5, positive_pct: 83, avg_steam_pct: 84, avg_metacritic: null },
+          { period: '2025-12', total: 105, positive_count: 88, mixed_count: 12, negative_count: 5, positive_pct: 84, avg_steam_pct: 85, avg_metacritic: null },
+        ],
+      },
+      report_sample: {
+        appid: 1086940,
+        report: {
+          appid: 1086940,
+          game_name: "Baldur's Gate 3",
+          one_liner: 'A landmark CRPG that rewards curiosity at every turn.',
+          design_strengths: ['Companion writing', 'Player reactivity', 'Tactical combat'],
+          gameplay_friction: ['Act 3 performance'],
+          player_wishlist: [],
+          churn_triggers: [],
+          dev_priorities: [],
+          audience_profile: { ideal_player: '', casual_friendliness: '', archetypes: [], not_for: [] },
+          sentiment_trend: 'stable',
+          sentiment_trend_note: '',
+          total_reviews_analyzed: 2000,
+        },
+      },
+      computed_at: '2026-04-26T00:00:00+00:00',
+    })
+  }
+
   // Batched crosslink lookup — used by the genre synthesis page in place
   // of N per-appid /report fetches. Matched BEFORE any /api/games/:id/*
   // routes so "basics" isn't mistaken for an appid segment.

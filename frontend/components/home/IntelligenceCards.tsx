@@ -5,13 +5,10 @@ import { BarChart3, Users, TrendingUp, FileText } from "lucide-react";
 import { MiniSentimentChart } from "./MiniSentimentChart";
 import { MiniOverlapList } from "./MiniOverlapList";
 import { MiniTrendLine } from "./MiniTrendLine";
-import type { TimelineEntry, AudienceOverlapEntry, SentimentDistPeriod, GameReport } from "@/lib/types";
+import type { HomeIntelSnapshot } from "@/lib/api";
 
 interface IntelligenceCardsProps {
-  timeline: TimelineEntry[];
-  overlaps: AudienceOverlapEntry[];
-  trendData: SentimentDistPeriod[];
-  report: GameReport;
+  snapshot: HomeIntelSnapshot | null;
 }
 
 function IntelCard({
@@ -46,22 +43,28 @@ function IntelCard({
   );
 }
 
-export function IntelligenceCards({
-  timeline,
-  overlaps,
-  trendData,
-  report,
-}: IntelligenceCardsProps) {
-  const trendLine = trendData.map((p) => ({
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-[80px] items-center justify-center">
+      <p className="text-xs font-mono text-muted-foreground/70">{label}</p>
+    </div>
+  );
+}
+
+export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
+  const sentiment = snapshot?.sentiment_sample;
+  const overlap = snapshot?.overlap_sample;
+  const trend = snapshot?.trend_sample;
+  const reportSample = snapshot?.report_sample;
+
+  const trendLine = (trend?.periods ?? []).map((p) => ({
     period: p.period,
     value: p.positive_pct,
   }));
 
   return (
     <section>
-      <h2 className="font-serif text-xl font-semibold mb-6">
-        What You Get
-      </h2>
+      <h2 className="font-serif text-xl font-semibold mb-6">What You Get</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <IntelCard
           icon={<BarChart3 className="w-4 h-4" style={{ color: "var(--teal)" }} />}
@@ -69,7 +72,11 @@ export function IntelligenceCards({
           subtitle="Structured by playtime, timeline, and behavior"
           href="/search?sort=review_count"
         >
-          <MiniSentimentChart timeline={timeline} />
+          {sentiment && sentiment.timeline.length >= 2 ? (
+            <MiniSentimentChart timeline={sentiment.timeline} />
+          ) : (
+            <EmptyState label="Sample updates daily" />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -78,7 +85,11 @@ export function IntelligenceCards({
           subtitle="Real audience overlap from reviewer behavior"
           href="/search?sort=review_count"
         >
-          <MiniOverlapList overlaps={overlaps} />
+          {overlap && overlap.overlaps.length > 0 ? (
+            <MiniOverlapList overlaps={overlap.overlaps} />
+          ) : (
+            <EmptyState label="Sample updates daily" />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -87,7 +98,11 @@ export function IntelligenceCards({
           subtitle="Genre trends, pricing, release timing"
           href="/reports"
         >
-          <MiniTrendLine data={trendLine} />
+          {trendLine.length >= 2 ? (
+            <MiniTrendLine data={trendLine} />
+          ) : (
+            <EmptyState label="Sample updates daily" />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -96,16 +111,23 @@ export function IntelligenceCards({
           subtitle="Thousands of reviews distilled into structured intelligence"
           href="/reports"
         >
-          <div className="space-y-2">
-            <p className="text-xs text-foreground/80 italic line-clamp-2">
-              &ldquo;{report.one_liner}&rdquo;
-            </p>
-            {report.design_strengths.slice(0, 2).map((s, i) => (
-              <p key={`${s}-${i}`} className="text-xs text-muted-foreground line-clamp-1">
-                <span style={{ color: "var(--positive)" }}>+</span> {s}
+          {reportSample ? (
+            <div className="space-y-2">
+              <p className="text-xs text-foreground/80 italic line-clamp-2">
+                &ldquo;{reportSample.report.one_liner}&rdquo;
               </p>
-            ))}
-          </div>
+              {reportSample.report.design_strengths.slice(0, 2).map((s, i) => (
+                <p
+                  key={`${s}-${i}`}
+                  className="text-xs text-muted-foreground line-clamp-1"
+                >
+                  <span style={{ color: "var(--positive)" }}>+</span> {s}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <EmptyState label="Sample updates daily" />
+          )}
         </IntelCard>
       </div>
     </section>

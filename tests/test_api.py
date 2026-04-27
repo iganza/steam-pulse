@@ -767,3 +767,134 @@ def test_report_request_count(client: TestClient) -> None:
     client.post("/api/reports/request-analysis", json={"appid": 440, "email": "a@b.com"})
     resp = client.get("/api/reports/request-count/440")
     assert resp.json()["request_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /api/home/intel-snapshot — homepage 'What You Get' aggregator
+# ---------------------------------------------------------------------------
+
+
+def _stub_home_intel_repos() -> None:
+    """Inject canned data behind the four sub-calls the snapshot orchestrates."""
+    import lambda_functions.api.handler as api_module
+    from library_layer.services.analytics_service import AnalyticsService
+
+    class _ReviewRepoOK:
+        def find_review_stats(self, appid: int) -> dict:
+            return {
+                "timeline": [
+                    {"week": "2025-W01", "total": 10, "positive": 9, "pct_positive": 90}
+                ],
+                "playtime_buckets": [],
+                "review_velocity": {"reviews_per_day": 1.5, "reviews_last_30_days": 30},
+            }
+
+    class _MatviewRepoOK(_MemMatviewRepo):
+        def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
+            return {
+                "total_reviewers": 5000,
+                "overlaps": [
+                    {
+                        "appid": 413150,
+                        "name": "Stardew Valley",
+                        "slug": "stardew-valley-413150",
+                        "header_image": "https://x/h.jpg",
+                        "positive_pct": 99,
+                        "review_count": 740000,
+                        "overlap_count": 200,
+                        "overlap_pct": 4.0,
+                        "shared_sentiment_pct": 95.0,
+                    }
+                ],
+            }
+
+    class _AnalyticsRepoOK:
+        def find_trend_sentiment_distribution_rows(self, *args: object, **kw: object) -> list[dict]:
+            from datetime import datetime as _dt
+
+            return [
+                {
+                    "period": _dt(2025, 12, 1),
+                    "total": 100,
+                    "positive_count": 80,
+                    "mixed_count": 15,
+                    "negative_count": 5,
+                    "avg_steam_pct": 82.0,
+                    "avg_metacritic": None,
+                }
+            ]
+
+    api_module._review_repo = _ReviewRepoOK()  # type: ignore[assignment]
+    api_module._matview_repo = _MatviewRepoOK()  # type: ignore[assignment]
+    api_module._analytics_service = AnalyticsService(_AnalyticsRepoOK())  # type: ignore[assignment]
+    api_module._report_repo = _MemReportRepo()  # type: ignore[assignment]
+    api_module._report_repo.upsert(  # type: ignore[attr-defined]
+        {
+            "appid": 1086940,
+            "game_name": "Baldur's Gate 3",
+            "one_liner": "A landmark CRPG.",
+            "design_strengths": ["companions", "reactivity", "tactical combat"],
+        }
+    )
+
+
+def test_home_intel_snapshot_happy_path(client: TestClient) -> None:
+    """All four sub-fields populated when every sub-call succeeds."""
+    _stub_home_intel_repos()
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sentiment_sample"]["timeline"][0]["pct_positive"] == 90
+    assert data["overlap_sample"]["total_reviewers"] == 5000
+    assert data["overlap_sample"]["overlaps"][0]["appid"] == 413150
+    assert len(data["trend_sample"]["periods"]) == 1
+    assert data["report_sample"]["report"]["one_liner"] == "A landmark CRPG."
+    assert data["computed_at"].endswith("+00:00")
+
+
+def test_home_intel_snapshot_partial_failure_returns_null_subfield(
+    client: TestClient,
+) -> None:
+    """When the overlap sub-call raises, that field is null and the rest still come back."""
+    _stub_home_intel_repos()
+
+    import lambda_functions.api.handler as api_module
+
+    class _MatviewRepoBoom(_MemMatviewRepo):
+        def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
+            raise RuntimeError("mv_audience_overlap unavailable")
+
+    api_module._matview_repo = _MatviewRepoBoom()  # type: ignore[assignment]
+
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["overlap_sample"] is None
+    assert data["sentiment_sample"] is not None  # other sub-fields unaffected
+    assert data["trend_sample"] is not None
+    assert data["report_sample"] is not None
+
+
+def test_home_intel_snapshot_has_cache_header(client: TestClient) -> None:
+    _stub_home_intel_repos()
+    resp = client.get("/api/home/intel-snapshot")
+    cache = resp.headers.get("cache-control", "")
+    assert "s-maxage=21600" in cache
+    assert "stale-while-revalidate=86400" in cache
+
+
+def test_home_intel_snapshot_no_report_returns_null_report_sample(
+    client: TestClient,
+) -> None:
+    """Missing report row → report_sample is null, other fields populated."""
+    _stub_home_intel_repos()
+    import lambda_functions.api.handler as api_module
+
+    api_module._report_repo = _MemReportRepo()  # type: ignore[assignment]
+    # No upsert for appid 1086940 → _get_report returns None.
+
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["report_sample"] is None
+    assert data["sentiment_sample"] is not None

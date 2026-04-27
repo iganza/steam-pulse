@@ -2,7 +2,8 @@ import type {
   GameReport, Game, Genre, Tag, TagGroup, ReviewStats, Benchmarks, DeckTestResult,
   Granularity, ReleaseVolumePeriod, SentimentDistPeriod, GenreSharePeriod, VelocityDistPeriod,
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
-  AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
+  AudienceOverlap, AudienceOverlapEntry, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity,
+  TopReviewsResponse, TimelineEntry,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
   GenreInsights, ReportSummary,
@@ -438,6 +439,30 @@ export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]
     { next: { revalidate: 3600, tags: ["game-basics"] } },
   );
   return data.games;
+}
+
+/** Single-call snapshot for the homepage 'What You Get' cards. Each
+ * sub-field is independently nullable so a single slow sub-query at the
+ * API layer can't blank the whole section. Backed by
+ * /api/home/intel-snapshot — one Lambda invocation orchestrating four
+ * existing repo methods.
+ */
+export interface HomeIntelSnapshot {
+  sentiment_sample: { appid: number; timeline: TimelineEntry[] } | null;
+  overlap_sample: {
+    appid: number;
+    overlaps: AudienceOverlapEntry[];
+    total_reviewers: number;
+  } | null;
+  trend_sample: { granularity: string; periods: SentimentDistPeriod[] } | null;
+  report_sample: { appid: number; report: GameReport } | null;
+  computed_at: string;
+}
+
+export async function getHomeIntelSnapshot(): Promise<HomeIntelSnapshot> {
+  return apiFetch<HomeIntelSnapshot>("/api/home/intel-snapshot", {
+    next: { revalidate: 21600, tags: ["home-intel"] },
+  });
 }
 
 /** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.

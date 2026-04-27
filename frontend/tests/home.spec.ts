@@ -40,6 +40,21 @@ test.describe('Home page', () => {
     await expect(page.getByRole('link', { name: /cyberpunk 2077/i })).toBeVisible()
   })
 
+  test('intelligence cards section renders the four cards', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /what you get/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /player sentiment/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /competitive intelligence/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /market intelligence/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /deep review reports/i })).toBeVisible()
+  })
+
+  test('for-developers section is visible with pro waitlist CTA', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /built for the people who make games/i })).toBeVisible()
+    const cta = page.getByRole('link', { name: /join the pro waitlist/i })
+    await expect(cta).toBeVisible()
+    await expect(cta).toHaveAttribute('href', '/pro')
+  })
+
   test('for developers section is visible', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /built for the people who make games/i })).toBeVisible()
   })

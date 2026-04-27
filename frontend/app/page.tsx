@@ -9,11 +9,14 @@ import {
   getTagsGrouped,
   getGameBasics,
   getGenreInsights,
+  getHomeIntelSnapshot,
 } from "@/lib/api";
-import type { GameBasicsEntry } from "@/lib/api";
+import type { GameBasicsEntry, HomeIntelSnapshot } from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
 import { ProofBar } from "@/components/home/ProofBar";
 import { FeaturedReport } from "@/components/home/FeaturedReport";
+import { IntelligenceCards } from "@/components/home/IntelligenceCards";
+import { ForDevelopers } from "@/components/home/ForDevelopers";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
@@ -62,6 +65,7 @@ export default async function HomePage() {
     catalogStats,
     featuredReport,
     showcaseBasics,
+    homeIntel,
   ] = await Promise.allSettled([
     // Discovery rows served from mv_discovery_feeds (pre-computed top-N per kind).
     getDiscoveryFeed("popular", 8),
@@ -77,6 +81,9 @@ export default async function HomePage() {
     // replaces the 9-call showcase fan-out that timed out under cold-start
     // Lambdas and ISR-cached an empty render.
     getGameBasics(SHOWCASE_GAMES.map((g) => g.appid)),
+    // 'What You Get' snapshot — one Lambda invocation orchestrating the
+    // four card sub-queries with per-call failure isolation.
+    getHomeIntelSnapshot(),
   ]);
 
   const featuredInsights =
@@ -102,6 +109,9 @@ export default async function HomePage() {
   // genre hero still renders.
   const strip: GameBasicsEntry[] =
     showcaseBasics.status === "fulfilled" ? showcaseBasics.value : [];
+  // Snapshot failure → null; IntelligenceCards renders per-card empty states.
+  const intelSnapshot: HomeIntelSnapshot | null =
+    homeIntel.status === "fulfilled" ? homeIntel.value : null;
 
   const rows: {
     label: string;
@@ -172,6 +182,9 @@ export default async function HomePage() {
           <FeaturedReport insights={featuredInsights} strip={strip} />
         )}
 
+        {/* What You Get — 4-card universal-intelligence preview */}
+        <IntelligenceCards snapshot={intelSnapshot} />
+
         {/* Market Trends Preview */}
         <MarketTrendsPreview />
 
@@ -223,6 +236,9 @@ export default async function HomePage() {
             </div>
           </section>
         )}
+
+        {/* For Game Developers */}
+        <ForDevelopers />
 
         {/* Browse by Genre */}
         {genreList.length > 0 && (

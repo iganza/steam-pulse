@@ -533,12 +533,18 @@ class GameRepository(BaseRepository):
     def find_basics_by_appids(
         self, appids: list[int]
     ) -> list[dict[str, object]]:
-        """Return [{appid, name, slug, header_image}, ...] for the given appids.
+        """Return [{appid, name, slug, header_image, positive_pct, review_count}, ...]
+        for the given appids.
 
         Backs GET /api/games/basics — the lightweight crosslink lookup used
-        by the genre synthesis page to populate benchmark cards and
-        friction/wishlist quote source-game links without pulling the full
-        report JSON for each appid.
+        by the genre synthesis page (benchmark cards, friction/wishlist
+        quote source-game links) and the homepage hero strip (sentiment
+        chips for the SEO-anchor games), without pulling the full report
+        JSON for each appid.
+
+        `review_count` prefers `review_count_english` and falls back to the
+        all-language `review_count` — same English-first signal used by
+        Phase-4 eligibility / synthesis aggregates.
 
         Preserves caller order in the result; unknown appids are omitted.
         """
@@ -546,7 +552,9 @@ class GameRepository(BaseRepository):
             return []
         rows = self._fetchall(
             """
-            SELECT appid, name, slug, header_image
+            SELECT appid, name, slug, header_image,
+                   positive_pct,
+                   COALESCE(review_count_english, review_count) AS review_count
             FROM games WHERE appid = ANY(%s)
             """,
             (appids,),

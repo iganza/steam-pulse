@@ -7,18 +7,13 @@ import {
   getCatalogStats,
   getGenres,
   getTagsGrouped,
-  getGameReport,
-  getReviewStats,
-  getAudienceOverlap,
-  getAnalyticsTrendSentiment,
+  getGameBasics,
   getGenreInsights,
 } from "@/lib/api";
+import type { GameBasicsEntry } from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
 import { ProofBar } from "@/components/home/ProofBar";
 import { FeaturedReport } from "@/components/home/FeaturedReport";
-import { IntelligenceCards } from "@/components/home/IntelligenceCards";
-import { GameShowcase } from "@/components/home/GameShowcase";
-import type { ShowcaseGame } from "@/components/home/GameShowcase";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
@@ -66,13 +61,7 @@ export default async function HomePage() {
     tags,
     catalogStats,
     featuredReport,
-    // Showcase game 1: Baldur's Gate 3
-    sc0Report, sc0Stats, sc0Overlap,
-    // Showcase game 2: Stardew Valley
-    sc1Report, sc1Stats, sc1Overlap,
-    // Showcase game 3: Cyberpunk 2077
-    sc2Report, sc2Stats, sc2Overlap,
-    trendSentiment,
+    showcaseBasics,
   ] = await Promise.allSettled([
     // Discovery rows served from mv_discovery_feeds (pre-computed top-N per kind).
     getDiscoveryFeed("popular", 8),
@@ -84,17 +73,10 @@ export default async function HomePage() {
     getTagsGrouped(200),
     getCatalogStats(),
     getGenreInsights(FEATURED_REPORT_SLUG),
-    // Per-game showcase fetches (3 games × 3 endpoints = 9 calls)
-    getGameReport(SHOWCASE_GAMES[0].appid),
-    getReviewStats(SHOWCASE_GAMES[0].appid),
-    getAudienceOverlap(SHOWCASE_GAMES[0].appid, 5),
-    getGameReport(SHOWCASE_GAMES[1].appid),
-    getReviewStats(SHOWCASE_GAMES[1].appid),
-    getAudienceOverlap(SHOWCASE_GAMES[1].appid, 5),
-    getGameReport(SHOWCASE_GAMES[2].appid),
-    getReviewStats(SHOWCASE_GAMES[2].appid),
-    getAudienceOverlap(SHOWCASE_GAMES[2].appid, 5),
-    getAnalyticsTrendSentiment({ granularity: "month", limit: 12 }),
+    // Single batched basics call powers the FeaturedReport game strip —
+    // replaces the 9-call showcase fan-out that timed out under cold-start
+    // Lambdas and ISR-cached an empty render.
+    getGameBasics(SHOWCASE_GAMES.map((g) => g.appid)),
   ]);
 
   const featuredInsights =
@@ -116,42 +98,10 @@ export default async function HomePage() {
   const totalGames =
     catalogStats.status === "fulfilled" ? catalogStats.value.total_games : 0;
 
-  // Showcase data — assemble per-game, skip any that failed
-  const scResults = [
-    { report: sc0Report, stats: sc0Stats, overlap: sc0Overlap, ...SHOWCASE_GAMES[0] },
-    { report: sc1Report, stats: sc1Stats, overlap: sc1Overlap, ...SHOWCASE_GAMES[1] },
-    { report: sc2Report, stats: sc2Stats, overlap: sc2Overlap, ...SHOWCASE_GAMES[2] },
-  ];
-
-  const showcaseGames: ShowcaseGame[] = scResults
-    .filter(
-      (sc) =>
-        sc.report.status === "fulfilled" &&
-        sc.report.value.report &&
-        sc.report.value.game,
-    )
-    .map((sc) => {
-      const r = (sc.report as PromiseFulfilledResult<Awaited<ReturnType<typeof getGameReport>>>).value;
-      const s = sc.stats.status === "fulfilled" ? sc.stats.value : null;
-      const o = sc.overlap.status === "fulfilled" ? sc.overlap.value : null;
-      return {
-        appid: sc.appid,
-        slug: sc.slug,
-        gameName: r.report!.game_name,
-        headerImage: r.game?.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${sc.appid}/header.jpg`,
-        report: r.report!,
-        timeline: s?.timeline ?? [],
-        overlaps: o?.overlaps ?? [],
-        totalReviewers: o?.total_reviewers ?? 0,
-      };
-    });
-
-  const sentimentTrend =
-    trendSentiment.status === "fulfilled"
-      ? trendSentiment.value.periods
-      : [];
-
-  const hasIntelCards = showcaseGames.length > 0;
+  // Repo preserves caller order; failure degrades to an empty strip and the
+  // genre hero still renders.
+  const strip: GameBasicsEntry[] =
+    showcaseBasics.status === "fulfilled" ? showcaseBasics.value : [];
 
   const rows: {
     label: string;
@@ -217,22 +167,9 @@ export default async function HomePage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 pb-24 space-y-16">
-        {/* Featured Report — primary CTA pointing at the live genre synthesis page */}
-        {featuredInsights && <FeaturedReport insights={featuredInsights} />}
-
-        {/* Intelligence Preview Cards */}
-        {hasIntelCards && showcaseGames.length > 0 && (
-          <IntelligenceCards
-            timeline={showcaseGames[0].timeline}
-            overlaps={showcaseGames[0].overlaps}
-            trendData={sentimentTrend}
-            report={showcaseGames[0].report}
-          />
-        )}
-
-        {/* Game Intelligence Showcase — tabbed, up to 3 games */}
-        {showcaseGames.length > 0 && (
-          <GameShowcase games={showcaseGames} />
+        {/* Featured Report — genre synthesis CTA + 3-tab SEO-anchor strip */}
+        {featuredInsights && (
+          <FeaturedReport insights={featuredInsights} strip={strip} />
         )}
 
         {/* Market Trends Preview */}

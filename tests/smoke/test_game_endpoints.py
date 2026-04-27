@@ -26,6 +26,10 @@ def test_games_basics_batch(api: httpx.Client, well_known_appid: int) -> None:
         assert "slug" in g and isinstance(g["slug"], str)
         # header_image may be null if the Steam crawl hasn't populated it.
         assert "header_image" in g
+        # Sentiment fields (broadened for homepage hero strip).
+        # Both may be null if the Steam crawl hasn't populated review stats.
+        assert "positive_pct" in g
+        assert "review_count" in g
 
 
 def test_games_basics_rejects_non_numeric(api: httpx.Client) -> None:

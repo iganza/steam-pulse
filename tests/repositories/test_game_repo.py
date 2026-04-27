@@ -269,6 +269,53 @@ def test_ensure_stub_creates_minimal_row(game_repo: GameRepository) -> None:
 
 
 # ---------------------------------------------------------------------------
+# find_basics_by_appids — broadened to include sentiment fields for the
+# homepage hero strip (genre synthesis page also consumes this).
+# ---------------------------------------------------------------------------
+
+
+def test_find_basics_by_appids_returns_sentiment_fields(game_repo: GameRepository) -> None:
+    game_repo.upsert(_game_data(440, "TF2"))  # english=155000, all=188000, pct=96
+    rows = game_repo.find_basics_by_appids([440])
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["appid"] == 440
+    assert row["name"] == "TF2"
+    assert row["slug"] == "team-fortress-2-440"
+    assert row["header_image"] == "https://example.com/header.jpg"
+    assert row["positive_pct"] == 96
+    # Prefers review_count_english over the all-language review_count.
+    assert row["review_count"] == 155000
+
+
+def test_find_basics_by_appids_falls_back_when_english_null(game_repo: GameRepository) -> None:
+    data = _game_data(441, "No English Reviews")
+    data["slug"] = "no-english-441"
+    data["review_count_english"] = None
+    data["review_count"] = 5000
+    game_repo.upsert(data)
+    rows = game_repo.find_basics_by_appids([441])
+    assert len(rows) == 1
+    assert rows[0]["review_count"] == 5000
+
+
+def test_find_basics_by_appids_preserves_order_and_omits_unknown(
+    game_repo: GameRepository,
+) -> None:
+    game_repo.upsert(_game_data(440, "TF2"))
+    other = _game_data(441, "Half-Life 2")
+    other["slug"] = "half-life-2-441"
+    game_repo.upsert(other)
+
+    rows = game_repo.find_basics_by_appids([441, 9999999, 440])
+    assert [r["appid"] for r in rows] == [441, 440]
+
+
+def test_find_basics_by_appids_empty_input(game_repo: GameRepository) -> None:
+    assert game_repo.find_basics_by_appids([]) == []
+
+
+# ---------------------------------------------------------------------------
 # Helpers for genre linkage (find_benchmarks tests)
 # ---------------------------------------------------------------------------
 

@@ -288,4 +288,19 @@ SELECT appid, name, review_crawled_at
 |    51 |
 
 
-* 
+* Vampire Crawlers Reviews (3265700)
+#+BEGIN_SRC sql
+    SELECT
+        appid,
+        MIN(posted_at) AS first_review,
+        MAX(posted_at) AS last_review,
+        COUNT(*) AS reviews_in_window
+    FROM reviews
+    WHERE appid = 3265700
+  group by appid;
+#+END_SRC
+
+#+RESULTS:
+|   appid | first_review            | last_review             | reviews_in_window |
+|---------+------------------------+------------------------+-----------------|
+| 3265700 | 2026-04-21 14:49:22+00 | 2026-04-22 22:59:26+00 |            1539 |

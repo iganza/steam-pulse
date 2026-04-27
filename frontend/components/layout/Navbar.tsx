@@ -69,8 +69,7 @@ export function Navbar() {
         {/* Logo */}
         <Link
           href="/"
-          className="font-mono text-sm font-bold tracking-widest uppercase flex-shrink-0"
-          style={{ color: "var(--teal)" }}
+          className="font-mono text-sm font-bold tracking-widest uppercase flex-shrink-0 text-teal"
         >
           SteamPulse
         </Link>
@@ -95,7 +94,7 @@ export function Navbar() {
               >
                 <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                    <p className="text-eyebrow mb-2">
                       Genres
                     </p>
                     <div className="space-y-1">
@@ -118,7 +117,7 @@ export function Navbar() {
                   </div>
                   {tagGroups.map((group) => (
                     <div key={group.category}>
-                      <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                      <p className="text-eyebrow mb-2">
                         {group.category}
                       </p>
                       <div className="space-y-1">
@@ -140,8 +139,7 @@ export function Navbar() {
                   <Link
                     href="/#browse-by-tag"
                     onClick={() => setBrowseOpen(false)}
-                    className="text-xs font-mono transition-colors"
-                    style={{ color: "var(--teal)" }}
+                    className="text-xs font-mono transition-colors text-teal"
                   >
                     See all tags &rarr;
                   </Link>

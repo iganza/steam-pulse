@@ -225,7 +225,7 @@ export function ReportsClient() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-serif font-bold text-foreground mb-2 flex items-center gap-3">
-            <FileText className="w-7 h-7" style={{ color: "var(--teal)" }} />
+            <FileText className="w-7 h-7 text-teal" />
             Reports
           </h1>
           <p className="text-muted-foreground font-mono text-sm">

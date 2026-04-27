@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-syne);
-  --font-serif: var(--font-playfair);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-fraunces);
   --font-mono: var(--font-jetbrains);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -35,6 +35,18 @@
   --color-gem: var(--gem);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
+  --text-display: clamp(2.5rem, 1.6rem + 4vw, 4.25rem);
+  --text-h1: clamp(2rem, 1.4rem + 2.6vw, 3rem);
+  --text-h2: clamp(1.5rem, 1.2rem + 1.4vw, 2.125rem);
+  --text-h3: clamp(1.25rem, 1.1rem + 0.8vw, 1.5rem);
+  --text-body: 1rem;
+  --text-body-sm: 0.875rem;
+  --text-eyebrow: 0.75rem;
+  --leading-display: 1.05;
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
 }
 
 :root {
@@ -50,7 +62,7 @@
   --secondary:        #1e1e24;
   --secondary-foreground: #ededea;
   --muted:            #1e1e24;
-  --muted-foreground: #7c7c85;
+  --muted-foreground: #9b9ba6;
   --accent:           #1e1e24;
   --accent-foreground: #ededea;
   --destructive:      #ef4444;
@@ -78,13 +90,20 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    line-height: var(--leading-normal);
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
   }
 
   h1, h2, h3, h4 {
-    font-family: var(--font-playfair), Georgia, serif;
+    font-family: var(--font-serif, Georgia, "Times New Roman", serif);
     letter-spacing: -0.02em;
+    line-height: var(--leading-tight);
+    font-feature-settings: "ss01" 1, "kern" 1, "liga" 1;
   }
+  h1 { font-size: var(--text-h1); }
+  h2 { font-size: var(--text-h2); }
+  h3 { font-size: var(--text-h3); }
 
   /* Subtle noise texture on bg */
   body::before {
@@ -146,3 +165,14 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Eyebrow label — uppercase mono caption */
+.text-eyebrow {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-eyebrow);
+  line-height: 1rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+

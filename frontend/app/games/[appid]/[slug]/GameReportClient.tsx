@@ -186,7 +186,7 @@ export function GameReportClient({
           <section className="animate-fade-up stagger-1">
             <SectionLabel>The Verdict</SectionLabel>
             <blockquote
-              className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-8 italic"
+              className="font-serif text-2xl md:text-3xl text-foreground/90 leading-snug mb-8 italic max-w-prose"
               style={{ letterSpacing: "-0.01em" }}
             >
               &ldquo;{report.one_liner ?? "Analysis loading\u2026"}&rdquo;
@@ -200,7 +200,7 @@ export function GameReportClient({
                 metaCrawledAt={metaCrawledAt}
               />
             </div>
-            <div className="flex items-center justify-between text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="flex items-center justify-between text-eyebrow">
               <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden>✨</span>
                 SteamPulse Analysis
@@ -215,7 +215,7 @@ export function GameReportClient({
                 })()}
               </span>
             </div>
-            <AuthorByline className="mt-3 text-xs font-mono uppercase tracking-widest text-muted-foreground" />
+            <AuthorByline className="mt-3 text-eyebrow" />
           </section>
         )}
 
@@ -276,7 +276,7 @@ export function GameReportClient({
         {report && (
           <section className="animate-fade-up stagger-3">
             <SectionLabel>Design Strengths</SectionLabel>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-w-prose">
               {(report.design_strengths ?? []).map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <CheckCircle2
@@ -293,7 +293,7 @@ export function GameReportClient({
         {report && (
           <section className="animate-fade-up stagger-4">
             <SectionLabel>Gameplay Friction</SectionLabel>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-w-prose">
               {(report.gameplay_friction ?? []).map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <AlertCircle
@@ -316,37 +316,32 @@ export function GameReportClient({
                 style={{ background: "var(--card)", border: "1px solid var(--border)" }}
               >
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">
+                  <p className="text-eyebrow mb-1">
                     Ideal Player
                   </p>
-                  <p className="text-base text-foreground/80">
+                  <p className="text-base text-foreground/80 max-w-prose">
                     {report.audience_profile.ideal_player}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-1">
+                  <p className="text-eyebrow mb-1">
                     Casual Friendliness
                   </p>
-                  <p className="text-base text-foreground/80">
+                  <p className="text-base text-foreground/80 max-w-prose">
                     {report.audience_profile.casual_friendliness}
                   </p>
                 </div>
               </div>
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                  <p className="text-eyebrow mb-2">
                     Player Archetypes
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {report.audience_profile.archetypes?.map((a) => (
                       <span
                         key={a}
-                        className="text-sm px-3 py-1.5 rounded-full font-mono"
-                        style={{
-                          background: "rgba(45,185,212,0.08)",
-                          border: "1px solid rgba(45,185,212,0.2)",
-                          color: "var(--teal)",
-                        }}
+                        className="text-sm px-3 py-1.5 rounded-full font-mono bg-teal/8 border border-teal/20 text-teal"
                       >
                         {a}
                       </span>
@@ -354,7 +349,7 @@ export function GameReportClient({
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+                  <p className="text-eyebrow mb-2">
                     Not For
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -388,7 +383,7 @@ export function GameReportClient({
               <TrendIcon trend={report.sentiment_trend} />
               <div>
                 <p className="text-base font-mono font-medium mb-1">{report.sentiment_trend}</p>
-                <p className="text-base text-muted-foreground leading-relaxed">
+                <p className="text-base text-muted-foreground leading-relaxed max-w-prose">
                   {report.sentiment_trend_note}
                 </p>
               </div>
@@ -399,7 +394,7 @@ export function GameReportClient({
         {report?.genre_context && (
           <section>
             <SectionLabel>Genre Context</SectionLabel>
-            <p className="text-base text-foreground/80 leading-relaxed">
+            <p className="text-base text-foreground/80 leading-relaxed max-w-prose">
               {report.genre_context}
             </p>
           </section>
@@ -415,7 +410,7 @@ export function GameReportClient({
         {report?.player_wishlist && report.player_wishlist.length > 0 && (
           <section>
             <SectionLabel>Player Wishlist</SectionLabel>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-w-prose">
               {report.player_wishlist.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <Lightbulb
@@ -432,7 +427,7 @@ export function GameReportClient({
         {report?.churn_triggers && report.churn_triggers.length > 0 && (
           <section>
             <SectionLabel>Churn Triggers</SectionLabel>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-w-prose">
               {report.churn_triggers.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <DoorOpen
@@ -460,28 +455,22 @@ export function GameReportClient({
                   }}
                 >
                   <div className="flex items-start gap-3 mb-2">
-                    <span
-                      className="font-mono text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0"
-                      style={{ background: "rgba(45,185,212,0.1)", color: "var(--teal)" }}
-                    >
+                    <span className="font-mono text-xs px-1.5 py-0.5 rounded mt-0.5 flex-shrink-0 bg-teal/10 text-teal">
                       #{i + 1}
                     </span>
                     <p className="text-base font-medium text-foreground flex items-center gap-2">
-                      <Target
-                        className="w-3.5 h-3.5 flex-shrink-0"
-                        style={{ color: "var(--teal)" }}
-                      />
+                      <Target className="w-3.5 h-3.5 flex-shrink-0 text-teal" />
                       {p.action}
                     </p>
                   </div>
-                  <p className="text-sm text-muted-foreground ml-8 mb-3 leading-relaxed">
+                  <p className="text-sm text-muted-foreground ml-8 mb-3 leading-relaxed max-w-prose">
                     {p.why_it_matters}
                   </p>
                   <div className="flex gap-4 ml-8">
-                    <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-eyebrow">
                       Freq: <span className="text-foreground/60">{p.frequency}</span>
                     </span>
-                    <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-eyebrow">
                       Effort: <span className="text-foreground/60">{p.effort}</span>
                     </span>
                   </div>
@@ -520,7 +509,7 @@ export function GameReportClient({
                         {c.comparison_sentiment}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{c.note}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">{c.note}</p>
                   </div>
                 </div>
               ))}
@@ -583,12 +572,7 @@ export function GameReportClient({
                 <Link
                   key={tag}
                   href={`/tag/${slugify(tag)}`}
-                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
-                  style={{
-                    background: "rgba(45,185,212,0.08)",
-                    border: "1px solid rgba(45,185,212,0.2)",
-                    color: "var(--teal)",
-                  }}
+                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground bg-teal/8 border border-teal/20 text-teal"
                 >
                   {tag}
                 </Link>

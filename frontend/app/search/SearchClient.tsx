@@ -220,7 +220,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
     <div className="space-y-6">
       {/* Search */}
       <div>
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Search</p>
+        <p className="text-eyebrow mb-2">Search</p>
         <form onSubmit={handleSearch}>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -238,7 +238,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
       {/* Genres */}
       {!hideGenreFilter && genres.length > 0 && (
         <div>
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Genre</p>
+          <p className="text-eyebrow mb-2">Genre</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {genres.slice(0, 20).map((g) => (
               <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
@@ -260,7 +260,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
       {/* Tags */}
       {!hideTagFilter && tags.length > 0 && (
         <div>
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Tags</p>
+          <p className="text-eyebrow mb-2">Tags</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {tags.slice(0, 20).map((t) => (
               <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
@@ -280,7 +280,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Min Reviews */}
       <div>
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Min Reviews</p>
+        <p className="text-eyebrow mb-2">Min Reviews</p>
         <div className="space-y-1">
           {REVIEW_PRESETS.map((opt) => (
             <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
@@ -299,7 +299,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Sentiment */}
       <div>
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Sentiment</p>
+        <p className="text-eyebrow mb-2">Sentiment</p>
         <div className="space-y-1">
           {SENTIMENT_OPTIONS.map((opt) => (
             <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
@@ -331,7 +331,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Price */}
       <div>
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Price</p>
+        <p className="text-eyebrow mb-2">Price</p>
         <div className="space-y-1">
           {PRICE_OPTIONS.map((opt) => (
             <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-foreground/70">
@@ -350,7 +350,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
 
       {/* Year Range */}
       <div>
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">Release Year</p>
+        <p className="text-eyebrow mb-2">Release Year</p>
         <div className="flex gap-2">
           <input
             type="number"
@@ -471,7 +471,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             ) : (
               <div className="space-y-2">
                 {/* Table header */}
-                <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono text-muted-foreground">
+                <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-eyebrow">
                   <div className="col-span-5">Game</div>
                   <div className="col-span-2">Genre</div>
                   <div className="col-span-1 text-right">Reviews</div>
@@ -583,8 +583,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
             {filterSidebar}
             <button
               onClick={() => setMobileFilters(false)}
-              className="w-full mt-6 py-3 rounded-lg text-base font-mono font-medium"
-              style={{ background: "var(--teal)", color: "#0c0c0f" }}
+              className="w-full mt-6 py-3 rounded-lg text-base font-mono font-medium bg-teal text-background"
             >
               Apply Filters
             </button>

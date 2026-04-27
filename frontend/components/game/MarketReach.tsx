@@ -99,12 +99,7 @@ function MethodPill({ method }: { method: string }) {
   return (
     <Link
       href="/methodology/revenue"
-      className="inline-flex items-center text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full hover:underline"
-      style={{
-        background: "rgba(45,185,212,0.1)",
-        color: "var(--teal)",
-        border: "1px solid rgba(45,185,212,0.25)",
-      }}
+      className="inline-flex items-center text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full hover:underline bg-teal/10 border border-teal/25 text-teal"
       title="How is this calculated?"
     >
       {method}
@@ -134,7 +129,7 @@ function Stat({
   return (
     <div>
       <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <span className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
+        <span className="text-eyebrow">
           {label}
         </span>
         <ConfidencePill confidence={confidence} />

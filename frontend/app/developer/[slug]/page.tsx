@@ -78,7 +78,7 @@ export default async function DeveloperPage({ params }: Props) {
         />
 
         <h1
-          className="font-serif text-4xl font-bold mt-6 mb-6"
+          className="font-serif text-h1 font-bold mt-6 mb-6"
           style={{ letterSpacing: "-0.03em" }}
         >
           {name}
@@ -107,7 +107,7 @@ export default async function DeveloperPage({ params }: Props) {
         {/* Sentiment across catalog */}
         {games.length > 0 && (
           <div className="mb-8 p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            <p className="text-eyebrow mb-3">
               Sentiment Across Catalog
             </p>
             <div className="space-y-2">

@@ -17,7 +17,7 @@ export function AuthorByline({ className, href }: AuthorBylineProps) {
     <p
       className={
         className ??
-        "text-xs font-mono uppercase tracking-widest text-muted-foreground"
+        "text-eyebrow"
       }
       data-testid="author-byline"
     >

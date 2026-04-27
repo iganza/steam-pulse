@@ -121,7 +121,7 @@ export default async function HomePage() {
   }[] = [
     {
       label: "Most Popular",
-      icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--teal)" }} />,
+      icon: <TrendingUp className="w-4 h-4 text-teal" />,
       games: popularGames,
       seeAll: "/search?sort=review_count",
     },
@@ -139,7 +139,7 @@ export default async function HomePage() {
     },
     {
       label: "New on Steam",
-      icon: <Sparkles className="w-4 h-4" style={{ color: "var(--teal)" }} />,
+      icon: <Sparkles className="w-4 h-4 text-teal" />,
       games: newGames,
       seeAll: "/search?sort=release_date",
     },
@@ -160,7 +160,7 @@ export default async function HomePage() {
         />
         <div className="relative max-w-3xl mx-auto px-6 pt-20 pb-12 text-center">
           <h1
-            className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-3 leading-tight"
+            className="font-serif text-h1 font-bold text-foreground mb-3 leading-tight"
             style={{ letterSpacing: "-0.03em" }}
           >
             Steam, decoded
@@ -219,7 +219,7 @@ export default async function HomePage() {
           <section>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4" style={{ color: "var(--teal)" }} />
+                <Clock className="w-4 h-4 text-teal" />
                 <h2 className="font-serif text-xl font-semibold">Just Analyzed</h2>
               </div>
               <Link

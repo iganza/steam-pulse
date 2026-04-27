@@ -35,7 +35,7 @@ export function RelatedAnalyzedGames({ games }: RelatedAnalyzedGamesProps) {
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm font-medium truncate">{g.name}</p>
                 {g.positive_pct != null && (
-                  <p className="mt-1 text-xs font-mono" style={{ color: "var(--teal)" }}>
+                  <p className="mt-1 text-xs font-mono text-teal">
                     {g.positive_pct}% positive
                   </p>
                 )}

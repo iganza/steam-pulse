@@ -20,7 +20,7 @@ export function FrictionList({ items, gameCount, games, hasReport }: Props) {
 
   return (
     <section className="mb-16" data-testid="friction-list">
-      <h2 className="font-serif text-2xl md:text-3xl font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
+      <h2 className="font-serif text-h2 font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
         Top 5 Friction Points
       </h2>
       <p className="text-sm font-mono mb-8" style={{ color: "var(--muted-foreground)" }}>
@@ -32,10 +32,7 @@ export function FrictionList({ items, gameCount, games, hasReport }: Props) {
           const src = games[item.source_appid];
           return (
             <li key={idx} className="flex gap-4">
-              <span
-                className="shrink-0 font-mono text-xs pt-1"
-                style={{ color: "var(--teal)" }}
-              >
+              <span className="shrink-0 font-mono text-xs pt-1 text-teal">
                 {String(idx + 1).padStart(2, "0")}
               </span>
               <div className="flex-1 min-w-0">
@@ -49,10 +46,7 @@ export function FrictionList({ items, gameCount, games, hasReport }: Props) {
                   </span>
                 </div>
                 <p className="text-base mb-3 leading-relaxed">{item.description}</p>
-                <blockquote
-                  className="pl-4 border-l-2 text-sm italic"
-                  style={{ borderColor: "var(--teal)", color: "var(--muted-foreground)" }}
-                >
+                <blockquote className="pl-4 border-l-2 border-teal text-sm italic text-muted-foreground">
                   &ldquo;{item.representative_quote}&rdquo;
                   {src && (
                     <>

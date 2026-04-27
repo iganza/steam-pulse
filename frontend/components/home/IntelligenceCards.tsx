@@ -67,7 +67,7 @@ export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <IntelCard
-          icon={<BarChart3 className="w-4 h-4" style={{ color: "var(--teal)" }} />}
+          icon={<BarChart3 className="w-4 h-4 text-teal" />}
           title="Player Sentiment"
           subtitle="Structured by playtime, timeline, and behavior"
           href="/search?sort=review_count"
@@ -80,7 +80,7 @@ export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
         </IntelCard>
 
         <IntelCard
-          icon={<Users className="w-4 h-4" style={{ color: "var(--teal)" }} />}
+          icon={<Users className="w-4 h-4 text-teal" />}
           title="Competitive Intelligence"
           subtitle="Real audience overlap from reviewer behavior"
           href="/search?sort=review_count"
@@ -93,7 +93,7 @@ export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
         </IntelCard>
 
         <IntelCard
-          icon={<TrendingUp className="w-4 h-4" style={{ color: "var(--teal)" }} />}
+          icon={<TrendingUp className="w-4 h-4 text-teal" />}
           title="Market Intelligence"
           subtitle="Genre trends, pricing, release timing"
           href="/reports"
@@ -106,7 +106,7 @@ export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
         </IntelCard>
 
         <IntelCard
-          icon={<FileText className="w-4 h-4" style={{ color: "var(--teal)" }} />}
+          icon={<FileText className="w-4 h-4 text-teal" />}
           title="Deep Review Reports"
           subtitle="Thousands of reviews distilled into structured intelligence"
           href="/reports"

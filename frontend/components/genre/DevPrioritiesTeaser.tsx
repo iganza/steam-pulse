@@ -14,7 +14,7 @@ export function DevPrioritiesTeaser({ items, totalCount, hasReport }: Props) {
 
   return (
     <section className="mb-16" data-testid="dev-priorities">
-      <h2 className="font-serif text-2xl md:text-3xl font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
+      <h2 className="font-serif text-h2 font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
         Where Dev Time Pays Off
       </h2>
       <p className="text-sm font-mono mb-8" style={{ color: "var(--muted-foreground)" }}>

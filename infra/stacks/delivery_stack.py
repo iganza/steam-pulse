@@ -105,8 +105,11 @@ class DeliveryStack(cdk.Stack):
         frontend_origin = origins.FunctionUrlOrigin(frontend_fn_url)
 
         # SSR-fanout API endpoints for /games/{appid}/{slug} — honor origin
-        # Cache-Control (handlers set s-maxage=86400). Must precede the /api/*
-        # catch-all so specific patterns win.
+        # Cache-Control (handlers set s-maxage=86400). Listed before /api/*
+        # so they get a lower CloudFront cache-behavior precedence value:
+        # CloudFront evaluates behaviors in precedence order and applies the
+        # FIRST matching path pattern (it does not auto-rank by specificity),
+        # so without this ordering /api/* (CACHING_DISABLED) would win.
         api_cached_behavior = cloudfront.BehaviorOptions(
             origin=api_origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

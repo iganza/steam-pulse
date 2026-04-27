@@ -948,8 +948,9 @@ def test_home_intel_snapshot_source_exception_isolated(
 # Edge-cache headers on the 4 SSR-fanout endpoints
 # ---------------------------------------------------------------------------
 
-# CloudFront keys off s-maxage; without it the catch-all /api/* CACHING_DISABLED
-# behavior would bypass the per-path cached behaviors.
+# Path matching selects the cached /api/games/*/{...} behavior; this header
+# tells CloudFront's html_cache_policy how long to cache the response (s-maxage)
+# and how long to serve stale-while-revalidate.
 _EXPECTED_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
 
 

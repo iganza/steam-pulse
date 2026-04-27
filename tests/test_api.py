@@ -942,3 +942,83 @@ def test_home_intel_snapshot_source_exception_isolated(
     assert data["report_sample"] is not None
     assert data["report_sample"]["one_liner"] == "A landmark CRPG."
     assert data["computed_at"]
+
+
+# ---------------------------------------------------------------------------
+# Edge-cache headers on the 4 SSR-fanout endpoints
+# ---------------------------------------------------------------------------
+
+# Path matching selects the cached /api/games/*/{...} behavior; this header
+# tells CloudFront's html_cache_policy how long to cache the response (s-maxage)
+# and how long to serve stale-while-revalidate.
+_EXPECTED_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
+
+
+class _MemReportRepoWithRelated(_MemReportRepo):
+    def find_related_analyzed(self, appid: int, limit: int = 6) -> list[dict]:
+        return []
+
+
+def test_report_endpoint_sets_cache_control(client: TestClient) -> None:
+    """GET /api/games/{appid}/report sets s-maxage so CloudFront can edge-cache."""
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+class _MemReviewRepoWithTemporal(_MemReviewRepo):
+    def find_review_velocity(self, appid: int) -> dict:
+        return {"summary": {"last_30_days": 5, "trend": "stable"}}
+
+    def find_early_access_impact(self, appid: int) -> dict:
+        return {"has_ea_reviews": False}
+
+
+def test_report_endpoint_serializes_temporal_with_release_date(client: TestClient) -> None:
+    """When a report + game exist, temporal carries a `date` field — JSONResponse
+    bypasses fastapi.jsonable_encoder, so model_dump must use mode='json' or
+    json.dumps raises TypeError on the date.
+    """
+    import lambda_functions.api.handler as api_module
+
+    game = _build_game_with_revenue(release_date="2024-01-01")
+    api_module._game_repo = _MemGameRepoWithGame(game)  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo()  # type: ignore[assignment]
+    api_module._review_repo = _MemReviewRepoWithTemporal()  # type: ignore[assignment]
+    api_module._report_repo._store[440] = {"appid": 440, "one_liner": "x"}  # type: ignore[attr-defined]
+
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+    data = resp.json()
+    assert data["status"] == "available"
+    assert data["temporal"] is not None
+    assert data["temporal"]["release_date"] == "2024-01-01"
+
+
+def test_review_stats_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._review_repo = _MemReviewRepo()  # type: ignore[assignment]
+    resp = client.get("/api/games/440/review-stats")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+def test_benchmarks_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._game_repo = _MemGameRepoWithBenchmarks()  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo(genres=[{"name": "Action", "id": 1}])  # type: ignore[assignment]
+    resp = client.get("/api/games/440/benchmarks")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+def test_related_analyzed_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._report_repo = _MemReportRepoWithRelated()  # type: ignore[assignment]
+    resp = client.get("/api/games/440/related-analyzed")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL

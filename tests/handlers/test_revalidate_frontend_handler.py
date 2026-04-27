@@ -114,6 +114,18 @@ def _slug(appid: int) -> str:
     return f"test-game-{appid}"
 
 
+def _expected_paths(appids: list[int]) -> list[str]:
+    """Per-appid CDN invalidation: HTML + 4 SSR-fanout API paths, sorted."""
+    paths: set[str] = set()
+    for appid in appids:
+        paths.add(f"/games/{appid}/*")
+        paths.add(f"/api/games/{appid}/report")
+        paths.add(f"/api/games/{appid}/review-stats")
+        paths.add(f"/api/games/{appid}/benchmarks")
+        paths.add(f"/api/games/{appid}/related-analyzed")
+    return sorted(paths)
+
+
 def _sns_wrapped_event(appid: int, message_id: str = "msg-1") -> dict:
     """Build an SQS record whose body is the SNS notification envelope."""
     inner = {
@@ -230,9 +242,7 @@ def test_s3_per_key_errors_returns_batch_item_failure(
         }
 
     monkeypatch.setattr(handler._s3, "delete_objects", _partial_failure)
-    result = handler.handler(
-        _sns_wrapped_event(2, message_id="s3-partial"), MockLambdaContext()
-    )
+    result = handler.handler(_sns_wrapped_event(2, message_id="s3-partial"), MockLambdaContext())
 
     assert result == {"batchItemFailures": [{"itemIdentifier": "s3-partial"}]}
 
@@ -301,9 +311,7 @@ def test_missing_slug_returns_batch_item_failure(httpx_mock: HTTPXMock) -> None:
                 "body": json.dumps(
                     {
                         "Type": "Notification",
-                        "Message": json.dumps(
-                            {"event_type": "report-ready", "appid": 5}
-                        ),
+                        "Message": json.dumps({"event_type": "report-ready", "appid": 5}),
                     }
                 ),
                 "receiptHandle": "r",
@@ -353,9 +361,7 @@ def test_unwrapped_sqs_body_also_parses(httpx_mock: HTTPXMock) -> None:
         "Records": [
             {
                 "messageId": "direct-1",
-                "body": json.dumps(
-                    {"event_type": "report-ready", "appid": 7, "slug": _slug(7)}
-                ),
+                "body": json.dumps({"event_type": "report-ready", "appid": 7, "slug": _slug(7)}),
                 "receiptHandle": "r",
             }
         ],
@@ -382,9 +388,10 @@ def test_happy_path_creates_cloudfront_invalidation(httpx_mock: HTTPXMock) -> No
     assert len(captured) == 1
     call = captured[0]
     assert call["DistributionId"] == _DISTRIBUTION_ID
+    expected = _expected_paths([12345])
     assert call["InvalidationBatch"]["Paths"] == {
-        "Quantity": 1,
-        "Items": ["/games/12345/*"],
+        "Quantity": len(expected),
+        "Items": expected,
     }
     assert call["InvalidationBatch"]["CallerReference"].startswith("revalidate-")
 
@@ -409,8 +416,9 @@ def test_batched_invalidation_for_multiple_records(httpx_mock: HTTPXMock) -> Non
     assert result == {"batchItemFailures": []}
     assert len(captured) == 1, "expected ONE invalidation covering all appids"
     paths = captured[0]["InvalidationBatch"]["Paths"]
-    assert paths["Quantity"] == 3
-    assert paths["Items"] == ["/games/10/*", "/games/20/*", "/games/30/*"]
+    expected = _expected_paths([10, 20, 30])
+    assert paths["Quantity"] == len(expected)
+    assert paths["Items"] == expected
 
 
 @mock_aws
@@ -479,7 +487,7 @@ def test_per_record_failure_does_not_block_invalidation_for_others(
     assert result == {"batchItemFailures": [{"itemIdentifier": "m-200"}]}
     assert len(captured) == 1
     paths = captured[0]["InvalidationBatch"]["Paths"]
-    assert paths["Items"] == ["/games/100/*", "/games/300/*"]
+    assert paths["Items"] == _expected_paths([100, 300])
 
 
 @mock_aws
@@ -519,9 +527,10 @@ def test_caller_reference_is_deterministic_across_retries(
     handler.handler(event, MockLambdaContext())
 
     assert len(captured) == 2
-    assert captured[0]["InvalidationBatch"]["CallerReference"] == captured[1][
-        "InvalidationBatch"
-    ]["CallerReference"]
+    assert (
+        captured[0]["InvalidationBatch"]["CallerReference"]
+        == captured[1]["InvalidationBatch"]["CallerReference"]
+    )
 
 
 @mock_aws

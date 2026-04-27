@@ -118,8 +118,17 @@ def _delete_page_cache(appid: int, slug: str) -> None:
 
 
 def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
-    """Issue one CloudFront invalidation covering /games/{appid}/* for the batch."""
-    paths = sorted({f"/games/{appid}/*" for _, appid in records})
+    """Issue one CloudFront invalidation covering the game page + its 4 SSR-fanout API paths."""
+    paths: set[str] = set()
+    for _, appid in records:
+        paths.add(f"/games/{appid}/*")
+        # API paths are edge-cached (s-maxage=86400) — must invalidate alongside HTML
+        # or fresh analyses serve stale data for up to 24 h.
+        paths.add(f"/api/games/{appid}/report")
+        paths.add(f"/api/games/{appid}/review-stats")
+        paths.add(f"/api/games/{appid}/benchmarks")
+        paths.add(f"/api/games/{appid}/related-analyzed")
+    sorted_paths = sorted(paths)
     # Deterministic CallerReference: same messageId set → same key, so an SQS
     # retry after a successful CreateInvalidation reuses the existing one.
     digest = hashlib.sha256("|".join(sorted(msg_id for msg_id, _ in records)).encode()).hexdigest()[
@@ -128,7 +137,7 @@ def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
     _cloudfront.create_invalidation(
         DistributionId=_DISTRIBUTION_ID,
         InvalidationBatch={
-            "Paths": {"Quantity": len(paths), "Items": paths},
+            "Paths": {"Quantity": len(sorted_paths), "Items": sorted_paths},
             "CallerReference": f"revalidate-{digest}",
         },
     )

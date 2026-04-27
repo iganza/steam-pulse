@@ -99,19 +99,42 @@ class DeliveryStack(cdk.Stack):
         )
 
         # ── CloudFront ────────────────────────────────────────────────────────
+        # Single shared origin per Lambda — reused across all behaviors so the
+        # distribution doesn't end up with N copies of the same origin config.
+        api_origin = origins.FunctionUrlOrigin(api_fn_url)
+        frontend_origin = origins.FunctionUrlOrigin(frontend_fn_url)
+
+        # SSR-fanout API endpoints for /games/{appid}/{slug} — honor origin
+        # Cache-Control (handlers set s-maxage=86400). Listed before /api/*
+        # so they get a lower CloudFront cache-behavior precedence value:
+        # CloudFront evaluates behaviors in precedence order and applies the
+        # FIRST matching path pattern (it does not auto-rank by specificity),
+        # so without this ordering /api/* (CACHING_DISABLED) would win.
+        api_cached_behavior = cloudfront.BehaviorOptions(
+            origin=api_origin,
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            cache_policy=html_cache_policy,
+            origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+        )
+
         distribution = cloudfront.Distribution(
             self,
             "Distribution",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.FunctionUrlOrigin(frontend_fn_url),
+                origin=frontend_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=html_cache_policy,
                 origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
             ),
             additional_behaviors={
+                "/api/games/*/report": api_cached_behavior,
+                "/api/games/*/review-stats": api_cached_behavior,
+                "/api/games/*/benchmarks": api_cached_behavior,
+                "/api/games/*/related-analyzed": api_cached_behavior,
                 "/api/*": cloudfront.BehaviorOptions(
-                    origin=origins.FunctionUrlOrigin(api_fn_url),
+                    origin=api_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,

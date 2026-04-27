@@ -50,6 +50,10 @@ _sqs_client = boto3.client("sqs")
 
 VERSION = "0.1.0"
 
+# Edge-cache header for the four SSR-fanout endpoints feeding /games/{appid}/{slug}.
+# CloudFront honors s-maxage; the warmer + per-game push invalidation keep it fresh.
+_GAME_PAGE_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
+
 # ---------------------------------------------------------------------------
 # Repository wiring — built once at module level.
 # DB connection is lazy (established on first query, reconnects if stale).
@@ -144,7 +148,7 @@ async def list_games(
     price_tier: str | None = None,
     deck: str | None = None,
     sort: str = "review_count",
-    limit: int = Query(default=24, ge=1, le=100),
+    limit: int = Query(default=24, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     fields: Literal["compact"] | None = None,
 ) -> dict:
@@ -258,7 +262,7 @@ async def get_games_basics(appids: str) -> JSONResponse:
 
 
 @app.get("/api/games/{appid}/report")
-async def get_game_report(appid: int) -> dict:
+async def get_game_report(appid: int) -> JSONResponse:
     """Return the full report JSON if it exists, or a status object.
     Always includes game metadata (short_desc, developer, etc.) alongside the report.
     """
@@ -330,29 +334,37 @@ async def get_game_report(appid: int) -> dict:
             velocity_data = _review_repo.find_review_velocity(appid)
             ea_data = _review_repo.find_early_access_impact(appid)
             temporal = build_temporal_context(game, velocity_data, ea_data)
-            temporal_dict = temporal.model_dump()
-        return {
+            # mode="json" — JSONResponse bypasses jsonable_encoder, so dates need stringifying.
+            temporal_dict = temporal.model_dump(mode="json")
+        body = {
             "status": "available",
             "report": report,
             "game": game_meta,
             "temporal": temporal_dict,
         }
-
-    return {
-        "status": "not_available",
-        "game": game_meta,
-    }
+    else:
+        body = {
+            "status": "not_available",
+            "game": game_meta,
+        }
+    return JSONResponse(
+        content=body,
+        headers={"Cache-Control": _GAME_PAGE_CACHE_CONTROL},
+    )
 
 
 @app.get("/api/games/{appid}/review-stats")
-async def get_review_stats(appid: int) -> dict:
+async def get_review_stats(appid: int) -> JSONResponse:
     """Weekly sentiment timeline + playtime buckets + velocity for a game."""
     logger.append_keys(appid=appid)
-    return _review_repo.find_review_stats(appid)
+    return JSONResponse(
+        content=_review_repo.find_review_stats(appid),
+        headers={"Cache-Control": _GAME_PAGE_CACHE_CONTROL},
+    )
 
 
 @app.get("/api/games/{appid}/benchmarks")
-async def get_benchmarks(appid: int) -> dict:
+async def get_benchmarks(appid: int) -> JSONResponse:
     """Percentile ranking vs. genre+year+price cohort (Pro context)."""
     logger.append_keys(appid=appid)
     game = _game_repo.find_by_appid(appid)
@@ -364,15 +376,19 @@ async def get_benchmarks(appid: int) -> dict:
     genres = [g["name"] for g in _tag_repo.find_genres_for_game(appid)]
     release_date = game.release_date
     if not genres or not release_date:
-        return {"sentiment_rank": None, "popularity_rank": None, "cohort_size": 0}
-
-    year = int(str(release_date)[:4])
-    return _game_repo.find_benchmarks(
-        appid=appid,
-        genre=genres[0],
-        year=year,
-        price=float(game.price_usd) if game.price_usd else None,
-        is_free=game.is_free or False,
+        body: dict = {"sentiment_rank": None, "popularity_rank": None, "cohort_size": 0}
+    else:
+        year = int(str(release_date)[:4])
+        body = _game_repo.find_benchmarks(
+            appid=appid,
+            genre=genres[0],
+            year=year,
+            price=float(game.price_usd) if game.price_usd else None,
+            is_free=game.is_free or False,
+        )
+    return JSONResponse(
+        content=body,
+        headers={"Cache-Control": _GAME_PAGE_CACHE_CONTROL},
     )
 
 
@@ -457,7 +473,7 @@ async def get_review_velocity(appid: int) -> dict:
 
 
 @app.get("/api/games/{appid}/related-analyzed")
-async def get_related_analyzed(appid: int, limit: int = 6) -> dict:
+async def get_related_analyzed(appid: int, limit: int = 6) -> JSONResponse:
     """Analyzed games most similar to the target by tag overlap.
 
     Falls back to recent public reports when tag overlap yields fewer than 3
@@ -468,19 +484,25 @@ async def get_related_analyzed(appid: int, limit: int = 6) -> dict:
     """
     logger.append_keys(appid=appid)
     rows = _report_repo.find_related_analyzed(appid, limit=max(1, min(limit, 12)))
-    return {
+    body = {
         "games": [
             {
                 "appid": int(row["appid"]),
                 "slug": row["slug"],
                 "name": row["name"],
                 "header_image": row.get("header_image") or "",
-                "positive_pct": int(row["positive_pct"]) if row.get("positive_pct") is not None else None,
+                "positive_pct": int(row["positive_pct"])
+                if row.get("positive_pct") is not None
+                else None,
                 "one_liner": row.get("one_liner") or "",
             }
             for row in rows
         ],
     }
+    return JSONResponse(
+        content=body,
+        headers={"Cache-Control": _GAME_PAGE_CACHE_CONTROL},
+    )
 
 
 @app.get("/api/games/{appid}/top-reviews")
@@ -759,7 +781,11 @@ async def new_releases_released(
     # `window` is the service's Literal — FastAPI validates against the allowed
     # values and emits a 422 for anything else, so no manual membership check.
     data = _new_releases_service.get_released(
-        window, page, page_size, genre=genre, tag=tag,
+        window,
+        page,
+        page_size,
+        genre=genre,
+        tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
 
@@ -784,16 +810,18 @@ async def new_releases_added(
     tag: str | None = None,
 ) -> JSONResponse:
     data = _new_releases_service.get_added(
-        window, page, page_size, genre=genre, tag=tag,
+        window,
+        page,
+        page_size,
+        genre=genre,
+        tag=tag,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _NEW_RELEASES_CACHE})
 
 
 _DISCOVERY_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
 
-DiscoveryFeedKind = Literal[
-    "popular", "top_rated", "hidden_gem", "new_release", "just_analyzed"
-]
+DiscoveryFeedKind = Literal["popular", "top_rated", "hidden_gem", "new_release", "just_analyzed"]
 
 
 @app.get("/api/discovery/{kind}")
@@ -924,7 +952,11 @@ async def catalog_reports(
     tag: str | None = None,
 ) -> JSONResponse:
     data = _catalog_report_service.get_available_reports(
-        genre=genre, tag=tag, sort=sort, page=page, page_size=page_size,
+        genre=genre,
+        tag=tag,
+        sort=sort,
+        page=page,
+        page_size=page_size,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _REPORTS_CACHE})
 
@@ -936,7 +968,9 @@ async def catalog_coming_soon(
     page_size: int = Query(default=24, ge=1, le=100),
 ) -> JSONResponse:
     data = _catalog_report_service.get_coming_soon(
-        sort=sort, page=page, page_size=page_size,
+        sort=sort,
+        page=page,
+        page_size=page_size,
     )
     return JSONResponse(content=data, headers={"Cache-Control": _REPORTS_CACHE})
 
@@ -945,7 +979,8 @@ async def catalog_coming_soon(
 async def request_analysis(body: AnalysisRequestBody) -> dict:
     normalized_email = body.email.strip().lower()
     return _catalog_report_service.request_analysis(
-        appid=body.appid, email=normalized_email,
+        appid=body.appid,
+        email=normalized_email,
     )
 
 

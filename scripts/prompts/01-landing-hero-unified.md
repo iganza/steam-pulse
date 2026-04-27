@@ -180,7 +180,12 @@ Out of scope here.
    Cyberpunk (verifiable: HTML contains those names + `header_image`
    URLs from `cdn.akamai.steamstatic.com`).
 2. `GameShowcase` and `IntelligenceCards` JSX no longer present in the
-   rendered HTML (no "Game Intelligence in Action" string).
+   rendered HTML — no standalone tabbed showcase (`role="tablist"` named
+   "Showcase games") and no "What You Get" heading. The new strip header
+   inside `FeaturedReport` ("Game intelligence in action", sentence case)
+   is *kept* — it carries the breadth-signal copy that the old standalone
+   `GameShowcase` section header ("Game Intelligence in Action",
+   title case) used to carry.
 3. Homepage SSR's `Promise.allSettled` array has ≤10 entries.
 4. `/api/games/basics?appids=...` response includes
    `positive_pct` (number-or-null) and `review_count` (number-or-null)

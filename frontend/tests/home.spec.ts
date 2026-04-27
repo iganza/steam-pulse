@@ -27,8 +27,17 @@ test.describe('Home page', () => {
     await expect(page.getByText(/games tracked/i)).toBeVisible()
   })
 
-  test('intelligence cards section is visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /what you get/i })).toBeVisible()
+  test('featured report card is visible with synthesis CTA', async ({ page }) => {
+    await expect(page.getByText(/featured report · new/i)).toBeVisible()
+    await expect(page.getByRole('link', { name: /read the free synthesis/i })).toBeVisible()
+  })
+
+  test('featured report game strip links to the SEO-anchor games', async ({ page }) => {
+    // Mock-api-server seeds BG3 / Stardew / Cyberpunk for /api/games/basics;
+    // each renders as a Link to /games/{appid}/{slug}.
+    await expect(page.getByRole('link', { name: /baldur'?s gate 3/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /stardew valley/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /cyberpunk 2077/i })).toBeVisible()
   })
 
   test('for developers section is visible', async ({ page }) => {
@@ -37,18 +46,6 @@ test.describe('Home page', () => {
 
   test('footer CTA is visible', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /free to explore/i })).toBeVisible()
-  })
-
-  test('showcase tabs switch content', async ({ page }) => {
-    const tablist = page.getByRole('tablist', { name: /showcase/i })
-    await expect(tablist).toBeVisible()
-    const tabs = tablist.getByRole('tab')
-    const count = await tabs.count()
-    expect(count).toBeGreaterThanOrEqual(2)
-    // Click second tab and verify it becomes selected
-    await tabs.nth(1).click()
-    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
-    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'false')
   })
 
   test('navbar Browse dropdown opens and shows genres', async ({ page, isMobile }) => {

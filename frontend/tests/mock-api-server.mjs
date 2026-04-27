@@ -342,6 +342,10 @@ const BENCHMARK_GAME_BASICS = {
   646570: { slug: 'slay-the-spire', name: 'Slay the Spire', positive_pct: 96, review_count: 90000 },
   2379780: { slug: 'balatro', name: 'Balatro', positive_pct: 97, review_count: 75000 },
   1196590: { slug: 'monster-train', name: 'Monster Train', positive_pct: 92, review_count: 22000 },
+  // Homepage hero strip — SEO-anchor showcase games (BG3 / Stardew / Cyberpunk).
+  1086940: { slug: 'baldurs-gate-3-1086940', name: "Baldur's Gate 3", positive_pct: 95, review_count: 460000 },
+  413150: { slug: 'stardew-valley-413150', name: 'Stardew Valley', positive_pct: 98, review_count: 740000 },
+  1091500: { slug: 'cyberpunk-2077-1091500', name: 'Cyberpunk 2077', positive_pct: 84, review_count: 680000 },
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────

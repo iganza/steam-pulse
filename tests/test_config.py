@@ -24,6 +24,7 @@ _ALL_REQUIRED = {
     "LLM_MODEL__CHUNKING": "anthropic.claude-haiku-test-v1:0",
     "LLM_MODEL__SUMMARIZER": "anthropic.claude-sonnet-test-v1:0",
     "LLM_MODEL__GENRE_SYNTHESIS": "anthropic.claude-sonnet-test-v1:0",
+    "REFRESH_REVIEWS_ENABLED": True,
 }
 
 
@@ -109,6 +110,16 @@ def test_refresh_reviews_min_delta_zero_rejected() -> None:
     with pytest.raises(ValidationError) as exc:
         SteamPulseConfig(**_ALL_REQUIRED, REFRESH_REVIEWS_MIN_DELTA=0)
     assert "REFRESH_REVIEWS_MIN_DELTA" in str(exc.value)
+
+
+def test_refresh_reviews_enabled_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REFRESH_REVIEWS_ENABLED has no default — every env file must wire it explicitly."""
+    monkeypatch.delenv("REFRESH_REVIEWS_ENABLED", raising=False)
+    with pytest.raises(ValidationError) as exc:
+        SteamPulseConfig(
+            **{k: v for k, v in _ALL_REQUIRED.items() if k != "REFRESH_REVIEWS_ENABLED"}
+        )
+    assert "REFRESH_REVIEWS_ENABLED" in str(exc.value)
 
 
 def test_model_for_returns_configured_model_for_genre_synthesis() -> None:

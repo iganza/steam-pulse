@@ -60,6 +60,7 @@ def template() -> assertions.Template:
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
         EMAIL_QUEUE_PARAM_NAME="/steampulse/test/messaging/email-queue-url",
         SPOKE_CRAWL_QUEUE_URLS="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-production",
+        REFRESH_REVIEWS_ENABLED=True,
     )
     compute = ComputeStack(
         app,

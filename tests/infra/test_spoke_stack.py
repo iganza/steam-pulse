@@ -30,6 +30,7 @@ _TEST_CONFIG = SteamPulseConfig(
     CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
     SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
     SPOKE_CRAWL_QUEUE_URLS="https://sqs.us-east-1.amazonaws.com/123456789012/steampulse-spoke-crawl-us-east-1-staging",
+    REFRESH_REVIEWS_ENABLED=False,
 )
 
 

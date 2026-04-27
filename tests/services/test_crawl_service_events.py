@@ -108,6 +108,7 @@ def _test_config(**overrides: Any) -> SteamPulseConfig:
         "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
         "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
         "REVIEW_ELIGIBILITY_THRESHOLD": 500,
+        "REFRESH_REVIEWS_ENABLED": False,
     }
     defaults.update(overrides)
     # Keep tier-B threshold in lock-step with REVIEW_ELIGIBILITY_THRESHOLD

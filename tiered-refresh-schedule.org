@@ -7,14 +7,22 @@ Hourly dispatcher that smears work across each tier's refresh window via
 
 * Tiers (first match wins)
 
-| Tier | Membership                                                 | Meta    | Reviews |
-|------+------------------------------------------------------------+---------+---------|
-| S    | review_count ≥ 10,000                                      | 2 days  | 1 day   |
-| A    | coming_soon OR EA genre OR review_count ≥ 1,000            | 7 days  | 3 days  |
-| B    | review_count ≥ 50                                          | 21 days | 14 days |
-| C    | everything else                                            | 90 days | —       |
+| Tier | Membership                                                 | Meta    | Reviews* |
+|------+------------------------------------------------------------+---------+----------|
+| S    | review_count ≥ 10,000                                      | 2 days  | 1 day    |
+| A    | coming_soon OR EA genre OR review_count ≥ 1,000            | 7 days  | 3 days   |
+| B    | review_count ≥ 50                                          | 21 days | 14 days  |
+| C    | everything else                                            | 90 days | —        |
 
 Reviews additionally exclude =coming_soon= (no reviews to refresh yet).
+
+\* Review tier intervals govern only the operator-triggered drain
+(=sp.py refresh-reviews= → =enqueue_refresh_reviews(limit=)=). The
+steady-state review pipeline dispatches *inline from meta ingest* via
+=CrawlService._maybe_dispatch_review_crawl=, gated on the same delta logic
+as =find_due_reviews()= and on the =REFRESH_REVIEWS_ENABLED= kill-switch.
+So in practice, steady-state review refetch cadence = meta cadence (S=2d /
+A=7d / B=21d) when the delta gate trips.
 
 * Catalog populations (measured pre-ship)
 
@@ -63,13 +71,19 @@ between metadata and reviews. Every message fans out to the spoke pipeline
 
 * Hourly dispatch (what it looks like all week)
 
-Two EventBridge rules fire every hour, independently:
+One EventBridge rule fires every hour:
 
-- =RefreshMetaRule=    → crawler Lambda → =enqueue_refresh_meta(limit=600)=
-- =RefreshReviewsRule= → crawler Lambda → =enqueue_refresh_reviews(limit=500)=
+- =RefreshMetaRule= → crawler Lambda → =enqueue_refresh_meta(limit=600)=
 
-The dispatcher sorts due candidates by tier_rank (S=0 → C=3), so S always wins
-when batch headroom is tight. Within a tier, oldest-due-first.
+The meta dispatcher sorts due candidates by tier_rank (S=0 → C=3), so S
+always wins when batch headroom is tight. Within a tier, oldest-due-first.
+
+Review dispatch is *not* on a cron — it fires inline from meta ingest
+(=CrawlService._maybe_dispatch_review_crawl=) whenever the just-ingested
+row's cumulative review delta crosses =REFRESH_REVIEWS_MIN_DELTA= (or it's
+a first fetch / 30-day staleness). The legacy =RefreshReviewsRule= cron
+and =ReviewCrawlSub= SNS bridge have both been removed; review-crawl-queue
+is now fed only by inline Python dispatch and operator drains.
 
 #+begin_src text
 Hour:   00  01  02  03  04  05  06  07  08  09  10  11  12  13  14  15  16  17  18  19  20  21  22  23
@@ -83,11 +97,17 @@ batch. Hour-by-hour shape = flat, day-by-day shape = flat.
 
 * What to watch
 
-The dispatcher logs one line per hour per kind:
+The meta dispatcher logs one line per hour:
 
 #+begin_src text
 refresh_meta enqueued    enqueued=486 limit=600 oldest_due_age_hours=3.2 dispatched_by_tier={S:11, A:357, B:87, C:31, unknown:0}
-refresh_reviews enqueued enqueued=402 limit=500 oldest_due_age_hours=8.1 dispatched_by_tier={S:79, A:239, B:84, C:0,  unknown:0}
+#+end_src
+
+Inline review dispatch logs one line per dispatched appid (subset of meta
+ingests — only those that pass the delta gate):
+
+#+begin_src text
+inline_review_dispatch enqueued    appid=440
 #+end_src
 
 - =enqueued= near =limit= for multiple hours → demand outgrowing capacity.

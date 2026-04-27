@@ -143,11 +143,20 @@ class GameRepository(BaseRepository):
 
     def find_event_snapshot(self, appid: int) -> dict | None:
         """Minimal pre-upsert snapshot for event detection (coming_soon flip, price change,
-        review milestone crossings). Avoids the wide TOAST-heavy row that find_by_appid
-        returns, which is the right read for API handlers but wasteful on hot refresh paths.
+        review milestone crossings) plus inline review-crawl dispatch gating. Avoids the
+        wide TOAST-heavy row that find_by_appid returns, which is the right read for API
+        handlers but wasteful on hot refresh paths.
+
+        Includes app_catalog.review_crawled_at and review_count_at_last_fetch via LEFT
+        JOIN so _maybe_dispatch_review_crawl can mirror find_due_reviews()'s WHERE clause
+        in Python without a second roundtrip. The LEFT JOIN preserves snapshot semantics
+        for games that lack an app_catalog row — both columns simply come back as None.
         """
         row = self._fetchone(
-            "SELECT coming_soon, price_usd, review_count FROM games WHERE appid = %s",
+            "SELECT g.coming_soon, g.price_usd, g.review_count, g.review_count_english, "
+            "       c.review_crawled_at, c.review_count_at_last_fetch "
+            "FROM games g LEFT JOIN app_catalog c USING (appid) "
+            "WHERE g.appid = %s",
             (appid,),
         )
         return dict(row) if row else None
@@ -458,11 +467,7 @@ class GameRepository(BaseRepository):
             conditions.append("g.name ILIKE %s")
             params.append(f"%{search_term}%")
             # Boost exact and prefix matches so "Minato" ranks above "Terminator"
-            order = (
-                f"(LOWER(g.name) = LOWER(%s))::int DESC, "
-                f"(g.name ILIKE %s)::int DESC, "
-                f"{order}"
-            )
+            order = f"(LOWER(g.name) = LOWER(%s))::int DESC, (g.name ILIKE %s)::int DESC, {order}"
             params.append(search_term)
             params.append(f"{search_term}%")
 
@@ -530,9 +535,7 @@ class GameRepository(BaseRepository):
             result.append(d)
         return {"total": None, "games": result}
 
-    def find_basics_by_appids(
-        self, appids: list[int]
-    ) -> list[dict[str, object]]:
+    def find_basics_by_appids(self, appids: list[int]) -> list[dict[str, object]]:
         """Return [{appid, name, slug, header_image, positive_pct, review_count}, ...]
         for the given appids.
 
@@ -562,9 +565,7 @@ class GameRepository(BaseRepository):
         by_appid = {int(r["appid"]): dict(r) for r in rows}
         return [by_appid[a] for a in appids if a in by_appid]
 
-    def find_review_stats_for_appids(
-        self, appids: list[int]
-    ) -> list[dict[str, object]]:
+    def find_review_stats_for_appids(self, appids: list[int]) -> list[dict[str, object]]:
         """Return [{appid, positive_pct, review_count}, ...] for the given appids.
 
         Used by the Phase-4 synthesizer to compute aggregate descriptors

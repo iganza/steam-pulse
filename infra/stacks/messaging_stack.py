@@ -11,7 +11,6 @@ because they hold a CDK reference to the Lambda function.
 import aws_cdk as cdk
 import aws_cdk.aws_events as events
 import aws_cdk.aws_events_targets as events_targets
-import aws_cdk.aws_iam as iam
 import aws_cdk.aws_sns as sns
 import aws_cdk.aws_sns_subscriptions as subs
 import aws_cdk.aws_sqs as sqs
@@ -205,27 +204,7 @@ class MessagingStack(cdk.Stack):
             )
         )
 
-        # review-crawl-queue ← game-events
-        # Single subscription with $or filter: game-metadata-ready (only when
-        # eligible) OR game-released/game-updated (always eligible).
-        # SNS does not allow two subscriptions with the same {Topic, Protocol,
-        # Endpoint} but different filter policies, so we use CfnSubscription
-        # with a raw $or filter policy.
-        review_crawl_sub = sns.CfnSubscription(
-            self,
-            "ReviewCrawlSub",
-            protocol="sqs",
-            topic_arn=self.game_events_topic.topic_arn,
-            endpoint=self.review_crawl_queue.queue_arn,
-            filter_policy={
-                "$or": [
-                    {"event_type": ["game-metadata-ready"], "is_eligible": ["true"]},
-                    {"event_type": ["game-released", "game-updated"]},
-                ],
-            },
-        )
-        # CfnSubscription doesn't auto-grant — allow SNS to deliver to the queue.
-        self.review_crawl_queue.grant_send_messages(iam.ServicePrincipal("sns.amazonaws.com"))
+        # review-crawl-queue is fed by inline Python dispatch from CrawlService and operator drains; no SNS bridge.
 
         # batch-staging-queue ← content-events (reviews-ready only)
         self.content_events_topic.add_subscription(

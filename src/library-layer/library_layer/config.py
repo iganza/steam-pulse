@@ -168,6 +168,12 @@ class SteamPulseConfig(BaseSettings):
     # adds a minimum-change requirement to skip near-no-op refetches.
     REFRESH_REVIEWS_MIN_DELTA: int = 1000
 
+    # Inline review-crawl dispatch from meta ingest. Operator kill-switch — when
+    # False, _maybe_dispatch_review_crawl returns early and no review fetches enqueue
+    # from the steady-state pipeline. Operator path (sp.py refresh-reviews →
+    # CatalogService.enqueue_refresh_reviews) is intentionally NOT gated.
+    REFRESH_REVIEWS_ENABLED: bool
+
     @model_validator(mode="after")
     def _validate_refresh_tier_config(self) -> Self:
         """Guard against env overrides that would break the dispatcher SQL.

@@ -1086,24 +1086,7 @@ class ComputeStack(cdk.Stack):
             )
         )
 
-        refresh_reviews_rule = events.Rule(
-            self,
-            "RefreshReviewsRule",
-            schedule=events.Schedule.cron(minute="30", hour="*"),
-            description="Hourly tiered review refresh dispatcher (:30)",
-            enabled=config.is_production,
-        )
-        refresh_reviews_rule.add_target(
-            events_targets.LambdaFunction(
-                crawler_fn,
-                event=events.RuleTargetInput.from_object(
-                    {
-                        "action": "refresh_reviews",
-                        "limit": config.REFRESH_REVIEWS_BATCH_LIMIT,
-                    }
-                ),
-            )
-        )
+        # Review refresh dispatches inline from meta ingest; refresh_reviews action handler stays for the operator path.
 
         # Override logical ID to match the pipeline-era stack.
         # Staging only — production was never deployed via CDK Pipelines.

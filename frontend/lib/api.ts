@@ -410,9 +410,16 @@ export async function getRelatedAnalyzedGames(
 // Cross-genre synthesis + paid-report surface (genre insights page)
 // ---------------------------------------------------------------------------
 
-/** Lightweight crosslink basics for a batch of appids. Backed by
- * /api/games/basics — the genre synthesis page uses this instead of N
- * per-appid /report fetches when it only needs slug/name/header_image.
+/** Lightweight basics for a batch of appids. Backed by /api/games/basics —
+ * a single DB round-trip that returns slug/name/header_image plus
+ * Steam-sourced sentiment (positive_pct, review_count) for each appid,
+ * avoiding N per-appid /report fetches. Consumers:
+ *   - genre synthesis page: crosslinks (slug/name/header_image) for
+ *     friction/wishlist quote source-game links and benchmark cards.
+ *   - homepage `FeaturedReport` strip: sentiment chip rendering for the
+ *     SEO-anchor showcase games.
+ * Both fields may be null when the Steam crawl hasn't populated review
+ * stats yet — render-time consumers should handle that.
  */
 export interface GameBasicsEntry {
   appid: number;

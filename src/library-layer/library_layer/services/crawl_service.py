@@ -3,7 +3,7 @@
 import gzip
 import json
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from aws_lambda_powertools import Logger
@@ -12,6 +12,7 @@ from library_layer.events import (
     GameMetadataReadyEvent,
     GamePriceChangedEvent,
     GameReleasedEvent,
+    ReviewCrawlMessage,
     ReviewMilestoneEvent,
     ReviewsReadyEvent,
 )
@@ -22,6 +23,7 @@ from library_layer.repositories.tag_repo import TagRepository
 from library_layer.steam_source import DirectSteamSource, SteamAPIError
 from library_layer.utils.events import EventPublishError, publish_event
 from library_layer.utils.slugify import slugify
+from library_layer.utils.sqs import send_sqs_batch
 from library_layer.utils.time import unix_to_datetime
 
 logger = Logger()
@@ -170,6 +172,7 @@ class CrawlService:
 
         # ── Publish domain events (only in direct crawl path) ─────────────
         self._publish_crawl_app_events(appid, game_data, existing)
+        self._maybe_dispatch_review_crawl(appid, existing, game_data)
 
         return True
 
@@ -267,6 +270,7 @@ class CrawlService:
             return False
 
         self._publish_crawl_app_events(appid, game_data, existing)
+        self._maybe_dispatch_review_crawl(appid, existing, game_data)
 
         return True
 
@@ -496,11 +500,7 @@ class CrawlService:
             )
 
             # Detect game release: coming_soon flipped True → False
-            if (
-                existing
-                and existing["coming_soon"]
-                and not game_data.get("coming_soon", True)
-            ):
+            if existing and existing["coming_soon"] and not game_data.get("coming_soon", True):
                 publish_event(
                     self._sns,
                     topic_arn,
@@ -542,6 +542,43 @@ class CrawlService:
                     )
         except EventPublishError:
             logger.warning("Failed to publish crawl_app events", extra={"appid": appid})
+
+    def _maybe_dispatch_review_crawl(
+        self,
+        appid: int,
+        existing: dict | None,
+        game_data: dict,
+    ) -> None:
+        """Inline review-crawl dispatch from meta ingest, gated on the same delta logic
+        as find_due_reviews(). Replaces the SNS routing of GameMetadataReadyEvent /
+        GameReleasedEvent / GameUpdatedEvent → review_crawl_queue.
+        """
+        if not self._config.REFRESH_REVIEWS_ENABLED:
+            return
+
+        new_rce = int(game_data.get("review_count_english") or 0)
+        if new_rce < self._config.REFRESH_TIER_B_REVIEW_COUNT:
+            return
+        if game_data.get("coming_soon"):
+            return
+
+        review_crawled_at = existing.get("review_crawled_at") if existing else None
+        if review_crawled_at is None:
+            self._dispatch_review_crawl(appid)
+            return
+
+        last_fetch_rce = int((existing.get("review_count_at_last_fetch") if existing else 0) or 0)
+        delta = new_rce - last_fetch_rce
+        delta_met = delta >= self._config.REFRESH_REVIEWS_MIN_DELTA
+        is_stale = (datetime.now(tz=UTC) - review_crawled_at).days >= 30
+
+        if delta_met or is_stale:
+            self._dispatch_review_crawl(appid)
+
+    def _dispatch_review_crawl(self, appid: int) -> None:
+        msg = ReviewCrawlMessage(appid=appid, source="refresh").model_dump()
+        send_sqs_batch(self._sqs, self._review_queue_url, [msg])
+        logger.info("inline_review_dispatch enqueued", extra={"appid": appid})
 
     def _trigger_analysis(self, appid: int, game_name: str) -> str | None:
         """Start Step Functions execution. Returns execution ARN or None if SFN not configured."""

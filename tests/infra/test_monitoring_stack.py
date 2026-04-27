@@ -31,6 +31,7 @@ _TEST_CONFIG = SteamPulseConfig(
     SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
     EMAIL_QUEUE_PARAM_NAME="/steampulse/test/messaging/email-queue-url",
     SPOKE_REGIONS="us-west-2,us-east-1",
+    REFRESH_REVIEWS_ENABLED=False,
 )
 
 

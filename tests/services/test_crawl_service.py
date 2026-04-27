@@ -5,7 +5,6 @@ import re
 from unittest.mock import MagicMock
 
 import pytest
-
 from library_layer.config import SteamPulseConfig
 from library_layer.repositories.catalog_repo import CatalogRepository
 from library_layer.repositories.game_repo import GameRepository
@@ -94,6 +93,7 @@ _REQUIRED_FIELDS: dict = {
     "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
+    "REFRESH_REVIEWS_ENABLED": False,
 }
 
 
@@ -722,3 +722,225 @@ def test_crawl_reviews_archives_to_s3(
     data = json.loads(decompressed)
     assert isinstance(data, list)
     assert len(data) == 4
+
+
+# ── _maybe_dispatch_review_crawl: inline review-crawl gate (mirrors find_due_reviews) ──
+
+
+def _make_service_for_dispatch(
+    *,
+    refresh_reviews_enabled: bool,
+    sqs_client: object,
+    review_queue_url: str,
+) -> CrawlService:
+    """Build a minimal CrawlService for unit-testing _maybe_dispatch_review_crawl directly."""
+    cfg = SteamPulseConfig(
+        **{**_REQUIRED_FIELDS, "REFRESH_REVIEWS_ENABLED": refresh_reviews_enabled}
+    )
+    return CrawlService(
+        game_repo=MagicMock(),
+        review_repo=MagicMock(),
+        catalog_repo=MagicMock(),
+        tag_repo=MagicMock(),
+        steam=MagicMock(),
+        sqs_client=sqs_client,
+        review_queue_url=review_queue_url,
+        sns_client=_mock_sns(),
+        config=cfg,
+        sfn_arn=None,
+        sfn_client=None,
+        s3_client=None,
+        archive_bucket=None,
+        game_events_topic_arn="arn:aws:sns:us-east-1:123456789012:game-events",
+        content_events_topic_arn="arn:aws:sns:us-east-1:123456789012:content-events",
+    )
+
+
+def _read_queue_messages(sqs_client: object, queue_url: str) -> list[dict]:
+    """Drain whatever messages are currently in the queue (max 10) and return parsed bodies."""
+    resp = sqs_client.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10, WaitTimeSeconds=0)
+    return [json.loads(m["Body"]) for m in resp.get("Messages", [])]
+
+
+def test_maybe_dispatch_kill_switch_off_never_dispatches() -> None:
+    """REFRESH_REVIEWS_ENABLED=False short-circuits before any gate check."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-killswitch")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=False, sqs_client=sqs, review_queue_url=queue_url
+        )
+        # Conditions that would otherwise dispatch (first-fetch eligible game)
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing=None,
+            game_data={"review_count_english": 10_000, "coming_soon": False},
+        )
+        assert _read_queue_messages(sqs, queue_url) == []
+
+
+def test_maybe_dispatch_below_tier_b_threshold_no_dispatch() -> None:
+    """Below the tier-B (=eligibility) threshold means tier C — never refresh reviews."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-below-b")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        # Threshold defaults to 50 (REVIEW_ELIGIBILITY_THRESHOLD).
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing=None,
+            game_data={"review_count_english": 49, "coming_soon": False},
+        )
+        assert _read_queue_messages(sqs, queue_url) == []
+
+
+def test_maybe_dispatch_coming_soon_no_dispatch() -> None:
+    """Pre-launch games have no reviews to refresh."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-coming-soon")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing=None,
+            game_data={"review_count_english": 10_000, "coming_soon": True},
+        )
+        assert _read_queue_messages(sqs, queue_url) == []
+
+
+def test_maybe_dispatch_first_fetch_dispatches_when_existing_is_none() -> None:
+    """Brand-new game (no prior row) is a first fetch — dispatch."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-first-none")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing=None,
+            game_data={"review_count_english": 200, "coming_soon": False},
+        )
+        msgs = _read_queue_messages(sqs, queue_url)
+        assert len(msgs) == 1
+        assert msgs[0]["appid"] == 440
+        assert msgs[0]["source"] == "refresh"
+
+
+def test_maybe_dispatch_first_fetch_dispatches_when_review_crawled_at_is_none() -> None:
+    """Existing game with no app_catalog row (LEFT JOIN nulls) is also a first fetch."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-first-null-rca")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing={
+                "coming_soon": False,
+                "review_count_english": 200,
+                "review_crawled_at": None,
+                "review_count_at_last_fetch": None,
+            },
+            game_data={"review_count_english": 200, "coming_soon": False},
+        )
+        msgs = _read_queue_messages(sqs, queue_url)
+        assert len(msgs) == 1
+        assert msgs[0]["appid"] == 440
+
+
+def test_maybe_dispatch_delta_below_min_and_not_stale_no_dispatch() -> None:
+    """Cumulative delta below MIN_DELTA on a recently-fetched game is a no-op."""
+    from datetime import UTC, datetime, timedelta
+
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-delta-low")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        # MIN_DELTA defaults to 1000; delta = 5000 - 4500 = 500 < 1000.
+        # Last fetch 5 days ago — not stale (< 30d).
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing={
+                "coming_soon": False,
+                "review_count_english": 4500,
+                "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=5),
+                "review_count_at_last_fetch": 4500,
+            },
+            game_data={"review_count_english": 5000, "coming_soon": False},
+        )
+        assert _read_queue_messages(sqs, queue_url) == []
+
+
+def test_maybe_dispatch_delta_meets_min_dispatches() -> None:
+    """Cumulative delta crossing MIN_DELTA dispatches even on a recently-fetched game."""
+    from datetime import UTC, datetime, timedelta
+
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-delta-met")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        # delta = 6000 - 4500 = 1500 ≥ 1000 default MIN_DELTA.
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing={
+                "coming_soon": False,
+                "review_count_english": 4500,
+                "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=2),
+                "review_count_at_last_fetch": 4500,
+            },
+            game_data={"review_count_english": 6000, "coming_soon": False},
+        )
+        msgs = _read_queue_messages(sqs, queue_url)
+        assert len(msgs) == 1
+        assert msgs[0]["appid"] == 440
+
+
+def test_maybe_dispatch_stale_dispatches_even_below_min_delta() -> None:
+    """30-day staleness floor fires even when delta is small — safety net for slow growers."""
+    from datetime import UTC, datetime, timedelta
+
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-stale")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing={
+                "coming_soon": False,
+                "review_count_english": 800,
+                "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=31),
+                "review_count_at_last_fetch": 800,
+            },
+            game_data={"review_count_english": 805, "coming_soon": False},
+        )
+        msgs = _read_queue_messages(sqs, queue_url)
+        assert len(msgs) == 1
+        assert msgs[0]["appid"] == 440

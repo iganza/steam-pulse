@@ -36,6 +36,7 @@ _REQUIRED_FIELDS: dict = {
     "GAME_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/game-events-topic-arn",
     "CONTENT_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/content-events-topic-arn",
     "SYSTEM_EVENTS_TOPIC_PARAM_NAME": "/steampulse/test/messaging/system-events-topic-arn",
+    "REFRESH_REVIEWS_ENABLED": True,
 }
 
 
@@ -252,9 +253,7 @@ def test_enqueue_refresh_reviews_tags_source_refresh(
     catalog_repo.conn.commit()
 
     with httpx.Client() as http_client:
-        svc = _make_service(
-            catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q
-        )
+        svc = _make_service(catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q)
         count = svc.enqueue_refresh_reviews(limit=10)
 
     assert count == 2
@@ -289,9 +288,7 @@ def test_enqueue_refresh_reviews_skips_coming_soon(
     catalog_repo.conn.commit()
 
     with httpx.Client() as http_client:
-        svc = _make_service(
-            catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q
-        )
+        svc = _make_service(catalog_repo, sqs, app_q, http_client, review_queue_url=rev_q)
         count = svc.enqueue_refresh_reviews(limit=10)
 
     assert count == 0

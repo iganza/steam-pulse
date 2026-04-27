@@ -195,11 +195,17 @@ All DLQs: max_receive_count=3, retention=14 days.
 | Topic              | Published by  | Subscriptions (filter)                                                          |
 |--------------------+---------------+---------------------------------------------------------------------------------|
 | GameEventsTopic    | CrawlerFn     | MetadataEnrichmentQ: event_type=["game-discovered"]                             |
-|                    |               | ReviewCrawlQ: event_type=["game-metadata-ready"] AND is_eligible=["true"]       |
-|                    |               | ReviewCrawlQ: event_type=["game-released","game-updated"]                       |
 | ContentEventsTopic | SpokeIngestFn | BatchStagingQ: event_type=["reviews-ready"]                                     |
 |                    |               | CacheInvalidationQ: event_type=["report-ready"]                                 |
 | SystemEventsTopic  | CrawlerFn     | (reserved — no active subscriptions)                                            |
+
+ReviewCrawlQ is fed by inline Python dispatch from
+=CrawlService._maybe_dispatch_review_crawl= (called after every meta ingest)
+and by operator drains via =sp.py refresh-reviews=. The previous SNS bridge
+on =game-metadata-ready=/=game-released=/=game-updated= was removed: it was
+ungated and fired aggressively at meta-ingest cadence for every eligible
+game. Inline dispatch applies the same delta gate as =find_due_reviews()=
+and is gated on the =REFRESH_REVIEWS_ENABLED= kill-switch.
 
 ** S3 Buckets
 
@@ -392,8 +398,12 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 
 *Steps:*
 
-1. =GameEventsTopic= emits =game-metadata-ready= (=is_eligible=true=) → SNS filter
-   routes to =ReviewCrawlQ=. Fresh-start message body: ={appid}= only.
+1. After every meta ingest, =CrawlService._maybe_dispatch_review_crawl= evaluates
+   the same delta gate as =find_due_reviews()= on the just-ingested row. When
+   the gate trips (first fetch, cumulative delta ≥ =REFRESH_REVIEWS_MIN_DELTA=,
+   or 30-day staleness — and =REFRESH_REVIEWS_ENABLED=true=), it sends a
+   =ReviewCrawlMessage{appid, source:"refresh"}= directly to =ReviewCrawlQ=.
+   Operator-triggered drains (=sp.py refresh-reviews=) also write to this queue.
 2. =CrawlerFn= receives SQS record. Unwraps SNS envelope if present.
    Reads =cursor=, =target=, =started_at= from message body (no DB reads):
    - =cursor=: missing/null/"" → normalize to ="*"= (fresh start)
@@ -425,14 +435,14 @@ Invariant: All English reviews up to the configured cap (REVIEW_LIMIT) are
 11. S3 object deleted after all DB/SQS work succeeds (safe to retry on failure — object still present).
 
 #+BEGIN_SRC
-  GameEventsTopic    ReviewCrawlQ       CrawlerFn        SpokeCrawlQ       SpokeCrawlerFn     Steam API     AssetsBucket
-      │                  │            handler.py         (per-region)      spoke_handler.py        │              │
-      │ game-metadata-   │                │                  │                  │                  │              │
-      │ ready {appid}    │                │                  │                  │                  │              │
-      │ is_eligible=true │                │                  │                  │                  │              │
+  CrawlService       ReviewCrawlQ       CrawlerFn        SpokeCrawlQ       SpokeCrawlerFn     Steam API     AssetsBucket
+  (after meta ingest)│            handler.py         (per-region)      spoke_handler.py        │              │
+      │                  │                │                  │                  │                  │              │
+      │ inline dispatch  │                │                  │                  │                  │              │
+      │ {appid, refresh} │                │                  │                  │                  │              │
       │─────────────────>│                │                  │                  │                  │              │
-      │ (SNS filter)     │ SQS receive    │                  │                  │                  │              │
-      │                  │ (b=10)         │                  │                  │                  │              │
+      │ (delta gate +    │ SQS receive    │                  │                  │                  │              │
+      │  kill-switch)    │ (b=10)         │                  │                  │                  │              │
       │                  │───────────────>│                  │                  │                  │              │
       │                  │                │ normalize:       │                  │                  │              │
       │                  │                │ cursor = *       │                  │                  │              │

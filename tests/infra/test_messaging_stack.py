@@ -33,6 +33,7 @@ def _synth_messaging_stack() -> assertions.Template:
         GAME_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/game-events-topic-arn",
         CONTENT_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/content-events-topic-arn",
         SYSTEM_EVENTS_TOPIC_PARAM_NAME="/steampulse/test/messaging/system-events-topic-arn",
+        REFRESH_REVIEWS_ENABLED=False,
     )
     stack = MessagingStack(app, "TestMessaging", config=config)
     return assertions.Template.from_stack(stack)
@@ -53,12 +54,11 @@ def test_messaging_stack_creates_3_topics() -> None:
 def test_messaging_stack_creates_subscriptions_with_filters() -> None:
     """SNS subscriptions use event_type filter policies (test 45)."""
     template = _synth_messaging_stack()
-    # 4 subscriptions: metadata-enrichment, review-crawl ($or CfnSubscription),
-    # batch-staging, frontend-revalidation (report-ready).
-    # cache-invalidation subscription removed — matview refresh auto-schedule
-    # disabled; operator drives REFRESH from local cron.
+    # 3 subscriptions: metadata-enrichment, batch-staging, frontend-revalidation (report-ready).
+    # review-crawl SNS bridge removed — review_crawl_queue is fed by inline Python dispatch.
+    # cache-invalidation removed — matview refresh runs from local cron.
     subs = template.find_resources("AWS::SNS::Subscription")
-    assert len(subs) == 4, f"Expected 4 subscriptions, got {len(subs)}"
+    assert len(subs) == 3, f"Expected 3 subscriptions, got {len(subs)}"
 
     # Every subscription must have a FilterPolicy
     for logical_id, resource in subs.items():
@@ -66,38 +66,23 @@ def test_messaging_stack_creates_subscriptions_with_filters() -> None:
         assert "FilterPolicy" in props, f"{logical_id} missing FilterPolicy"
 
 
-# ── Test 46: review-crawl-queue has 2 subscriptions with correct filters ──────
+# ── Test 46: review-crawl-queue has no SNS subscription (inline dispatch only) ──
 
 
-def test_messaging_stack_review_crawl_filter() -> None:
-    """Review-crawl-queue has ONE $or subscription covering both filter conditions (test 46)."""
+def test_messaging_stack_no_review_crawl_subscription() -> None:
+    """review_crawl_queue is fed by inline Python dispatch from CrawlService — no SNS bridge."""
     template = _synth_messaging_stack()
     subs = template.find_resources("AWS::SNS::Subscription")
 
-    review_crawl_subs = []
     for _logical_id, resource in subs.items():
         props = resource["Properties"]
-        # CfnSubscription stores endpoint as a plain string ARN token
-        endpoint = props.get("Endpoint", "")
         filter_policy = props.get("FilterPolicy", {})
-        fp_str = str(filter_policy)
-        if "ReviewCrawl" in fp_str or "ReviewCrawl" in str(endpoint):
-            review_crawl_subs.append(filter_policy)
-        # Also catch by $or key presence combined with both event types in the policy
-        elif "$or" in filter_policy:
-            review_crawl_subs.append(filter_policy)
-
-    assert len(review_crawl_subs) == 1, (
-        f"Expected 1 review-crawl $or subscription, got {len(review_crawl_subs)}"
-    )
-
-    fp = review_crawl_subs[0]
-    fp_str = str(fp)
-    assert "$or" in fp, f"Expected $or filter policy, got: {fp}"
-    assert "game-metadata-ready" in fp_str, "Missing game-metadata-ready condition"
-    assert "is_eligible" in fp_str, "Missing is_eligible condition"
-    assert "game-released" in fp_str, "Missing game-released condition"
-    assert "game-updated" in fp_str, "Missing game-updated condition"
+        assert "$or" not in filter_policy, (
+            f"Found $or filter policy (legacy review-crawl bridge): {filter_policy}"
+        )
+        assert "game-released" not in str(filter_policy), (
+            f"Found game-released routing (should be inline only): {filter_policy}"
+        )
 
 
 # ── Test 50: SSM param for eligibility threshold ──────────────────────────────

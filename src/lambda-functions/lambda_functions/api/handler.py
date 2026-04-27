@@ -826,7 +826,11 @@ async def catalog_stats() -> JSONResponse:
     )
 
 
-_HOME_INTEL_SAMPLE_APPID = 1086940  # BG3 — same SEO anchor used by the FeaturedReport strip
+# BG3 — the SEO-anchor game the homepage 'What You Get' cards sample from.
+# Must match SHOWCASE_GAMES[0].appid in frontend/app/page.tsx so the snapshot
+# samples the same game the FeaturedReport strip's first tab points at. If
+# the frontend list is reordered or replaced, update this value too.
+_HOME_INTEL_SAMPLE_APPID = 1086940
 _HOME_INTEL_CACHE = "public, s-maxage=21600, stale-while-revalidate=86400"
 
 

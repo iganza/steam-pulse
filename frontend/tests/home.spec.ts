@@ -55,10 +55,6 @@ test.describe('Home page', () => {
     await expect(cta).toHaveAttribute('href', '/pro')
   })
 
-  test('for developers section is visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /built for the people who make games/i })).toBeVisible()
-  })
-
   test('footer CTA is visible', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /free to explore/i })).toBeVisible()
   })

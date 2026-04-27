@@ -442,8 +442,10 @@ export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]
 }
 
 /** Single-call snapshot for the homepage 'What You Get' cards. Each
- * sub-field is independently nullable so a single slow sub-query at the
- * API layer can't blank the whole section. Backed by
+ * sub-field is independently nullable so a single failing sub-call (an
+ * exception caught at the API layer) can't blank the whole section.
+ * Note: this isolates *exceptions only* — a sub-call that's merely slow
+ * still blocks the request until the SSR/API timeout. Backed by
  * /api/home/intel-snapshot — one Lambda invocation orchestrating four
  * existing repo methods.
  */

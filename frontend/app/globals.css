@@ -170,6 +170,7 @@
 .text-eyebrow {
   font-family: var(--font-mono), monospace;
   font-size: var(--text-eyebrow);
+  line-height: 1rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted-foreground);

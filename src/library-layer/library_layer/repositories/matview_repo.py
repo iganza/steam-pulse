@@ -329,7 +329,17 @@ class MatviewRepository(BaseRepository):
                     )
                     return int((time.monotonic() - start) * 1000)
                 finally:
-                    cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (name,))
+                    # Swallow unlock failures so a broken connection mid-REFRESH
+                    # doesn't mask the REFRESH exception. TCP keepalive
+                    # (db.py:94-97) will reap the orphan backend and release the
+                    # session lock either way.
+                    try:
+                        cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (name,))
+                    except Exception:
+                        logger.exception(
+                            "pg_advisory_unlock failed; relying on session-close to release",
+                            extra={"matview": name},
+                        )
         finally:
             conn.autocommit = prev_autocommit
 

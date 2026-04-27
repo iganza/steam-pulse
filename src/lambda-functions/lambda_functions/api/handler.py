@@ -1,6 +1,7 @@
 """FastAPI application — JSON API only, no HTML rendering."""
 
 import os
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 import boto3  # type: ignore[import-untyped]
@@ -826,6 +827,88 @@ async def catalog_stats() -> JSONResponse:
 
 
 _REPORTS_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
+
+
+# Sample game pinned to BG3 — high coverage across timeline/overlap/report tables,
+# stable identity for snapshot-driven mini-vizualisations on the homepage.
+_HOME_INTEL_SAMPLE_APPID = 1086940
+_HOME_INTEL_CACHE = "public, s-maxage=21600, stale-while-revalidate=86400"
+
+
+@app.get("/api/home/intel-snapshot")
+async def get_home_intel_snapshot() -> JSONResponse:
+    """Single-call snapshot powering the homepage 4-card intelligence preview.
+
+    Option A in 02-landing-positioning-reconcile.md: direct repo pulls behind
+    one endpoint. If latency becomes a concern, upgrade to mv_home_intel_snapshot.
+    Each sub-block is independently fault-tolerant — a missing source returns
+    null for that block while the rest of the snapshot still renders.
+    """
+    sentiment_sample: dict | None = None
+    overlap_sample: dict | None = None
+    trend_sample: dict | None = None
+    report_sample: dict | None = None
+
+    sample_game = _game_repo.find_by_appid(_HOME_INTEL_SAMPLE_APPID)
+    sample_name = sample_game.name if sample_game else None
+
+    try:
+        stats = _review_repo.find_review_stats(_HOME_INTEL_SAMPLE_APPID)
+        timeline = stats.get("timeline") or []
+        if timeline:
+            sentiment_sample = {
+                "appid": _HOME_INTEL_SAMPLE_APPID,
+                "name": sample_name,
+                "timeline": timeline,
+            }
+    except Exception:  # pragma: no cover — partial-data fallback
+        logger.exception("home_intel: sentiment_sample failed")
+
+    try:
+        overlap = _matview_repo.get_audience_overlap(_HOME_INTEL_SAMPLE_APPID, limit=5)
+        if overlap.get("overlaps"):
+            overlap_sample = {
+                "appid": _HOME_INTEL_SAMPLE_APPID,
+                "name": sample_name,
+                "total_reviewers": overlap.get("total_reviewers", 0),
+                "overlaps": overlap["overlaps"],
+            }
+    except Exception:  # pragma: no cover
+        logger.exception("home_intel: overlap_sample failed")
+
+    try:
+        trend = _analytics_service.get_sentiment_distribution(granularity="month", limit=12)
+        if trend.get("periods"):
+            trend_sample = {
+                "granularity": trend["granularity"],
+                "periods": trend["periods"],
+            }
+    except Exception:  # pragma: no cover
+        logger.exception("home_intel: trend_sample failed")
+
+    try:
+        report = _report_repo.find_by_appid(_HOME_INTEL_SAMPLE_APPID)
+        if report and report.report_json:
+            rj = report.report_json
+            report_sample = {
+                "appid": _HOME_INTEL_SAMPLE_APPID,
+                "name": sample_name,
+                "one_liner": rj.get("one_liner") or "",
+                "design_strengths": list(rj.get("design_strengths") or [])[:3],
+            }
+    except Exception:  # pragma: no cover
+        logger.exception("home_intel: report_sample failed")
+
+    return JSONResponse(
+        content={
+            "sentiment_sample": sentiment_sample,
+            "overlap_sample": overlap_sample,
+            "trend_sample": trend_sample,
+            "report_sample": report_sample,
+            "computed_at": datetime.now(UTC).isoformat(),
+        },
+        headers={"Cache-Control": _HOME_INTEL_CACHE},
+    )
 
 
 @app.get("/api/reports")

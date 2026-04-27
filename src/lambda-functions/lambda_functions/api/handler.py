@@ -148,7 +148,7 @@ async def list_games(
     price_tier: str | None = None,
     deck: str | None = None,
     sort: str = "review_count",
-    limit: int = Query(default=24, ge=1, le=100),
+    limit: int = Query(default=24, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     fields: Literal["compact"] | None = None,
 ) -> dict:
@@ -334,7 +334,8 @@ async def get_game_report(appid: int) -> JSONResponse:
             velocity_data = _review_repo.find_review_velocity(appid)
             ea_data = _review_repo.find_early_access_impact(appid)
             temporal = build_temporal_context(game, velocity_data, ea_data)
-            temporal_dict = temporal.model_dump()
+            # mode="json" — JSONResponse bypasses jsonable_encoder, so dates need stringifying.
+            temporal_dict = temporal.model_dump(mode="json")
         body = {
             "status": "available",
             "report": report,

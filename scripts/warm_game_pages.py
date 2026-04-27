@@ -64,19 +64,45 @@ async def _collect_urls(client: httpx.AsyncClient, base_url: str, cap: int) -> l
 
 
 async def _warm_one(
-    client: httpx.AsyncClient,
-    sem: asyncio.Semaphore,
-    url: str,
+    client: httpx.AsyncClient, url: str
 ) -> tuple[str, int | None, float, str | None]:
-    async with sem:
-        start = time.monotonic()
+    start = time.monotonic()
+    try:
+        resp = await client.get(url)
+        ttfb_ms = (time.monotonic() - start) * 1000
+        return url, resp.status_code, ttfb_ms, None
+    except Exception as exc:
+        ttfb_ms = (time.monotonic() - start) * 1000
+        return url, None, ttfb_ms, type(exc).__name__
+
+
+async def _worker(
+    name: str,
+    client: httpx.AsyncClient,
+    queue: "asyncio.Queue[str]",
+    ok_ttfb: list[float],
+    fail_ttfb: list[float],
+    status_counts: Counter[str],
+    errors: Counter[str],
+) -> None:
+    while True:
         try:
-            resp = await client.get(url)
-            ttfb_ms = (time.monotonic() - start) * 1000
-            return url, resp.status_code, ttfb_ms, None
-        except Exception as exc:
-            ttfb_ms = (time.monotonic() - start) * 1000
-            return url, None, ttfb_ms, type(exc).__name__
+            url = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+        url, status, ttfb_ms, err = await _warm_one(client, url)
+        if err is not None:
+            errors[err] += 1
+            fail_ttfb.append(ttfb_ms)
+            print(f"  FAIL {err:<25} {ttfb_ms:>7.0f} ms  {url}")
+        else:
+            status_counts[str(status)] += 1
+            if status and 200 <= status < 400:
+                ok_ttfb.append(ttfb_ms)
+            else:
+                fail_ttfb.append(ttfb_ms)
+            print(f"  {status} {ttfb_ms:>7.0f} ms  {url}")
+        queue.task_done()
 
 
 async def _run(base_url: str, concurrency: int, read_timeout: float, cap: int) -> int:
@@ -90,27 +116,24 @@ async def _run(base_url: str, concurrency: int, read_timeout: float, cap: int) -
         urls = await _collect_urls(client, base_url, cap)
         print(f"Discovered {len(urls)} URLs. Warming with concurrency={concurrency}…")
 
-        sem = asyncio.Semaphore(concurrency)
-        tasks = [asyncio.create_task(_warm_one(client, sem, u)) for u in urls]
+        # Worker pool: N workers pull from a shared queue. Caps live tasks at N
+        # regardless of URL count (avoids 49k concurrent task objects).
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        for u in urls:
+            queue.put_nowait(u)
 
         ok_ttfb: list[float] = []
         fail_ttfb: list[float] = []
         status_counts: Counter[str] = Counter()
         errors: Counter[str] = Counter()
 
-        for done in asyncio.as_completed(tasks):
-            url, status, ttfb_ms, err = await done
-            if err is not None:
-                errors[err] += 1
-                fail_ttfb.append(ttfb_ms)
-                print(f"  FAIL {err:<25} {ttfb_ms:>7.0f} ms  {url}")
-            else:
-                status_counts[str(status)] += 1
-                if status and 200 <= status < 400:
-                    ok_ttfb.append(ttfb_ms)
-                else:
-                    fail_ttfb.append(ttfb_ms)
-                print(f"  {status} {ttfb_ms:>7.0f} ms  {url}")
+        workers = [
+            asyncio.create_task(
+                _worker(f"w{i}", client, queue, ok_ttfb, fail_ttfb, status_counts, errors)
+            )
+            for i in range(concurrency)
+        ]
+        await asyncio.gather(*workers)
 
         total = len(urls)
         ok = len(ok_ttfb)

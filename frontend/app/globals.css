@@ -90,13 +90,13 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
     line-height: var(--leading-normal);
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
   }
 
   h1, h2, h3, h4 {
-    font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+    font-family: var(--font-serif, Georgia, "Times New Roman", serif);
     letter-spacing: -0.02em;
     line-height: var(--leading-tight);
     font-feature-settings: "ss01" 1, "kern" 1, "liga" 1;
@@ -168,7 +168,7 @@
 
 /* Eyebrow label — uppercase mono caption */
 .text-eyebrow {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-mono, monospace);
   font-size: var(--text-eyebrow);
   line-height: 1rem;
   letter-spacing: 0.1em;
@@ -176,5 +176,3 @@
   color: var(--muted-foreground);
 }
 
-/* Reading-width cap for long-form prose */
-.prose-readable { max-width: 65ch; }

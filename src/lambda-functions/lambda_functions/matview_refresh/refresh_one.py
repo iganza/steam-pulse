@@ -33,13 +33,17 @@ def handler(event: dict, context: LambdaContext) -> dict:
     )
     try:
         duration_ms = _repo.refresh_one(parsed.name)
+        if duration_ms < 0:
+            logger.info(
+                "Refresh skipped — lock held by concurrent session",
+                extra={"matview": parsed.name, "cycle_id": parsed.cycle_id},
+            )
+            return WorkerResult(name=parsed.name, success=True, duration_ms=0).model_dump()
         logger.info(
             "Refreshed matview",
             extra={"matview": parsed.name, "duration_ms": duration_ms, "cycle_id": parsed.cycle_id},
         )
-        return WorkerResult(
-            name=parsed.name, success=True, duration_ms=duration_ms
-        ).model_dump()
+        return WorkerResult(name=parsed.name, success=True, duration_ms=duration_ms).model_dump()
     except Exception as exc:
         logger.exception(
             "Failed to refresh matview",

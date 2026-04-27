@@ -1,8 +1,12 @@
 """Tests for MatviewRepository — audience overlap (mv_audience_overlap)."""
 
+import os
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg2
+import psycopg2.extras
 import pytest
 from library_layer.repositories.game_repo import GameRepository
 from library_layer.repositories.matview_repo import MatviewRepository
@@ -323,3 +327,70 @@ def test_complete_cycle_raises_when_no_match(
         )
 
 
+# ---------------------------------------------------------------------------
+# Advisory-lock guard — refresh_one concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def lock_holder_conn() -> Generator[Any, None, None]:
+    """A second psycopg2 connection used to hold session-scoped advisory locks
+    independently of the repo's own connection."""
+    conn = psycopg2.connect(
+        os.environ["DATABASE_URL"],
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+    conn.autocommit = True
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def test_refresh_one_skips_when_lock_held(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+    lock_holder_conn: Any,
+) -> None:
+    """When another session holds the per-matview advisory lock, refresh_one
+    returns -1 (skip sentinel) instead of deadlocking or blocking."""
+    with lock_holder_conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(hashtext(%s))", ("mv_genre_counts",))
+    try:
+        assert matview_repo.refresh_one("mv_genre_counts") == -1
+    finally:
+        with lock_holder_conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", ("mv_genre_counts",))
+
+
+def test_refresh_one_succeeds_after_lock_release(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+    refresh_matviews: Any,
+    lock_holder_conn: Any,
+) -> None:
+    """Once the holding session releases the lock, the next refresh_one call
+    on the same matview proceeds normally."""
+    refresh_matviews()
+    with lock_holder_conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(hashtext(%s))", ("mv_genre_counts",))
+        cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", ("mv_genre_counts",))
+    assert matview_repo.refresh_one("mv_genre_counts") >= 0
+
+
+def test_different_matviews_do_not_block(
+    db_conn: Any,
+    matview_repo: MatviewRepository,
+    refresh_matviews: Any,
+    lock_holder_conn: Any,
+) -> None:
+    """Locks are keyed per-matview — holding one matview's lock must not
+    block REFRESH on a different matview."""
+    refresh_matviews()
+    with lock_holder_conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(hashtext(%s))", ("mv_catalog_reports",))
+    try:
+        assert matview_repo.refresh_one("mv_genre_counts") >= 0
+    finally:
+        with lock_holder_conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", ("mv_catalog_reports",))

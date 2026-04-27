@@ -911,3 +911,34 @@ def test_home_intel_snapshot_partial_data_fallback(client: TestClient) -> None:
     assert data["trend_sample"] is not None
     assert data["report_sample"] is None
     assert data["computed_at"]
+
+
+def test_home_intel_snapshot_source_exception_isolated(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception in one source yields a null block but keeps 200 and other blocks populated."""
+    import lambda_functions.api.handler as api_module
+
+    _install_home_intel_repos(
+        report={
+            "one_liner": "A landmark CRPG.",
+            "design_strengths": ["Reactive narrative", "Combat depth", "Companion writing"],
+        },
+    )
+
+    def _raise_overlap_error(*args: object, **kwargs: object) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(api_module._matview_repo, "get_audience_overlap", _raise_overlap_error)
+
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["sentiment_sample"] is not None
+    assert data["overlap_sample"] is None
+    assert data["trend_sample"] is not None
+    assert data["trend_sample"]["periods"][0]["positive_pct"] == 80.0
+    assert data["report_sample"] is not None
+    assert data["report_sample"]["one_liner"] == "A landmark CRPG."
+    assert data["computed_at"]

@@ -830,7 +830,7 @@ _REPORTS_CACHE = "public, s-maxage=300, stale-while-revalidate=600"
 
 
 # Sample game pinned to BG3 — high coverage across timeline/overlap/report tables,
-# stable identity for snapshot-driven mini-vizualisations on the homepage.
+# stable identity for snapshot-driven mini-visualisations on the homepage.
 _HOME_INTEL_SAMPLE_APPID = 1086940
 _HOME_INTEL_CACHE = "public, s-maxage=21600, stale-while-revalidate=86400"
 
@@ -848,9 +848,13 @@ async def get_home_intel_snapshot() -> JSONResponse:
     overlap_sample: dict | None = None
     trend_sample: dict | None = None
     report_sample: dict | None = None
+    sample_name: str | None = None
 
-    sample_game = _game_repo.find_by_appid(_HOME_INTEL_SAMPLE_APPID)
-    sample_name = sample_game.name if sample_game else None
+    try:
+        sample_game = _game_repo.find_by_appid(_HOME_INTEL_SAMPLE_APPID)
+        sample_name = sample_game.name if sample_game else None
+    except Exception:  # pragma: no cover — partial-data fallback
+        logger.exception("home_intel: sample_name lookup failed")
 
     try:
         stats = _review_repo.find_review_stats(_HOME_INTEL_SAMPLE_APPID)

@@ -556,8 +556,10 @@ class CrawlService:
         if not self._config.REFRESH_REVIEWS_ENABLED:
             return
 
+        # Tier B eligibility uses total review_count (find_due_reviews:200), delta uses English (find_due_reviews:213).
+        new_review_count = int(game_data.get("review_count") or 0)
         new_rce = int(game_data.get("review_count_english") or 0)
-        if new_rce < self._config.REFRESH_TIER_B_REVIEW_COUNT:
+        if new_review_count < self._config.REFRESH_TIER_B_REVIEW_COUNT:
             return
         if game_data.get("coming_soon"):
             return

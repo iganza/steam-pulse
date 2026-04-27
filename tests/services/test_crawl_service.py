@@ -776,13 +776,17 @@ def test_maybe_dispatch_kill_switch_off_never_dispatches() -> None:
         svc._maybe_dispatch_review_crawl(
             appid=440,
             existing=None,
-            game_data={"review_count_english": 10_000, "coming_soon": False},
+            game_data={
+                "review_count": 10_000,
+                "review_count_english": 10_000,
+                "coming_soon": False,
+            },
         )
         assert _read_queue_messages(sqs, queue_url) == []
 
 
 def test_maybe_dispatch_below_tier_b_threshold_no_dispatch() -> None:
-    """Below the tier-B (=eligibility) threshold means tier C — never refresh reviews."""
+    """Below the tier-B (=eligibility) threshold on TOTAL review_count means tier C."""
     import boto3
 
     with mock_aws():
@@ -791,13 +795,36 @@ def test_maybe_dispatch_below_tier_b_threshold_no_dispatch() -> None:
         svc = _make_service_for_dispatch(
             refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
         )
-        # Threshold defaults to 50 (REVIEW_ELIGIBILITY_THRESHOLD).
+        # Threshold defaults to 50 (REVIEW_ELIGIBILITY_THRESHOLD). Eligibility gates on
+        # review_count (total all-language), matching find_due_reviews().
         svc._maybe_dispatch_review_crawl(
             appid=440,
             existing=None,
-            game_data={"review_count_english": 49, "coming_soon": False},
+            game_data={"review_count": 49, "review_count_english": 49, "coming_soon": False},
         )
         assert _read_queue_messages(sqs, queue_url) == []
+
+
+def test_maybe_dispatch_eligible_by_total_review_count_even_when_english_below_threshold() -> None:
+    """Tier B eligibility uses TOTAL review_count, not English — matches find_due_reviews()."""
+    import boto3
+
+    with mock_aws():
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue_url = sqs.create_queue(QueueName="rcq-total-vs-eng")["QueueUrl"]
+        svc = _make_service_for_dispatch(
+            refresh_reviews_enabled=True, sqs_client=sqs, review_queue_url=queue_url
+        )
+        # 60 total reviews ≥ 50 threshold → tier B eligible. Only 30 English — irrelevant
+        # for the eligibility gate; would have been wrongly skipped if gate used English.
+        svc._maybe_dispatch_review_crawl(
+            appid=440,
+            existing=None,
+            game_data={"review_count": 60, "review_count_english": 30, "coming_soon": False},
+        )
+        msgs = _read_queue_messages(sqs, queue_url)
+        assert len(msgs) == 1
+        assert msgs[0]["appid"] == 440
 
 
 def test_maybe_dispatch_coming_soon_no_dispatch() -> None:
@@ -813,7 +840,11 @@ def test_maybe_dispatch_coming_soon_no_dispatch() -> None:
         svc._maybe_dispatch_review_crawl(
             appid=440,
             existing=None,
-            game_data={"review_count_english": 10_000, "coming_soon": True},
+            game_data={
+                "review_count": 10_000,
+                "review_count_english": 10_000,
+                "coming_soon": True,
+            },
         )
         assert _read_queue_messages(sqs, queue_url) == []
 
@@ -831,7 +862,7 @@ def test_maybe_dispatch_first_fetch_dispatches_when_existing_is_none() -> None:
         svc._maybe_dispatch_review_crawl(
             appid=440,
             existing=None,
-            game_data={"review_count_english": 200, "coming_soon": False},
+            game_data={"review_count": 200, "review_count_english": 200, "coming_soon": False},
         )
         msgs = _read_queue_messages(sqs, queue_url)
         assert len(msgs) == 1
@@ -857,7 +888,7 @@ def test_maybe_dispatch_first_fetch_dispatches_when_review_crawled_at_is_none() 
                 "review_crawled_at": None,
                 "review_count_at_last_fetch": None,
             },
-            game_data={"review_count_english": 200, "coming_soon": False},
+            game_data={"review_count": 200, "review_count_english": 200, "coming_soon": False},
         )
         msgs = _read_queue_messages(sqs, queue_url)
         assert len(msgs) == 1
@@ -886,7 +917,7 @@ def test_maybe_dispatch_delta_below_min_and_not_stale_no_dispatch() -> None:
                 "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=5),
                 "review_count_at_last_fetch": 4500,
             },
-            game_data={"review_count_english": 5000, "coming_soon": False},
+            game_data={"review_count": 5000, "review_count_english": 5000, "coming_soon": False},
         )
         assert _read_queue_messages(sqs, queue_url) == []
 
@@ -912,7 +943,7 @@ def test_maybe_dispatch_delta_meets_min_dispatches() -> None:
                 "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=2),
                 "review_count_at_last_fetch": 4500,
             },
-            game_data={"review_count_english": 6000, "coming_soon": False},
+            game_data={"review_count": 6000, "review_count_english": 6000, "coming_soon": False},
         )
         msgs = _read_queue_messages(sqs, queue_url)
         assert len(msgs) == 1
@@ -939,7 +970,7 @@ def test_maybe_dispatch_stale_dispatches_even_below_min_delta() -> None:
                 "review_crawled_at": datetime.now(tz=UTC) - timedelta(days=31),
                 "review_count_at_last_fetch": 800,
             },
-            game_data={"review_count_english": 805, "coming_soon": False},
+            game_data={"review_count": 805, "review_count_english": 805, "coming_soon": False},
         )
         msgs = _read_queue_messages(sqs, queue_url)
         assert len(msgs) == 1

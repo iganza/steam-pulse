@@ -419,6 +419,8 @@ export interface GameBasicsEntry {
   name: string;
   slug: string;
   header_image: string | null;
+  positive_pct: number | null;
+  review_count: number | null;
 }
 
 export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]> {

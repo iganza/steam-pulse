@@ -339,9 +339,9 @@ const GENRE_REPORT_BY_SLUG = {
 }
 
 const BENCHMARK_GAME_BASICS = {
-  646570: { slug: 'slay-the-spire', name: 'Slay the Spire' },
-  2379780: { slug: 'balatro', name: 'Balatro' },
-  1196590: { slug: 'monster-train', name: 'Monster Train' },
+  646570: { slug: 'slay-the-spire', name: 'Slay the Spire', positive_pct: 96, review_count: 90000 },
+  2379780: { slug: 'balatro', name: 'Balatro', positive_pct: 97, review_count: 75000 },
+  1196590: { slug: 'monster-train', name: 'Monster Train', positive_pct: 92, review_count: 22000 },
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -414,6 +414,8 @@ const server = createServer((req, res) => {
           name: g.name,
           slug: g.slug,
           header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+          positive_pct: g.positive_pct ?? null,
+          review_count: g.review_count ?? null,
         }
       })
       .filter((x) => x !== null)

@@ -836,12 +836,20 @@ async def home_intel_snapshot() -> JSONResponse:
 
     Orchestrates the same repo methods that back
     /api/games/{appid}/review-stats, /audience-overlap, /report, and
-    /api/analytics/trends/sentiment — but in one Lambda invocation, with
-    each sub-call independently failure-isolated so a single slow
-    sub-query can't blank the whole section.
+    /api/analytics/trends/sentiment — but in one Lambda invocation.
 
-    Upgrade path if Option A (this) is too slow: pre-join into a new
-    matview `mv_home_intel_snapshot` and read it in one query.
+    Failure isolation is *exception-level only*: a sub-call that raises
+    is caught and the corresponding `*_sample` becomes None while the
+    other three still come back. A sub-call that is merely slow still
+    blocks the request until the surrounding SSR/API timeout (no
+    per-sub-call timeout enforced here).
+
+    Upgrade paths if cumulative latency becomes a problem:
+    1. Pre-join into a matview `mv_home_intel_snapshot` and read it in
+       a single query (single round-trip, no orchestration).
+    2. Run sub-calls concurrently via asyncio.to_thread + per-call
+       timeouts. Requires distinct DB connections per task since
+       psycopg2 connections aren't thread-safe under concurrent use.
     """
     sentiment_sample: dict | None
     try:

@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, BarChart3, Users, TrendingUp } from "lucide-react";
 
 interface ValueProp {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   body: string;
 }

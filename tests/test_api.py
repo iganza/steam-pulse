@@ -942,3 +942,52 @@ def test_home_intel_snapshot_source_exception_isolated(
     assert data["report_sample"] is not None
     assert data["report_sample"]["one_liner"] == "A landmark CRPG."
     assert data["computed_at"]
+
+
+# ---------------------------------------------------------------------------
+# Edge-cache headers on the 4 SSR-fanout endpoints
+# ---------------------------------------------------------------------------
+
+# CloudFront keys off s-maxage; without it the catch-all /api/* CACHING_DISABLED
+# behavior would bypass the per-path cached behaviors.
+_EXPECTED_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
+
+
+class _MemReportRepoWithRelated(_MemReportRepo):
+    def find_related_analyzed(self, appid: int, limit: int = 6) -> list[dict]:
+        return []
+
+
+def test_report_endpoint_sets_cache_control(client: TestClient) -> None:
+    """GET /api/games/{appid}/report sets s-maxage so CloudFront can edge-cache."""
+    resp = client.get("/api/games/440/report")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+def test_review_stats_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._review_repo = _MemReviewRepo()  # type: ignore[assignment]
+    resp = client.get("/api/games/440/review-stats")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+def test_benchmarks_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._game_repo = _MemGameRepoWithBenchmarks()  # type: ignore[assignment]
+    api_module._tag_repo = _MemTagRepo(genres=[{"name": "Action", "id": 1}])  # type: ignore[assignment]
+    resp = client.get("/api/games/440/benchmarks")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL
+
+
+def test_related_analyzed_endpoint_sets_cache_control(client: TestClient) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._report_repo = _MemReportRepoWithRelated()  # type: ignore[assignment]
+    resp = client.get("/api/games/440/related-analyzed")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == _EXPECTED_CACHE_CONTROL

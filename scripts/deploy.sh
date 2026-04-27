@@ -96,7 +96,7 @@ echo ""
 
 # ── Step 1: Build frontend ────────────────────────────────────────────────────
 if [[ "$SKIP_FRONTEND" == "false" ]]; then
-    echo "▶ Step 1/4 — Building Next.js frontend (OpenNext)"
+    echo "▶ Step 1/3 — Building Next.js frontend (OpenNext)"
     cd "$REPO_ROOT/frontend"
     npm ci --silent
     # Clean prior build artifacts: stale .next can produce confusing
@@ -107,13 +107,13 @@ if [[ "$SKIP_FRONTEND" == "false" ]]; then
     cd "$REPO_ROOT"
     echo "✓ Frontend build complete"
 else
-    echo "▶ Step 1/4 — Skipping frontend build (--skip-frontend)"
+    echo "▶ Step 1/3 — Skipping frontend build (--skip-frontend)"
 fi
 
 echo ""
 
 # ── Step 2: CDK deploy ────────────────────────────────────────────────────────
-echo "▶ Step 2/4 — CDK deploy: ${STAGE_PATTERN} + ${STANDALONE_PATTERN}"
+echo "▶ Step 2/3 — CDK deploy: ${STAGE_PATTERN} + ${STANDALONE_PATTERN}"
 cd "$REPO_ROOT"
 poetry run cdk deploy "$STAGE_PATTERN" "$STANDALONE_PATTERN" \
     --context "build-id=${BUILD_ID}" \
@@ -128,7 +128,7 @@ echo ""
 
 # ── Step 3: Apply DB migrations ───────────────────────────────────────────────
 if [[ "$SKIP_MIGRATIONS" == "false" ]]; then
-    echo "▶ Step 3/4 — Applying DB migrations"
+    echo "▶ Step 3/3 — Applying DB migrations"
 
     MIGRATION_FN_ARN=$(aws ssm get-parameter \
         --name "/steampulse/${ENV}/compute/migration-fn-arn" \
@@ -178,32 +178,18 @@ PY
         echo "✓ Migrations applied"
     fi
 else
-    echo "▶ Step 3/4 — Skipping migrations (--skip-migrations)"
-fi
-
-echo ""
-
-# ── Step 4: Invalidate CloudFront cache ──────────────────────────────────────
-echo "▶ Step 4/4 — Invalidating CloudFront cache"
-
-DIST_ID=$(aws ssm get-parameter \
-    --name "/steampulse/${ENV}/delivery/distribution-id" \
-    --query Parameter.Value \
-    --output text 2>/dev/null || echo "")
-
-if [[ -z "$DIST_ID" ]]; then
-    echo "  ⚠ SSM param /steampulse/${ENV}/delivery/distribution-id not found — skipping invalidation"
-else
-    aws cloudfront create-invalidation \
-        --distribution-id "$DIST_ID" \
-        --paths "/*" \
-        --query Invalidation.Id \
-        --output text
-    echo "✓ CloudFront cache invalidated"
+    echo "▶ Step 3/3 — Skipping migrations (--skip-migrations)"
 fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ✅ Deploy complete → ${ENV}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Note: this script does NOT invalidate CloudFront. BUILD_ID rotation"
+echo "namespaces ISR cache, and per-game push invalidation covers analyses."
+echo "If a frontend change affects rendered HTML, run:"
+echo "  bash scripts/invalidate-cdn.sh --env ${ENV}"
+echo "Then warm pages with:"
+echo "  poetry run python scripts/warm_game_pages.py"
 echo ""

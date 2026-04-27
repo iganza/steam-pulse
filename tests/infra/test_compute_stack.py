@@ -104,11 +104,11 @@ def test_compute_stack_grants_sns_publish(template: assertions.Template) -> None
 
 
 def test_compute_stack_batches_spoke_ingest_sqs_events(template: assertions.Template) -> None:
-    """Spoke ingest uses larger SQS batches with a short batching window."""
+    """Spoke ingest uses bounded SQS batches with a short batching window."""
     template.has_resource_properties(
         "AWS::Lambda::EventSourceMapping",
         {
-            "BatchSize": 40,
+            "BatchSize": 10,
             "MaximumBatchingWindowInSeconds": 5,
             "ScalingConfig": {"MaximumConcurrency": 6},
             "FunctionResponseTypes": ["ReportBatchItemFailures"],

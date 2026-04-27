@@ -123,25 +123,5 @@ class PipelineStack(cdk.Stack):
                         ),
                     ],
                 ),
-                pipelines.CodeBuildStep(
-                    "InvalidateCDN",
-                    commands=[
-                        # Read distribution ID from SSM then invalidate HTML paths
-                        f"DIST_ID=$(aws ssm get-parameter --name /steampulse/{environment}/delivery/distribution-id --query Parameter.Value --output text)",
-                        'aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"',
-                    ],
-                    role_policy_statements=[
-                        iam.PolicyStatement(
-                            actions=["ssm:GetParameter"],
-                            resources=[
-                                f"arn:aws:ssm:{self.region}:{self.account}:parameter/steampulse/{deploy_stage.lower()}/*"
-                            ],
-                        ),
-                        iam.PolicyStatement(
-                            actions=["cloudfront:CreateInvalidation"],
-                            resources=["*"],
-                        ),
-                    ],
-                ),
             ],
         )

@@ -9,12 +9,15 @@ import {
   getTagsGrouped,
   getGameBasics,
   getGenreInsights,
+  getHomeIntelSnapshot,
 } from "@/lib/api";
 import type { GameBasicsEntry } from "@/lib/api";
 import { TagBrowser } from "@/components/home/TagBrowser";
 import { ProofBar } from "@/components/home/ProofBar";
 import { FeaturedReport } from "@/components/home/FeaturedReport";
+import { IntelligenceCards } from "@/components/home/IntelligenceCards";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
+import { ForDevelopers } from "@/components/home/ForDevelopers";
 import { FooterCTA } from "@/components/home/FooterCTA";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game, TagGroup } from "@/lib/types";
@@ -62,6 +65,7 @@ export default async function HomePage() {
     catalogStats,
     featuredReport,
     showcaseBasics,
+    homeIntel,
   ] = await Promise.allSettled([
     // Discovery rows served from mv_discovery_feeds (pre-computed top-N per kind).
     getDiscoveryFeed("popular", 8),
@@ -77,10 +81,16 @@ export default async function HomePage() {
     // replaces the 9-call showcase fan-out that timed out under cold-start
     // Lambdas and ISR-cached an empty render.
     getGameBasics(SHOWCASE_GAMES.map((g) => g.appid)),
+    // Single-call snapshot for the 4-card intelligence preview; partial
+    // failure inside the endpoint nulls individual sub-blocks rather than
+    // failing the whole render.
+    getHomeIntelSnapshot(),
   ]);
 
   const featuredInsights =
     featuredReport.status === "fulfilled" ? featuredReport.value : null;
+  const intelSnapshot =
+    homeIntel.status === "fulfilled" ? homeIntel.value : null;
 
   const popularGames: Game[] =
     popular.status === "fulfilled" ? popular.value.games ?? [] : [];
@@ -172,6 +182,9 @@ export default async function HomePage() {
           <FeaturedReport insights={featuredInsights} strip={strip} />
         )}
 
+        {/* Universal intelligence preview — 4 cards, snapshot-driven */}
+        {intelSnapshot && <IntelligenceCards snapshot={intelSnapshot} />}
+
         {/* Market Trends Preview */}
         <MarketTrendsPreview />
 
@@ -223,6 +236,9 @@ export default async function HomePage() {
             </div>
           </section>
         )}
+
+        {/* For Game Developers — Pro waitlist CTA */}
+        <ForDevelopers />
 
         {/* Browse by Genre */}
         {genreList.length > 0 && (

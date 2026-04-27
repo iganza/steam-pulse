@@ -5,7 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
-  GenreInsights, ReportSummary,
+  GenreInsights, ReportSummary, HomeIntelSnapshot,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -438,6 +438,14 @@ export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]
     { next: { revalidate: 3600, tags: ["game-basics"] } },
   );
   return data.games;
+}
+
+/** GET /api/home/intel-snapshot — single-call payload for the 4 homepage cards. */
+export async function getHomeIntelSnapshot(): Promise<HomeIntelSnapshot> {
+  return apiFetch<HomeIntelSnapshot>(
+    `/api/home/intel-snapshot`,
+    { next: { revalidate: 21600, tags: ["home-intel"] } },
+  );
 }
 
 /** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.

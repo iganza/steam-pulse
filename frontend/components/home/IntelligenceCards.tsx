@@ -5,13 +5,10 @@ import { BarChart3, Users, TrendingUp, FileText } from "lucide-react";
 import { MiniSentimentChart } from "./MiniSentimentChart";
 import { MiniOverlapList } from "./MiniOverlapList";
 import { MiniTrendLine } from "./MiniTrendLine";
-import type { TimelineEntry, AudienceOverlapEntry, SentimentDistPeriod, GameReport } from "@/lib/types";
+import type { HomeIntelSnapshot } from "@/lib/types";
 
 interface IntelligenceCardsProps {
-  timeline: TimelineEntry[];
-  overlaps: AudienceOverlapEntry[];
-  trendData: SentimentDistPeriod[];
-  report: GameReport;
+  snapshot: HomeIntelSnapshot;
 }
 
 function IntelCard({
@@ -46,13 +43,19 @@ function IntelCard({
   );
 }
 
-export function IntelligenceCards({
-  timeline,
-  overlaps,
-  trendData,
-  report,
-}: IntelligenceCardsProps) {
-  const trendLine = trendData.map((p) => ({
+function EmptyState() {
+  return (
+    <p className="text-xs text-muted-foreground italic">
+      Sample updates daily.
+    </p>
+  );
+}
+
+export function IntelligenceCards({ snapshot }: IntelligenceCardsProps) {
+  const { sentiment_sample, overlap_sample, trend_sample, report_sample } =
+    snapshot;
+
+  const trendLine = (trend_sample?.periods ?? []).map((p) => ({
     period: p.period,
     value: p.positive_pct,
   }));
@@ -69,7 +72,11 @@ export function IntelligenceCards({
           subtitle="Structured by playtime, timeline, and behavior"
           href="/search?sort=review_count"
         >
-          <MiniSentimentChart timeline={timeline} />
+          {sentiment_sample && sentiment_sample.timeline.length >= 2 ? (
+            <MiniSentimentChart timeline={sentiment_sample.timeline} />
+          ) : (
+            <EmptyState />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -78,7 +85,11 @@ export function IntelligenceCards({
           subtitle="Real audience overlap from reviewer behavior"
           href="/search?sort=review_count"
         >
-          <MiniOverlapList overlaps={overlaps} />
+          {overlap_sample && overlap_sample.overlaps.length > 0 ? (
+            <MiniOverlapList overlaps={overlap_sample.overlaps} />
+          ) : (
+            <EmptyState />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -87,7 +98,11 @@ export function IntelligenceCards({
           subtitle="Genre trends, pricing, release timing"
           href="/reports"
         >
-          <MiniTrendLine data={trendLine} />
+          {trendLine.length >= 2 ? (
+            <MiniTrendLine data={trendLine} />
+          ) : (
+            <EmptyState />
+          )}
         </IntelCard>
 
         <IntelCard
@@ -96,16 +111,20 @@ export function IntelligenceCards({
           subtitle="Thousands of reviews distilled into structured intelligence"
           href="/reports"
         >
-          <div className="space-y-2">
-            <p className="text-xs text-foreground/80 italic line-clamp-2">
-              &ldquo;{report.one_liner}&rdquo;
-            </p>
-            {report.design_strengths.slice(0, 2).map((s, i) => (
-              <p key={`${s}-${i}`} className="text-xs text-muted-foreground line-clamp-1">
-                <span style={{ color: "var(--positive)" }}>+</span> {s}
+          {report_sample && report_sample.one_liner ? (
+            <div className="space-y-2">
+              <p className="text-xs text-foreground/80 italic line-clamp-2">
+                &ldquo;{report_sample.one_liner}&rdquo;
               </p>
-            ))}
-          </div>
+              {report_sample.design_strengths.slice(0, 2).map((s, i) => (
+                <p key={`${s}-${i}`} className="text-xs text-muted-foreground line-clamp-1">
+                  <span style={{ color: "var(--positive)" }}>+</span> {s}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <EmptyState />
+          )}
         </IntelCard>
       </div>
     </section>

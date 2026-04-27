@@ -654,3 +654,36 @@ export interface ReportSummary {
   published_at: string;
   is_pre_order: boolean;
 }
+
+export interface HomeIntelSentimentSample {
+  appid: number;
+  name: string | null;
+  timeline: TimelineEntry[];
+}
+
+export interface HomeIntelOverlapSample {
+  appid: number;
+  name: string | null;
+  total_reviewers: number;
+  overlaps: AudienceOverlapEntry[];
+}
+
+export interface HomeIntelTrendSample {
+  granularity: string;
+  periods: SentimentDistPeriod[];
+}
+
+export interface HomeIntelReportSample {
+  appid: number;
+  name: string | null;
+  one_liner: string;
+  design_strengths: string[];
+}
+
+export interface HomeIntelSnapshot {
+  sentiment_sample: HomeIntelSentimentSample | null;
+  overlap_sample: HomeIntelOverlapSample | null;
+  trend_sample: HomeIntelTrendSample | null;
+  report_sample: HomeIntelReportSample | null;
+  computed_at: string;
+}

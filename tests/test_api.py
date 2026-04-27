@@ -767,3 +767,178 @@ def test_report_request_count(client: TestClient) -> None:
     client.post("/api/reports/request-analysis", json={"appid": 440, "email": "a@b.com"})
     resp = client.get("/api/reports/request-count/440")
     assert resp.json()["request_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /api/home/intel-snapshot — homepage 4-card preview
+# ---------------------------------------------------------------------------
+
+
+_HOME_INTEL_APPID = 1086940
+
+
+class _StubGameForHomeIntel:
+    appid = _HOME_INTEL_APPID
+    name = "Baldur's Gate 3"
+
+
+class _MemGameRepoForHomeIntel(_MemGameRepo):
+    def find_by_appid(self, appid: int) -> object | None:
+        return _StubGameForHomeIntel() if appid == _HOME_INTEL_APPID else None
+
+
+_DEFAULT_HOME_INTEL_TIMELINE: list[dict] = [
+    {"week": "2026-04-06", "total": 100, "positive": 95, "pct_positive": 95},
+    {"week": "2026-04-13", "total": 120, "positive": 110, "pct_positive": 92},
+]
+
+
+class _MemReviewRepoForHomeIntel:
+    def __init__(self, timeline: list[dict] | None = None) -> None:
+        self._timeline = timeline if timeline is not None else _DEFAULT_HOME_INTEL_TIMELINE
+
+    def find_review_stats(self, appid: int) -> dict:
+        return {
+            "timeline": self._timeline,
+            "playtime_buckets": [],
+            "review_velocity": {"reviews_per_day": 0.0, "reviews_last_30_days": 0},
+        }
+
+
+_DEFAULT_HOME_INTEL_OVERLAPS: list[dict] = [
+    {
+        "appid": 413150,
+        "name": "Stardew Valley",
+        "slug": "stardew-valley",
+        "header_image": None,
+        "positive_pct": 98,
+        "review_count": 700_000,
+        "overlap_count": 1234,
+        "overlap_pct": 18.4,
+        "shared_sentiment_pct": 95.0,
+    }
+]
+
+
+class _MemMatviewRepoForHomeIntel(_MemMatviewRepo):
+    def __init__(self, overlaps: list[dict] | None = None) -> None:
+        self._overlaps = overlaps if overlaps is not None else _DEFAULT_HOME_INTEL_OVERLAPS
+
+    def get_audience_overlap(self, appid: int, *, limit: int) -> dict:
+        return {"total_reviewers": 5000, "overlaps": self._overlaps}
+
+
+_DEFAULT_HOME_INTEL_PERIODS: list[dict] = [
+    {
+        "period": "2025-12",
+        "total": 5000,
+        "positive_count": 4000,
+        "mixed_count": 700,
+        "negative_count": 300,
+        "positive_pct": 80.0,
+        "avg_steam_pct": 82.0,
+        "avg_metacritic": None,
+    }
+]
+
+
+class _StubAnalyticsServiceForHomeIntel:
+    def __init__(self, periods: list[dict] | None = None) -> None:
+        self._periods = periods if periods is not None else _DEFAULT_HOME_INTEL_PERIODS
+
+    def get_sentiment_distribution(self, **kwargs: object) -> dict:
+        return {"granularity": "month", "periods": self._periods}
+
+
+def _install_home_intel_repos(
+    *,
+    timeline: list[dict] | None = None,
+    overlaps: list[dict] | None = None,
+    periods: list[dict] | None = None,
+    report: dict | None = None,
+) -> None:
+    import lambda_functions.api.handler as api_module
+
+    api_module._game_repo = _MemGameRepoForHomeIntel()  # type: ignore[assignment]
+    api_module._review_repo = _MemReviewRepoForHomeIntel(timeline=timeline)  # type: ignore[assignment]
+    api_module._matview_repo = _MemMatviewRepoForHomeIntel(overlaps=overlaps)  # type: ignore[assignment]
+    api_module._analytics_service = _StubAnalyticsServiceForHomeIntel(periods=periods)  # type: ignore[assignment]
+    report_repo = _MemReportRepo()
+    if report is not None:
+        report_repo.upsert({"appid": _HOME_INTEL_APPID, **report})
+    api_module._report_repo = report_repo  # type: ignore[assignment]
+
+
+def test_home_intel_snapshot_happy_path(client: TestClient) -> None:
+    """All four samples populated; computed_at present."""
+    _install_home_intel_repos(
+        report={
+            "one_liner": "A landmark CRPG.",
+            "design_strengths": ["Reactive narrative", "Combat depth", "Companion writing"],
+        },
+    )
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["sentiment_sample"] is not None
+    assert data["sentiment_sample"]["appid"] == _HOME_INTEL_APPID
+    assert data["sentiment_sample"]["name"] == "Baldur's Gate 3"
+    assert len(data["sentiment_sample"]["timeline"]) == 2
+
+    assert data["overlap_sample"] is not None
+    assert data["overlap_sample"]["overlaps"][0]["name"] == "Stardew Valley"
+
+    assert data["trend_sample"] is not None
+    assert data["trend_sample"]["periods"][0]["positive_pct"] == 80.0
+
+    assert data["report_sample"] is not None
+    assert data["report_sample"]["one_liner"] == "A landmark CRPG."
+    assert len(data["report_sample"]["design_strengths"]) == 3
+
+    assert data.get("computed_at")
+
+
+def test_home_intel_snapshot_partial_data_fallback(client: TestClient) -> None:
+    """Missing report and empty overlaps → those blocks null but 200 + other blocks intact."""
+    _install_home_intel_repos(overlaps=[], report=None)
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["sentiment_sample"] is not None
+    assert data["overlap_sample"] is None
+    assert data["trend_sample"] is not None
+    assert data["report_sample"] is None
+    assert data["computed_at"]
+
+
+def test_home_intel_snapshot_source_exception_isolated(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception in one source yields a null block but keeps 200 and other blocks populated."""
+    import lambda_functions.api.handler as api_module
+
+    _install_home_intel_repos(
+        report={
+            "one_liner": "A landmark CRPG.",
+            "design_strengths": ["Reactive narrative", "Combat depth", "Companion writing"],
+        },
+    )
+
+    def _raise_overlap_error(*args: object, **kwargs: object) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(api_module._matview_repo, "get_audience_overlap", _raise_overlap_error)
+
+    resp = client.get("/api/home/intel-snapshot")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["sentiment_sample"] is not None
+    assert data["overlap_sample"] is None
+    assert data["trend_sample"] is not None
+    assert data["trend_sample"]["periods"][0]["positive_pct"] == 80.0
+    assert data["report_sample"] is not None
+    assert data["report_sample"]["one_liner"] == "A landmark CRPG."
+    assert data["computed_at"]

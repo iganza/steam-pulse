@@ -298,7 +298,9 @@ class MatviewRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def refresh_one(self, name: str) -> int:
-        """REFRESH MATERIALIZED VIEW CONCURRENTLY <name>. Returns duration_ms."""
+        """REFRESH MATERIALIZED VIEW CONCURRENTLY <name>. Returns duration_ms,
+        or -1 if another session already holds the per-matview advisory lock
+        (treated as success-with-skip by callers)."""
         if name not in MATVIEW_NAMES:
             raise ValueError(f"Unknown matview name: {name!r}")
         # Snapshot conn — BaseRepository.conn re-invokes the factory per access.
@@ -308,14 +310,36 @@ class MatviewRepository(BaseRepository):
             conn.rollback()
         conn.autocommit = True
         try:
-            start = time.monotonic()
             with conn.cursor() as cur:
-                cur.execute(
-                    sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
-                        sql.Identifier(name)
+                cur.execute("SELECT pg_try_advisory_lock(hashtext(%s)) AS acquired", (name,))
+                row = cur.fetchone()
+                acquired = row["acquired"] if isinstance(row, dict) else row[0]
+                if not acquired:
+                    logger.warning(
+                        "Skipping REFRESH — another session holds the matview lock",
+                        extra={"matview": name},
                     )
-                )
-            return int((time.monotonic() - start) * 1000)
+                    return -1
+                try:
+                    start = time.monotonic()
+                    cur.execute(
+                        sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(
+                            sql.Identifier(name)
+                        )
+                    )
+                    return int((time.monotonic() - start) * 1000)
+                finally:
+                    # Swallow unlock failures so a broken connection mid-REFRESH
+                    # doesn't mask the REFRESH exception. TCP keepalive
+                    # (db.py:94-97) will reap the orphan backend and release the
+                    # session lock either way.
+                    try:
+                        cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (name,))
+                    except Exception:
+                        logger.exception(
+                            "pg_advisory_unlock failed; relying on session-close to release",
+                            extra={"matview": name},
+                        )
         finally:
             conn.autocommit = prev_autocommit
 
@@ -370,6 +394,4 @@ class MatviewRepository(BaseRepository):
             rowcount = cur.rowcount
         conn.commit()
         if rowcount == 0:
-            raise RuntimeError(
-                f"complete_cycle matched no row for cycle_id={cycle_id!r}"
-            )
+            raise RuntimeError(f"complete_cycle matched no row for cycle_id={cycle_id!r}")

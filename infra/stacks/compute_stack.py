@@ -520,7 +520,7 @@ class ComputeStack(cdk.Stack):
             vpc_subnets=private_subnets,
             security_groups=[intra_sg],
             timeout=cdk.Duration.minutes(15),
-            memory_size=384,
+            memory_size=512,
             tracing=lambda_.Tracing.DISABLED,
             recursive_loop=lambda_.RecursiveLoop.ALLOW,
             log_group=logs.LogGroup(
@@ -542,7 +542,7 @@ class ComputeStack(cdk.Stack):
         ingest_fn.add_event_source(
             event_sources.SqsEventSource(
                 spoke_results_queue,
-                batch_size=40,
+                batch_size=10,
                 max_batching_window=cdk.Duration.seconds(5),
                 max_concurrency=6,
                 report_batch_item_failures=True,

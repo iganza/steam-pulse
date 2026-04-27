@@ -38,7 +38,7 @@ export function ForDevelopers() {
         <p className="text-xs font-mono uppercase tracking-widest mb-2 text-teal">
           For game developers
         </p>
-        <h2 className="font-serif text-2xl md:text-3xl font-semibold text-foreground">
+        <h2 className="font-serif text-h2 font-semibold text-foreground">
           Built for the people who make games
         </h2>
       </div>

@@ -78,7 +78,7 @@ export default async function DeveloperPage({ params }: Props) {
         />
 
         <h1
-          className="font-serif text-4xl font-bold mt-6 mb-6"
+          className="font-serif text-h1 font-bold mt-6 mb-6"
           style={{ letterSpacing: "-0.03em" }}
         >
           {name}

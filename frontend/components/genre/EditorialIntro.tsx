@@ -22,7 +22,7 @@ export function EditorialIntro({ insights, shareUrl }: Props) {
   return (
     <header className="mb-12">
       <h1
-        className="font-serif text-4xl md:text-5xl font-bold mb-4"
+        className="font-serif text-h1 font-bold mb-4"
         style={{ letterSpacing: "-0.03em" }}
       >
         What {insights.display_name} Players Want, Hate, and Praise

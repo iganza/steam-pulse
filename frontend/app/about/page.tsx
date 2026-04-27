@@ -20,7 +20,7 @@ export default function AboutPage() {
       <main className="max-w-2xl mx-auto px-6 py-20 space-y-10">
         <header>
           <h1
-            className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-4 leading-tight"
+            className="font-serif text-h1 font-bold text-foreground mb-4 leading-tight"
             style={{ letterSpacing: "-0.03em" }}
           >
             About SteamPulse

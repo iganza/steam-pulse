@@ -79,7 +79,7 @@ export default async function TagPage({ params }: Props) {
               Tag
             </span>
             <h1
-              className="font-serif text-4xl font-bold"
+              className="font-serif text-h1 font-bold"
               style={{ letterSpacing: "-0.03em" }}
             >
               {name}

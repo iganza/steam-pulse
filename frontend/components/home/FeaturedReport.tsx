@@ -68,7 +68,7 @@ export function FeaturedReport({ insights, strip }: Props) {
       </p>
 
       <h2
-        className="font-serif text-2xl md:text-3xl font-bold mb-4 leading-tight"
+        className="font-serif text-h2 font-bold mb-4 leading-tight"
         style={{ letterSpacing: "-0.02em" }}
       >
         What {insights.display_name} Players Want, Hate, and Praise

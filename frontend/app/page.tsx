@@ -160,7 +160,7 @@ export default async function HomePage() {
         />
         <div className="relative max-w-3xl mx-auto px-6 pt-20 pb-12 text-center">
           <h1
-            className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-3 leading-tight"
+            className="font-serif text-h1 font-bold text-foreground mb-3 leading-tight"
             style={{ letterSpacing: "-0.03em" }}
           >
             Steam, decoded

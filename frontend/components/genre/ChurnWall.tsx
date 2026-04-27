@@ -28,7 +28,7 @@ export function ChurnWall({ insight, interpretation }: Props) {
   const hasHour = insight.typical_dropout_hour > 0;
   return (
     <section className="mb-16" data-testid="churn-wall">
-      <h2 className="font-serif text-2xl md:text-3xl font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
+      <h2 className="font-serif text-h2 font-bold mb-2" style={{ letterSpacing: "-0.02em" }}>
         The Churn Wall
       </h2>
       <p className="text-sm font-mono mb-8" style={{ color: "var(--muted-foreground)" }}>

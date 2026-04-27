@@ -74,7 +74,7 @@ export function GameHero({
           ))}
         </div>
         <h1
-          className="font-serif text-4xl md:text-5xl font-bold text-foreground leading-tight mb-2"
+          className="font-serif text-h1 font-bold text-foreground leading-tight mb-2"
           style={{ letterSpacing: "-0.03em" }}
         >
           {name}

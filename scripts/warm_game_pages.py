@@ -77,7 +77,6 @@ async def _warm_one(
 
 
 async def _worker(
-    name: str,
     client: httpx.AsyncClient,
     queue: "asyncio.Queue[str]",
     ok_ttfb: list[float],
@@ -128,10 +127,8 @@ async def _run(base_url: str, concurrency: int, read_timeout: float, cap: int) -
         errors: Counter[str] = Counter()
 
         workers = [
-            asyncio.create_task(
-                _worker(f"w{i}", client, queue, ok_ttfb, fail_ttfb, status_counts, errors)
-            )
-            for i in range(concurrency)
+            asyncio.create_task(_worker(client, queue, ok_ttfb, fail_ttfb, status_counts, errors))
+            for _ in range(concurrency)
         ]
         await asyncio.gather(*workers)
 

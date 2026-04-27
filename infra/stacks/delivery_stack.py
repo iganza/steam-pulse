@@ -97,6 +97,24 @@ class DeliveryStack(cdk.Stack):
             min_ttl=cdk.Duration.seconds(31_536_000),
             enable_accept_encoding_gzip=True,
         )
+        # Dedicated policy for the SSR-fanout /api/games/*/... endpoints.
+        # Allowlist only `limit` (used by /related-analyzed; other 3 take none) —
+        # never `CacheQueryStringBehavior.all()`, which would let arbitrary
+        # cache-busters like `?cb=<random>` mint unbounded distinct keys and
+        # bypass the edge cache entirely. Headers/cookies excluded — Next.js
+        # router signals don't apply to JSON API responses.
+        api_cache_policy = cloudfront.CachePolicy(
+            self,
+            "ApiCachePolicy",
+            default_ttl=cdk.Duration.seconds(0),
+            max_ttl=cdk.Duration.seconds(86_400 * 365),
+            min_ttl=cdk.Duration.seconds(0),
+            enable_accept_encoding_gzip=True,
+            enable_accept_encoding_brotli=True,
+            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+            cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.allow_list("limit"),
+        )
 
         # ── CloudFront ────────────────────────────────────────────────────────
         # Single shared origin per Lambda — reused across all behaviors so the
@@ -113,7 +131,7 @@ class DeliveryStack(cdk.Stack):
         api_cached_behavior = cloudfront.BehaviorOptions(
             origin=api_origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-            cache_policy=html_cache_policy,
+            cache_policy=api_cache_policy,
             origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
         )

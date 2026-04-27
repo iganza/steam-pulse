@@ -110,7 +110,7 @@ export function GameAnalyticsSection({ appid, gameName }: GameAnalyticsSectionPr
 
   return (
     <div className="space-y-6">
-      <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
+      <p className="text-eyebrow">
         Deep Dive Analytics
       </p>
       {hasPlaytime && <PlaytimeSentimentChart data={playtimeSentiment!} />}

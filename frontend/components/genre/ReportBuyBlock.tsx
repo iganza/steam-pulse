@@ -59,8 +59,8 @@ export function ReportBuyBlock({ report, variant = "main" }: Props) {
   return (
     <aside
       id={variant === "main" ? "buy" : undefined}
-      className={`rounded-xl ${padding}`}
-      style={{ background: "var(--card)", border: "1px solid var(--teal)" }}
+      className={`rounded-xl border border-teal ${padding}`}
+      style={{ background: "var(--card)" }}
       data-testid={`report-buy-block-${variant}`}
       data-state={report.is_pre_order ? "pre-order" : "live"}
     >
@@ -85,12 +85,7 @@ export function ReportBuyBlock({ report, variant = "main" }: Props) {
         type="button"
         onClick={checkout}
         disabled={loading}
-        className="w-full px-4 py-3 rounded-md text-sm font-mono uppercase tracking-widest transition-colors disabled:opacity-60 mb-4"
-        style={{
-          background: "var(--teal)",
-          color: "#0c0c0f",
-          border: "1px solid var(--border)",
-        }}
+        className="w-full px-4 py-3 rounded-md text-sm font-mono uppercase tracking-widest transition-colors disabled:opacity-60 mb-4 bg-teal text-background border border-border"
       >
         {loading ? "…" : `${actionVerb} — ${priceLabel}`}
       </button>

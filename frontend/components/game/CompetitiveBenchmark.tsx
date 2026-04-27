@@ -19,13 +19,10 @@ function BenchmarkBar({ label, rank, value }: { label: string; rank: number; val
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+        <span className="text-eyebrow">
           {label}
         </span>
-        <span
-          className="text-sm font-mono font-medium"
-          style={{ color: "var(--teal)" }}
-        >
+        <span className="text-sm font-mono font-medium text-teal">
           {value}
         </span>
       </div>

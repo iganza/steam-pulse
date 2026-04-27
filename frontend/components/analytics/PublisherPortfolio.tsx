@@ -151,7 +151,7 @@ export function PublisherPortfolio({ data }: PublisherPortfolioProps) {
         {/* Sentiment trajectory chart */}
         {trajectoryGames.length >= 3 && (
           <div>
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            <p className="text-eyebrow mb-3">
               Sentiment trajectory
             </p>
             <ResponsiveContainer width="100%" height={200}>

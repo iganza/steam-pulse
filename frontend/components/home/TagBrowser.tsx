@@ -98,12 +98,7 @@ export function TagBrowser({ groups }: { groups: TagGroup[] }) {
                     <Link
                       key={tag.id}
                       href={`/tag/${tag.slug}`}
-                      className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
-                      style={{
-                        background: "rgba(45,185,212,0.06)",
-                        border: "1px solid rgba(45,185,212,0.15)",
-                        color: "var(--teal)",
-                      }}
+                      className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground bg-teal/6 border border-teal/15 text-teal"
                     >
                       {tag.name}
                       {tag.game_count != null && (
@@ -116,8 +111,7 @@ export function TagBrowser({ groups }: { groups: TagGroup[] }) {
                   {hasMore && !showAll && (
                     <button
                       onClick={() => toggleShowAll(group.category)}
-                      className="text-sm px-3 py-1.5 font-mono transition-colors"
-                      style={{ color: "var(--teal)" }}
+                      className="text-sm px-3 py-1.5 font-mono transition-colors text-teal"
                     >
                       Show all {group.total_count} &rarr;
                     </button>

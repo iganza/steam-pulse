@@ -55,10 +55,7 @@ export function BenchmarkGrid({ items, totalCount, games, hasReport }: Props) {
                   {item.why_benchmark}
                 </p>
                 {slug && (
-                  <span
-                    className="mt-4 text-xs font-mono uppercase tracking-widest"
-                    style={{ color: "var(--teal)" }}
-                  >
+                  <span className="mt-4 text-xs font-mono uppercase tracking-widest text-teal">
                     Read the per-game analysis &rarr;
                   </span>
                 )}

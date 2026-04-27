@@ -127,7 +127,7 @@ export function PromiseGap({ alignment }: PromiseGapProps) {
           >
             {audience.label}
           </span>
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
+          <p className="text-eyebrow">
             Audience Match
           </p>
         </div>

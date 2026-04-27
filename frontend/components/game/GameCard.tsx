@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Gem } from "lucide-react";
 import { EarlyAccessBadge } from "@/components/game/EarlyAccessBadge";
+import { getScoreColor } from "@/lib/styles";
 import type { Game } from "@/lib/types";
 
 interface GameCardProps {
@@ -12,8 +13,7 @@ export function GameCard({ game }: GameCardProps) {
   const href = `/games/${game.appid}/${game.slug}`;
   // Steam's positive_pct is the only sentiment number on cards
   const score = game.positive_pct;
-  const scoreColor =
-    (score ?? 0) >= 75 ? "#22c55e" : (score ?? 0) >= 50 ? "#f59e0b" : "#ef4444";
+  const scoreColor = getScoreColor(score ?? 0);
 
   return (
     <Link

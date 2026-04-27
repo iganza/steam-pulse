@@ -107,7 +107,7 @@ export default async function PublisherPage({ params }: Props) {
         {/* Sentiment across catalog */}
         {games.length > 0 && (
           <div className="mb-8 p-4 rounded-xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+            <p className="text-eyebrow mb-3">
               Sentiment Across Catalog
             </p>
             <div className="space-y-2">

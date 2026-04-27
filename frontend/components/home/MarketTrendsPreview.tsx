@@ -121,7 +121,7 @@ export function MarketTrendsPreview() {
             border: "1px solid var(--border)",
           }}
         >
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+          <p className="text-eyebrow mb-3">
             Positively rated releases
           </p>
           {loading ? (
@@ -190,7 +190,7 @@ export function MarketTrendsPreview() {
             border: "1px solid var(--border)",
           }}
         >
-          <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+          <p className="text-eyebrow mb-3">
             {RELEASE_LABEL[granularity]}
           </p>
           {loading ? (

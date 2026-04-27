@@ -86,11 +86,11 @@ export function PlatformGaps({ data }: PlatformGapsProps) {
 
         {underservedPlatform && underservedStats && (
           <div
-            className="mt-4 rounded-lg p-3 text-xs"
-            style={{ background: "var(--card)", border: "1px solid var(--teal)" }}
+            className="mt-4 rounded-lg p-3 text-xs border border-teal"
+            style={{ background: "var(--card)" }}
           >
             <p>
-              <span className="font-medium" style={{ color: "var(--teal)" }}>Opportunity: </span>
+              <span className="font-medium text-teal">Opportunity: </span>
               Only {underservedStats.pct}% of {data.genre} games support{" "}
               {underservedPlatform === "mac" ? "macOS" : underservedPlatform === "linux" ? "Linux" : "Windows"}
               {" "}&mdash; those that do average {underservedStats.avg_steam_pct != null ? `${underservedStats.avg_steam_pct}%` : "\u2014"} positive

@@ -31,10 +31,7 @@ export default function AboutPage() {
         </header>
 
         <section className="space-y-4" id="what">
-          <h2
-            className="text-xs uppercase tracking-widest font-mono"
-            style={{ color: "var(--teal)" }}
-          >
+          <h2 className="text-xs uppercase tracking-widest font-mono text-teal">
             What SteamPulse is
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
@@ -53,10 +50,7 @@ export default function AboutPage() {
         </section>
 
         <section className="space-y-4" id="methodology">
-          <h2
-            className="text-xs uppercase tracking-widest font-mono"
-            style={{ color: "var(--teal)" }}
-          >
+          <h2 className="text-xs uppercase tracking-widest font-mono text-teal">
             Methodology
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
@@ -82,10 +76,7 @@ export default function AboutPage() {
         </section>
 
         <section className="space-y-4" id="author">
-          <h2
-            className="text-xs uppercase tracking-widest font-mono"
-            style={{ color: "var(--teal)" }}
-          >
+          <h2 className="text-xs uppercase tracking-widest font-mono text-teal">
             Who made this
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
@@ -100,10 +91,7 @@ export default function AboutPage() {
         </section>
 
         <section className="space-y-4" id="contact">
-          <h2
-            className="text-xs uppercase tracking-widest font-mono"
-            style={{ color: "var(--teal)" }}
-          >
+          <h2 className="text-xs uppercase tracking-widest font-mono text-teal">
             Contact
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">

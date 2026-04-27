@@ -75,14 +75,7 @@ export default async function TagPage({ params }: Props) {
 
         <div className="mt-6 mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <span
-              className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded"
-              style={{
-                background: "rgba(45,185,212,0.1)",
-                border: "1px solid rgba(45,185,212,0.2)",
-                color: "var(--teal)",
-              }}
-            >
+            <span className="text-xs font-mono uppercase tracking-widest px-2 py-0.5 rounded bg-teal/10 border border-teal/20 text-teal">
               Tag
             </span>
             <h1
@@ -97,7 +90,7 @@ export default async function TagPage({ params }: Props) {
         {/* Related Tags */}
         {relatedTags.length > 0 && (
           <div className="mb-10">
-            <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-2">
+            <p className="text-eyebrow mb-2">
               {currentCategory ? `More ${currentCategory} Tags` : "Related Tags"}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -105,12 +98,7 @@ export default async function TagPage({ params }: Props) {
                 <Link
                   key={t.id}
                   href={`/tag/${t.slug}`}
-                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground"
-                  style={{
-                    background: "rgba(45,185,212,0.06)",
-                    border: "1px solid rgba(45,185,212,0.15)",
-                    color: "var(--teal)",
-                  }}
+                  className="text-sm px-3 py-1.5 rounded-full font-mono transition-colors hover:text-foreground bg-teal/6 border border-teal/15 text-teal"
                 >
                   {t.name}
                 </Link>

@@ -67,12 +67,7 @@ export function GameHero({
             <Link
               key={g}
               href={`/genre/${slugify(g)}`}
-              className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded"
-              style={{
-                background: "rgba(45,185,212,0.1)",
-                border: "1px solid rgba(45,185,212,0.2)",
-                color: "var(--teal)",
-              }}
+              className="text-xs uppercase tracking-widest font-mono px-2 py-0.5 rounded bg-teal/10 border border-teal/20 text-teal"
             >
               {g}
             </Link>
@@ -91,8 +86,7 @@ export function GameHero({
                 by{" "}
                 <Link
                   href={`/developer/${developerSlug ?? slugify(developer)}`}
-                  className="hover:underline"
-                  style={{ color: "var(--teal)" }}
+                  className="hover:underline text-teal"
                 >
                   {developer}
                 </Link>
@@ -104,8 +98,7 @@ export function GameHero({
                 published by{" "}
                 <Link
                   href={`/publisher/${publisherSlug ?? slugify(publisher!)}`}
-                  className="hover:underline"
-                  style={{ color: "var(--teal)" }}
+                  className="hover:underline text-teal"
                 >
                   {publisher}
                 </Link>

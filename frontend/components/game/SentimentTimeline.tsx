@@ -25,7 +25,7 @@ export function SentimentTimeline({ timeline }: SentimentTimelineProps) {
 
   return (
     <div data-testid="sentiment-timeline">
-      <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground mb-3">
+      <p className="text-eyebrow mb-3">
         Sentiment over time
       </p>
       <ResponsiveContainer width="100%" height={140}>

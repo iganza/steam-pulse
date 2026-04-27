@@ -65,7 +65,7 @@ export function RequestAnalysis({
         className="rounded-xl p-6"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
-        <p className="font-mono text-base" style={{ color: "var(--teal)" }}>
+        <p className="font-mono text-base text-teal">
           You&apos;re on the list.
         </p>
         <p className="mt-2 text-sm text-muted-foreground font-mono">
@@ -94,7 +94,7 @@ export function RequestAnalysis({
         A SteamPulse report covers player sentiment clusters, wishlist signals,
         retention friction points, and competitive context — cited, ~5,000 words.
       </p>
-      <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
+      <p className="text-eyebrow mb-4">
         {socialProof} · usually ready within 2 weeks of hitting ~20 requests
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
@@ -117,8 +117,7 @@ export function RequestAnalysis({
           <button
             type="submit"
             disabled={status === "submitting"}
-            className="px-4 py-2 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors disabled:opacity-50"
-            style={{ background: "var(--teal)", color: "#0c0c0f" }}
+            className="px-4 py-2 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors disabled:opacity-50 bg-teal text-background"
           >
             {status === "submitting" ? "Sending..." : "Notify me"}
           </button>
@@ -158,7 +157,7 @@ function CompactCta({
   if (status === "requested" || status === "already_requested") {
     return (
       <div className="flex items-center gap-2 text-xs">
-        <span className="font-mono" style={{ color: "var(--teal)" }}>
+        <span className="font-mono text-teal">
           {status === "requested" ? "Requested!" : "Already requested"}
         </span>
         {requestCount > 0 && (
@@ -188,8 +187,7 @@ function CompactCta({
           <button
             type="submit"
             disabled={status === "submitting"}
-            className="px-3 py-1 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors disabled:opacity-50"
-            style={{ background: "var(--teal)", color: "#0c0c0f" }}
+            className="px-3 py-1 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors disabled:opacity-50 bg-teal text-background"
           >
             {status === "submitting" ? "..." : "Submit"}
           </button>
@@ -210,8 +208,7 @@ function CompactCta({
     <div className="flex items-center gap-3">
       <button
         onClick={() => setShowInput(true)}
-        className="px-3 py-1 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors hover:opacity-90"
-        style={{ background: "var(--teal)", color: "#0c0c0f" }}
+        className="px-3 py-1 rounded-lg font-mono uppercase tracking-widest text-xs transition-colors hover:opacity-90 bg-teal text-background"
       >
         Request Analysis
       </button>

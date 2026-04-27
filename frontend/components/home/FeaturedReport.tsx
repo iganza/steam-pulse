@@ -63,10 +63,7 @@ export function FeaturedReport({ insights, strip }: Props) {
         border: "1px solid var(--border)",
       }}
     >
-      <p
-        className="text-xs font-mono uppercase tracking-widest mb-4"
-        style={{ color: "var(--teal)" }}
-      >
+      <p className="text-xs font-mono uppercase tracking-widest mb-4 text-teal">
         Featured Report · New
       </p>
 
@@ -83,7 +80,7 @@ export function FeaturedReport({ insights, strip }: Props) {
         patterns, wishlist gaps, benchmark games, and ranked dev priorities.
       </p>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-eyebrow">
         <span>{insights.input_count} games synthesised</span>
         <span>·</span>
         <span>{positivePct}% positive</span>

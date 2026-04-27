@@ -22,7 +22,7 @@ export function PlaytimeChart({ buckets, insight }: PlaytimeChartProps) {
   return (
     <div data-testid="playtime-chart">
       <div className="flex items-center gap-2 mb-4">
-        <p className="text-xs uppercase tracking-widest font-mono text-muted-foreground">
+        <p className="text-eyebrow">
           Sentiment by time invested
         </p>
         <span className="text-xs font-mono text-muted-foreground">

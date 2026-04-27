@@ -17,7 +17,7 @@ export function ProofBar({ totalGames, genreCount }: ProofBarProps) {
           {i > 0 && (
             <span className="text-muted-foreground/40 mr-1.5">·</span>
           )}
-          <span className="font-mono font-medium" style={{ color: "var(--teal)" }}>
+          <span className="font-mono font-medium text-teal">
             {stat.value}
           </span>
           <span className="text-muted-foreground">{stat.label}</span>

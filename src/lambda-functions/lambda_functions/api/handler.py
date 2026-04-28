@@ -23,12 +23,13 @@ from library_layer.repositories.report_repo import ReportRepository
 from library_layer.repositories.review_repo import ReviewRepository
 from library_layer.repositories.tag_repo import TagRepository
 from library_layer.repositories.waitlist_repo import WaitlistRepository
+from library_layer.repositories.waitlist_suggestion_repo import WaitlistSuggestionRepository
 from library_layer.services.analytics_service import AnalyticsService
 from library_layer.services.catalog_report_service import CatalogReportService
 from library_layer.services.new_releases_service import NewReleasesService
 from library_layer.services.new_releases_service import Window as NewReleasesWindow
 from library_layer.utils.db import get_conn
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 logger = Logger(service="api")
 
@@ -65,6 +66,7 @@ _report_repo = ReportRepository(get_conn)
 _review_repo = ReviewRepository(get_conn)
 _tag_repo = TagRepository(get_conn)
 _waitlist_repo = WaitlistRepository(get_conn)
+_waitlist_suggestion_repo = WaitlistSuggestionRepository(get_conn)
 _matview_repo = MatviewRepository(get_conn)
 _new_releases_repo = NewReleasesRepository(get_conn)
 _new_releases_service = NewReleasesService(_new_releases_repo)
@@ -82,6 +84,11 @@ _genre_synthesis_repo = GenreSynthesisRepository(get_conn)
 
 class WaitlistRequest(BaseModel):
     email: EmailStr
+
+
+class WaitlistSuggestionRequest(BaseModel):
+    email: EmailStr
+    suggestion: str = Field(min_length=1, max_length=2000)
 
 
 class AnalysisRequestBody(BaseModel):
@@ -1028,6 +1035,20 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
         )
 
     return {"status": "registered"}
+
+
+@app.post("/api/waitlist/suggestion")
+async def submit_waitlist_suggestion(body: WaitlistSuggestionRequest) -> dict:
+    """Record a freeform Pro-feature suggestion from a waitlist member."""
+    normalized_email = body.email.strip().lower()
+    suggestion = body.suggestion.strip()
+    if not suggestion:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Suggestion cannot be empty", "code": "empty_suggestion"},
+        )
+    _waitlist_suggestion_repo.add(normalized_email, suggestion)
+    return {"status": "received"}
 
 
 @app.post("/api/chat")

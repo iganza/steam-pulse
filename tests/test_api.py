@@ -90,6 +90,17 @@ class _MemWaitlistRepo:
         return True
 
 
+class _MemWaitlistSuggestionRepo:
+    def __init__(self) -> None:
+        self.rows: list[tuple[str, str]] = []
+
+    def add(self, email: str, suggestion: str) -> None:
+        self.rows.append((email, suggestion))
+
+    def count(self) -> int:
+        return len(self.rows)
+
+
 class _MemCatalogReportRepo:
     """Stub for CatalogReportRepository — returns empty results by default."""
 
@@ -141,6 +152,7 @@ def reset_api_state() -> None:
     api_module._matview_repo = _MemMatviewRepo()  # type: ignore[assignment]
     api_module._job_repo = _MemJobRepo()  # type: ignore[assignment]
     api_module._waitlist_repo = _MemWaitlistRepo()  # type: ignore[assignment]
+    api_module._waitlist_suggestion_repo = _MemWaitlistSuggestionRepo()  # type: ignore[assignment]
     api_module._catalog_report_repo = _MemCatalogReportRepo()  # type: ignore[assignment]
     api_module._analysis_request_repo = _MemAnalysisRequestRepo()  # type: ignore[assignment]
     api_module._catalog_report_service = CatalogReportService(  # type: ignore[assignment]
@@ -597,6 +609,42 @@ def test_waitlist_rejects_empty_email(client: TestClient) -> None:
     """POST /api/waitlist with an empty string returns 422."""
     resp = client.post("/api/waitlist", json={"email": ""})
     assert resp.status_code == 422
+
+
+def test_waitlist_suggestion_records_payload(client: TestClient) -> None:
+    """POST /api/waitlist/suggestion stores trimmed email and trimmed suggestion."""
+    import lambda_functions.api.handler as api_module
+
+    resp = client.post(
+        "/api/waitlist/suggestion",
+        json={"email": "  Tester@Example.com ", "suggestion": "  weekly genre digest  "},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "received"}
+    repo = api_module._waitlist_suggestion_repo
+    assert repo.count() == 1
+    assert repo.rows[0] == ("tester@example.com", "weekly genre digest")
+
+
+def test_waitlist_suggestion_rejects_empty_text(client: TestClient) -> None:
+    """POST /api/waitlist/suggestion with whitespace-only suggestion returns 400."""
+    resp = client.post(
+        "/api/waitlist/suggestion",
+        json={"email": "user@example.com", "suggestion": "   "},
+    )
+    assert resp.status_code == 400
+
+
+def test_waitlist_suggestion_allows_unknown_email(client: TestClient) -> None:
+    """Suggestion endpoint accepts emails not present in waitlist (soft coupling)."""
+    import lambda_functions.api.handler as api_module
+
+    resp = client.post(
+        "/api/waitlist/suggestion",
+        json={"email": "stranger@example.com", "suggestion": "track competitor sentiment"},
+    )
+    assert resp.status_code == 200
+    assert api_module._waitlist_suggestion_repo.count() == 1
 
 
 # ---------------------------------------------------------------------------

@@ -464,6 +464,15 @@ TABLES: tuple[str, ...] = (
     "ALTER TABLE games ADD COLUMN IF NOT EXISTS has_early_access_reviews BOOLEAN DEFAULT FALSE",
     # 0055_review_count_at_last_fetch — delta gate for review refetch dispatcher
     "ALTER TABLE app_catalog ADD COLUMN IF NOT EXISTS review_count_at_last_fetch INTEGER NOT NULL DEFAULT 0",
+    # 0056_waitlist_suggestions — optional Pro-feature suggestions captured post-signup
+    """
+    CREATE TABLE IF NOT EXISTS waitlist_suggestions (
+        id          SERIAL PRIMARY KEY,
+        email       TEXT NOT NULL,
+        suggestion  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
 )
 
 # Indexes — kept for test suite use only.

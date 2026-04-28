@@ -71,6 +71,7 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
     publisher?: string;
     publisher_slug?: string;
     release_date?: string;
+    coming_soon?: boolean;
     price_usd?: number | null;
     is_free?: boolean;
     is_early_access?: boolean;

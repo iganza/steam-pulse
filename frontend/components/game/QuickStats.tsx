@@ -23,6 +23,7 @@ interface QuickStatsProps {
    *  "N analyzed" subtitle — never as the main tile value. */
   totalReviewsAnalyzed: number | null;
   releaseDate?: string;
+  comingSoon?: boolean;
   price: string;
   /** Non-null when the game has been analyzed. Triggers the extra "Analyzed"
    *  tile and bumps the grid from 4 columns to 5. */
@@ -58,6 +59,7 @@ export function QuickStats({
   reviewCountAllLanguages,
   totalReviewsAnalyzed,
   releaseDate,
+  comingSoon,
   price,
   lastAnalyzed,
   reviewStats,
@@ -129,7 +131,9 @@ export function QuickStats({
         <div className={TILE_CLASS} style={TILE_STYLE}>
           <div className="flex items-center gap-2 text-muted-foreground mb-2">
             <Calendar className="w-4 h-4" />
-            <span className="text-sm uppercase tracking-widest font-mono">Released</span>
+            <span className="text-sm uppercase tracking-widest font-mono">
+              {comingSoon ? "Releases" : "Released"}
+            </span>
           </div>
           {releaseDate ? (
             <p className="font-mono text-base font-medium">

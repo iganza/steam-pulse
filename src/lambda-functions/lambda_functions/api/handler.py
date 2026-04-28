@@ -283,6 +283,7 @@ async def get_game_report(appid: int) -> JSONResponse:
             "publisher": game.publisher,
             "publisher_slug": game.publisher_slug,
             "release_date": game.release_date,
+            "coming_soon": game.coming_soon,
             "price_usd": float(game.price_usd) if game.price_usd else None,
             "is_free": game.is_free,
             "is_early_access": any(g["id"] == EARLY_ACCESS_GENRE_ID for g in genre_rows),

@@ -39,7 +39,7 @@ To make this fit, the spec is deliberately compact:
      - Right (60%): game name + sentiment chip (`positive_pct`), the report's `one_liner` in serif italic (text-sm, clamp 2 lines), then two short blocks — `✓ What works` (first item from `design_strengths`, text-xs, clamp 2 lines) and `⚠ What hurts` (first item from `gameplay_friction`, text-xs, clamp 2 lines)
      - Footer of panel: `Based on {total_reviews_analyzed} reviews · Read full analysis →` linking to `/games/{appid}/{slug}`
    - Anchors: BG3 (1086940), Stardew Valley (413150), Cyberpunk 2077 (1091500) — fed by parallel `getGameBasics([...])` + per-appid `getGameReport(appid)` calls in the page-level `Promise.allSettled`
-   - Per-game report cached for ~1 day (existing `getGameReport` ISR already at `revalidate: 31536000` with the `game-{appid}` tag)
+   - Per-game report cached for ~1 day on the homepage. `getGameReport` accepts an optional `revalidate` override; the homepage passes `revalidate: 86400`. The default (used by the deep `/games/{appid}/{slug}` page) remains `31536000` (~1 year) since reports are immutable until manually re-analysed (and tag-purged via `game-{appid}`).
    - If a report is missing for any anchor, that game falls back to basics-only (`one_liner`/strength/friction null) — panel still renders gracefully
    - Lives between hero and Market Trends so the trust signal + value proof both arrive before the platform demo; the headline insight pair (one strength + one friction) per game proves we synthesize, not just summarize Steam metadata
 
@@ -141,7 +141,7 @@ Local:
 - Click each tab and verify the panel content swaps — image, name, sentiment %, one-liner, "What works" sentence, "What hurts" sentence, and "Based on N reviews · Read full analysis →" all change.
 - Click "Read full analysis" on at least one panel and verify it lands on `/games/{appid}/{slug}` showing the full report.
 - Scroll again → MarketTrendsPreview charts (granularity toggle still functional) → Just Analyzed (3 full GameCard tiles) → repeat CTA.
-- Submit a test email. Verify it hits `POST /api/waitlist` and a confirmation email is sent via SES (check `RequestAnalysis.tsx` for the existing fetch pattern and replicate). Verify duplicate submission shows the `already_requested` state gracefully.
+- Submit a test email. Verify it hits `POST /api/waitlist` and a confirmation email is sent via SES. Verify duplicate submission shows the `already_registered` state gracefully, and that submitting whitespace shows an inline validation message.
 - `pnpm build` (or `next build`) — must pass with no broken imports from deleted components.
 - `pnpm lint` and `pnpm typecheck` — no errors.
 - Visual check: navigate via top nav to `/games/{appid}` and `/genre/{slug}` deep pages — they must still render correctly (they use their own data fetches, not landing-page imports).

@@ -27,13 +27,19 @@ export function WaitlistEmailForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (status === "submitting") return; // guard re-entrancy: `disabled` only kicks in after re-render
-    if (!email.trim()) return;
 
-    setStatus("submitting");
+    const normalizedEmail = email.trim();
     setError("");
 
+    if (!normalizedEmail) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    setStatus("submitting");
+
     try {
-      const result = await joinWaitlist(email.trim());
+      const result = await joinWaitlist(normalizedEmail);
       setStatus(result.status);
       plausible("Waitlist Signup", { props: { status: result.status, variant } });
     } catch {

@@ -57,8 +57,17 @@ async function apiFetch<T>(
   return res.json();
 }
 
-/** GET /api/games/{appid}/report — full report JSON */
-export async function getGameReport(appid: number, signal?: AbortSignal): Promise<{
+/** GET /api/games/{appid}/report — full report JSON.
+ * `revalidate` defaults to 1 year for the deep game page (reports are immutable
+ * once published; manual `revalidatePath` purges via the `game-{appid}` tag
+ * handle re-analysis). Callers that surface the report on faster-moving
+ * pages — e.g. the homepage Featured analyses showcase — should pass a
+ * shorter window so updates land within the page's own ISR cadence.
+ */
+export async function getGameReport(
+  appid: number,
+  opts: { signal?: AbortSignal; revalidate?: number } = {},
+): Promise<{
   status: string;
   report?: GameReport;
   game?: {
@@ -97,8 +106,8 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
-    signal,
-    next: { revalidate: 31536000, tags: [`game-${appid}`] },
+    signal: opts.signal,
+    next: { revalidate: opts.revalidate ?? 31536000, tags: [`game-${appid}`] },
   });
 }
 

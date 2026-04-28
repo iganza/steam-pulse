@@ -52,7 +52,7 @@ export function FeaturedAnalysesShowcase({ entries }: Props) {
                 key={entry.appid}
                 role="tab"
                 aria-selected={isActive}
-                aria-controls={`showcase-panel-${entry.appid}`}
+                aria-controls="featured-analyses-panel"
                 id={`showcase-tab-${entry.appid}`}
                 onClick={() => setActive(i)}
                 className="px-3 py-1.5 rounded-full text-xs font-mono uppercase tracking-widest transition-colors"
@@ -71,22 +71,23 @@ export function FeaturedAnalysesShowcase({ entries }: Props) {
 
       <div
         role="tabpanel"
-        id={`showcase-panel-${e.appid}`}
+        id="featured-analyses-panel"
         aria-labelledby={`showcase-tab-${e.appid}`}
         className="rounded-2xl overflow-hidden grid grid-cols-1 md:grid-cols-[40%_60%] gap-0"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}
       >
         <div className="relative aspect-[460/215] md:aspect-auto bg-secondary">
-          {e.header_image && (
-            <Image
-              src={e.header_image}
-              alt={e.name}
-              fill
-              sizes="(max-width: 768px) 100vw, 40vw"
-              className="object-cover"
-              priority={active === 0}
-            />
-          )}
+          <Image
+            src={
+              e.header_image ??
+              `https://cdn.akamai.steamstatic.com/steam/apps/${e.appid}/header.jpg`
+            }
+            alt={e.name}
+            fill
+            sizes="(max-width: 768px) 100vw, 40vw"
+            className="object-cover"
+            priority={active === 0}
+          />
         </div>
 
         <div className="p-5 flex flex-col gap-3">

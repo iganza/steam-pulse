@@ -44,7 +44,10 @@ export default async function HomePage() {
   ] = await Promise.allSettled([
     getDiscoveryFeed("just_analyzed", 3),
     getGameBasics([...SHOWCASE_APPIDS]),
-    ...SHOWCASE_APPIDS.map((appid) => getGameReport(appid)),
+    // Shorter revalidate than the default 1y so showcase teasers refresh
+    // within the homepage's 5-minute ISR cadence (report content can update
+    // when an anchor game is re-analyzed).
+    ...SHOWCASE_APPIDS.map((appid) => getGameReport(appid, { revalidate: 86400 })),
   ]);
 
   const analyzedGames: Game[] =

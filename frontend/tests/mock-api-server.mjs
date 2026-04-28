@@ -486,6 +486,27 @@ const server = createServer((req, res) => {
     })
   }
 
+  if (path === '/api/games/8888888/report') {
+    return respond(res, 200, {
+      status: 'not_available',
+      game: {
+        name: 'Coming Soon Game',
+        slug: 'coming-soon-game-8888888',
+        short_desc: 'A game that has not released yet.',
+        developer: 'Future Studio',
+        release_date: '2028-10-31',
+        coming_soon: true,
+        price_usd: null,
+        is_free: false,
+        is_early_access: false,
+        positive_pct: null,
+        review_score_desc: null,
+        review_count: 0,
+        review_count_english: 0,
+      },
+    })
+  }
+
   if (path === '/api/games/9999999/report') {
     const now = new Date()
     const twoHoursAgo = new Date(now.getTime() - 2 * 3600 * 1000).toISOString()

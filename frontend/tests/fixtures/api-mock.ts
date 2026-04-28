@@ -132,7 +132,7 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: { games: MOCK_GAMES_LIST.games } })
   )
 
-  // Catalog stats (ProofBar)
+  // Catalog stats (homepage proof line)
   await page.route('**/api/catalog/stats', route =>
     route.fulfill({ json: { total_games: MOCK_GAMES_LIST.total } })
   )

@@ -679,7 +679,7 @@ const server = createServer((req, res) => {
     return respond(res, 200, { games: MOCK_GAMES_LIST.games })
   }
 
-  // Catalog stats (homepage ProofBar)
+  // Catalog stats (homepage proof line)
   if (path === '/api/catalog/stats') {
     return respond(res, 200, { total_games: MOCK_GAMES_LIST.total })
   }

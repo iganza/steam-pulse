@@ -7,51 +7,53 @@ test.describe('Home page', () => {
     await page.goto('/')
   })
 
-  test('renders search hero with placeholder', async ({ page }) => {
-    const input = page.getByPlaceholder(/search.*steam games/i)
-    await expect(input).toBeVisible()
-  })
-
-  test('typing in search navigates to /search with q param', async ({ page }) => {
-    const input = page.getByPlaceholder(/search.*steam games/i)
-    await input.fill('hollow knight')
-    await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(/\/search\?q=hollow/)
-  })
-
-  test('page heading is present', async ({ page }) => {
+  test('hero heading is present', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /steam, decoded/i })).toBeVisible()
   })
 
-  test('proof bar shows game count', async ({ page }) => {
-    await expect(page.getByText(/games tracked/i)).toBeVisible()
+  test('hero waitlist form is the primary above-the-fold CTA', async ({ page }) => {
+    const form = page.getByTestId('waitlist-form-hero')
+    await expect(form).toBeVisible()
+    await expect(form.getByRole('button', { name: /join the pro waitlist/i })).toBeVisible()
+    await expect(form.getByPlaceholder(/your@email\.com/i)).toBeVisible()
   })
 
-  test('featured report card is visible with synthesis CTA', async ({ page }) => {
-    await expect(page.getByText(/featured report · new/i)).toBeVisible()
-    await expect(page.getByRole('link', { name: /read the free synthesis/i })).toBeVisible()
+  test('repeat waitlist form renders at the bottom of the page', async ({ page }) => {
+    await expect(page.getByTestId('waitlist-form-repeat')).toBeVisible()
   })
 
-  test('featured report game strip links to the SEO-anchor games', async ({ page }) => {
-    // Mock-api-server seeds BG3 / Stardew / Cyberpunk for /api/games/basics;
-    // each renders as a Link to /games/{appid}/{slug}.
-    await expect(page.getByRole('link', { name: /baldur'?s gate 3/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /stardew valley/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /cyberpunk 2077/i })).toBeVisible()
+  test('Featured analyses tabbed showcase renders all three anchors', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /featured analyses/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /baldur'?s gate 3/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /stardew valley/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /cyberpunk 2077/i })).toBeVisible()
   })
 
-  test('for developers section is visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /built for the people who make games/i })).toBeVisible()
+  test('clicking a Featured analyses tab swaps the panel content', async ({ page }) => {
+    const stardewTab = page.getByRole('tab', { name: /stardew valley/i })
+    await stardewTab.click()
+    await expect(stardewTab).toHaveAttribute('aria-selected', 'true')
+    // Panel should reflect the active tab via aria-controls/aria-labelledby wiring
+    const panel = page.getByRole('tabpanel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading', { name: /stardew valley/i })).toBeVisible()
   })
 
-  test('footer CTA is visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /free to explore/i })).toBeVisible()
+  test('Featured analyses panel exposes a "Read full analysis" deep link', async ({ page }) => {
+    const panel = page.getByRole('tabpanel')
+    const readLink = panel.getByRole('link', { name: /read full analysis/i })
+    await expect(readLink).toBeVisible()
+    const href = await readLink.getAttribute('href')
+    expect(href).toMatch(/^\/games\/\d+\//)
+  })
+
+  test('Just analyzed section renders the latest analyzed games', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /just analyzed/i })).toBeVisible()
   })
 
   test('navbar Browse dropdown opens and shows genres', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Browse dropdown is desktop-only — mobile uses hamburger menu')
     await page.getByRole('button', { name: /browse/i }).click()
-    // Scope to the dropdown link to avoid strict-mode hits from genre grid
     await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
   })
 
@@ -72,23 +74,9 @@ test.describe('Home page', () => {
     await expect(page.getByText(/\$15/)).not.toBeVisible()
   })
 
-  test('Browse by Tag section shows grouped categories', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /browse by tag/i })).toBeVisible()
-    // At least one category header should be visible (Genre is expanded by default)
-    await expect(page.getByText('Genre')).toBeVisible()
-  })
-
-  test('Browse by Tag search filters tags', async ({ page }) => {
-    const search = page.getByPlaceholder(/search tags/i)
-    await expect(search).toBeVisible()
-    await search.fill('Action')
-    await expect(page.getByRole('link', { name: /^Action/ }).first()).toBeVisible()
-  })
-
   test('Market Trends section is visible with granularity toggle', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /market trends/i })).toBeVisible()
     const section = page.locator('section').filter({ hasText: 'Market Trends' })
-    // The toggle renders Week / Month / Quarter / Year buttons.
     await expect(section.getByRole('button', { name: /^Week$/ })).toBeVisible()
     await expect(section.getByRole('button', { name: /^Month$/ })).toBeVisible()
     await expect(section.getByRole('button', { name: /^Quarter$/ })).toBeVisible()
@@ -97,9 +85,7 @@ test.describe('Home page', () => {
 
   test('switching granularity refetches trend data with new param', async ({ page }) => {
     const section = page.locator('section').filter({ hasText: 'Market Trends' })
-    // Wait for the initial default (year) fetch to settle before we interact.
     await expect(section.getByRole('button', { name: /^Year$/ })).toBeVisible()
-    // Clicking "Month" should trigger a refetch with granularity=month.
     const sentimentReq = page.waitForRequest((req) =>
       /\/api\/analytics\/trends\/sentiment\?.*granularity=month/.test(req.url()),
     )

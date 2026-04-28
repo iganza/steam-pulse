@@ -684,6 +684,11 @@ const server = createServer((req, res) => {
     return respond(res, 200, { total_games: MOCK_GAMES_LIST.total })
   }
 
+  // Waitlist signup (homepage Pro waitlist form)
+  if (path === '/api/waitlist' && req.method === 'POST') {
+    return respond(res, 200, { status: 'registered' })
+  }
+
   // Games list (wildcard — must come after specific /report routes)
   if (path.startsWith('/api/games')) {
     return respond(res, 200, MOCK_GAMES_LIST)

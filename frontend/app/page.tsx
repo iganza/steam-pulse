@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import { Clock } from "lucide-react";
-import { getDiscoveryFeed, getCatalogStats } from "@/lib/api";
+import { getDiscoveryFeed, getGameBasics, getGameReport } from "@/lib/api";
+import type { GameBasicsEntry } from "@/lib/api";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { WaitlistEmailForm } from "@/components/home/WaitlistEmailForm";
+import { FeaturedAnalysesShowcase } from "@/components/home/FeaturedAnalysesShowcase";
+import type { ShowcaseEntry } from "@/components/home/FeaturedAnalysesShowcase";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game } from "@/lib/types";
+
+const SHOWCASE_APPIDS = [1086940, 413150, 1091500] as const;
 
 export const metadata: Metadata = {
   title: "SteamPulse — Steam Game Intelligence",
@@ -32,15 +37,42 @@ export const metadata: Metadata = {
 const HERO_SUBTEXT = "Free reports today. Pro launches soon. No spam.";
 
 export default async function HomePage() {
-  const [justAnalyzed, catalogStats] = await Promise.allSettled([
+  const [
+    justAnalyzed,
+    showcase,
+    ...reportResults
+  ] = await Promise.allSettled([
     getDiscoveryFeed("just_analyzed", 3),
-    getCatalogStats(),
+    getGameBasics([...SHOWCASE_APPIDS]),
+    ...SHOWCASE_APPIDS.map((appid) => getGameReport(appid)),
   ]);
 
   const analyzedGames: Game[] =
     justAnalyzed.status === "fulfilled" ? justAnalyzed.value.games ?? [] : [];
-  const totalGames =
-    catalogStats.status === "fulfilled" ? catalogStats.value.total_games : 0;
+  const showcaseGames: GameBasicsEntry[] =
+    showcase.status === "fulfilled" ? showcase.value : [];
+
+  const showcaseEntries: ShowcaseEntry[] = [];
+  SHOWCASE_APPIDS.forEach((appid, i) => {
+    const basics = showcaseGames.find((g) => g.appid === appid);
+    if (!basics) return;
+    const reportResult = reportResults[i];
+    const report =
+      reportResult?.status === "fulfilled"
+        ? reportResult.value.report
+        : undefined;
+    showcaseEntries.push({
+      appid,
+      name: basics.name,
+      slug: basics.slug,
+      header_image: basics.header_image,
+      positive_pct: basics.positive_pct,
+      one_liner: report?.one_liner ?? null,
+      top_strength: report?.design_strengths?.[0] ?? null,
+      top_friction: report?.gameplay_friction?.[0] ?? null,
+      reviews_analyzed: report?.total_reviews_analyzed ?? null,
+    });
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -53,14 +85,14 @@ export default async function HomePage() {
               "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(45,185,212,0.15), transparent)",
           }}
         />
-        <div className="relative max-w-3xl mx-auto px-6 pt-20 pb-12 text-center">
+        <div className="relative max-w-3xl mx-auto px-6 pt-12 pb-6 text-center">
           <h1
-            className="font-serif text-h1 font-bold text-foreground mb-3 leading-tight"
+            className="font-serif text-h1 font-bold text-foreground mb-2 leading-tight"
             style={{ letterSpacing: "-0.03em" }}
           >
             Steam, decoded
           </h1>
-          <p className="text-base text-muted-foreground mb-8 max-w-lg mx-auto">
+          <p className="text-base text-muted-foreground mb-6 max-w-lg mx-auto">
             Game intelligence for studios. Sentiment, themes, and market gaps
             across every Steam game.
           </p>
@@ -69,16 +101,19 @@ export default async function HomePage() {
             buttonLabel="Join the Pro waitlist"
             subtext={HERO_SUBTEXT}
           />
-          {totalGames > 0 && (
-            <p className="mt-6 text-xs font-mono uppercase tracking-widest text-muted-foreground">
-              {totalGames.toLocaleString()} games analyzed · Updated daily
-            </p>
-          )}
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 pb-24 space-y-16">
-        {/* Just Analyzed — proof we do real work, gives reason to revisit */}
+      <main className="max-w-6xl mx-auto px-6 pb-24 space-y-12">
+        {/* Featured analyses — name-recognition trust signal + real teaser content */}
+        {showcaseEntries.length > 0 && (
+          <FeaturedAnalysesShowcase entries={showcaseEntries} />
+        )}
+
+        {/* Market Trends — live charts demonstrate platform capability */}
+        <MarketTrendsPreview />
+
+        {/* Just Analyzed — freshness signal, reason to revisit */}
         {analyzedGames.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-2">
@@ -95,9 +130,6 @@ export default async function HomePage() {
             </div>
           </section>
         )}
-
-        {/* Market Trends — live charts demonstrate platform capability */}
-        <MarketTrendsPreview />
 
         {/* Repeat CTA */}
         <section className="py-8">

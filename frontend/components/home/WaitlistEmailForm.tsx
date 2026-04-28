@@ -26,6 +26,7 @@ export function WaitlistEmailForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (status === "submitting") return; // guard re-entrancy: `disabled` only kicks in after re-render
     if (!email.trim()) return;
 
     setStatus("submitting");

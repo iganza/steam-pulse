@@ -52,7 +52,8 @@ export function WaitlistEmailForm({
       setSignupStatus(result.status);
       setStatus("awaiting_suggestion");
       plausible("Waitlist Signup", { props: { status: result.status, variant } });
-    } catch {
+    } catch (err) {
+      console.error("Waitlist signup failed:", err);
       setError("Something went wrong. Please try again.");
       setStatus("idle");
     }
@@ -61,6 +62,11 @@ export function WaitlistEmailForm({
   function finishWithSkip() {
     plausible("Waitlist Suggestion Skipped", { props: { variant } });
     setStatus("thanked");
+  }
+
+  function sendAnother() {
+    setSuggestion("");
+    setStatus("awaiting_suggestion");
   }
 
   async function handleSuggestionSend() {
@@ -76,9 +82,10 @@ export function WaitlistEmailForm({
     try {
       await submitWaitlistSuggestion(email.trim().toLowerCase(), trimmed);
       plausible("Waitlist Suggestion", { props: { length: trimmed.length, variant } });
+      setSuggestion("");
       setStatus("thanked");
-    } catch {
-      // Suggestion submit failed; treat as skip so the user still sees thanks.
+    } catch (err) {
+      console.error("Waitlist suggestion submit failed:", err);
       finishWithSkip();
     }
   }
@@ -141,6 +148,14 @@ export function WaitlistEmailForm({
         <p className="mt-2 text-sm text-muted-foreground font-mono">
           We&apos;ll email you when Pro launches.
         </p>
+        <button
+          type="button"
+          onClick={sendAnother}
+          data-testid={`waitlist-send-another-${variant}`}
+          className="mt-3 font-mono uppercase tracking-widest text-xs text-muted-foreground hover:text-teal transition-colors"
+        >
+          Send another suggestion
+        </button>
       </div>
     );
   }

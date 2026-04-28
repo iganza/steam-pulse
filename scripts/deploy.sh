@@ -104,8 +104,12 @@ if [[ "$SKIP_FRONTEND" == "false" ]]; then
     # missing build-manifest.json errors during open-next bundling.
     rm -rf .next .open-next
     # Plausible analytics: production-only, never fire in staging.
+    # Always set explicitly so a leaky CI/shell export can't pollute a
+    # non-production build.
     if [[ "$ENV" == "production" ]]; then
         export NEXT_PUBLIC_PLAUSIBLE_ENABLED=true
+    else
+        unset NEXT_PUBLIC_PLAUSIBLE_ENABLED
     fi
     npm run build:open-next
     cd "$REPO_ROOT"

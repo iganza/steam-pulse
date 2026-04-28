@@ -5,7 +5,7 @@ import type {
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
   CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
-  GenreInsights, ReportSummary, HomeIntelSnapshot,
+  GenreInsights, ReportSummary, WaitlistResult,
 } from "./types";
 
 // Server components use API_URL (absolute, set in .env.local for dev, CDN URL for prod).
@@ -57,8 +57,17 @@ async function apiFetch<T>(
   return res.json();
 }
 
-/** GET /api/games/{appid}/report — full report JSON */
-export async function getGameReport(appid: number, signal?: AbortSignal): Promise<{
+/** GET /api/games/{appid}/report — full report JSON.
+ * `revalidate` defaults to 1 year for the deep game page (reports are immutable
+ * once published; manual `revalidatePath` purges via the `game-{appid}` tag
+ * handle re-analysis). Callers that surface the report on faster-moving
+ * pages — e.g. the homepage Featured analyses showcase — should pass a
+ * shorter window so updates land within the page's own ISR cadence.
+ */
+export async function getGameReport(
+  appid: number,
+  opts: { signal?: AbortSignal; revalidate?: number } = {},
+): Promise<{
   status: string;
   report?: GameReport;
   game?: {
@@ -97,8 +106,8 @@ export async function getGameReport(appid: number, signal?: AbortSignal): Promis
   };
 }> {
   return apiFetch(`/api/games/${appid}/report`, {
-    signal,
-    next: { revalidate: 31536000, tags: [`game-${appid}`] },
+    signal: opts.signal,
+    next: { revalidate: opts.revalidate ?? 31536000, tags: [`game-${appid}`] },
   });
 }
 
@@ -170,10 +179,9 @@ export async function getDiscoveryFeed(
   );
 }
 
-/** GET /api/catalog/stats — headline counts for the homepage ProofBar.
+/** GET /api/catalog/stats — headline counts for the homepage proof line.
  * Aligned to 300s to match the endpoint's s-maxage and the homepage ISR
- * revalidate window — avoids the ProofBar pinning to an hour-old count
- * while the rest of the page refreshes every 5 minutes.
+ * revalidate window.
  */
 export async function getCatalogStats(): Promise<{ total_games: number }> {
   return apiFetch<{ total_games: number }>("/api/catalog/stats", {
@@ -394,6 +402,14 @@ export async function requestAnalysis(appid: number, email: string): Promise<Ana
   });
 }
 
+export async function joinWaitlist(email: string): Promise<WaitlistResult> {
+  return apiFetch("/api/waitlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
 export async function getReportRequestCount(appid: number): Promise<{ appid: number; request_count: number }> {
   return apiFetch(`/api/reports/request-count/${appid}`, { next: { revalidate: 300 } });
 }
@@ -412,15 +428,10 @@ export async function getRelatedAnalyzedGames(
 // ---------------------------------------------------------------------------
 
 /** Lightweight basics for a batch of appids. Backed by /api/games/basics —
- * a single DB round-trip that returns slug/name/header_image plus
- * Steam-sourced sentiment (positive_pct, review_count) for each appid,
- * avoiding N per-appid /report fetches. Consumers:
- *   - genre synthesis page: crosslinks (slug/name/header_image) for
- *     friction/wishlist quote source-game links and benchmark cards.
- *   - homepage `FeaturedReport` strip: sentiment chip rendering for the
- *     SEO-anchor showcase games.
- * Both fields may be null when the Steam crawl hasn't populated review
- * stats yet — render-time consumers should handle that.
+ * a single DB round-trip returning slug/name/header_image plus Steam-sourced
+ * sentiment (positive_pct, review_count). Consumed by the genre synthesis
+ * page for crosslinks and benchmark cards. Both sentiment fields may be null
+ * when the Steam crawl hasn't populated review stats yet.
  */
 export interface GameBasicsEntry {
   appid: number;
@@ -439,14 +450,6 @@ export async function getGameBasics(appids: number[]): Promise<GameBasicsEntry[]
     { next: { revalidate: 3600, tags: ["game-basics"] } },
   );
   return data.games;
-}
-
-/** GET /api/home/intel-snapshot — single-call payload for the 4 homepage cards. */
-export async function getHomeIntelSnapshot(): Promise<HomeIntelSnapshot> {
-  return apiFetch<HomeIntelSnapshot>(
-    `/api/home/intel-snapshot`,
-    { next: { revalidate: 21600, tags: ["home-intel"] } },
-  );
 }
 
 /** GET /api/tags/{slug}/insights — Phase-4 cross-genre synthesis row.

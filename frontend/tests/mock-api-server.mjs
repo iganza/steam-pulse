@@ -679,9 +679,14 @@ const server = createServer((req, res) => {
     return respond(res, 200, { games: MOCK_GAMES_LIST.games })
   }
 
-  // Catalog stats (homepage ProofBar)
+  // Catalog stats (homepage proof line)
   if (path === '/api/catalog/stats') {
     return respond(res, 200, { total_games: MOCK_GAMES_LIST.total })
+  }
+
+  // Waitlist signup (homepage Pro waitlist form)
+  if (path === '/api/waitlist' && req.method === 'POST') {
+    return respond(res, 200, { status: 'registered' })
   }
 
   // Games list (wildcard — must come after specific /report routes)

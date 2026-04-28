@@ -132,10 +132,40 @@ export async function mockAllApiRoutes(page: Page) {
     route.fulfill({ json: { games: MOCK_GAMES_LIST.games } })
   )
 
-  // Catalog stats (ProofBar)
+  // Catalog stats (homepage proof line)
   await page.route('**/api/catalog/stats', route =>
     route.fulfill({ json: { total_games: MOCK_GAMES_LIST.total } })
   )
+
+  // Waitlist signup (homepage Pro waitlist form)
+  await page.route('**/api/waitlist', route =>
+    route.fulfill({ json: { status: 'registered' } })
+  )
+
+  // Game basics (homepage Featured analyses showcase — BG3 / Stardew / Cyberpunk anchors).
+  // Registered after the **/api/games** wildcard so the more specific path wins via LIFO.
+  await page.route('**/api/games/basics**', route => {
+    const url = new URL(route.request().url())
+    const raw = url.searchParams.get('appids') ?? ''
+    const knownAnchors: Record<number, { slug: string; name: string; positive_pct: number; review_count: number }> = {
+      1086940: { slug: 'baldurs-gate-3-1086940', name: "Baldur's Gate 3", positive_pct: 95, review_count: 460000 },
+      413150: { slug: 'stardew-valley-413150', name: 'Stardew Valley', positive_pct: 98, review_count: 740000 },
+      1091500: { slug: 'cyberpunk-2077-1091500', name: 'Cyberpunk 2077', positive_pct: 84, review_count: 680000 },
+    }
+    const games = raw
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && knownAnchors[n])
+      .map((appid) => ({
+        appid,
+        name: knownAnchors[appid].name,
+        slug: knownAnchors[appid].slug,
+        header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        positive_pct: knownAnchors[appid].positive_pct,
+        review_count: knownAnchors[appid].review_count,
+      }))
+    route.fulfill({ json: { games } })
+  })
 
   // Genres
   await page.route('**/api/genres**', route =>

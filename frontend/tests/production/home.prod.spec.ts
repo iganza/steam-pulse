@@ -18,29 +18,32 @@ test.describe('Home page — production', () => {
     await assertPageLoadsOk(page)
   })
 
-  test('hero search input is visible', async ({ page }) => {
-    await expect(page.getByPlaceholder(/search.*steam games/i)).toBeVisible()
+  test('hero heading is present', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /steam, decoded/i })).toBeVisible()
   })
 
-  test('page heading is present', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /discover steam games/i })).toBeVisible()
+  test('hero waitlist form is the primary CTA', async ({ page }) => {
+    const form = page.getByTestId('waitlist-form-hero')
+    await expect(form).toBeVisible()
+    await expect(form.getByRole('button', { name: /join the pro waitlist/i })).toBeVisible()
   })
 
   test('navbar is visible with navigation landmark', async ({ page }) => {
     await expect(page.getByRole('navigation', { name: /main navigation/i })).toBeVisible()
   })
 
-  test('Browse by Tag section renders with tags', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /browse by tag/i })).toBeVisible()
-    // At least one tag link should be visible in the tag browser
-    const tagLinks = page.locator('a[href^="/tag/"], a[href^="/genre/"]')
-    expect(await tagLinks.count()).toBeGreaterThan(0)
+  test('Featured analyses tabbed showcase renders the three anchors', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /featured analyses/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /baldur'?s gate 3/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /stardew valley/i })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /cyberpunk 2077/i })).toBeVisible()
   })
 
-  test('search navigates to /search with query param', async ({ page }) => {
-    const input = page.getByPlaceholder(/search.*steam games/i)
-    await input.fill('portal')
-    await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(/\/search\?q=portal/)
+  test('Featured analyses panel exposes a deep-link to the full report', async ({ page }) => {
+    const panel = page.getByRole('tabpanel')
+    const readLink = panel.getByRole('link', { name: /read full analysis/i })
+    await expect(readLink).toBeVisible()
+    const href = await readLink.getAttribute('href')
+    expect(href).toMatch(/^\/games\/\d+\//)
   })
 })

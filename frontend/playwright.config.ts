@@ -54,6 +54,9 @@ export default defineConfig({
       env: {
         ...process.env as Record<string, string>,
         API_URL: 'http://localhost:3001',
+        // Defense-in-depth: never load Plausible during e2e runs, even if
+        // the surrounding shell has NEXT_PUBLIC_PLAUSIBLE_ENABLED=true set.
+        NEXT_PUBLIC_PLAUSIBLE_ENABLED: 'false',
       },
     },
   ],

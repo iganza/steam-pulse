@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
+import { withPlausibleProxy } from "next-plausible";
 
 // Pin Next BUILD_ID to git short SHA — same value CACHE_BUCKET_KEY_PREFIX
 // uses, so OpenNext tag namespaces stay aligned across deploys and
@@ -54,4 +55,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPlausibleProxy({
+  src: "https://plausible.io/js/pa-fdpH1ur-zxTFCitvrhP8d.js",
+  scriptPath: "/stats/js/script.js",
+  apiPath: "/stats/api/event",
+})(nextConfig);

@@ -5,6 +5,7 @@ import type { GameBasicsEntry } from "@/lib/api";
 import { MarketTrendsPreview } from "@/components/home/MarketTrendsPreview";
 import { WaitlistEmailForm } from "@/components/home/WaitlistEmailForm";
 import { FeaturedAnalysesShowcase } from "@/components/home/FeaturedAnalysesShowcase";
+import { ProPreview } from "@/components/home/ProPreview";
 import type { ShowcaseEntry } from "@/components/home/FeaturedAnalysesShowcase";
 import { GameCard } from "@/components/game/GameCard";
 import type { Game } from "@/lib/types";
@@ -133,6 +134,9 @@ export default async function HomePage() {
             </div>
           </section>
         )}
+
+        {/* Pro preview — what's coming, primes the repeat CTA */}
+        <ProPreview />
 
         {/* Repeat CTA */}
         <section className="py-8">

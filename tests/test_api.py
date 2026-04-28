@@ -627,12 +627,18 @@ def test_waitlist_suggestion_records_payload(client: TestClient) -> None:
 
 
 def test_waitlist_suggestion_rejects_empty_text(client: TestClient) -> None:
-    """POST /api/waitlist/suggestion with whitespace-only suggestion returns 400."""
+    """POST /api/waitlist/suggestion with whitespace-only suggestion returns 400 and records nothing."""
+    import lambda_functions.api.handler as api_module
+
     resp = client.post(
         "/api/waitlist/suggestion",
         json={"email": "user@example.com", "suggestion": "   "},
     )
     assert resp.status_code == 400
+    assert resp.json() == {
+        "detail": {"error": "Suggestion cannot be empty", "code": "empty_suggestion"}
+    }
+    assert api_module._waitlist_suggestion_repo.count() == 0
 
 
 def test_waitlist_suggestion_allows_unknown_email(client: TestClient) -> None:

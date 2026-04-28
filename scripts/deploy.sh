@@ -103,6 +103,10 @@ if [[ "$SKIP_FRONTEND" == "false" ]]; then
     # "Module not found: @vercel/turbopack-next/internal/font/..." or
     # missing build-manifest.json errors during open-next bundling.
     rm -rf .next .open-next
+    # Plausible analytics: production-only, never fire in staging.
+    if [[ "$ENV" == "production" ]]; then
+        export NEXT_PUBLIC_PLAUSIBLE_ENABLED=true
+    fi
     npm run build:open-next
     cd "$REPO_ROOT"
     echo "✓ Frontend build complete"

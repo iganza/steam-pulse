@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import {
   AUTHOR_NAME,
-  AUTHOR_HANDLE,
   CONTACT_EMAIL,
+  STEAM_GAME_NAME,
+  STEAM_GAME_URL,
 } from "@/lib/author";
 
 export const metadata: Metadata = {
   title: "About SteamPulse · Methodology",
   description:
-    "How SteamPulse turns Steam reviews into structured game intelligence — methodology, sources, and who builds it.",
+    "How SteamPulse turns Steam reviews into structured game intelligence: methodology, sources, and who builds it.",
   alternates: {
     canonical: "https://steampulse.io/about",
   },
@@ -37,15 +38,14 @@ export default function AboutPage() {
           <p className="text-base text-foreground/80 leading-relaxed">
             SteamPulse is deep market research for indie Steam devs. Point it
             at a game and it returns the design strengths, gameplay friction,
-            churn triggers, player wishlists, and developer priorities — every
-            claim anchored to a counted review quote.
+            churn triggers, player wishlists, and developer priorities. Every
+            claim is anchored to a counted review quote.
           </p>
           <p className="text-base text-foreground/80 leading-relaxed">
-            Each report is produced by a chain of language models that cluster
-            and summarise the full Steam review corpus, then benchmarked
-            against its genre cohort. A human editor reviews every published
-            synthesis before it ships — the pipeline is AI-assisted, not
-            AI-only.
+            Each report is produced through automated review-corpus analysis
+            and benchmarked against its genre cohort. A human editor reviews
+            every published synthesis before it ships. The pipeline is
+            AI-assisted, not AI-only.
           </p>
         </section>
 
@@ -54,24 +54,20 @@ export default function AboutPage() {
             Methodology
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
-            Every report starts from public Steam data — store metadata, price,
-            tags, and the full review corpus — and runs it through a
-            three-phase pipeline: <em>chunk</em> (extract per-review signal),{" "}
-            <em>merge</em> (cluster recurring patterns across the corpus), and{" "}
-            <em>synthesise</em> (assemble the final narrative with quote
-            traceability). Cross-game patterns are only surfaced when the
-            underlying mention count is at least three, so anecdotes never
-            pose as trends.
+            Every report starts from public Steam data (store metadata, price,
+            tags, and the full review corpus) and combines automated
+            review-corpus analysis with editorial review. Cross-game patterns
+            are surfaced only when there is sufficient supporting evidence
+            across the corpus, so anecdotes never pose as trends.
           </p>
           <p className="text-base text-foreground/80 leading-relaxed">
             Steam-sourced facts (sentiment %, review totals, recent trend,
             playtime distribution) are shown as reported by Steam, with
-            per-source crawl timestamps — underlying data refreshes on a
-            14-day cadence. LLM-synthesised facts are labelled separately so
-            you always know what is data and what is interpretation. Known
-            limitations: sample skews toward reviewers who post publicly on
-            Steam, recent-review weighting trails behind a week or two, and
-            the corpus is Steam-only.
+            per-source crawl timestamps. LLM-synthesised facts are labelled
+            separately so you always know what is data and what is
+            interpretation. Known limitations: sample skews toward reviewers
+            who post publicly on Steam, recent-review weighting trails behind
+            a week or two, and the corpus is Steam-only.
           </p>
         </section>
 
@@ -80,13 +76,17 @@ export default function AboutPage() {
             Who made this
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
-            SteamPulse is built and operated by {AUTHOR_NAME} — a one-person
-            shop, written by a Steam dev on break from their own game. Reports
-            are produced offline and sold as catalog PDFs; everything else on
-            the site is free.
-          </p>
-          <p className="text-base text-foreground/80 leading-relaxed">
-            Handle: <span className="font-mono">{AUTHOR_HANDLE}</span>
+            SteamPulse is built and operated by {AUTHOR_NAME}, a one-person
+            shop. SteamPulse was built on a break from his own game,{" "}
+            <a
+              href={STEAM_GAME_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal underline underline-offset-2 hover:text-foreground transition-colors"
+            >
+              {STEAM_GAME_NAME}
+            </a>
+            , currently in development with a free demo on Steam.
           </p>
         </section>
 

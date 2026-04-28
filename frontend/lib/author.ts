@@ -5,3 +5,6 @@ export const AUTHOR_BIO_SHORT =
 export const METHODOLOGY_PATH = "/about#methodology";
 export const ABOUT_URL = "https://steampulse.io/about";
 export const CONTACT_EMAIL = "feedback@steampulse.io";
+export const STEAM_GAME_NAME = "Corner Quest";
+export const STEAM_GAME_URL =
+  "https://store.steampowered.com/app/4254260/Corner_Quest/";

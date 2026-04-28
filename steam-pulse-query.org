@@ -196,18 +196,11 @@ SELECT appid, name, review_crawled_at
 #+end_src
 
 #+RESULTS:
-|   appid | name                 | review_crawled_at               |
-|---------+----------------------+-------------------------------|
-| 4140340 | Hexisle              | 2026-04-24 04:29:13.650494+00 |
-| 4130040 | Succubus Contract I  | 2026-04-24 04:29:13.01761+00  |
-| 1973530 | Limbus Company       | 2026-04-24 04:28:32.053698+00 |
-| 1384160 | GUILTY GEAR -STRIVE- | 2026-04-24 04:26:13.790759+00 |
-| 4139240 | Forever With You     | 2026-04-24 04:25:56.950671+00 |
-| 4130340 | Subway Invasion      | 2026-04-24 04:24:43.67387+00  |
-| 4118340 | 100 Olympic Cats     | 2026-04-24 04:24:05.243199+00 |
-| 3108510 | FlyKnight            | 2026-04-24 04:21:11.982804+00 |
-| 4119420 | Evitania Online      | 2026-04-24 04:14:07.664985+00 |
-|  743450 | Monster Prom         | 2026-04-24 04:14:05.825995+00 |
+| appid | name | review_crawled_at |
+|-------+------+-----------------|
+
+
+
 
 
 * Check New Added Timestamps

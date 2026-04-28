@@ -584,3 +584,135 @@ def test_list_games_empty_result(game_repo: GameRepository) -> None:
     result = game_repo.list_games(q="nonexistent-query-xyz", limit=10, offset=0)
     assert result["total"] is None
     assert result["games"] == []
+
+
+# ---------------------------------------------------------------------------
+# list_games — sort=release_date excludes coming-soon games
+# ---------------------------------------------------------------------------
+
+
+def test_list_games_release_date_excludes_coming_soon(game_repo: GameRepository) -> None:
+    """sort=release_date hides games whose Steam date is a coming-soon placeholder."""
+    released = {**_game_data(440, "Released"), "release_date": date(2020, 1, 1), "coming_soon": False}
+    game_repo.upsert(released)
+    upcoming = {
+        **_game_data(441, "Future Halloween"),
+        "slug": "future-halloween-441",
+        "release_date": date(2028, 10, 31),
+        "coming_soon": True,
+    }
+    game_repo.upsert(upcoming)
+    result = game_repo.list_games(sort="release_date")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+
+
+def test_list_games_release_date_excludes_future_dated_not_coming_soon(
+    game_repo: GameRepository,
+) -> None:
+    """Steam sometimes mislabels future-dated games as coming_soon=FALSE
+    (e.g. Precursors: Reach for the Stars, release_date=2028-11-30,
+    coming_soon=false). The CURRENT_DATE cap excludes them anyway."""
+    released = {**_game_data(440, "Released"), "release_date": date(2020, 1, 1), "coming_soon": False}
+    game_repo.upsert(released)
+    mislabeled_future = {
+        **_game_data(441, "Future Mislabeled"),
+        "slug": "future-mislabeled-441",
+        "release_date": date(2028, 11, 30),
+        "coming_soon": False,
+    }
+    game_repo.upsert(mislabeled_future)
+    result = game_repo.list_games(sort="release_date")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+
+
+def test_list_games_release_date_matview_path_excludes_coming_soon(
+    db_conn: Any, game_repo: GameRepository
+) -> None:
+    """sort=release_date filter also applies on the genre matview fast path."""
+    _upsert_genre(db_conn, 1, "Action")
+    released = {**_game_data(440, "Released"), "release_date": date(2020, 1, 1), "coming_soon": False}
+    game_repo.upsert(released)
+    _link_genre(db_conn, 440, 1)
+    upcoming = {
+        **_game_data(441, "Future Halloween"),
+        "slug": "future-halloween-441",
+        "release_date": date(2028, 10, 31),
+        "coming_soon": True,
+    }
+    game_repo.upsert(upcoming)
+    _link_genre(db_conn, 441, 1)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute("REFRESH MATERIALIZED VIEW mv_genre_games")
+    db_conn.commit()
+    result = game_repo.list_games(genre="action", sort="release_date")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+
+
+def _set_last_analyzed(db_conn: Any, appid: int, value: Any) -> None:
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE games SET last_analyzed = %s WHERE appid = %s", (value, appid))
+    db_conn.commit()
+
+
+def _set_hidden_gem_score(db_conn: Any, appid: int, value: float | None) -> None:
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE games SET hidden_gem_score = %s WHERE appid = %s", (value, appid))
+    db_conn.commit()
+
+
+def test_list_games_last_analyzed_excludes_unanalyzed(
+    db_conn: Any, game_repo: GameRepository
+) -> None:
+    """sort=last_analyzed hides games with NULL last_analyzed (not 'recently analyzed')."""
+    from datetime import datetime, timezone
+
+    game_repo.upsert(_game_data(440, "Analyzed"))
+    _set_last_analyzed(db_conn, 440, datetime(2024, 1, 1, tzinfo=timezone.utc))
+    game_repo.upsert({**_game_data(441, "Unanalyzed"), "slug": "unanalyzed-441"})
+    _set_last_analyzed(db_conn, 441, None)
+    result = game_repo.list_games(sort="last_analyzed")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+
+
+def test_list_games_sentiment_score_requires_min_reviews(game_repo: GameRepository) -> None:
+    """sort=sentiment_score excludes tiny games (review_count < 200) so the leaderboard
+    isn't dominated by 5-review 100% games."""
+    popular = {**_game_data(440, "Big Hit"), "review_count": 5000, "positive_pct": 95}
+    game_repo.upsert(popular)
+    tiny = {
+        **_game_data(441, "Tiny Perfect"),
+        "slug": "tiny-perfect-441",
+        "review_count": 5,
+        "positive_pct": 100,
+    }
+    game_repo.upsert(tiny)
+    result = game_repo.list_games(sort="sentiment_score")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+
+
+def test_list_games_hidden_gem_score_excludes_zero_and_null(
+    db_conn: Any, game_repo: GameRepository
+) -> None:
+    """sort=hidden_gem_score excludes games whose score is 0 or NULL (not a 'gem')."""
+    game_repo.upsert(_game_data(440, "Hidden"))
+    _set_hidden_gem_score(db_conn, 440, 0.7)
+    game_repo.upsert({**_game_data(441, "Not Gem"), "slug": "not-gem-441"})
+    _set_hidden_gem_score(db_conn, 441, 0.0)
+    game_repo.upsert({**_game_data(442, "Null Gem"), "slug": "null-gem-442"})
+    _set_hidden_gem_score(db_conn, 442, None)
+    result = game_repo.list_games(sort="hidden_gem_score")
+    appids = [g["appid"] for g in result["games"]]
+    assert 440 in appids
+    assert 441 not in appids
+    assert 442 not in appids

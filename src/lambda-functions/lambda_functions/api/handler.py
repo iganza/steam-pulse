@@ -183,6 +183,10 @@ async def list_games(
         or bool(sentiment)
         or bool(price_tier)
         or bool(deck)
+        # Leaderboard sorts apply implicit WHERE filters (e.g. last_analyzed
+        # IS NOT NULL); the catalog-wide matview count would overstate the
+        # filtered population.
+        or sort in GameRepository.SORTS_WITH_IMPLIED_FILTERS
     )
 
     total: int | None

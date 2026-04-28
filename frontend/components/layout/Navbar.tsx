@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, FileText, Gem, Info, X, Menu } from "lucide-react";
+import { ChevronDown, FileText, Gem, Info, Menu, Sparkles, Star, X } from "lucide-react";
 import type { Genre, TagGroup } from "@/lib/types";
 import { SearchAutocomplete } from "./SearchAutocomplete";
 
@@ -135,14 +135,7 @@ export function Navbar() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 pt-3 border-t border-border flex items-center gap-4">
-                  <Link
-                    href="/#browse-by-tag"
-                    onClick={() => setBrowseOpen(false)}
-                    className="text-xs font-mono transition-colors text-teal"
-                  >
-                    See all tags &rarr;
-                  </Link>
+                <div className="mt-3 pt-3 border-t border-border flex flex-wrap items-center gap-x-4 gap-y-2">
                   <Link
                     href="/search?sort=hidden_gem_score"
                     onClick={() => setBrowseOpen(false)}
@@ -150,6 +143,27 @@ export function Navbar() {
                     style={{ color: "var(--gem)" }}
                   >
                     <Gem className="w-3 h-3" /> Hidden Gems
+                  </Link>
+                  <Link
+                    href="/search?sort=release_date"
+                    onClick={() => setBrowseOpen(false)}
+                    className="text-xs font-mono transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <Sparkles className="w-3 h-3" /> New Releases
+                  </Link>
+                  <Link
+                    href="/search?sort=review_count"
+                    onClick={() => setBrowseOpen(false)}
+                    className="text-xs font-mono transition-colors flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <Star className="w-3 h-3" /> Most Reviewed
+                  </Link>
+                  <Link
+                    href="/search"
+                    onClick={() => setBrowseOpen(false)}
+                    className="text-xs font-mono transition-colors text-teal ml-auto"
+                  >
+                    Browse all games &rarr;
                   </Link>
                 </div>
               </div>
@@ -208,6 +222,8 @@ export function Navbar() {
           <div className="space-y-1">
             <Link href="/reports" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Reports</Link>
             <Link href="/search" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Browse All Games</Link>
+            <Link href="/search?sort=hidden_gem_score" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">Hidden Gems</Link>
+            <Link href="/search?sort=release_date" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">New Releases</Link>
             <Link href="/about" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-foreground/70 hover:text-foreground">About</Link>
           </div>
         </div>

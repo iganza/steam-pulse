@@ -262,6 +262,36 @@ class GameRepository(BaseRepository):
             )
         self.conn.commit()
 
+    # Sort-implied filters: each leaderboard sort needs the column it orders by to
+    # be non-null/meaningful, otherwise NULLS-LAST trailing rows inflate `total`
+    # past the meaningful population (e.g. "Recently Analyzed" returning 150k
+    # rows when only ~200 games have last_analyzed set). Thresholds mirror the
+    # mv_discovery_feeds CTEs (top_rated.review_count >= 200 etc).
+    @staticmethod
+    def _sort_implied_filters(sort: str, prefix: str = "") -> list[str]:
+        p = prefix
+        if sort == "release_date":
+            # Future-dated games slip past coming_soon=FALSE when Steam mislabels
+            # them (e.g. appid 4062790 "Precursors: Reach for the Stars",
+            # release_date=2028-11-30, coming_soon=false). Cap at CURRENT_DATE so
+            # "Recently Released" actually means released-already.
+            return [
+                f"{p}coming_soon = FALSE",
+                f"{p}release_date IS NOT NULL",
+                f"{p}release_date <= CURRENT_DATE",
+            ]
+        if sort == "last_analyzed":
+            return [f"{p}last_analyzed IS NOT NULL"]
+        if sort in ("sentiment_score", "positive_pct"):
+            return [f"{p}positive_pct IS NOT NULL", f"{p}review_count >= 200"]
+        if sort == "hidden_gem_score":
+            return [f"{p}hidden_gem_score IS NOT NULL", f"{p}hidden_gem_score > 0"]
+        return []
+
+    SORTS_WITH_IMPLIED_FILTERS: ClassVar[frozenset[str]] = frozenset(
+        {"release_date", "last_analyzed", "sentiment_score", "positive_pct", "hidden_gem_score"}
+    )
+
     @staticmethod
     def _build_game_filters(
         prefix: str = "",
@@ -353,6 +383,8 @@ class GameRepository(BaseRepository):
         )
         conditions.extend(extra_conds)
         params.extend(extra_params)
+
+        conditions.extend(self._sort_implied_filters(sort))
 
         where = " AND ".join(conditions)
         params.extend([limit, offset])
@@ -505,6 +537,8 @@ class GameRepository(BaseRepository):
         )
         conditions.extend(extra_conds)
         params.extend(extra_params)
+
+        conditions.extend(self._sort_implied_filters(sort, "g."))
 
         where = " AND ".join(conditions)
 

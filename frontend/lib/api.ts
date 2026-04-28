@@ -4,7 +4,7 @@ import type {
   PriceTrendPeriod, EATrendPeriod, PlatformTrendPeriod, EngagementDepthPeriod, CategoryTrendPeriod,
   AudienceOverlap, PlaytimeSentiment, EarlyAccessImpact, ReviewVelocity, TopReviewsResponse,
   PricePositioning, ReleaseTiming, PlatformGaps, TagTrend, DeveloperPortfolio, PublisherPortfolio,
-  CatalogReportsResponse, ComingSoonResponse, AnalysisRequestResult, RelatedAnalyzedGame,
+  CatalogReportsResponse, AnalysisRequestResult, RelatedAnalyzedGame,
   GenreInsights, ReportSummary, WaitlistResult,
 } from "./types";
 
@@ -379,19 +379,6 @@ export async function getCatalogReports(opts: {
   if (opts.tag) params.set("tag", opts.tag);
   const qs = params.toString();
   return apiFetch(`/api/reports${qs ? `?${qs}` : ""}`, { next: { revalidate: 300 } });
-}
-
-export async function getComingSoon(opts: {
-  sort?: string;
-  page?: number;
-  pageSize?: number;
-} = {}): Promise<ComingSoonResponse> {
-  const params = new URLSearchParams();
-  if (opts.sort) params.set("sort", opts.sort);
-  if (opts.page) params.set("page", String(opts.page));
-  if (opts.pageSize) params.set("page_size", String(opts.pageSize));
-  const qs = params.toString();
-  return apiFetch(`/api/reports/coming-soon${qs ? `?${qs}` : ""}`, { next: { revalidate: 300 } });
 }
 
 export async function requestAnalysis(appid: number, email: string): Promise<AnalysisRequestResult> {

@@ -406,7 +406,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                 </select>
                 {total > 0 && (
                   <span className="text-sm text-muted-foreground font-mono">
-                    Showing {startItem}\u2013{endItem} of {total.toLocaleString()} games
+                    Showing {startItem}–{endItem} of {total.toLocaleString()} games
                   </span>
                 )}
               </div>
@@ -503,17 +503,17 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                         {game.genres?.[0] ?? "\u2014"}
                       </div>
                       <div className="col-span-1 text-right text-xs font-mono text-muted-foreground">
-                        {game.review_count?.toLocaleString() ?? "\u2014"}
+                        {game.review_count?.toLocaleString() ?? "–"}
                       </div>
                       <div className="col-span-2 text-right">
                         {score != null ? (
                           <span className="font-mono text-xs" style={{ color: scoreColor }}>{score}</span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">\u2014</span>
+                          <span className="text-xs text-muted-foreground">–</span>
                         )}
                       </div>
                       <div className="col-span-2 text-right text-xs font-mono text-muted-foreground">
-                        {game.release_date ? new Date(game.release_date).getFullYear() : "\u2014"}
+                        {game.release_date ? new Date(game.release_date).getFullYear() : "–"}
                       </div>
                     </Link>
                   );
@@ -533,7 +533,7 @@ export function SearchClient({ initialParams, initialFilters, hideGenreFilter, h
                 </button>
                 {pageNumbers.map((pn, i) =>
                   pn === "..." ? (
-                    <span key={`dots-${i}`} className="px-2 text-muted-foreground text-sm">\u2026</span>
+                    <span key={`dots-${i}`} className="px-2 text-muted-foreground text-sm">…</span>
                   ) : (
                     <button
                       key={pn}

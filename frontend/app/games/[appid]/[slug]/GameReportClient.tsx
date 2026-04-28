@@ -43,6 +43,7 @@ interface GameReportClientProps {
   gameName?: string;
   headerImage?: string;
   releaseDate?: string;
+  comingSoon?: boolean;
   developer?: string;
   developerSlug?: string;
   publisher?: string;
@@ -102,6 +103,7 @@ export function GameReportClient({
   gameName,
   headerImage,
   releaseDate,
+  comingSoon,
   developer,
   developerSlug,
   publisher,
@@ -241,6 +243,7 @@ export function GameReportClient({
           reviewCountAllLanguages={reviewCountAllLanguages ?? null}
           totalReviewsAnalyzed={report?.total_reviews_analyzed ?? null}
           releaseDate={releaseDate}
+          comingSoon={comingSoon}
           price={price}
           lastAnalyzed={report?.last_analyzed ?? lastAnalyzed ?? null}
           reviewStats={reviewStats}

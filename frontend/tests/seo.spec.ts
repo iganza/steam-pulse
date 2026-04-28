@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { AUTHOR_NAME, ABOUT_URL } from '@/lib/author'
 import { mockAllApiRoutes } from './fixtures/api-mock'
+import { MOCK_GAME_ANALYZED } from './fixtures/mock-data'
 
 test('homepage has OG tags', async ({ page }) => {
   await mockAllApiRoutes(page)
@@ -36,7 +37,10 @@ test('game page has OG image and canonical', async ({ page }) => {
     .filter((v): v is Record<string, unknown> => v !== null)
   const videoGame = parsedJsonLds.find((obj) => obj['@type'] === 'VideoGame')
   expect(videoGame).toBeDefined()
-  expect(videoGame).toMatchObject({ '@type': 'VideoGame' })
+  expect(videoGame).toMatchObject({
+    '@type': 'VideoGame',
+    datePublished: MOCK_GAME_ANALYZED.release_date,
+  })
 
   // Article JSON-LD names a human author for the Google March-2026 AI-content
   // signal. Only emitted when a SteamPulse report exists for the game.
@@ -47,6 +51,42 @@ test('game page has OG image and canonical', async ({ page }) => {
     author: { '@type': 'Person', name: AUTHOR_NAME },
   })
   expect((article as { author: { url: string } }).author.url).toBe(ABOUT_URL)
+})
+
+test('game page omits VideoGame.datePublished when coming_soon=true', async ({ page }) => {
+  await mockAllApiRoutes(page)
+  await page.route('**/api/games/8888888/report', route =>
+    route.fulfill({
+      json: {
+        status: 'not_available',
+        game: {
+          name: 'Coming Soon Game',
+          slug: 'coming-soon-game-8888888',
+          short_desc: 'A game that has not released yet.',
+          developer: 'Future Studio',
+          release_date: '2028-10-31',
+          coming_soon: true,
+          price_usd: null,
+          is_free: false,
+          is_early_access: false,
+        },
+      },
+    }),
+  )
+  await page.goto('/games/8888888/coming-soon-game-8888888')
+  const jsonLds = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(
+      (el) => el.textContent ?? ''
+    )
+  )
+  const parsed = jsonLds
+    .map((s) => {
+      try { return JSON.parse(s) } catch { return null }
+    })
+    .filter((v): v is Record<string, unknown> => v !== null)
+  const videoGame = parsed.find((obj) => obj['@type'] === 'VideoGame')
+  expect(videoGame).toBeDefined()
+  expect(videoGame).not.toHaveProperty('datePublished')
 })
 
 test('genre synthesis page has OG tags + Article JSON-LD', async ({ page }) => {

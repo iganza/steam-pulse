@@ -528,6 +528,39 @@ test.describe('Early Access badge', () => {
   })
 })
 
+test.describe('Coming-soon games — Releases tile label', () => {
+  test('renders "Releases" label (not "Released") and keeps the date when coming_soon=true', async ({ page }) => {
+    await mockAllApiRoutes(page)
+    await page.route('**/api/games/8888888/report', route =>
+      route.fulfill({
+        json: {
+          status: 'not_available',
+          game: {
+            name: 'Coming Soon Game',
+            slug: 'coming-soon-game-8888888',
+            short_desc: 'A game that has not released yet.',
+            developer: 'Future Studio',
+            release_date: '2028-10-31',
+            coming_soon: true,
+            price_usd: null,
+            is_free: false,
+            is_early_access: false,
+            positive_pct: null,
+            review_score_desc: null,
+            review_count: 0,
+            review_count_english: 0,
+          },
+        },
+      }),
+    )
+    await page.goto('/games/8888888/coming-soon-game-8888888')
+    const quickStats = page.locator('section').filter({ hasText: 'Quick Stats' })
+    await expect(quickStats.locator('span', { hasText: /^Releases$/ })).toBeVisible()
+    await expect(quickStats.locator('span', { hasText: /^Released$/ })).toHaveCount(0)
+    await expect(quickStats).toContainText('Oct 31, 2028')
+  })
+})
+
 test.describe('Review date range in footer', () => {
   test('renders date range when both dates are present', async ({ page }) => {
     await mockAllApiRoutes(page)

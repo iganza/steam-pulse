@@ -95,6 +95,7 @@ export default async function GameReportPage({ params }: Props) {
   let gameData: {
     gameName?: string;
     releaseDate?: string;
+    comingSoon?: boolean;
     developer?: string;
     developerSlug?: string;
     publisher?: string;
@@ -146,6 +147,7 @@ export default async function GameReportPage({ params }: Props) {
       if (g.publisher) gameData.publisher = g.publisher;
       if (g.publisher_slug) gameData.publisherSlug = g.publisher_slug;
       if (g.release_date) gameData.releaseDate = g.release_date;
+      if (g.coming_soon != null) gameData.comingSoon = g.coming_soon;
       if (g.price_usd != null) gameData.priceUsd = g.price_usd;
       if (g.is_free != null) gameData.isFree = g.is_free;
       if (g.genres?.length) gameData.genres = g.genres;
@@ -216,7 +218,9 @@ export default async function GameReportPage({ params }: Props) {
     "gamePlatform": "PC",
     "applicationCategory": "Game",
     ...(gameData.genres?.length ? { "genre": gameData.genres } : {}),
-    ...(gameData.releaseDate ? { "datePublished": gameData.releaseDate } : {}),
+    ...(gameData.releaseDate && !gameData.comingSoon
+      ? { "datePublished": gameData.releaseDate }
+      : {}),
     "operatingSystem": "Windows",
     ...(report?.one_liner
       ? { "description": report.one_liner }
@@ -335,6 +339,7 @@ export default async function GameReportPage({ params }: Props) {
           gameName={gameData.gameName}
           headerImage={headerImage}
           releaseDate={gameData.releaseDate}
+          comingSoon={gameData.comingSoon}
           developer={gameData.developer}
           developerSlug={gameData.developerSlug}
           publisher={gameData.publisher}

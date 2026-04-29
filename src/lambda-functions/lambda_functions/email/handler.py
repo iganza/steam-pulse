@@ -2,7 +2,7 @@
 
 Processes messages from the email queue. Each message is a typed
 BaseSqsMessage (defined in library_layer.events). Unknown message types
-are logged and dropped — they do not raise, so they are not retried.
+are logged and dropped, so they are not retried.
 
 DLQ policy: any exception raised here causes the message to be retried
 up to the configured maxReceiveCount before landing on the DLQ.
@@ -15,6 +15,8 @@ from aws_lambda_powertools.utilities.parameters import get_parameter
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from library_layer.config import SteamPulseConfig
 from library_layer.events import WaitlistConfirmationMessage
+from library_layer.repositories.waitlist_repo import WaitlistRepository
+from library_layer.utils.db import get_conn
 from library_layer.utils.email import ResendEmailSender
 
 logger = Logger(service="email")
@@ -24,21 +26,32 @@ _resend_api_key: str = get_parameter(  # type: ignore[assignment]
     _config.RESEND_API_KEY_PARAM_NAME, decrypt=True
 )
 _sender = ResendEmailSender(_resend_api_key)
+_waitlist_repo = WaitlistRepository(get_conn)
 
 _FROM_ADDR = "hello@steampulse.io"
 
 
 def _handle_waitlist_confirmation(email: str) -> None:
-    _sender.send(
-        to=email,
-        subject="You're on the SteamPulse waitlist",
-        html=(
-            "<p>Thanks for your interest in SteamPulse Pro!</p>"
-            "<p>We'll let you know as soon as early access opens.</p>"
-            "<hr><p><small>SteamPulse &mdash; steampulse.io</small></p>"
-        ),
-        from_addr=_FROM_ADDR,
-    )
+    if not _waitlist_repo.claim_confirmation_send(email):
+        logger.info(
+            "Waitlist confirmation skipped (already sent or row missing)",
+            extra={"email": email},
+        )
+        return
+    try:
+        _sender.send(
+            to=email,
+            subject="You're on the SteamPulse waitlist",
+            html=(
+                "<p>Thanks for your interest in SteamPulse Pro!</p>"
+                "<p>We'll let you know as soon as early access opens.</p>"
+                "<hr><p><small>SteamPulse, steampulse.io</small></p>"
+            ),
+            from_addr=_FROM_ADDR,
+        )
+    except Exception:
+        _waitlist_repo.release_confirmation_claim(email)
+        raise
     logger.info("Waitlist confirmation sent", extra={"email": email})
 
 
@@ -62,7 +75,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
                     _handle_waitlist_confirmation(msg.email)
                 case _:
                     logger.warning(
-                        "Unknown SQS message type — dropping",
+                        "Unknown SQS message type, dropping",
                         extra={"message_type": msg_type},
                     )
         except Exception:

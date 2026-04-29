@@ -1,6 +1,6 @@
 # frontend-static-asset-retention
 
-Stop frontend deploys from breaking already-rendered HTML pages. Adopt the Vercel / OpenNext convention: hashed `_next/static/*` assets coexist across deploys, HTML is invalidated on deploy, orphaned assets age out via S3 lifecycle.
+Stop frontend deploys from breaking already-rendered HTML pages. Adopt the Vercel / OpenNext convention: hashed `_next/static/*` assets coexist across deploys and are retained indefinitely for now, HTML is invalidated on deploy, and long-term hygiene will come from a future retain-last-N-build-IDs cleanup job/script (only `cache/` has a lifecycle rule today).
 
 ## Why
 
@@ -9,7 +9,7 @@ Production reproduction (2026-04-29): `https://d1mamturmn55fm.cloudfront.net/gam
 Root cause chain:
 
 1. `frontend/next.config.ts:8` pins Next `BUILD_ID` to the git short SHA, so every deploy ships freshly hashed CSS / JS bundle filenames.
-2. `infra/stacks/frontend_stack.py:42` runs `BucketDeployment(..., prune=True)`. CDK uploads the new build's assets and **deletes** every object in the bucket that isn't in the new source set. The previous build's CSS hash is gone.
+2. Before this change, the frontend bucket deployment used `BucketDeployment(..., prune=True)`. CDK uploaded the new build's assets and **deleted** every object in the bucket that wasn't in the new source set. The previous build's CSS hash was gone.
 3. HTML responses from the SSR Lambda set `Cache-Control: s-maxage=31536000`, and `app/games/[appid]/[slug]/page.tsx:359` sets `revalidate = 31536000`. CloudFront keeps prerendered HTML for up to a year.
 4. Any HTML cached before the latest deploy still references the now-deleted CSS hash. Visitors get a `200 OK` HTML response with a `404` on its stylesheet, and the page renders raw.
 
@@ -22,7 +22,7 @@ This is a deploy-pipeline bug, not a frontend bug. The frontend's behavior is co
 After this prompt:
 - Two consecutive frontend deploys never break already-cached HTML.
 - A user visiting a page that was prerendered against build N still gets a styled page even after build N+1 has shipped.
-- Bucket size stays bounded: orphan assets age out after 30 days, plenty of headroom for a year of weekly deploys.
+- Hashed assets accumulate in the bucket without bound for now (single-digit MB per build, negligible cost). Long-term hygiene is a future retain-last-N-build-IDs cleanup job, tracked as a follow-up TODO; no age-based lifecycle rule for `_next/static/*` is in scope here.
 - The deploy pipeline pushes a CloudFront HTML invalidation at the end so newly visible work goes live promptly instead of waiting for tag-based ISR.
 
 ## Scope
@@ -54,8 +54,8 @@ s3deploy.BucketDeployment(
     destination_bucket=frontend_bucket,
     # Hashed _next/static/* assets are content-addressed; old hashes must
     # outlive the deploy that replaces them so HTML cached in CloudFront
-    # before this deploy keeps resolving its CSS/JS. Lifecycle rule on the
-    # bucket sweeps orphans after 30d.
+    # before this deploy keeps resolving its CSS/JS. Orphans accumulate
+    # for now; retain-last-N-build-IDs cleanup is a future follow-up.
     prune=False,
 )
 ```
@@ -102,7 +102,7 @@ Per project convention, no unit tests for operator scripts. CDK synth output is 
 
 ## Verification
 
-1. `poetry run cdk synth SteamPulse-Production-Frontend` succeeds and shows `Prune: False` on the asset deployment custom resource.
+1. `poetry run cdk synth SteamPulse-Production/Frontend` succeeds and shows `Prune: False` on the asset deployment custom resource.
 2. Deploy to staging once, capture the asset hash list:
    ```bash
    aws s3 ls s3://steampulse-frontend-staging/_next/static/chunks/ | awk '{print $4}' | sort > /tmp/hashes-before.txt

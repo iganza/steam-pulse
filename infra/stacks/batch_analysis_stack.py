@@ -486,6 +486,8 @@ class BatchAnalysisStack(cdk.Stack):
                 "appids": sfn.JsonPath.list_at("$.appids"),
                 "max_concurrency": sfn.JsonPath.number_at("$.max_concurrency"),
                 "appids_count": sfn.JsonPath.array_length(sfn.JsonPath.list_at("$.appids")),
+                # Forward start_at so the FanOut item_selector can thread it into each iteration.
+                "start_at": sfn.JsonPath.string_at("$.start_at"),
             },
         )
 

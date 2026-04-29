@@ -397,6 +397,17 @@ export async function joinWaitlist(email: string): Promise<WaitlistResult> {
   });
 }
 
+export async function submitWaitlistSuggestion(
+  email: string,
+  suggestion: string,
+): Promise<{ status: "received" }> {
+  return apiFetch("/api/waitlist/suggestion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, suggestion }),
+  });
+}
+
 export async function getReportRequestCount(appid: number): Promise<{ appid: number; request_count: number }> {
   return apiFetch(`/api/reports/request-count/${appid}`, { next: { revalidate: 300 } });
 }

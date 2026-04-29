@@ -33,7 +33,10 @@ _FROM_ADDR = "hello@steampulse.io"
 
 def _handle_waitlist_confirmation(email: str) -> None:
     if not _waitlist_repo.claim_confirmation_send(email):
-        logger.info("Waitlist confirmation already sent, skipping", extra={"email": email})
+        logger.info(
+            "Waitlist confirmation skipped (already sent or row missing)",
+            extra={"email": email},
+        )
         return
     try:
         _sender.send(

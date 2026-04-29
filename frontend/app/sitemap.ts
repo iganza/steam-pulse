@@ -7,7 +7,7 @@ import type { Game } from "@/lib/types";
 export const revalidate = 3600;
 
 const BASE_URL = "https://steampulse.io";
-const MIN_REVIEWS = 10;
+const MIN_REVIEWS = 50;
 // Stay under the 50k-URL sitemap spec limit with headroom for hub routes
 // added after the game loop. HUB_RESERVE is the budget held back from the
 // game+developer loop so genre/tag entries always make it in.

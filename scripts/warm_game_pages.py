@@ -21,9 +21,13 @@ from collections import Counter
 
 import httpx
 
-MIN_REVIEWS = 10
+MIN_REVIEWS = 50
 PAGE_SIZE = 1000
 MAX_URLS = 49000  # mirrors frontend/app/sitemap.ts
+# Hub pages worth warming before the per-game loop. /sitemap.xml is ISR-cached
+# at revalidate=3600 and a cold rebuild walks the whole catalog (~3-8s), so a
+# fresh deploy's first crawler hit eats that latency unless we warm it here.
+HUB_PATHS = ("/sitemap.xml",)
 
 
 async def _fetch_games_page(client: httpx.AsyncClient, base_url: str, offset: int) -> list[dict]:
@@ -112,8 +116,9 @@ async def _run(base_url: str, concurrency: int, read_timeout: float, cap: int) -
         timeout=timeout_cfg, limits=limits, follow_redirects=True
     ) as client:
         print(f"Discovering URLs from {base_url}/api/games (min_reviews={MIN_REVIEWS}, cap={cap})…")
-        urls = await _collect_urls(client, base_url, cap)
-        print(f"Discovered {len(urls)} URLs. Warming with concurrency={concurrency}…")
+        urls = [f"{base_url}{p}" for p in HUB_PATHS]
+        urls.extend(await _collect_urls(client, base_url, cap - len(urls)))
+        print(f"Discovered {len(urls)} URLs ({len(HUB_PATHS)} hubs + per-game). Warming with concurrency={concurrency}…")
 
         # Worker pool: N workers pull from a shared queue. Caps live tasks at N
         # regardless of URL count (avoids 49k concurrent task objects).

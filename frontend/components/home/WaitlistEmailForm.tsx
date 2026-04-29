@@ -32,6 +32,7 @@ export function WaitlistEmailForm({
   const [signupStatus, setSignupStatus] = useState<SignupStatus>("registered");
   const [suggestion, setSuggestion] = useState("");
   const [error, setError] = useState("");
+  const [suggestionError, setSuggestionError] = useState("");
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -61,11 +62,13 @@ export function WaitlistEmailForm({
 
   function finishWithSkip() {
     plausible("Waitlist Suggestion Skipped", { props: { variant } });
+    setSuggestionError("");
     setStatus("thanked");
   }
 
   function sendAnother() {
     setSuggestion("");
+    setSuggestionError("");
     setStatus("awaiting_suggestion");
   }
 
@@ -78,6 +81,7 @@ export function WaitlistEmailForm({
       return;
     }
 
+    setSuggestionError("");
     setStatus("sending_suggestion");
     try {
       await submitWaitlistSuggestion(email.trim().toLowerCase(), trimmed);
@@ -86,7 +90,9 @@ export function WaitlistEmailForm({
       setStatus("thanked");
     } catch (err) {
       console.error("Waitlist suggestion submit failed:", err);
-      finishWithSkip();
+      plausible("Waitlist Suggestion Failed", { props: { variant } });
+      setSuggestionError("Couldn't send. Please try again.");
+      setStatus("awaiting_suggestion");
     }
   }
 
@@ -130,6 +136,11 @@ export function WaitlistEmailForm({
             Skip
           </button>
         </div>
+        {suggestionError && (
+          <p className="mt-2 text-xs text-center" style={{ color: "#ef4444" }}>
+            {suggestionError}
+          </p>
+        )}
       </div>
     );
   }

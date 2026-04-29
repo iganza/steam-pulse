@@ -167,10 +167,16 @@
      - [ ] Deploy to production
      - [ ] Verify https://steampulse.io/ shows the FeaturedReport card with live data
      - [ ] Verify https://steampulse.io/genre/roguelike-deckbuilder/ renders the full curated preview
-     - [ ] Submit sitemap to https://search.google.com/search-console (URL: https://steampulse.io/sitemap.xml)
-     - [ ] Submit sitemap to https://www.bing.com/webmasters
+     - [ ] Google Search Console: add property as *Domain* type (not URL prefix) at https://search.google.com/search-console — covers apex + www + all subdomains in one shot
+     - [ ] Verify ownership via DNS TXT record at the apex in Route 53 (add to =delivery_stack.py= or via console)
+     - [ ] Submit sitemap in GSC: =https://steampulse.io/sitemap.xml=
+     - [ ] In GSC URL Inspection: Request Indexing for =/=, =/genre/roguelike-deckbuilder/=, and 3–5 highest-value game pages
+     - [ ] Bing Webmaster Tools: add site at https://www.bing.com/webmasters and *import from GSC* (skips re-verifying); covers Bing/DuckDuckGo/Yahoo/ChatGPT search
+     - [ ] IndexNow: drop key file at site root + ping =api.indexnow.org= when new reports publish (one-time setup, accelerates Bing/Yandex indexing)
      - [ ] Verify AI crawlers: =curl -A "GPTBot" https://steampulse.io/games/440/= returns 200
+     - [ ] Plausible post-cutover: confirm =steampulse.io= site receives pageviews (proxy mode in =frontend/next.config.ts= requires the site name to match)
      - [ ] Lighthouse SEO ≥ 90 on =/= and on =/genre/roguelike-deckbuilder/= (run from production URLs in incognito)
+     - [ ] Watch GSC Pages report for 2 weeks: flag any "Discovered – not indexed" or crawl errors
 
 **** Step 2 — Wait and measure (1–2 weeks)
      Watch Plausible for organic sessions landing on
@@ -348,6 +354,43 @@
 - [ ] *Wire SteamSpy tag fetching into the crawl pipeline.* Spoke handler =_process_tags=, ingest =_handle_tags=, and =tag_repo.upsert_tags()= are implemented but nothing triggers a "tags" SQS task. =tags= and =game_tags= tables remain empty. SteamSpy returns 403 from cloud IPs; PR #40 replaced with Steam store page scraping (=InitAppTagModal()= JS, age-gate cookies). See =steam_source.py get_player_tags()=.
 - [ ] *Leverage tag vote counts for deeper intelligence.* Player tag votes (e.g. Elden Ring "Souls-like" 7,399 / "Open World" 5,408) are a rich signal currently used only for ordering. Ideas: tag weight in LLM context, weighted tag similarity, tag-sentiment correlation, tag trend tracking, defining-vs-noise confidence thresholds.
 - [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Low priority.
+
+*** Dev/Marketing Toolkit Brainstorm (speculative, post-Page-Doctor)
+
+    Brainstormed 2026-04-28 alongside Page Doctor v1. Anchor pattern for
+    every entry: a dev or marketer types an appid and gets a focused,
+    peer-grounded report. All on-demand, never scheduled. None is launch-
+    blocking; surface for future prompts as Page Doctor lands and demand
+    fires.
+
+**** Asset micro-audits (smaller scope than Page Doctor)
+- *Tag Doctor*: tag-only audit. Drop generic tags, add the sub-genre tags peers ride. Run-monthly cadence (per Zukowski). Cheapest entry; could be Free.
+- *Capsule Doctor*: capsule-only deep dive. Vision-heavy. Word count, contrast, thumbnail readability, genre/fantasy signal in 1 second, vs ~10 peer capsules.
+- *Trailer Doctor*: first 5 seconds, opens-with-gameplay vs logo, sound-independence, length window, peer trailer patterns.
+
+**** Decision support (high stakes, devs usually guessing)
+- *Pricing Doctor*: price recommendation grounded in comparables, content hours from reviews, owner-tier estimates from Boxleiter. Uniquely defensible (reviews + owner estimates).
+- *Localization Decider*: review distribution by language + peer localization ROI heuristics. "Translate to these N next, expected lift, cost."
+- *Pre-Launch Health Score*: for unreleased games. No GameReport possible for the dev's own game, so leans entirely on page quality + peer patterns. Direct fit for the "has Demo, weak wishlists" persona.
+- *Demo Diagnostic*: pulls demo-tagged and EA reviews. Asks "is the demo cannibalizing wishlists or seeding them?" Compares to peer demo-to-wishlist patterns from Next Fest histories.
+
+**** Positioning / acquisition
+- *Competitive Brief*: "what genre am I really in, and how am I distinct?" Planning-stage question every dev fumbles. Leverages our genre depth.
+- *Wishlist Audience Targeter*: from review demographics, infer where wishlisters hang out (subreddits, streamers, content niches). Acquisition-channel output, not page output.
+- *Tagline Lab*: 10 short-description variants grounded in the actual phrases reviewers use to describe the game.
+
+**** Live-game tools (post-launch)
+- *Review Reply Coach*: which negative reviews to respond to publicly, what to say. Devs underuse this lever.
+- *Patch Notes Optimizer*: given a planned patch + GameReport.player_wishlist, what to highlight to re-engage lapsed wishlists.
+- *Refund Risk Diagnostic*: package the existing GameReport.churn_triggers + technical_issues as a standalone surface.
+
+**** Time-anchored
+- *Next Fest Pre-Mortem*: 30-day countdown checklist anchored to last Next Fest's peer outcomes.
+
+**** Top 3 to build after Page Doctor v1
+1. *Pre-Launch Health Score*: fits the user's persona exactly.
+2. *Tag Doctor*: cheapest, smallest, can be Free, recurring monthly use case, sticky.
+3. *Pricing Doctor*: uniquely defensible from review + owner-estimate data; pricing is high-stakes and devs are guessing.
 
 *** Misc
 - [ ] Would it be nice if I could click on "Reviews" and be taken to a page showing them?

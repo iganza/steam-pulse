@@ -60,12 +60,6 @@ test.describe('Game page — no-report state, rich data variant', () => {
     await expect(page.getByTestId('playtime-chart')).toBeVisible()
   })
 
-  test('Waitlist card is shown (only on no-report path)', async ({ page }) => {
-    await expect(page.getByTestId('report-waitlist-card')).toBeVisible()
-    await expect(
-      page.getByText(/Get the full SteamPulse report on .+ when it's ready/i),
-    ).toBeVisible()
-  })
 })
 
 test.describe('Game page — no-report state, thin data variant', () => {

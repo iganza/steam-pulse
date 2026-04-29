@@ -76,18 +76,6 @@ test.describe('Game report page — analyzed game', () => {
     await expect(methodologyLink).toHaveAttribute('href', '/about#methodology')
   })
 
-  test('footer methodology paragraph names the author and review count', async ({ page }) => {
-    const footer = page.getByTestId('methodology-footer')
-    await expect(footer).toBeVisible()
-    // MOCK_REPORT.total_reviews_analyzed = 2000 per fixtures.
-    await expect(footer).toContainText(/2,000 reviews analysed/)
-    await expect(footer).toContainText(/reviewed and curated by Ivan Z\. Ganza/)
-    await expect(footer.getByRole('link', { name: /methodology/i })).toHaveAttribute(
-      'href',
-      '/about#methodology',
-    )
-  })
-
   test('hero renders Steam chip with review_score_desc', async ({ page }) => {
     // The hero badge block replaces the old `report.overall_sentiment` pill
     // with a Steam-attributed chip reading "Steam · {review_score_desc}".
@@ -422,13 +410,6 @@ test.describe('Game report page — unanalyzed game', () => {
   test('shows quick stats section', async ({ page }) => {
     // Quick Stats section always renders in unanalyzed state
     await expect(page.getByText('Quick Stats').first()).toBeVisible()
-  })
-
-  test('shows the report waitlist card as primary CTA', async ({ page }) => {
-    await expect(page.getByTestId('report-waitlist-card')).toBeVisible()
-    await expect(
-      page.getByText(/Get the full SteamPulse report on .+ when it's ready/i),
-    ).toBeVisible()
   })
 
   test('hero section is rendered', async ({ page }) => {

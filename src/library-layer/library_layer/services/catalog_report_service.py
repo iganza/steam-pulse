@@ -56,7 +56,7 @@ class CatalogReportService:
         items = self._catalog_repo.find_reports(
             genre=genre, tag=tag, sort=sort_key, limit=page_size, offset=offset,
         )
-        total = self._catalog_repo.count_reports(genre=genre, tag=tag)
+        total = self._catalog_repo.count_reports(genre=genre, tag=tag, sort=sort_key)
 
         return {
             "items": [it.model_dump(mode="json") for it in items],

@@ -27,7 +27,7 @@ export default function AboutPage() {
             About SteamPulse
           </h1>
           <p className="text-base text-muted-foreground leading-relaxed">
-            Structured player intelligence across the Steam catalog.
+            Structured intelligence across the Steam catalog.
           </p>
         </header>
 
@@ -36,16 +36,17 @@ export default function AboutPage() {
             What SteamPulse is
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
-            SteamPulse is deep market research for indie Steam devs. Point it
-            at a game and it returns the design strengths, gameplay friction,
-            churn triggers, player wishlists, and developer priorities. Every
-            claim is anchored to a counted review quote.
+            SteamPulse is deep market research for indie Steam devs,
+            publishers, and the marketers who back them.
           </p>
           <p className="text-base text-foreground/80 leading-relaxed">
-            Each report is produced through automated review-corpus analysis
-            and benchmarked against its genre cohort. A human editor reviews
-            every published synthesis before it ships. The pipeline is
-            AI-assisted, not AI-only.
+            Point it at a game and it returns the design strengths, gameplay
+            friction, promise gaps, churn triggers, player wishlists,
+            developer priorities, and audience overlap.
+          </p>
+          <p className="text-base text-foreground/80 leading-relaxed">
+            Every point is grounded in the game&apos;s store metadata and
+            player reviews.
           </p>
         </section>
 
@@ -54,20 +55,14 @@ export default function AboutPage() {
             Methodology
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
-            Every report starts from public Steam data (store metadata, price,
-            tags, and the full review corpus) and combines automated
-            review-corpus analysis with editorial review. Cross-game patterns
-            are surfaced only when there is sufficient supporting evidence
-            across the corpus, so anecdotes never pose as trends.
+            Every report starts from public Steam data: store metadata,
+            price, tags, and player reviews.
           </p>
           <p className="text-base text-foreground/80 leading-relaxed">
-            Steam-sourced facts (sentiment %, review totals, recent trend,
-            playtime distribution) are shown as reported by Steam, with
-            per-source crawl timestamps. LLM-synthesised facts are labelled
-            separately so you always know what is data and what is
-            interpretation. Known limitations: sample skews toward reviewers
-            who post publicly on Steam, recent-review weighting trails behind
-            a week or two, and the corpus is Steam-only.
+            We process that data with standard analytics and machine-learning
+            techniques, then run it through an LLM pipeline that summarizes,
+            categorizes, and extracts evidence. A human editor reviews every
+            report for quality and consistency before it ships.
           </p>
         </section>
 
@@ -76,8 +71,9 @@ export default function AboutPage() {
             Who made this
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
-            SteamPulse is built and operated by {AUTHOR_NAME}, a one-person
-            shop. SteamPulse was built on a break from his own game,{" "}
+            SteamPulse is built and operated by {AUTHOR_NAME}, a working
+            game developer. SteamPulse was built on a break from his own
+            game,{" "}
             <a
               href={STEAM_GAME_URL}
               target="_blank"

@@ -15,9 +15,17 @@ from library_layer.repositories.base import BaseRepository
 ReportSort = Literal["last_analyzed", "review_count", "positive_pct", "hidden_gem_score"]
 CandidateSort = Literal["request_count", "review_count"]
 
+# Minimum reviews required to appear on the "Best on Steam" leaderboard so
+# tiny-sample 100% games can't outrank well-reviewed titles.
+_BEST_ON_STEAM_MIN_REVIEWS = 500
 
-def _filter_clause(genre: str | None, tag: str | None) -> tuple[str, list]:
-    """Build genre/tag filter SQL fragment + params.
+
+def _filter_clause(
+    genre: str | None,
+    tag: str | None,
+    sort: ReportSort | None = None,
+) -> tuple[str, list]:
+    """Build genre/tag/sort-implied filter SQL fragment + params.
 
     Uses the @> array-contains operator so GIN indexes are used.
     """
@@ -29,6 +37,9 @@ def _filter_clause(genre: str | None, tag: str | None) -> tuple[str, list]:
     if tag:
         parts.append("tag_slugs @> ARRAY[%s]::text[]")
         params.append(tag)
+    if sort == "positive_pct":
+        parts.append("review_count >= %s")
+        params.append(_BEST_ON_STEAM_MIN_REVIEWS)
     if not parts:
         return "", []
     return " AND " + " AND ".join(parts), params
@@ -61,7 +72,7 @@ class CatalogReportRepository(BaseRepository):
         limit: int,
         offset: int,
     ) -> list[CatalogReportEntry]:
-        filt, fparams = _filter_clause(genre, tag)
+        filt, fparams = _filter_clause(genre, tag, sort)
         order = _SORT_MAP.get(sort, "last_analyzed DESC")
         sql = f"""
             SELECT * FROM mv_catalog_reports
@@ -72,8 +83,14 @@ class CatalogReportRepository(BaseRepository):
         rows = self._fetchall(sql, tuple([*fparams, limit, offset]))
         return [CatalogReportEntry.model_validate(dict(r)) for r in rows]
 
-    def count_reports(self, *, genre: str | None, tag: str | None) -> int:
-        filt, fparams = _filter_clause(genre, tag)
+    def count_reports(
+        self,
+        *,
+        genre: str | None,
+        tag: str | None,
+        sort: ReportSort | None = None,
+    ) -> int:
+        filt, fparams = _filter_clause(genre, tag, sort)
         sql = f"SELECT COUNT(*) AS c FROM mv_catalog_reports WHERE TRUE {filt}"
         row = self._fetchone(sql, tuple(fparams))
         return int(row["c"]) if row else 0

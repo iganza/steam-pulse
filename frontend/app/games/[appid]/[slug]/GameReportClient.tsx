@@ -13,7 +13,7 @@ import {
   Swords,
   Users,
 } from "lucide-react";
-import type { GameReport, ReviewStats, Benchmarks, RelatedAnalyzedGame } from "@/lib/types";
+import type { GameReport, ReviewStats, Benchmarks } from "@/lib/types";
 import { SectionLabel } from "@/components/game/SectionLabel";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import {
@@ -31,11 +31,8 @@ import { GameHero } from "@/components/game/GameHero";
 import { SteamFactsCard } from "@/components/game/SteamFactsCard";
 import { QuickStats } from "@/components/game/QuickStats";
 import { GameAnalyticsSection } from "@/components/analytics/GameAnalyticsSection";
-import { RequestAnalysis } from "@/components/game/RequestAnalysis";
-import { RelatedAnalyzedGames } from "@/components/game/RelatedAnalyzedGames";
 import { parseLocalDate, slugify, relativeTime } from "@/lib/format";
 import { AuthorByline } from "@/components/shared/AuthorByline";
-import { AUTHOR_NAME, METHODOLOGY_PATH } from "@/lib/author";
 
 interface GameReportClientProps {
   report: GameReport | null;
@@ -73,9 +70,6 @@ interface GameReportClientProps {
   estimatedRevenueUsd?: number | null;
   revenueEstimateMethod?: string | null;
   revenueEstimateReason?: string | null;
-  /** Pre-fetched neighbors for the "More games like this" section on
-   *  un-analyzed pages. Empty on analyzed pages. */
-  relatedAnalyzed?: RelatedAnalyzedGame[];
   reviewStats: ReviewStats | null;
   benchmarks: Benchmarks | null;
 }
@@ -129,7 +123,6 @@ export function GameReportClient({
   estimatedRevenueUsd,
   revenueEstimateMethod,
   revenueEstimateReason,
-  relatedAnalyzed = [],
   reviewStats,
   benchmarks,
 }: GameReportClientProps) {
@@ -590,14 +583,6 @@ export function GameReportClient({
             pass. Self-hides when all five endpoints return empty. */}
         <GameAnalyticsSection appid={appid} gameName={name} />
 
-
-
-        {!report && <RequestAnalysis appid={appid} gameTitle={name} />}
-
-        {!report && relatedAnalyzed.length > 0 && (
-          <RelatedAnalyzedGames games={relatedAnalyzed} />
-        )}
-
         {/* Footer: analyzed games get the "Analysis based on N reviews" line;
             both show the Steam store link. */}
         <section className="pt-8 border-t border-border">
@@ -630,28 +615,6 @@ export function GameReportClient({
                 </span>
               )}
             </div>
-          )}
-          {report && (
-            <p
-              className="mt-4 text-sm text-muted-foreground leading-relaxed italic"
-              data-testid="methodology-footer"
-            >
-              This page was synthesised by the SteamPulse three-phase pipeline
-              {report.total_reviews_analyzed != null ? (
-                <>
-                  {" "}({report.total_reviews_analyzed.toLocaleString()} reviews
-                  analysed across chunk → merge → synthesise phases)
-                </>
-              ) : null}
-              , reviewed and curated by {AUTHOR_NAME}. See the{" "}
-              <Link
-                href={METHODOLOGY_PATH}
-                className="underline underline-offset-2 hover:text-foreground transition-colors"
-              >
-                methodology
-              </Link>{" "}
-              for the full pipeline and quote-traceability rules.
-            </p>
           )}
           <div className={report ? "mt-4" : ""}>
             <a

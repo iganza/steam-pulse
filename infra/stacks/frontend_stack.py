@@ -39,5 +39,6 @@ class FrontendStack(cdk.Stack):
                 "AssetsDeployment",
                 sources=[s3deploy.Source.asset(_OPEN_NEXT_ASSETS)],
                 destination_bucket=frontend_bucket,
-                prune=True,
+                # Hashed _next/static/* assets must outlive the deploy that replaces them so HTML cached in CloudFront keeps resolving its CSS/JS.
+                prune=False,
             )

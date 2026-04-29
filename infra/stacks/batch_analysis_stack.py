@@ -494,6 +494,14 @@ class BatchAnalysisStack(cdk.Stack):
             "FanOut",
             items_path="$.appids",
             max_concurrency_path="$.max_concurrency",
+            # In DistributedMap, $$.Execution inside the iteration is the child
+            # execution (Input = the scalar appid). Wrap each item with the
+            # parent's start_at via item_selector so the child task reads both
+            # values from $ instead of $$.Execution.Input.
+            item_selector={
+                "appid": sfn.JsonPath.string_at("$$.Map.Item.Value"),
+                "start_at": sfn.JsonPath.string_at("$.start_at"),
+            },
             # 100 = tolerate any number of per-game failures. Each child
             # state machine is self-contained (own Anthropic batch, own
             # tracking row), so one bad game must never abort its siblings.
@@ -514,8 +522,8 @@ class BatchAnalysisStack(cdk.Stack):
                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
                 input=sfn.TaskInput.from_object(
                     {
-                        "appid": sfn.JsonPath.number_at("$"),
-                        "start_at": sfn.JsonPath.string_at("$$.Execution.Input.start_at"),
+                        "appid": sfn.JsonPath.number_at("$.appid"),
+                        "start_at": sfn.JsonPath.string_at("$.start_at"),
                     }
                 ),
             )

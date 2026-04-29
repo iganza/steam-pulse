@@ -81,13 +81,42 @@ class _MemJobRepo:
 
 class _MemWaitlistRepo:
     def __init__(self) -> None:
-        self._store: set[str] = set()
+        # email -> confirmation_email_sent_at (None means signed up, not yet confirmed)
+        from datetime import datetime
+
+        self._store: dict[str, datetime | None] = {}
 
     def add(self, email: str) -> bool:
         if email in self._store:
             return False
-        self._store.add(email)
+        self._store[email] = None
         return True
+
+    def needs_confirmation(self, email: str) -> bool:
+        return email in self._store and self._store[email] is None
+
+    def claim_confirmation_send(self, email: str) -> bool:
+        from datetime import UTC, datetime
+
+        if email in self._store and self._store[email] is None:
+            self._store[email] = datetime.now(UTC)
+            return True
+        return False
+
+    def release_confirmation_claim(self, email: str) -> None:
+        if email in self._store:
+            self._store[email] = None
+
+
+class _StubResendSender:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.should_raise: bool = False
+
+    def send(self, **kwargs: object) -> None:
+        if self.should_raise:
+            raise RuntimeError("resend failed")
+        self.calls.append(kwargs)
 
 
 class _MemWaitlistSuggestionRepo:
@@ -507,6 +536,47 @@ def test_waitlist_normalizes_email(client: TestClient) -> None:
     assert resp2.json()["status"] == "already_registered"
 
 
+def test_waitlist_duplicate_signup_with_confirmed_email_does_not_reenqueue(
+    client: TestClient,
+) -> None:
+    """Duplicate signup whose confirmation_email_sent_at is set must not re-enqueue."""
+    import lambda_functions.api.handler as api_module
+
+    api_module._email_queue_url = (  # type: ignore[assignment]
+        "https://sqs.us-west-2.amazonaws.com/123456789/email-queue"
+    )
+    client.post("/api/waitlist", json={"email": "dev@example.com"})
+    sqs_stub: _StubSqsClient = api_module._sqs_client  # type: ignore[assignment]
+    assert len(sqs_stub.sent) == 1
+
+    # Simulate the email Lambda having already claimed + sent the confirmation.
+    repo: _MemWaitlistRepo = api_module._waitlist_repo  # type: ignore[assignment]
+    repo.claim_confirmation_send("dev@example.com")
+
+    resp = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp.json()["status"] == "already_registered"
+    assert len(sqs_stub.sent) == 1
+
+
+def test_waitlist_duplicate_signup_with_unconfirmed_email_reenqueues(
+    client: TestClient,
+) -> None:
+    """Duplicate signup whose confirmation_email_sent_at is NULL must re-enqueue (recovery path)."""
+    import lambda_functions.api.handler as api_module
+
+    api_module._email_queue_url = (  # type: ignore[assignment]
+        "https://sqs.us-west-2.amazonaws.com/123456789/email-queue"
+    )
+    client.post("/api/waitlist", json={"email": "dev@example.com"})
+    sqs_stub: _StubSqsClient = api_module._sqs_client  # type: ignore[assignment]
+    assert len(sqs_stub.sent) == 1
+
+    # Timestamp is still NULL (email Lambda never ran or rolled back on failure).
+    resp = client.post("/api/waitlist", json={"email": "dev@example.com"})
+    assert resp.json()["status"] == "already_registered"
+    assert len(sqs_stub.sent) == 2
+
+
 # ---------------------------------------------------------------------------
 # /api/games total count logic
 # ---------------------------------------------------------------------------
@@ -609,6 +679,59 @@ def test_waitlist_rejects_empty_email(client: TestClient) -> None:
     """POST /api/waitlist with an empty string returns 422."""
     resp = client.post("/api/waitlist", json={"email": ""})
     assert resp.status_code == 422
+
+
+@pytest.fixture
+def email_handler() -> object:
+    """Lazy-import the email Lambda handler with SSM seeded via moto."""
+    import sys
+
+    if "lambda_functions.email.handler" in sys.modules:
+        return sys.modules["lambda_functions.email.handler"]
+
+    import boto3
+    from moto import mock_aws
+
+    with mock_aws():
+        ssm = boto3.client("ssm", region_name="us-east-1")
+        ssm.put_parameter(
+            Name=os.environ["RESEND_API_KEY_PARAM_NAME"],
+            Value="test-resend-key",
+            Type="SecureString",
+        )
+        import lambda_functions.email.handler  # noqa: F401
+
+    return sys.modules["lambda_functions.email.handler"]
+
+
+def test_email_handler_skips_when_already_sent(email_handler: object) -> None:
+    """Two invocations for the same email result in only one Resend send."""
+    repo = _MemWaitlistRepo()
+    repo.add("dev@example.com")
+    sender = _StubResendSender()
+    email_handler._waitlist_repo = repo  # type: ignore[attr-defined]
+    email_handler._sender = sender  # type: ignore[attr-defined]
+
+    email_handler._handle_waitlist_confirmation("dev@example.com")  # type: ignore[attr-defined]
+    email_handler._handle_waitlist_confirmation("dev@example.com")  # type: ignore[attr-defined]
+
+    assert len(sender.calls) == 1
+    assert repo._store["dev@example.com"] is not None
+
+
+def test_email_handler_rolls_back_timestamp_on_resend_failure(email_handler: object) -> None:
+    """If Resend raises, the timestamp must roll back to NULL so SQS retry can re-attempt."""
+    repo = _MemWaitlistRepo()
+    repo.add("dev@example.com")
+    sender = _StubResendSender()
+    sender.should_raise = True
+    email_handler._waitlist_repo = repo  # type: ignore[attr-defined]
+    email_handler._sender = sender  # type: ignore[attr-defined]
+
+    with pytest.raises(RuntimeError, match="resend failed"):
+        email_handler._handle_waitlist_confirmation("dev@example.com")  # type: ignore[attr-defined]
+
+    assert repo._store["dev@example.com"] is None
 
 
 def test_waitlist_suggestion_records_payload(client: TestClient) -> None:

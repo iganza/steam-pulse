@@ -1010,11 +1010,9 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
     """Add an email to the waitlist and enqueue a confirmation email."""
     normalized_email = body.email.strip().lower()
     inserted = _waitlist_repo.add(normalized_email)
-    if not inserted:
-        # Already on the waitlist — return 200 so the UI shows success.
-        return {"status": "already_registered"}
+    should_enqueue = inserted or _waitlist_repo.needs_confirmation(normalized_email)
 
-    if _email_queue_url:
+    if should_enqueue and _email_queue_url:
         msg = WaitlistConfirmationMessage(email=normalized_email)
         try:
             _sqs_client.send_message(
@@ -1023,18 +1021,16 @@ async def join_waitlist(body: WaitlistRequest) -> dict:
             )
             logger.info("Waitlist confirmation queued", extra={"email": normalized_email})
         except Exception:
-            # SQS failure must not return 500 — email is already registered.
-            # Confirmation will be missing but the signup succeeded.
             logger.exception(
                 "Failed to enqueue waitlist confirmation", extra={"email": normalized_email}
             )
-    else:
+    elif should_enqueue:
         logger.warning(
-            "EMAIL_QUEUE_URL not set — skipping confirmation email",
+            "EMAIL_QUEUE_URL not set, skipping confirmation email",
             extra={"email": normalized_email},
         )
 
-    return {"status": "registered"}
+    return {"status": "registered" if inserted else "already_registered"}
 
 
 @app.post("/api/waitlist/suggestion")

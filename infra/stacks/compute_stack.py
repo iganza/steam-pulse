@@ -923,8 +923,12 @@ class ComputeStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaSQSQueueExecutionRole",
                 ),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole",
+                ),
             ],
         )
+        db_secret.grant_read(email_role)
         resend_param.grant_read(email_role)
         email_role.add_to_policy(
             iam.PolicyStatement(
@@ -945,6 +949,9 @@ class ComputeStack(cdk.Stack):
             architecture=lambda_.Architecture.ARM_64,
             layers=[library_layer],
             role=email_role,
+            vpc=vpc,
+            vpc_subnets=private_subnets,
+            security_groups=[intra_sg],
             timeout=cdk.Duration.seconds(30),
             memory_size=256,
             tracing=lambda_.Tracing.DISABLED,

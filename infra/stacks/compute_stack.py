@@ -1008,6 +1008,15 @@ class ComputeStack(cdk.Stack):
                 resources=[f"{frontend_bucket.bucket_arn}/cache/*"],
             )
         )
+        # ListBucket scoped to cache/* so cold-start can discover the OpenNext
+        # inner BUILD_ID via list_objects_v2(Delimiter="/").
+        revalidate_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[frontend_bucket.bucket_arn],
+                conditions={"StringLike": {"s3:prefix": ["cache/*"]}},
+            )
+        )
         # CloudFront edge invalidation — distribution ID is resolved at runtime
         # so the resource ARN must be wildcarded.
         revalidate_role.add_to_policy(

@@ -143,8 +143,7 @@ def _invalidate_cdn(records: list[tuple[str, int]]) -> None:
     paths: set[str] = set()
     for _, appid in records:
         paths.add(f"/games/{appid}/*")
-        # API paths are edge-cached (s-maxage=86400) — must invalidate alongside HTML
-        # or fresh analyses serve stale data for up to 24 h.
+        # API paths are edge-cached too; invalidate alongside HTML or fresh analyses serve stale.
         paths.add(f"/api/games/{appid}/report")
         paths.add(f"/api/games/{appid}/review-stats")
         paths.add(f"/api/games/{appid}/benchmarks")

@@ -110,3 +110,6 @@ backups/
 /frontend/.open-next/
 /review_backfill_gaps.csv
 /tmp/
+/reports/concept_doctor/
+/reports/niche_scout/
+/reports/tag_doctor/

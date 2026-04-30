@@ -18,7 +18,6 @@ import aws_cdk.aws_route53_targets as route53_targets
 import aws_cdk.aws_s3 as s3
 import aws_cdk.aws_ssm as ssm
 from constructs import Construct
-
 from library_layer.config import SteamPulseConfig
 
 DOMAIN = "steampulse.io"
@@ -116,6 +115,53 @@ class DeliveryStack(cdk.Stack):
             query_string_behavior=cloudfront.CacheQueryStringBehavior.allow_list("limit"),
         )
 
+        # ── www → apex 301 (production only) ─────────────────────────────────
+        # CloudFront Function runs at viewer-request on every behavior so any
+        # www.steampulse.io hit returns a 301 to the apex with path+querystring
+        # preserved. Apex requests pass through unchanged.
+        www_to_apex_fa = (
+            [
+                cloudfront.FunctionAssociation(
+                    function=cloudfront.Function(
+                        self,
+                        "WwwToApexRedirect",
+                        code=cloudfront.FunctionCode.from_inline(
+                            """
+function handler(event) {
+  var request = event.request;
+  var rawHost = (request.headers.host && request.headers.host.value) || '';
+  var host = rawHost.toLowerCase().replace(/:\\d+$/, '');
+  if (host !== 'www.steampulse.io') return request;
+  var parts = [];
+  for (var k in request.querystring) {
+    var entry = request.querystring[k];
+    var ek = encodeURIComponent(k);
+    if (entry.multiValue && entry.multiValue.length > 0) {
+      for (var i = 0; i < entry.multiValue.length; i++) {
+        parts.push(ek + '=' + encodeURIComponent(entry.multiValue[i].value || ''));
+      }
+    } else {
+      parts.push(ek + '=' + encodeURIComponent(entry.value || ''));
+    }
+  }
+  var qs = parts.length ? '?' + parts.join('&') : '';
+  return {
+    statusCode: 301,
+    statusDescription: 'Moved Permanently',
+    headers: { location: { value: 'https://steampulse.io' + request.uri + qs } }
+  };
+}
+"""
+                        ),
+                        runtime=cloudfront.FunctionRuntime.JS_2_0,
+                    ),
+                    event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+                )
+            ]
+            if config.is_production
+            else None
+        )
+
         # ── CloudFront ────────────────────────────────────────────────────────
         # Single shared origin per Lambda — reused across all behaviors so the
         # distribution doesn't end up with N copies of the same origin config.
@@ -134,6 +180,7 @@ class DeliveryStack(cdk.Stack):
             cache_policy=api_cache_policy,
             origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+            function_associations=www_to_apex_fa,
         )
 
         distribution = cloudfront.Distribution(
@@ -145,6 +192,7 @@ class DeliveryStack(cdk.Stack):
                 cache_policy=html_cache_policy,
                 origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                function_associations=www_to_apex_fa,
             ),
             additional_behaviors={
                 "/api/games/*/report": api_cached_behavior,
@@ -157,16 +205,19 @@ class DeliveryStack(cdk.Stack):
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                    function_associations=www_to_apex_fa,
                 ),
                 "/_next/static/*": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=static_cache_policy,
+                    function_associations=www_to_apex_fa,
                 ),
                 "/static/*": cloudfront.BehaviorOptions(
                     origin=s3_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=static_cache_policy,
+                    function_associations=www_to_apex_fa,
                 ),
             },
             domain_names=[DOMAIN, f"www.{DOMAIN}"] if config.is_production else None,

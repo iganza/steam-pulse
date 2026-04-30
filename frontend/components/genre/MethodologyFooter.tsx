@@ -1,4 +1,4 @@
-import { CONTACT_EMAIL } from "@/lib/author";
+import { ContactEmail } from "@/components/ContactEmail";
 
 interface Props {
   displayName: string;
@@ -35,12 +35,7 @@ export function MethodologyFooter({ displayName, inputCount }: Props) {
       </p>
       <p className="max-w-prose">
         Notice an issue? Email{" "}
-        <a
-          href={`mailto:${CONTACT_EMAIL}`}
-          className="underline underline-offset-2 hover:text-foreground transition-colors"
-        >
-          {CONTACT_EMAIL}
-        </a>
+        <ContactEmail className="underline underline-offset-2 hover:text-foreground transition-colors" />
         .
       </p>
     </section>

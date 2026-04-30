@@ -46,7 +46,11 @@ def _handle_waitlist_confirmation(email: str) -> None:
             html=(
                 "<p>Thanks for your interest in SteamPulse Pro!</p>"
                 "<p>We'll let you know as soon as early access opens.</p>"
-                "<hr><p><small>SteamPulse, steampulse.io</small></p>"
+                "<hr>"
+                "<p><small>Feedback, questions, or suggestions? Email us at "
+                '<a href="mailto:feedback@steampulse.io">feedback@steampulse.io</a> '
+                "&mdash; we'd love to hear from you.</small></p>"
+                "<p><small>SteamPulse, steampulse.io</small></p>"
             ),
             from_addr=_FROM_ADDR,
             reply_to=_REPLY_TO,

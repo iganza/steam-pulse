@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
-import {
-  AUTHOR_NAME,
-  CONTACT_EMAIL,
-  STEAM_GAME_NAME,
-  STEAM_GAME_URL,
-} from "@/lib/author";
+import { AUTHOR_NAME, STEAM_GAME_NAME, STEAM_GAME_URL } from "@/lib/author";
+import { ContactEmail } from "@/components/ContactEmail";
 
 export const metadata: Metadata = {
   title: "About SteamPulse · Methodology",
@@ -92,12 +88,7 @@ export default function AboutPage() {
           </h2>
           <p className="text-base text-foreground/80 leading-relaxed">
             Questions, corrections, or a report request:{" "}
-            <a
-              href={`mailto:${CONTACT_EMAIL}`}
-              className="underline underline-offset-2 hover:text-foreground transition-colors"
-            >
-              {CONTACT_EMAIL}
-            </a>
+            <ContactEmail className="underline underline-offset-2 hover:text-foreground transition-colors" />
             .
           </p>
         </section>

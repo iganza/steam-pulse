@@ -28,7 +28,8 @@ _resend_api_key: str = get_parameter(  # type: ignore[assignment]
 _sender = ResendEmailSender(_resend_api_key)
 _waitlist_repo = WaitlistRepository(get_conn)
 
-_FROM_ADDR = "hello@steampulse.io"
+_FROM_ADDR = "SteamPulse <hello@send.steampulse.io>"
+_REPLY_TO = "feedback@steampulse.io"
 
 
 def _handle_waitlist_confirmation(email: str) -> None:
@@ -48,6 +49,7 @@ def _handle_waitlist_confirmation(email: str) -> None:
                 "<hr><p><small>SteamPulse, steampulse.io</small></p>"
             ),
             from_addr=_FROM_ADDR,
+            reply_to=_REPLY_TO,
         )
     except Exception:
         _waitlist_repo.release_confirmation_claim(email)

@@ -585,6 +585,51 @@ def test_module_load_discovers_inner_build_id() -> None:
 
 
 @mock_aws
+def test_module_load_discovers_divergent_inner_build_id_and_deletes_that_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production bug: INNER != OUTER. Discovery must surface the actual inner id."""
+    import sys
+
+    different_inner = "different-inner"
+
+    ssm = boto3.client("ssm", region_name="us-east-1")
+    ssm.put_parameter(Name=_REVALIDATE_TOKEN_PARAM, Value=_TOKEN, Type="String", Overwrite=True)
+    ssm.put_parameter(
+        Name=_DISTRIBUTION_ID_PARAM, Value=_DISTRIBUTION_ID, Type="String", Overwrite=True
+    )
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket=_FRONTEND_BUCKET)
+    s3.put_object(
+        Bucket=_FRONTEND_BUCKET,
+        Key=f"{_CACHE_KEY_PREFIX}{different_inner}/games/42/demo-slug.cache",
+        Body=b"seed",
+    )
+
+    sys.modules.pop("lambda_functions.revalidate_frontend.handler", None)
+    import lambda_functions.revalidate_frontend.handler as handler
+
+    assert handler._INNER_BUILD_IDS == [different_inner]
+
+    captured_kwargs: list[dict] = []
+
+    def _capture(**kwargs: Any) -> dict:
+        captured_kwargs.append(kwargs)
+        return {"Deleted": [{"Key": o["Key"]} for o in kwargs["Delete"]["Objects"]]}
+
+    monkeypatch.setattr(handler._s3, "delete_objects", _capture)
+
+    handler._delete_page_cache(42, "demo-slug")
+
+    assert len(captured_kwargs) == 1
+    keys = [o["Key"] for o in captured_kwargs[0]["Delete"]["Objects"]]
+    assert keys == [
+        f"{_CACHE_KEY_PREFIX}{different_inner}/games/42/demo-slug.cache",
+        f"{_CACHE_KEY_PREFIX}{different_inner}/games/42/demo-slug.cache.meta",
+    ]
+
+
+@mock_aws
 def test_delete_page_cache_iterates_all_inner_build_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

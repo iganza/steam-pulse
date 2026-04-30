@@ -56,6 +56,13 @@ def _seed_ssm_and_bucket() -> None:
     )
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket=_FRONTEND_BUCKET)
+    # Materialize the cache/{OUTER}/{INNER}/ CommonPrefix so the module-load
+    # _discover_inner_build_ids() call finds the inner build id at import time.
+    s3.put_object(
+        Bucket=_FRONTEND_BUCKET,
+        Key=f"{_CACHE_KEY_PREFIX}{_BUILD_ID}/_init",
+        Body=b"",
+    )
 
 
 def _stub_cloudfront(handler: Any) -> list[dict]:
@@ -568,3 +575,56 @@ def test_no_records_skips_cloudfront_call(httpx_mock: HTTPXMock) -> None:
     assert result == {"batchItemFailures": []}
     assert captured == []
     assert httpx_mock.get_requests() == []
+
+
+@mock_aws
+def test_module_load_discovers_inner_build_id() -> None:
+    """Cold start lists cache/{OUTER}/ and populates _INNER_BUILD_IDS from CommonPrefixes."""
+    handler, _ = _get_module()
+    assert handler._INNER_BUILD_IDS == [_BUILD_ID]
+
+
+@mock_aws
+def test_delete_page_cache_iterates_all_inner_build_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When multiple inner ids are discovered, delete fires .cache + .cache.meta for each."""
+    handler, _ = _get_module()
+    monkeypatch.setattr(handler, "_INNER_BUILD_IDS", ["inner-a", "inner-b"])
+
+    captured_kwargs: list[dict] = []
+
+    def _capture(**kwargs: Any) -> dict:
+        captured_kwargs.append(kwargs)
+        return {"Deleted": [{"Key": o["Key"]} for o in kwargs["Delete"]["Objects"]]}
+
+    monkeypatch.setattr(handler._s3, "delete_objects", _capture)
+
+    handler._delete_page_cache(42, "demo-slug")
+
+    assert len(captured_kwargs) == 1
+    keys = [o["Key"] for o in captured_kwargs[0]["Delete"]["Objects"]]
+    assert keys == [
+        f"{_CACHE_KEY_PREFIX}inner-a/games/42/demo-slug.cache",
+        f"{_CACHE_KEY_PREFIX}inner-a/games/42/demo-slug.cache.meta",
+        f"{_CACHE_KEY_PREFIX}inner-b/games/42/demo-slug.cache",
+        f"{_CACHE_KEY_PREFIX}inner-b/games/42/demo-slug.cache.meta",
+    ]
+
+
+@mock_aws
+def test_module_load_raises_when_no_inner_build_ids_found() -> None:
+    """Empty cache/{OUTER}/ prefix is a broken deploy — must crash loudly."""
+    import sys
+
+    ssm = boto3.client("ssm", region_name="us-east-1")
+    ssm.put_parameter(Name=_REVALIDATE_TOKEN_PARAM, Value=_TOKEN, Type="String", Overwrite=True)
+    ssm.put_parameter(
+        Name=_DISTRIBUTION_ID_PARAM, Value=_DISTRIBUTION_ID, Type="String", Overwrite=True
+    )
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket=_FRONTEND_BUCKET)
+    # Note: deliberately no inner-id placeholder object.
+    sys.modules.pop("lambda_functions.revalidate_frontend.handler", None)
+    with pytest.raises(RuntimeError, match="No inner build IDs found"):
+        import lambda_functions.revalidate_frontend.handler  # noqa: F401

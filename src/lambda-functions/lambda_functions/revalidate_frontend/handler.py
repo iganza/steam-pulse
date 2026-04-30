@@ -40,22 +40,44 @@ _DISTRIBUTION_ID: str = _require_param(
 _FRONTEND_BUCKET: str = os.environ["FRONTEND_BUCKET"]
 
 
-def _parse_cache_key_prefix(prefix: str) -> tuple[str, str]:
-    """Validate "cache/{BUILD_ID}/" and return (prefix, build_id)."""
+def _validate_cache_key_prefix(prefix: str) -> str:
+    """Fail loud if CACHE_BUCKET_KEY_PREFIX is malformed."""
     if not prefix.startswith("cache/") or not prefix.endswith("/"):
         raise ValueError(f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}")
-    build_id = prefix[len("cache/") : -1]
-    if not build_id or "/" in build_id:
+    outer = prefix[len("cache/") : -1]
+    if not outer or "/" in outer:
         raise ValueError(f"CACHE_BUCKET_KEY_PREFIX must match 'cache/{{BUILD_ID}}/': {prefix!r}")
-    return prefix, build_id
+    return prefix
 
 
-# OpenNext writes pages under cache/{BUILD_ID}/{BUILD_ID}/... — the prefix
-# is "cache/{BUILD_ID}/" and the inner BUILD_ID matches after pinning.
-_CACHE_KEY_PREFIX, _BUILD_ID = _parse_cache_key_prefix(os.environ["CACHE_BUCKET_KEY_PREFIX"])
+_CACHE_KEY_PREFIX = _validate_cache_key_prefix(os.environ["CACHE_BUCKET_KEY_PREFIX"])
 _HTTP_TIMEOUT_SECONDS = 5.0
 _s3 = boto3.client("s3")
 _cloudfront = boto3.client("cloudfront")
+
+
+def _discover_inner_build_ids() -> list[str]:
+    """List subdirs of cache/{OUTER}/ to find OpenNext's inner build ID(s)."""
+    response = _s3.list_objects_v2(
+        Bucket=_FRONTEND_BUCKET,
+        Prefix=_CACHE_KEY_PREFIX,
+        Delimiter="/",
+    )
+    common = response.get("CommonPrefixes") or []
+    inner_ids = [p["Prefix"][len(_CACHE_KEY_PREFIX) : -1] for p in common]
+    inner_ids = [i for i in inner_ids if i]
+    if not inner_ids:
+        raise RuntimeError(
+            f"No inner build IDs found under s3://{_FRONTEND_BUCKET}/{_CACHE_KEY_PREFIX} "
+            "frontend deploy may be incomplete."
+        )
+    return inner_ids
+
+
+# OpenNext writes pages to cache/{OUTER}/{INNER}/... where OUTER comes from
+# CACHE_BUCKET_KEY_PREFIX and INNER is OpenNext's own build id; the two do
+# not always match, so discover INNER from S3 instead of assuming.
+_INNER_BUILD_IDS = _discover_inner_build_ids()
 
 # Lazy-init so connections pool across records and warm invocations.
 _http_client: httpx.Client | None = None
@@ -95,20 +117,19 @@ def _post_revalidate(appid: int, slug: str) -> None:
 
 
 def _delete_page_cache(appid: int, slug: str) -> None:
-    """Delete the OpenNext S3 page cache file (and .meta) for this game.
+    """Delete OpenNext S3 page-cache files for this game across all inner build IDs.
 
     Required workaround: OpenNext doesn't tag dynamic-route page entries
     in DynamoDB, so revalidatePath/revalidateTag don't bust them.
     """
-    base_key = f"{_CACHE_KEY_PREFIX}{_BUILD_ID}/games/{appid}/{slug}"
+    objects: list[dict[str, str]] = []
+    for inner in _INNER_BUILD_IDS:
+        base = f"{_CACHE_KEY_PREFIX}{inner}/games/{appid}/{slug}"
+        objects.append({"Key": f"{base}.cache"})
+        objects.append({"Key": f"{base}.cache.meta"})
     response = _s3.delete_objects(
         Bucket=_FRONTEND_BUCKET,
-        Delete={
-            "Objects": [
-                {"Key": f"{base_key}.cache"},
-                {"Key": f"{base_key}.cache.meta"},
-            ]
-        },
+        Delete={"Objects": objects},
     )
     # delete_objects returns 200 even when individual keys fail (e.g.,
     # AccessDenied). Surface those so SQS retries / DLQ catches them.

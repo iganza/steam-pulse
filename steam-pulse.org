@@ -356,42 +356,67 @@
 - [ ] *Fix CDK test fixture to use staging environment.* =tests/infra/test_compute_stack.py= uses =ENVIRONMENT="production"= while other infra tests use staging. Low priority.
 - [ ] *Retain-last-N-build-IDs cleanup for =_next/static/*=.* Follow-up to =scripts/prompts/frontend-static-asset-retention.md=. With =prune=False= on =BucketDeployment=, hashed assets accumulate forever in =steampulse-frontend-{env}=. Cost is trivial today (single-digit MB per build, pennies/month), but eventually wants a scheduled cleanup that reads the last N deployed BUILD_IDs (CloudFormation history or an SSM rollover list), keeps assets referenced by any retained build's =_buildManifest.js=, and deletes the rest. Do NOT use S3 lifecycle by raw age; that re-creates the unstyled-page bug on any deploy gap longer than the retention window.
 
-*** Dev/Marketing Toolkit Brainstorm (speculative, post-Page-Doctor)
+*** Dev/Marketing Toolkit Brainstorm
 
-    Brainstormed 2026-04-28 alongside Page Doctor v1. Anchor pattern for
-    every entry: a dev or marketer types an appid and gets a focused,
-    peer-grounded report. All on-demand, never scheduled. None is launch-
-    blocking; surface for future prompts as Page Doctor lands and demand
-    fires.
+    Brainstormed 2026-04-28 alongside Page Doctor v1; reorganised by
+    lifecycle phase 2026-04-30 after Niche Scout v1, Concept Doctor v1
+    and Tag Doctor v1 shipped. Anchor pattern for every entry: a dev or
+    marketer types an appid (or genre/wedge slug) and gets a focused,
+    peer-grounded report. All on-demand, never scheduled (except
+    Competitor Watch). None is launch-blocking; surface as future
+    prompts when demand fires.
 
-**** Asset micro-audits (smaller scope than Page Doctor)
-- *Tag Doctor*: tag-only audit. Drop generic tags, add the sub-genre tags peers ride. Run-monthly cadence (per Zukowski). Cheapest entry; could be Free.
-- *Capsule Doctor*: capsule-only deep dive. Vision-heavy. Word count, contrast, thumbnail readability, genre/fantasy signal in 1 second, vs ~10 peer capsules.
-- *Trailer Doctor*: first 5 seconds, opens-with-gameplay vs logo, sound-independence, length window, peer trailer patterns.
+    Status legend: [SHIPPED] live in =scripts/=, [WIP] active prompt in
+    =scripts/prompts/=, [IDEA] not yet specced.
 
-**** Decision support (high stakes, devs usually guessing)
-- *Pricing Doctor*: price recommendation grounded in comparables, content hours from reviews, owner-tier estimates from Boxleiter. Uniquely defensible (reviews + owner estimates).
-- *Localization Decider*: review distribution by language + peer localization ROI heuristics. "Translate to these N next, expected lift, cost."
-- *Pre-Launch Health Score*: for unreleased games. No GameReport possible for the dev's own game, so leans entirely on page quality + peer patterns. Direct fit for the "has Demo, weak wishlists" persona.
-- *Demo Diagnostic*: pulls demo-tagged and EA reviews. Asks "is the demo cannibalizing wishlists or seeding them?" Compares to peer demo-to-wishlist patterns from Next Fest histories.
+**** Phase 1: Discovery and momentum (pre-concept)
+- [SHIPPED] *Niche Scout*: scans the catalog for fertile (genre, modifier_tag) niches by demand, growth, saturation, longtail, indie scope.
+- [IDEA] *Trend Spotter*: time-axis sibling of Niche Scout. Surfaces tags or genres where 12mo demand is up >X% but releases-per-quarter is flat. =mv_tag_trend=, =mv_trend_by_tag=, =mv_trend_by_genre= already exist; mostly stitching.
+- [IDEA] *Wedge Finder*: given two tags, is the crossover unfilled? Quick exploration cousin of Concept Doctor's differentiation section. Pairwise tag co-occurrence + revenue.
 
-**** Positioning / acquisition
-- *Competitive Brief*: "what genre am I really in, and how am I distinct?" Planning-stage question every dev fumbles. Leverages our genre depth.
-- *Wishlist Audience Targeter*: from review demographics, infer where wishlisters hang out (subreddits, streamers, content niches). Acquisition-channel output, not page output.
-- *Tagline Lab*: 10 short-description variants grounded in the actual phrases reviewers use to describe the game.
+**** Phase 2: Decision support (pre-build, validation)
+- [SHIPPED] *Concept Doctor*: GO / CONDITIONAL GO / NO verdict for a target concept, grounded in cohort tag DNA + per-peer Phase-3 GameReport signals.
+- [IDEA] *Pricing Doctor*: price recommendation grounded in comparables, content hours from reviews, owner-tier estimates from Boxleiter. Uniquely defensible (reviews + owner estimates). Top-3 next.
+- [IDEA] *Competitive Brief*: "what genre am I really in, and how am I distinct?" Leverages genre depth. POC prompt already drafted in =scripts/prompts/maybe/competitive-brief-poc.md=.
+- [IDEA] *Pre-Launch Health Score*: for unreleased games. No GameReport possible for the dev's own game, so leans entirely on page quality + peer patterns. Direct fit for the "has Demo, weak wishlists" persona.
 
-**** Live-game tools (post-launch)
-- *Review Reply Coach*: which negative reviews to respond to publicly, what to say. Devs underuse this lever.
-- *Patch Notes Optimizer*: given a planned patch + GameReport.player_wishlist, what to highlight to re-engage lapsed wishlists.
-- *Refund Risk Diagnostic*: package the existing GameReport.churn_triggers + technical_issues as a standalone surface.
+**** Phase 3: Asset micro-audits (pre-launch craft)
+- [SHIPPED] *Tag Doctor*: tag-only audit. Drop generic tags, add the sub-genre tags peers ride. Run-monthly cadence.
+- [WIP] *Page Doctor*: full store page audit. v1 and v2 specs in =scripts/prompts/=.
+- [IDEA] *Capsule Doctor*: capsule-only deep dive. Vision-heavy. Word count, contrast, thumbnail readability, 1-second genre signal vs ~10 peer capsules. Blocked on vision budget.
+- [IDEA] *Trailer Doctor*: first 5 seconds, opens-with-gameplay vs logo, sound-independence, length window, peer trailer patterns. Blocked on video ingestion.
 
-**** Time-anchored
-- *Next Fest Pre-Mortem*: 30-day countdown checklist anchored to last Next Fest's peer outcomes.
+**** Phase 4: Positioning and acquisition
+- [IDEA] *Tagline Lab*: 10 short-description variants grounded in actual reviewer phrasing.
+- [IDEA] *Wishlist Audience Targeter*: from review demographics, infer where wishlisters hang out (subreddits, streamers, content niches). Acquisition-channel output, not page output.
+- [IDEA] *Localization Decider*: review distribution by language + peer localization ROI heuristics. "Translate to these N next, expected lift, cost."
 
-**** Top 3 to build after Page Doctor v1
-1. *Pre-Launch Health Score*: fits the user's persona exactly.
-2. *Tag Doctor*: cheapest, smallest, can be Free, recurring monthly use case, sticky.
-3. *Pricing Doctor*: uniquely defensible from review + owner-estimate data; pricing is high-stakes and devs are guessing.
+**** Phase 5: Time-anchored (event-driven)
+- [IDEA] *Launch Window Doctor*: given a planned release_date + tag-stack, count peers releasing within +/- 14 and +/- 30 days; surface quietest week in next 90. Pure SQL, no LLM needed.
+- [IDEA] *Demo Diagnostic*: pulls demo-tagged and EA reviews. "Is the demo cannibalising wishlists or seeding them?" vs peer demo-to-wishlist patterns from Next Fest histories.
+- [IDEA] *Next Fest Pre-Mortem*: 30-day countdown checklist anchored to last Next Fest's peer outcomes.
+
+**** Phase 6: Live-game tools (post-launch optimisation)
+- [IDEA] *Review Doctor*: post-launch corollary to Concept Doctor. Top 3-5 sprint-sized changes from the dev's own Phase-3 GameReport (friction_clusters, wishlist_items, dropout_moments), ranked by mention_count x severity. Reuses every Phase-3 report already paid for. Top-3 next.
+- [IDEA] *Velocity Doctor*: review velocity vs peers at the same lifecycle stage. Cohort p25/p50/p75 over =review_velocity_lifetime= bucketed by age-since-launch.
+- [IDEA] *Patch Notes Optimiser*: given a planned patch + GameReport.player_wishlist, what to highlight to re-engage lapsed wishlists.
+- [IDEA] *Refund Risk Diagnostic*: package existing GameReport.churn_triggers + technical_issues as a standalone surface.
+- [IDEA] *Review Reply Coach*: which negative reviews to respond to publicly, what to say. Devs underuse this lever.
+
+**** Phase 7: Strategic and portfolio (cross-game, low volume audience)
+- [IDEA] *Studio Doctor*: given a developer slug, audit the full catalogue for tag drift, niche fit, cannibalisation. Audience: serial indies and small studios.
+- [IDEA] *Competitor Watch*: only scheduled tool in the family. Weekly delta on review_count, price_usd, positive_pct, top-5 tags for 3-5 closest peers of a chosen appid. Needs a small snapshot history table; could live in =index_insights= JSON.
+
+**** Top 3 to build next (post Niche-Scout + Concept-Doctor + Tag-Doctor)
+1. *Review Doctor*: closes the post-launch loop that Tag Doctor only half-covers; reuses every Phase-3 GameReport already in =reports.report_json=. Strongest "your players told us X" hook.
+2. *Pricing Doctor*: uniquely defensible from review + owner-estimate data; pricing is high-stakes and devs guess. Pairs with Concept Doctor (pre-build) and Tag Doctor (post-launch).
+3. *Trend Spotter*: matviews already exist; cheapest-to-build of the discovery-phase ideas; adds time-axis distinct from Niche Scout's snapshot view.
+
+**** Blocked or parked (data gap)
+- *Capsule Doctor*, *Trailer Doctor*: need vision/video.
+- *Wishlist forecast*: Steamworks gated.
+- *Patch cadence*: needs patch-note ingestion.
+- *Audience Crosswalk* (what other niches do my players shop): needs behavioural data Steam does not expose.
 
 *** Misc
 - [ ] Would it be nice if I could click on "Reviews" and be taken to a page showing them?

@@ -1128,7 +1128,7 @@ def test_home_intel_snapshot_source_exception_isolated(
 # Path matching selects the cached /api/games/*/{...} behavior; this header
 # tells CloudFront's html_cache_policy how long to cache the response (s-maxage)
 # and how long to serve stale-while-revalidate.
-_EXPECTED_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
+_EXPECTED_CACHE_CONTROL = "s-maxage=604800, stale-while-revalidate=2592000"
 
 
 class _MemReportRepoWithRelated(_MemReportRepo):

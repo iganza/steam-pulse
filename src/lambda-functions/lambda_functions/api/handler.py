@@ -52,8 +52,10 @@ _sqs_client = boto3.client("sqs")
 VERSION = "0.1.0"
 
 # Edge-cache header for the four SSR-fanout endpoints feeding /games/{appid}/{slug}.
-# CloudFront honors s-maxage; the warmer + per-game push invalidation keep it fresh.
-_GAME_PAGE_CACHE_CONTROL = "s-maxage=86400, stale-while-revalidate=604800"
+# 7d s-maxage is safe: revalidate_frontend issues a CloudFront invalidation
+# covering all four /api/games/{appid}/* paths whenever an analysis completes.
+# SWR=30d so a cache expiry never blocks a visitor on a Lambda cold start.
+_GAME_PAGE_CACHE_CONTROL = "s-maxage=604800, stale-while-revalidate=2592000"
 
 # ---------------------------------------------------------------------------
 # Repository wiring — built once at module level.

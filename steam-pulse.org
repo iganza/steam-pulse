@@ -165,10 +165,10 @@
      - [X] Local visual check: =cd frontend && npm run dev= — confirm the FeaturedReport card renders with live RDB stats above IntelligenceCards on =/=
      - [X] Sign up at https://plausible.io ($9/mo); add the script tag to =frontend/app/layout.tsx=
      - [X] Deploy to production
-     - [ ] Verify https://steampulse.io/ shows the FeaturedReport card with live data
-     - [ ] Verify https://steampulse.io/genre/roguelike-deckbuilder/ renders the full curated preview
-     - [ ] Google Search Console: add property as *Domain* type (not URL prefix) at https://search.google.com/search-console — covers apex + www + all subdomains in one shot
-     - [ ] Verify ownership via DNS TXT record at the apex in Route 53 (add to =delivery_stack.py= or via console)
+     - [X] Verify https://steampulse.io/ shows the FeaturedReport card with live data
+     - [X] Verify https://steampulse.io/genre/roguelike-deckbuilder/ renders the full curated preview
+     - [X] Google Search Console: add property as *Domain* type (not URL prefix) at https://search.google.com/search-console — covers apex + www + all subdomains in one shot
+     - [X] Verify ownership via DNS TXT record at the apex in Route 53 (add to =delivery_stack.py= or via console)
      - [ ] Submit sitemap in GSC: =https://steampulse.io/sitemap.xml=
      - [ ] In GSC URL Inspection: Request Indexing for =/=, =/genre/roguelike-deckbuilder/=, and 3–5 highest-value game pages
      - [ ] Bing Webmaster Tools: add site at https://www.bing.com/webmasters and *import from GSC* (skips re-verifying); covers Bing/DuckDuckGo/Yahoo/ChatGPT search

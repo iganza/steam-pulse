@@ -161,7 +161,7 @@ async def list_games(
     price_tier: str | None = None,
     deck: str | None = None,
     sort: str = "review_count",
-    limit: int = Query(default=24, ge=1, le=1000),
+    limit: int = Query(default=24, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
     fields: Literal["compact"] | None = None,
 ) -> dict:

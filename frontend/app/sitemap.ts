@@ -1,16 +1,16 @@
 import type { MetadataRoute } from "next";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
 import { slugify } from "@/lib/format";
+import { SITEMAP_BASE_URL, SITEMAP_TOTAL_CHUNKS, SITEMAP_GAME_CHUNK_COUNT } from "./sitemap-config";
 
 // Rebuild walks the full catalog; cap regen to once per hour.
 export const revalidate = 3600;
 
-const BASE_URL = "https://steampulse.io";
+const BASE_URL = SITEMAP_BASE_URL;
 const MIN_REVIEWS = 50;
 const URLS_PER_GAME_CHUNK = 5000;
-// 60k game capacity; each child has its own 6 MB Lambda budget. Bump when the indexable catalog approaches ~50k games.
-const GAME_CHUNK_COUNT = 12;
-const TOTAL_CHUNKS = GAME_CHUNK_COUNT + 1; // chunk 0 holds static + genres + tags
+const GAME_CHUNK_COUNT = SITEMAP_GAME_CHUNK_COUNT;
+const TOTAL_CHUNKS = SITEMAP_TOTAL_CHUNKS;
 
 function parseTimestamp(ts: string | null | undefined): Date | undefined {
   if (typeof ts !== "string" || ts.length === 0) return undefined;
@@ -23,9 +23,10 @@ export async function generateSitemaps() {
 }
 
 export default async function sitemap(
-  { id }: { id: number | string },
+  props: { id: Promise<string> },
 ): Promise<MetadataRoute.Sitemap> {
-  const sitemapId = Number(id);
+  // Next.js v16 changed `id` to a Promise<string>; awaiting and coercing handles both.
+  const sitemapId = Number(await props.id);
   if (sitemapId === 0) return staticAndHubRoutes();
   return gameChunkRoutes(sitemapId - 1);
 }

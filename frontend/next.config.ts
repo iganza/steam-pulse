@@ -51,6 +51,8 @@ const nextConfig: NextConfig = {
     return [
       ...base,
       { source: "/stats/api/event", destination: "https://plausible.io/api/event" },
+      // Next.js 16 generateSitemaps() omits the index; rewrite /sitemap.xml to our handler.
+      { source: "/sitemap.xml", destination: "/sitemap-index" },
     ];
   },
   images: {

@@ -115,6 +115,10 @@ return exactly that one entry, confidence "high", body_tweaks empty).
   underplays, a churn trigger with a specific time window, a
   dev_priority with a high mention count, longevity if
   review_date_range_start is more than 5 years ago.
+- Include up to 3 positive findings drawn from design_strengths,
+  hidden_strengths, audience_profile praise drivers, or
+  store_page_alignment.hidden_strengths. Mix them with friction or
+  churn findings; do not stack all positives or all negatives.
 - When dev_priorities[i].why_it_matters contains mention counts like
   "28+ explicit mentions", quote them in the body. Mention counts are
   credibility multipliers. Use at least two when available.
@@ -133,12 +137,12 @@ return exactly that one entry, confidence "high", body_tweaks empty).
   r/patient_gamers, r/Steam, r/pcgaming -> players. Genre subs
   (r/towerdefense, r/roguelikedev, etc.) -> players by default
   unless the source data is exceptionally design-focused.
-- Limitations paragraph mandatory. Use these honest limits for Phase
-  3 reports: English-language reviews only, post-launch only (no
+- Limitations paragraph mandatory. Use these honest limits for Phase 3
+  reports: English-language reviews only, post-launch only (no
   pre-release wishlist signal), Steam-only (no console/Epic/GOG),
   self-selected reviewers (Steam reviewers skew positive vs silent
-  majority), total_reviews_analyzed is a cap (large games sample
-  2,000 of many more). Pick 2-3 that fit; do not list all of them.
+  majority), total_reviews_analyzed is a cap (large games sample 2000
+  of many more). Pick 2-3 that fit; do not list all of them.
 - Soft CTA only. Accepted forms: "happy to run this on your game,
   drop the appid", "DM me if you want the methodology". Forbidden:
   "check out my SaaS", "sign up at", any link to steam-pulse.org or
@@ -195,22 +199,27 @@ Section requirements:
   "high", body_tweaks empty.
 - chosen_audience: a single word, "devs" or "players". Echoes
   requested_audience if set, otherwise picks based on report strengths.
-- post_body: structure = hook (1-2 sentences, leads with
-  total_reviews_analyzed and the surprise), methodology (1-2 sentences,
-  casual; mention review-date range if it strengthens the angle), 3-5
-  numbered findings (each: bold claim, evidence with cited stat or
-  mention count, what-it-means line), limitations (1 paragraph, 2-3
-  honest limits), soft CTA (1 line). Do NOT include the title. Do NOT
-  include the TLDR. Word band depends on chosen_audience (see
-  grounding_rules).
-- tldr: 2-3 sentences. Distilled. Do not position it; the operator
-  pastes top or bottom.
+- post_body: structure, in order:
+  1. Hook: 1-2 sentences leading with total_reviews_analyzed and the
+     surprise.
+  2. Methodology: 1-2 casual sentences; mention the review-date range
+     if it strengthens the angle.
+  3. 3-5 numbered findings. Each: bold claim, evidence with cited
+     stat or mention count, what-it-means line.
+  4. Limitations: 1 paragraph with 2-3 honest limits from the list
+     in grounding_rules.
+  5. Soft CTA: 1 line, per grounding_rules.
+  Do NOT include the title (separate field). Do NOT include the TLDR
+  (separate field; the operator pastes it). Word band depends on
+  chosen_audience (see grounding_rules).
+- tldr: 2-3 sentences. Distilled. Operator pastes at top or bottom;
+  you do not position it.
 - self_edit_checklist: 5-7 items. Each is a concrete edit. Required
-  items: confirm appid and game name accuracy; read limitations aloud
-  for tone; verify subreddit self-promo rules; add one personal
-  sentence only the operator could write; double-check any quoted
-  mention counts against the source. Other 1-2 items are
-  draft-specific.
+  items: confirm appid and game name accuracy; add one personal
+  sentence only the operator could write (why they ran this, current
+  project, a confession); read limitations aloud for tone; verify
+  subreddit self-promo rules; double-check any quoted mention counts
+  against the source. Other 1-2 items are draft-specific.
 </output_rubric>
 
 <style>

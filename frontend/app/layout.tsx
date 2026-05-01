@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import { Navbar } from "@/components/layout/Navbar";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
-import PlausibleProvider from "next-plausible";
+import { Plausible } from "@/components/analytics/Plausible";
 import "./globals.css";
 
 const websiteJsonLd = {
@@ -100,14 +100,11 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
-        <PlausibleProvider
-          enabled={process.env.NEXT_PUBLIC_PLAUSIBLE_ENABLED === "true"}
-        >
-          <NuqsAdapter>
-            <Navbar />
-            {children}
-          </NuqsAdapter>
-        </PlausibleProvider>
+        <Plausible />
+        <NuqsAdapter>
+          <Navbar />
+          {children}
+        </NuqsAdapter>
       </body>
     </html>
   );

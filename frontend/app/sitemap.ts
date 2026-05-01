@@ -1,39 +1,28 @@
 import type { MetadataRoute } from "next";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
-import type { Game } from "@/lib/types";
 
-// Regenerate at most once per hour; a single sitemap rebuild walks the full
-// catalog, so per-request generation would waste DB and CPU.
+// Rebuild walks the full catalog; cap regen to once per hour.
 export const revalidate = 3600;
 
 const BASE_URL = "https://steampulse.io";
 const MIN_REVIEWS = 50;
-// Stay under the 50k-URL sitemap spec limit with headroom for hub routes
-// added after the game loop. HUB_RESERVE is the budget held back from the
-// game+developer loop so genre/tag entries always make it in.
-const MAX_URLS = 49000;
-const HUB_RESERVE = 500;
-const GAME_LOOP_CAP = MAX_URLS - HUB_RESERVE;
+const URLS_PER_GAME_CHUNK = 5000;
+// 60k game capacity vs. ~40k catalog today; each child has its own 6 MB Lambda budget.
+const GAME_CHUNK_COUNT = 12;
+const TOTAL_CHUNKS = GAME_CHUNK_COUNT + 1; // chunk 0 holds static + genres + tags
 
-function gameLastModified(game: Game): Date | undefined {
-  const candidates = [
-    game.reviews_completed_at,
-    game.review_crawled_at,
-    game.tags_crawled_at,
-    game.last_analyzed,
-    game.meta_crawled_at,
-  ];
-  let maxTime: number | undefined;
-  for (const c of candidates) {
-    if (typeof c !== "string" || c.length === 0) continue;
-    const t = new Date(c).getTime();
-    if (Number.isNaN(t)) continue;
-    if (maxTime === undefined || t > maxTime) maxTime = t;
-  }
-  return maxTime === undefined ? undefined : new Date(maxTime);
+export async function generateSitemaps() {
+  return Array.from({ length: TOTAL_CHUNKS }, (_, id) => ({ id }));
 }
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export default async function sitemap(
+  { id }: { id: number },
+): Promise<MetadataRoute.Sitemap> {
+  if (id === 0) return staticAndHubRoutes();
+  return gameChunkRoutes(id - 1);
+}
+
+async function staticAndHubRoutes(): Promise<MetadataRoute.Sitemap> {
   const routes: MetadataRoute.Sitemap = [
     { url: BASE_URL, lastModified: new Date(), changeFrequency: "daily", priority: 1 },
     { url: `${BASE_URL}/reports`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
@@ -41,52 +30,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE_URL}/about`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.4 },
   ];
 
-  // Games — paginate through all indexable games, respecting the total URL cap
-  try {
-    let offset = 0;
-    const limit = 1000;
-    const devSlugs = new Set<string>();
-    while (routes.length < GAME_LOOP_CAP) {
-      const result = await getGames({
-        sort: "review_count",
-        limit,
-        offset,
-        min_reviews: MIN_REVIEWS,
-      });
-      const games = result.games ?? [];
-      if (games.length === 0) break;
-      for (const game of games) {
-        if (routes.length >= GAME_LOOP_CAP) break;
-        routes.push({
-          url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
-          lastModified: gameLastModified(game),
-          changeFrequency: "monthly",
-          priority: 0.6,
-        });
-        if (game.developer && routes.length < GAME_LOOP_CAP) {
-          const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-          if (!devSlugs.has(devSlug)) {
-            devSlugs.add(devSlug);
-            routes.push({
-              url: `${BASE_URL}/developer/${devSlug}`,
-              changeFrequency: "weekly",
-              priority: 0.5,
-            });
-          }
-        }
-      }
-      if (games.length < limit) break;
-      offset += limit;
-    }
-  } catch {
-    // API may not be available at build time
-  }
-
-  // Genres
   try {
     const genres = await getGenres();
     for (const genre of genres) {
-      if (routes.length >= MAX_URLS) break;
       routes.push({
         url: `${BASE_URL}/genre/${genre.slug}`,
         lastModified: new Date(),
@@ -95,14 +41,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       });
     }
   } catch {
-    // skip
+    // API may not be available at build time
   }
 
-  // Tags
   try {
     const tags = await getTopTags(100);
     for (const tag of tags) {
-      if (routes.length >= MAX_URLS) break;
       routes.push({
         url: `${BASE_URL}/tag/${tag.slug}`,
         lastModified: new Date(),
@@ -114,5 +58,42 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // skip
   }
 
+  return routes;
+}
+
+async function gameChunkRoutes(chunkIdx: number): Promise<MetadataRoute.Sitemap> {
+  const routes: MetadataRoute.Sitemap = [];
+  try {
+    const result = await getGames({
+      sort: "review_count",
+      min_reviews: MIN_REVIEWS,
+      limit: URLS_PER_GAME_CHUNK,
+      offset: chunkIdx * URLS_PER_GAME_CHUNK,
+      fields: "compact",
+    });
+    const games = result.games ?? [];
+    const devSlugs = new Set<string>();
+    for (const game of games) {
+      // lastModified omitted: fields=compact drops the freshness timestamps; byte budget wins over staleness.
+      routes.push({
+        url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
+        changeFrequency: "monthly",
+        priority: 0.6,
+      });
+      if (game.developer) {
+        const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        if (devSlug && !devSlugs.has(devSlug)) {
+          devSlugs.add(devSlug);
+          routes.push({
+            url: `${BASE_URL}/developer/${devSlug}`,
+            changeFrequency: "weekly",
+            priority: 0.5,
+          });
+        }
+      }
+    }
+  } catch {
+    // API may not be available at build time
+  }
   return routes;
 }

@@ -127,8 +127,9 @@ test('sitemap.xml is accessible', async ({ page }) => {
   const resp = await page.goto('/sitemap.xml')
   expect(resp?.status()).toBe(200)
   const body = await resp?.text()
-  expect(body).toContain('<urlset')
+  expect(body).toMatch(/<urlset|<sitemapindex/)
   expect(body).toContain('steampulse.io')
+  expect(body).toContain('/sitemap/')
 })
 
 test('search page canonical strips filter params', async ({ page }) => {

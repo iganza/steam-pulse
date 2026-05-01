@@ -8,7 +8,7 @@
     "region": "us-west-2",
     "hosted-zone-id": "Z054323825VNW7NMXHM7N",
     "domain-name": "steampulse.io",
-    "domain-live": false,
+    "domain-live": true,
     "github-repo": "iganza/steam-pulse",
     "github-branch": "main",
     "codestar-connection-arn": "arn:aws:codeconnections:us-west-2:052475889199:connection/2183379f-5e1c-4b98-9021-4b85679826e1"

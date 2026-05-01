@@ -162,9 +162,9 @@
      Goal: page publicly findable + indexed + instrumented. No
      announcement. Let SEO start working quietly.
 
-     - [ ] Local visual check: =cd frontend && npm run dev= — confirm the FeaturedReport card renders with live RDB stats above IntelligenceCards on =/=
-     - [ ] Sign up at https://plausible.io ($9/mo); add the script tag to =frontend/app/layout.tsx=
-     - [ ] Deploy to production
+     - [X] Local visual check: =cd frontend && npm run dev= — confirm the FeaturedReport card renders with live RDB stats above IntelligenceCards on =/=
+     - [X] Sign up at https://plausible.io ($9/mo); add the script tag to =frontend/app/layout.tsx=
+     - [X] Deploy to production
      - [ ] Verify https://steampulse.io/ shows the FeaturedReport card with live data
      - [ ] Verify https://steampulse.io/genre/roguelike-deckbuilder/ renders the full curated preview
      - [ ] Google Search Console: add property as *Domain* type (not URL prefix) at https://search.google.com/search-console — covers apex + www + all subdomains in one shot

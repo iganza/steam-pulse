@@ -141,6 +141,7 @@ _COMPACT_GAME_FIELDS = (
     "review_count",
     "positive_pct",
     "review_score_desc",
+    "last_analyzed",
 )
 
 

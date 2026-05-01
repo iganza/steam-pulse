@@ -130,6 +130,14 @@ test('sitemap.xml is accessible', async ({ page }) => {
   expect(body).toMatch(/<urlset|<sitemapindex/)
   expect(body).toContain('steampulse.io')
   expect(body).toContain('/sitemap/')
+
+  const childResp = await page.goto('/sitemap/0.xml')
+  expect(childResp?.status()).toBe(200)
+  expect(await childResp?.text()).toContain('<urlset')
+
+  const outOfRangeResp = await page.goto('/sitemap/12.xml')
+  expect(outOfRangeResp?.status()).toBe(200)
+  expect(await outOfRangeResp?.text()).toContain('<urlset')
 })
 
 test('search page canonical strips filter params', async ({ page }) => {

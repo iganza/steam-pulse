@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getGames, getGenres, getTopTags } from "@/lib/api";
+import { slugify } from "@/lib/format";
 
 // Rebuild walks the full catalog; cap regen to once per hour.
 export const revalidate = 3600;
@@ -7,9 +8,15 @@ export const revalidate = 3600;
 const BASE_URL = "https://steampulse.io";
 const MIN_REVIEWS = 50;
 const URLS_PER_GAME_CHUNK = 5000;
-// 60k game capacity vs. ~40k catalog today; each child has its own 6 MB Lambda budget.
+// 60k game capacity; each child has its own 6 MB Lambda budget. Bump when the indexable catalog approaches ~50k games.
 const GAME_CHUNK_COUNT = 12;
 const TOTAL_CHUNKS = GAME_CHUNK_COUNT + 1; // chunk 0 holds static + genres + tags
+
+function parseTimestamp(ts: string | null | undefined): Date | undefined {
+  if (typeof ts !== "string" || ts.length === 0) return undefined;
+  const t = new Date(ts).getTime();
+  return Number.isNaN(t) ? undefined : new Date(t);
+}
 
 export async function generateSitemaps() {
   return Array.from({ length: TOTAL_CHUNKS }, (_, id) => ({ id }));
@@ -74,22 +81,20 @@ async function gameChunkRoutes(chunkIdx: number): Promise<MetadataRoute.Sitemap>
     const games = result.games ?? [];
     const devSlugs = new Set<string>();
     for (const game of games) {
-      // lastModified omitted: fields=compact drops the freshness timestamps; byte budget wins over staleness.
       routes.push({
         url: `${BASE_URL}/games/${game.appid}/${game.slug}`,
+        lastModified: parseTimestamp(game.last_analyzed),
         changeFrequency: "monthly",
         priority: 0.6,
       });
-      if (game.developer) {
-        const devSlug = game.developer.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-        if (devSlug && !devSlugs.has(devSlug)) {
-          devSlugs.add(devSlug);
-          routes.push({
-            url: `${BASE_URL}/developer/${devSlug}`,
-            changeFrequency: "weekly",
-            priority: 0.5,
-          });
-        }
+      const devSlug = game.developer_slug || (game.developer ? slugify(game.developer) : "");
+      if (devSlug && !devSlugs.has(devSlug)) {
+        devSlugs.add(devSlug);
+        routes.push({
+          url: `${BASE_URL}/developer/${devSlug}`,
+          changeFrequency: "weekly",
+          priority: 0.5,
+        });
       }
     }
   } catch {

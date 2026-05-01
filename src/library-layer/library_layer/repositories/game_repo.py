@@ -544,7 +544,7 @@ class GameRepository(BaseRepository):
 
         # Data-only query — no JOIN to reports. Scores are denormalized on games.
         sql = f"""
-            SELECT g.appid, g.name, g.slug, g.developer, g.header_image,
+            SELECT g.appid, g.name, g.slug, g.developer, g.developer_slug, g.publisher_slug, g.header_image,
                    g.review_count, g.review_count_english, g.positive_pct, g.review_score_desc,
                    g.price_usd, g.is_free,
                    g.release_date, g.deck_compatibility,

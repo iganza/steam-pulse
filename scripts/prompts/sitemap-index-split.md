@@ -88,32 +88,44 @@ game + per-chunk-deduped developer entries the same way the current loop does.
 
 Keep `revalidate = 3600`.
 
-Keep the existing `gameLastModified()` helper. Note: `fields: "compact"` only
-returns `appid/name/slug/header_image/review_count/positive_pct/review_score_desc`
-(verified via `/api/games?fields=compact`). The compact response drops every
-field `gameLastModified()` reads, so `lastModified` will be `undefined` on
-game entries. That's an acceptable regression — the current data is mostly
-stale-by-hours-anyway and the trade is required for the byte budget. Document
-this in a one-line comment.
+Replace the multi-source `gameLastModified()` helper with a single-field
+`parseTimestamp()` reading `game.last_analyzed`. That column is already
+denormalized onto `games` (since migration 0017), already in the listing
+endpoint's slow-path SELECT, and reflects when the LLM-rendered report on
+the page last changed — the most user-visible content shift. The other
+freshness columns the original helper read (`review_crawled_at`,
+`tags_crawled_at`, `reviews_completed_at`, `meta_crawled_at`) live on
+`app_catalog`, not `games`, so they aren't reachable from the listing
+endpoint without a JOIN — `last_analyzed` is the right single source.
 
 `game.developer` is also dropped by compact, which breaks the current dev
-loop. Either:
-- (a) Keep developer pages and switch back to full fields (re-eats payload),
-- (b) Drop developer URLs from the sitemap and emit them once via a dedicated
-  developers chunk, or
-- (c) Add `developer/developer_slug` to the compact projection in the API.
+loop. Add `developer`, `developer_slug`, `publisher_slug`, and
+`last_analyzed` to the compact field set in the API listing endpoint, and
+add `g.developer_slug, g.publisher_slug` to the slow-path SELECT in
+`GameRepository.list_games` (the matview fast-path is not hit by any
+current `fields=compact` caller, so we don't touch the matview shape — see
+"Out of scope"). The sitemap's developer-URL emit then prefers the
+canonical `game.developer_slug`, falling back to `slugify(game.developer)`
+from `frontend/lib/format.ts` if the slug is null. Keep the per-chunk dev
+dedup. This preserves the existing SEO surface without re-bloating the
+payload.
 
-Default to **(c)**: add `developer` and `developer_slug` to the `compact`
-field set in the API listing endpoint (one extra column per row, cheap). Keep
-the per-chunk dev dedup. This preserves the existing SEO surface without
-re-bloating the payload.
-
-### 2. API: extend `compact` projection
+### 2. API: extend `compact` projection and slow-path SELECT
 
 Find the `/api/games` handler that branches on `fields=compact` and add
-`developer` + `developer_slug` (and `publisher_slug` if the publisher-pages
-prompt has shipped) to the compact column list. One DB roundtrip cost is
+`developer`, `developer_slug`, `publisher_slug`, and `last_analyzed` to the
+compact column list. Then in `GameRepository.list_games` (slow path),
+extend the SELECT to include `g.developer_slug, g.publisher_slug` — the
+existing slow-path SELECT already returns `g.developer` and
+`g.last_analyzed` but not the canonical slugs. One DB roundtrip cost is
 unchanged.
+
+The matview path (`_list_from_matview`) does not select these columns and
+is not modified — current `fields=compact` callers (the sitemap, autocomplete)
+all hit the slow path because the sitemap doesn't filter by genre/tag and
+autocomplete sets `q` (which forces slow path). If a future caller passes
+`fields=compact&genre=…` they would receive null `developer_slug`/`publisher_slug`;
+fix at that point by rebuilding the matviews with those columns.
 
 ### 3. `frontend/tests/seo.spec.ts:130` and `frontend/tests/production/seo.prod.spec.ts:36`
 

@@ -116,15 +116,15 @@ After this prompt:
 
 ## Verification
 
-1. **Build:**
+1. **Build with the flag set so it gets inlined into the client bundle.** `NEXT_PUBLIC_*` values are read by Next at build time, not runtime — building without the flag bakes `enabled = false` into the JS, and `init()` will never run in the browser regardless of what `next start` sees:
    ```
-   cd frontend && npm run build
+   cd frontend && NEXT_PUBLIC_PLAUSIBLE_ENABLED=true npm run build
    ```
    Must compile cleanly (no TS errors, no missing-module warnings).
 
-2. **Run prod server locally with the flag on:**
+2. **Run prod server locally:**
    ```
-   NEXT_PUBLIC_PLAUSIBLE_ENABLED=true PORT=3737 npm run start
+   PORT=3737 npm run start
    ```
 
 3. **Confirm the rendered HTML no longer references `/stats/js/script.js`:**

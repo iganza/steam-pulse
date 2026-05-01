@@ -135,9 +135,10 @@ test('sitemap.xml is accessible', async ({ page }) => {
   expect(childResp?.status()).toBe(200)
   expect(await childResp?.text()).toContain('<urlset')
 
-  const outOfRangeResp = await page.goto('/sitemap/12.xml')
-  expect(outOfRangeResp?.status()).toBe(200)
-  expect(await outOfRangeResp?.text()).toContain('<urlset')
+  // Highest valid id (TOTAL_CHUNKS - 1); past current catalog end so urlset is empty but valid.
+  const emptyValidChunkResp = await page.goto('/sitemap/12.xml')
+  expect(emptyValidChunkResp?.status()).toBe(200)
+  expect(await emptyValidChunkResp?.text()).toContain('<urlset')
 })
 
 test('search page canonical strips filter params', async ({ page }) => {

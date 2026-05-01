@@ -23,10 +23,11 @@ export async function generateSitemaps() {
 }
 
 export default async function sitemap(
-  { id }: { id: number },
+  { id }: { id: number | string },
 ): Promise<MetadataRoute.Sitemap> {
-  if (id === 0) return staticAndHubRoutes();
-  return gameChunkRoutes(id - 1);
+  const sitemapId = Number(id);
+  if (sitemapId === 0) return staticAndHubRoutes();
+  return gameChunkRoutes(sitemapId - 1);
 }
 
 async function staticAndHubRoutes(): Promise<MetadataRoute.Sitemap> {

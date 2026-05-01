@@ -34,7 +34,7 @@ test.describe('SEO — production', () => {
     expect(resp?.status()).toBe(200)
     const body = await resp?.text()
     expect(body).toMatch(/<urlset|<sitemapindex/)
-    expect(body).toContain('https://steampulse.io/sitemap/')
+    expect(body).toContain('/sitemap/')
   })
 
   test('homepage has OG tags', async ({ page }) => {

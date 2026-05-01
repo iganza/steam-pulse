@@ -1,6 +1,5 @@
 import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
-import { withPlausibleProxy } from "next-plausible";
 
 // Pin Next BUILD_ID to git short SHA — same value CACHE_BUCKET_KEY_PREFIX
 // uses, so OpenNext tag namespaces stay aligned across deploys and
@@ -40,23 +39,23 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    if (process.env.NODE_ENV !== "production") {
-      return [
-        {
-          source: "/api/:path*",
-          destination: `${process.env.API_URL ?? "http://localhost:8000"}/api/:path*`,
-        },
-      ];
-    }
-    return [];
+    const base =
+      process.env.NODE_ENV !== "production"
+        ? [
+            {
+              source: "/api/:path*",
+              destination: `${process.env.API_URL ?? "http://localhost:8000"}/api/:path*`,
+            },
+          ]
+        : [];
+    return [
+      ...base,
+      { source: "/stats/api/event", destination: "https://plausible.io/api/event" },
+    ];
   },
   images: {
     unoptimized: true,
   },
 };
 
-export default withPlausibleProxy({
-  src: "https://plausible.io/js/pa-fdpH1ur-zxTFCitvrhP8d.js",
-  scriptPath: "/stats/js/script.js",
-  apiPath: "/stats/api/event",
-})(nextConfig);
+export default nextConfig;

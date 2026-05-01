@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { usePlausible } from "next-plausible";
+import { trackEvent } from "@/lib/analytics";
 import { joinWaitlist, submitWaitlistSuggestion } from "@/lib/api";
 
 interface WaitlistEmailFormProps {
@@ -26,7 +26,6 @@ export function WaitlistEmailForm({
   headline,
   variant = "hero",
 }: WaitlistEmailFormProps) {
-  const plausible = usePlausible();
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [signupStatus, setSignupStatus] = useState<SignupStatus>("registered");
@@ -52,7 +51,7 @@ export function WaitlistEmailForm({
       const result = await joinWaitlist(normalizedEmail);
       setSignupStatus(result.status);
       setStatus("awaiting_suggestion");
-      plausible("Waitlist Signup", { props: { status: result.status, variant } });
+      trackEvent("Waitlist Signup", { props: { status: result.status, variant } });
     } catch (err) {
       console.error("Waitlist signup failed:", err);
       setError("Something went wrong. Please try again.");
@@ -61,7 +60,7 @@ export function WaitlistEmailForm({
   }
 
   function finishWithSkip() {
-    plausible("Waitlist Suggestion Skipped", { props: { variant } });
+    trackEvent("Waitlist Suggestion Skipped", { props: { variant } });
     setSuggestionError("");
     setStatus("thanked");
   }
@@ -85,12 +84,12 @@ export function WaitlistEmailForm({
     setStatus("sending_suggestion");
     try {
       await submitWaitlistSuggestion(email.trim().toLowerCase(), trimmed);
-      plausible("Waitlist Suggestion", { props: { length: trimmed.length, variant } });
+      trackEvent("Waitlist Suggestion", { props: { length: String(trimmed.length), variant } });
       setSuggestion("");
       setStatus("thanked");
     } catch (err) {
       console.error("Waitlist suggestion submit failed:", err);
-      plausible("Waitlist Suggestion Failed", { props: { variant } });
+      trackEvent("Waitlist Suggestion Failed", { props: { variant } });
       setSuggestionError("Couldn't send. Please try again.");
       setStatus("awaiting_suggestion");
     }

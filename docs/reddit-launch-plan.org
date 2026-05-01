@@ -1,0 +1,334 @@
+#+TITLE: SteamPulse Reddit Launch Plan
+#+AUTHOR: Ivan Z. Ganza
+#+DATE: 2026-05-01
+#+STARTUP: overview
+#+TODO: TODO(t) NEXT(n) IN-PROGRESS(p) WAIT(w) | DONE(d) CANCELLED(c)
+
+* Strategy summary
+  Your customers are indie game devs. Most "AI/SaaS launch" subs
+  (r/SideProject, r/ClaudeAI, r/SaaS) are full of *other builders*,
+  not gamedevs -- vanity karma, no signups. Reddit traction comes
+  from being a useful regular in audience-fit subs, not from
+  launching at them.
+
+  Strategy:
+  - 80% of energy on Tier 1 (audience-fit gamedev subs). Insight posts,
+    no direct URL, build credibility, DMs convert.
+  - 15% on Tier 2 (builder subs with niche-product appreciation):
+    r/IndieHackers, r/buildinpublic, r/microsaas. Some overlap.
+  - 5% on Tier 3 (vanity launches): r/SideProject, r/ClaudeAI, r/SaaS.
+    Do once, expect 1-2 signups, mostly for visibility / profile bio
+    discovery.
+
+  Sample report URL becomes the "show, don't pitch" anchor whenever
+  URL drops are appropriate.
+
+* Tier 1: audience-fit subs (your customers live here)
+** Where indie game devs actually are
+   | Sub                | Members | Notes                                   |
+   |--------------------+---------+-----------------------------------------|
+   | r/gamedev          | ~1.9M   | Largest. Craft + analytics tolerated.   |
+   | r/IndieDev         | ~140K   | Visual / screenshot-heavy. Short-form.  |
+   | r/SoloDevelopment  | ~150K   | Solo journey, emotional, peer-to-peer.  |
+   | r/aigamedev        | ~30K    | AI + gamedev crossover. Direct match.   |
+   | r/Unity3D          | ~410K   | Engine sub. Engine-specific framing.    |
+   | r/UnrealEngine     | ~270K   | Engine sub.                             |
+   | r/godot            | ~250K   | Engine sub.                             |
+   | r/roguelikedev     | ~70K    | Genre dev sub.                          |
+
+** Mechanics for Tier 1
+   - URL drops are NOT allowed in posts (Rule 4 / self-promo rules).
+   - Profile bio carries the URL. People who care click your username.
+   - Mention "a small tool I built" in passing once per post, no URL.
+   - When asked "what's the tool?" in comments: name it, no link,
+     "DM if you want to see it" -- DMs are warm leads.
+   - Cadence: 1-2 substantive insight posts per month max in any
+     given Tier 1 sub. Comment on others' posts in between.
+
+* Tier 2: builder subs (some overlap)
+   | Sub                       | Members | Why it might work                       |
+   |---------------------------+---------+-----------------------------------------|
+   | r/IndieHackers            | ~75K    | Niche-product builders. Some are devs.  |
+   | r/buildinpublic           | ~30K    | Honest journey. Reciprocal community.   |
+   | r/microsaas               | ~50K    | Unit economics audience.                |
+   | r/EntrepreneurRideAlong   | ~250K   | Indie founder journey content.          |
+
+** Mechanics for Tier 2
+   - URL drops welcome, with the right framing.
+   - Best framing: founder journey, pricing math, "month 1 numbers."
+   - Expect 5-15 signups from a strong post here, not 100.
+   - These subs are for building your founder profile, not mass acquisition.
+
+* Tier 3: vanity launches (visibility, not customers)
+   | Sub                | Members | Honest expectation                      |
+   |--------------------+---------+-----------------------------------------|
+   | r/SideProject      | ~250K   | Karma, maybe 1-2 signups.               |
+   | r/ClaudeAI         | ~250K   | Tech eyeballs, devs not customers.      |
+   | r/SaaS             | ~250K   | B2B-generic, mostly other founders.     |
+
+** Mechanics for Tier 3
+   - Do *one* post each, ever. Don't waste cycles on follow-ups.
+   - Sample report link, not signup page.
+   - Treat as visibility / profile discovery, not as launch moments.
+
+* Subs to AVOID
+   - r/MachineLearning :: academic, will be removed
+   - r/LocalLLaMA :: local-model focus, mismatch
+   - r/OpenAI :: you use Anthropic
+   - r/ChatGPT :: consumer, not B2B
+   - r/Games :: news-only, strict
+   - r/artificial :: low signal-to-noise
+
+* Pre-launch prep
+** TODO Pick the public sample-report URL pattern
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:
+   - Decide canonical URL (e.g. =steam-pulse.io/sample/vampire-crawlers=
+     or =steam-pulse.io/games/3265700=).
+   - Make sure the page is public (no auth wall).
+   - The "show, don't pitch" link for any post that allows URLs.
+
+** TODO Make sure profile bio has steam-pulse.io
+   :PROPERTIES:
+   :EFFORT: 5m
+   :END:
+   - Reddit profile bio is the only legitimate always-visible URL spot.
+   - Doesn't violate any sub's self-promo rules.
+   - 5% of curious commenters click the username. Warm leads.
+
+** TODO Build account credibility in Tier 1 subs (3-5 substantive comments each)
+   :PROPERTIES:
+   :EFFORT: 2h spread across 3-4 days
+   :END:
+   - r/gamedev: 3-5 comments
+   - r/IndieDev: 3-5 comments
+   - r/SoloDevelopment: 3-5 comments
+   - r/aigamedev: 2-3 comments (smaller sub)
+   - Comments must be substantive (not drive-by). New accounts that
+     drop URLs without history get auto-filtered.
+
+** TODO Fix typo in Vampire_Crawlers_final.md
+   :PROPERTIES:
+   :EFFORT: 2m
+   :END:
+   - Line 3: "concentrate in the future" -> "focus on" or "concentrate on"
+
+** TODO Decide whether to add one positive finding to Vampire Crawlers post
+   :PROPERTIES:
+   :EFFORT: 15m
+   :END:
+   - All 5 findings currently negative on a 98% positive game.
+   - Candidate: insert as Finding #2 or #3 -- the actual conversion
+     drivers (Yoko Shimomura soundtrack + free demo with save carryover
+     + accessibility) which the store page hides.
+   - Already in the TLDR paragraph; just needs its own finding slot.
+
+* Phase 1: Tier 1 insight posts (weeks 1-6, 80% of energy)
+** TODO Week 1 -- Vampire Crawlers analysis to r/gamedev
+   :PROPERTIES:
+   :SUB: r/gamedev
+   :FLAIR: Discussion
+   :TIMING: Tue-Thu, 8-11am US Eastern
+   :URL_INCLUDED: NO
+   :EFFORT: 1h post + 2-3h engagement
+   :END:
+   - Title: the lede line itself ("I analyzed 5,393 reviews of
+     Vampire Crawlers and the loudest complaint in *positive*
+     reviews is the quit button.") -- ~108 chars.
+   - NO link to steam-pulse.io. "Small tool I built" mention OK.
+   - Post Tue-Thu morning US Eastern.
+   - Engage in comments first 2-3 hours.
+   - When asked "what tool?" -> name + "DM if curious", no URL.
+
+** TODO Week 2 -- Run analysis on a different game (varied polarity)
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:
+   - Pick a 60-75% polarity game OR a solo-dev success.
+   - Tests the positive-findings prompt change.
+   - Cost ~$1.
+
+** TODO Week 2 -- Post solo-dev framed analysis to r/SoloDevelopment
+   :PROPERTIES:
+   :SUB: r/SoloDevelopment
+   :URL_INCLUDED: NO
+   :EFFORT: 1h post + 2h engagement
+   :END:
+   - Lead with the personal hook ("I'm taking a break from my game
+     and built this to figure out what to focus on").
+   - Tone: more journey/feelings, less analytical.
+   - Different game from week 1. Different angle.
+
+** TODO Week 3 -- engage only (no posts)
+   :PROPERTIES:
+   :EFFORT: 1h spread across the week
+   :END:
+   - Comment on 5-10 posts in Tier 1 subs.
+   - This is the "be a useful regular" cadence builder.
+   - Don't post. Algorithm rewards spaced posting.
+
+** TODO Week 4 -- Genre/engine sub post (pick one)
+   :PROPERTIES:
+   :SUB: r/roguelikedev OR r/Unity3D OR r/godot (whichever fits the game analyzed)
+   :URL_INCLUDED: NO
+   :EFFORT: 1h post + 2h engagement
+   :END:
+   - Run analysis on a game in the chosen sub's genre/engine.
+   - Tighter audience, will go deep on mechanics. Frame for that depth.
+
+** TODO Week 5 -- AI + gamedev crossover post to r/aigamedev
+   :PROPERTIES:
+   :SUB: r/aigamedev
+   :URL_INCLUDED: YES (this sub is OK with it)
+   :EFFORT: 1h post + 1h engagement
+   :END:
+   - Title: "Built an LLM tool that turns Steam reviews into
+     structured design feedback for indie devs"
+   - Body: gamedev/AI crossover. Lead with use case, back into AI stack.
+   - URL: link to sample report.
+
+** TODO Week 6 -- Second r/gamedev insight post (different game, different angle)
+   :PROPERTIES:
+   :SUB: r/gamedev
+   :URL_INCLUDED: NO
+   :EFFORT: 1h post + 2-3h engagement
+   :END:
+   - Different game, different lens. NEVER repeat.
+   - By now you have a 6-week track record. Username starts to be
+     recognizable in r/gamedev.
+
+* Phase 2: Tier 2 founder posts (weeks 5-8, 15% of energy)
+** TODO Post to r/IndieHackers with month-1 numbers
+   :PROPERTIES:
+   :SUB: r/IndieHackers
+   :URL_INCLUDED: YES
+   :EFFORT: 1h post + 1h engagement
+   :END:
+   - Title: "Launched a $49/$149/$499 product for indie game devs --
+     month 1 numbers"
+   - Body: pricing logic, who you targeted, signups, costs vs revenue.
+   - Honest about what isn't working.
+   - Link to sample report.
+
+** TODO Post to r/buildinpublic (week 5-6 update)
+   :PROPERTIES:
+   :SUB: r/buildinpublic
+   :URL_INCLUDED: YES
+   :EFFORT: 45m
+   :END:
+   - "Building in public update: 5-6 weeks in, here's what I learned"
+   - Real numbers. Vulnerability and honesty outperform here.
+   - Cadence-friendly: you can post here repeatedly.
+
+** TODO Post unit economics to r/microsaas
+   :PROPERTIES:
+   :SUB: r/microsaas
+   :URL_INCLUDED: YES
+   :EFFORT: 45m
+   :END:
+   - "Micro-SaaS unit economics: $1 LLM cost per analysis,
+     $49 PDFs"
+   - This sub wants the math. Show actual cost-and-revenue table.
+
+* Phase 3: Tier 3 vanity launches (one-shot, low effort)
+** TODO One-shot post to r/SideProject
+   :PROPERTIES:
+   :SUB: r/SideProject
+   :URL_INCLUDED: YES (sample report URL)
+   :EFFORT: 45m
+   :END:
+   - Single post. Don't expect signups.
+   - Treat as profile-discovery / general visibility.
+   - If it does badly, that's expected. Don't return.
+
+** TODO One-shot technical post to r/ClaudeAI
+   :PROPERTIES:
+   :SUB: r/ClaudeAI
+   :URL_INCLUDED: YES
+   :EFFORT: 1h
+   :END:
+   - Title: "Built a Claude pipeline that analyzes Steam reviews --
+     here's how I structured the prompts"
+   - Body: technical depth. Multi-phase pipeline, batch API, why Opus
+     vs Haiku, prompt caching, cost ($1/game).
+   - Use Project Showcase flair.
+   - Audience: Claude builders, not gamedevs. Visibility, not customers.
+
+** TODO Skip r/SaaS unless inspiration strikes
+   :PROPERTIES:
+   :EFFORT: 0m
+   :END:
+   - B2B-generic. Mostly other founders. Low signal.
+   - Optional: post to it if you have a specific business angle that
+     isn't already covered by the IndieHackers post.
+
+* After 3+ Tier 1 posts: Marketing Monday
+** TODO Genuine landing-page feedback ask on r/gamedev Marketing Monday
+   :PROPERTIES:
+   :SUB: r/gamedev (Marketing Monday weekly thread only)
+   :TIMING: Monday only, in the weekly stickied thread
+   :URL_INCLUDED: YES (with feedback ask, not promo)
+   :EFFORT: 30m
+   :END:
+   - Only after credibility from 3+ insight posts.
+   - Frame as a *genuine feedback ask* on the steam-pulse.io landing
+     page. NOT a "check out my tool" post.
+   - Specifically state what feedback you want (e.g. "is the headline
+     clear? is the pricing tier explanation legible?")
+   - Reciprocate: leave feedback on at least 2 other posts in the
+     same thread.
+
+* Engagement rules (apply to all posts)
+** Title craft
+   - Lead with the *outcome*, not the *thing*. "...analyzes 5,000+
+     reviews per game" beats "a Steam review tool"
+   - Specific numbers. Non-round numbers > round.
+   - 60-110 characters typically performs best.
+
+** Show, don't pitch (when URL is allowed)
+   - Sample report URL > signup page URL.
+   - Screenshots > prose.
+   - Numbers > adjectives.
+
+** Comments
+   - Active in first 2-3 hours (algorithm window).
+   - Reply to substantive comments only.
+   - When pushed back, concede or ask -- don't defend.
+   - Stop after 2-3 hours. Don't return at hour 12 to reply to
+     everything.
+
+** What NOT to do
+   - Cross-post identical content
+   - Edit a post to add a URL after it gains traction (mods watch)
+   - Comment on your own post from an alt (permaban risk)
+   - Frame r/ClaudeAI as a product pitch (kills it)
+   - Lead with "I'm trying to grow my SaaS"
+   - Post twice to the same sub in one week
+   - Drop URLs in Tier 1 subs
+
+* Tracking
+** TODO Set up a simple log of posts (date, sub, URL, upvotes, signups)
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:
+   - What you want to learn: which sub drives signups, what title
+     framings get traction, how comment engagement correlates with DMs.
+
+** Post log
+   | Date | Sub | Tier | Post URL | Upvotes (24h) | DMs | Signups attributed |
+   |------+-----+------+----------+---------------+-----+--------------------|
+   |      |     |      |          |               |     |                    |
+
+* Notes
+  - Reddit isn't necessarily the highest-leverage channel for this
+    audience. Indie game devs also concentrate on Twitter/X
+    (#gamedev), Discord servers (HowToMarketAGame, genre-specific),
+    and itch.io / Steam community. Reddit is one channel, not the
+    only one.
+  - The asymmetric bet: 80% of energy on r/gamedev / r/IndieDev /
+    r/SoloDevelopment / r/aigamedev, where your actual customers are.
+    The other subs are bonus visibility, not core acquisition.
+  - DMs are the warm-lead channel. Posts don't convert; *replies to
+    comments* that name the tool to the curious do.
+  - One post per sub per month max. Pace > volume.

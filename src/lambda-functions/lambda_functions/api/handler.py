@@ -134,10 +134,14 @@ _COMPACT_GAME_FIELDS = (
     "appid",
     "name",
     "slug",
+    "developer",
+    "developer_slug",
+    "publisher_slug",
     "header_image",
     "review_count",
     "positive_pct",
     "review_score_desc",
+    "last_analyzed",
 )
 
 

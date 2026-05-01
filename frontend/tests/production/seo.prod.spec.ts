@@ -33,7 +33,8 @@ test.describe('SEO — production', () => {
     const resp = await page.goto('/sitemap.xml')
     expect(resp?.status()).toBe(200)
     const body = await resp?.text()
-    expect(body).toContain('<urlset')
+    expect(body).toMatch(/<urlset|<sitemapindex/)
+    expect(body).toContain('/sitemap/')
   })
 
   test('homepage has OG tags', async ({ page }) => {

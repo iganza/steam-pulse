@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 REPORTS_DIR = Path("reports/reddit_drafts")
 MODEL = "claude-opus-4-7"
-MAX_TOKENS = 6144
+MAX_TOKENS = 8192
 BATCH_POLL_SECONDS = 30
 CUSTOM_ID = "reddit_drafter_v1"
 
@@ -30,6 +30,15 @@ EXIT_BATCH_FAILED = 6
 EXIT_BATCH_NO_TEXT = 7
 EXIT_BATCH_NO_RESULT = 8
 EXIT_BATCH_PARSE = 9
+
+
+class ReviewSnippet(BaseModel):
+    review_id: int
+    voted_up: bool
+    votes_helpful: int
+    votes_funny: int
+    playtime_hours: int
+    body: str
 
 
 class SourceBundle(BaseModel):
@@ -44,6 +53,7 @@ class SourceBundle(BaseModel):
     positive_pct: int
     genres: list[str]
     report_json: dict[str, Any]
+    review_pool: list[ReviewSnippet]
 
 
 class SubredditRecommendation(BaseModel):
@@ -90,6 +100,11 @@ A single SourceBundle JSON document containing:
   design_strengths, gameplay_friction, churn_triggers, dev_priorities,
   audience_profile, store_page_alignment, content_depth,
   competitive_context, hidden_strengths
+- review_pool: a curated list of top reviews (sorted by helpful and
+  funny vote counts) you may cite verbatim. Each entry has review_id,
+  voted_up, votes_helpful, votes_funny, playtime_hours, body. Use
+  these reviews as primary-source evidence under each finding. NEVER
+  invent a review or cite text not present in review_pool.
 
 Two trailing lines in the user message:
 - Target subreddit: a canonical name like "r/gamedev", or "none
@@ -114,17 +129,37 @@ return exactly that one entry, confidence "high", body_tweaks empty).
   contradicts marketing, a hidden_strengths item the store page
   underplays, a churn trigger with a specific time window, a
   dev_priority with a high mention count, longevity if
-  review_date_range_start is more than 5 years ago.
-- Include up to 3 positive findings drawn from design_strengths,
-  hidden_strengths, audience_profile praise drivers, or
-  store_page_alignment.hidden_strengths. Mix them with friction or
-  churn findings; do not stack all positives or all negatives.
+  review_date_range_start is more than 5 years ago. This
+  counterintuitive rule applies to title #1 only -- it does NOT
+  mean the body findings should all be negative.
+- Include 1 to 3 positive findings as their OWN numbered items
+  in the body, drawn from design_strengths, hidden_strengths,
+  audience_profile praise drivers, or
+  store_page_alignment.hidden_strengths. Each positive finding
+  must stand alone (e.g., "**The soundtrack is a top-cited praise
+  driver.** Yoko Shimomura on the title screen, X mentions, cited
+  as a major reason players recommended the game.") -- NOT a
+  subclause buried inside a negative finding. If positive_pct
+  is 80 or higher, you must include at least 1 positive finding
+  no matter what. Mix positives in with friction findings; do not
+  stack all positives or all negatives.
+- Positive findings draw from design_strengths and hidden_strengths
+  regardless of chosen_audience. The audience rule below shapes the
+  framing of negative/friction findings, not whether positives appear.
 - When dev_priorities[i].why_it_matters contains mention counts like
   "28+ explicit mentions", quote them in the body. Mention counts are
   credibility multipliers. Use at least two when available.
 - Quote churn_triggers as specific behaviors with their time window or
   trigger condition (e.g. "players expecting RPG progression drop out
   within 3-9 hours"), not as paraphrase.
+- Each numbered finding MUST include exactly one supporting review
+  quote drawn from review_pool. Pull body text VERBATIM. You may
+  trim middle sections by replacing them with [...] (square brackets,
+  three dots), but do not paraphrase, edit, or rewrite the words.
+  Pick the review whose body is most directly on-point for the
+  finding's specific claim, not the highest-voted review by default.
+  Trim aggressively to 1-2 punchy sentences; reviewers ramble.
+  Never cite a review whose review_id is not in review_pool.
 - If chosen_audience is "devs": frame findings as design and marketing
   lessons. Pull from dev_priorities, churn_triggers,
   store_page_alignment, competitive_context. Body 600-900 words.
@@ -204,8 +239,25 @@ Section requirements:
      surprise.
   2. Methodology: 1-2 casual sentences; mention the review-date range
      if it strengthens the angle.
-  3. 3-5 numbered findings. Each: bold claim, evidence with cited
-     stat or mention count, what-it-means line.
+  3. 3-5 numbered findings. Each finding has, in this order:
+     a. Bold claim line.
+     b. 1-3 sentences of evidence (cite stat or mention count, quote
+        a specific behavior or time window verbatim from report_json).
+     c. What-it-means line.
+     d. ONE supporting review quote pulled from review_pool. Format
+        as Reddit blockquote (each line starting with `>`), then a
+        blank `>` line, then an italic attribution line. Example:
+
+          > "Quote text trimmed to 1-2 punchy sentences. Use [...]
+          > to indicate trimmed middle text."
+          >
+          > *N helpful, M funny (Xh playtime, recommended)*
+
+        Attribution rules: include votes_helpful, votes_funny,
+        playtime_hours from the source review. Append "recommended"
+        if voted_up=true, "did not recommend" if voted_up=false. If
+        playtime_hours is 0, omit the playtime parenthetical. NO
+        em-dashes anywhere; if you would write "—", omit it.
   4. Limitations: 1 paragraph with 2-3 honest limits from the list
      in grounding_rules.
   5. Soft CTA: 1 line, per grounding_rules.
@@ -273,11 +325,64 @@ JOIN games g ON g.appid = r.appid
 WHERE r.appid = %s
 """
 
+REVIEW_POOL_QUERY = """
+WITH top_helpful AS (
+  SELECT id, voted_up, votes_helpful, votes_funny, playtime_hours, body
+  FROM reviews
+  WHERE appid = %s AND language = 'english' AND COALESCE(body, '') <> ''
+  ORDER BY votes_helpful DESC NULLS LAST
+  LIMIT 40
+),
+top_funny AS (
+  SELECT id, voted_up, votes_helpful, votes_funny, playtime_hours, body
+  FROM reviews
+  WHERE appid = %s AND language = 'english' AND COALESCE(body, '') <> ''
+  ORDER BY votes_funny DESC NULLS LAST
+  LIMIT 15
+)
+SELECT id, voted_up, votes_helpful, votes_funny, playtime_hours, body
+FROM (
+  SELECT * FROM top_helpful
+  UNION
+  SELECT * FROM top_funny
+) combined
+ORDER BY votes_helpful DESC NULLS LAST, votes_funny DESC NULLS LAST
+"""
+
+REVIEW_BODY_MAX_CHARS = 1200
+
+
+def load_review_pool(
+    conn: psycopg2.extensions.connection, appid: int
+) -> list[ReviewSnippet]:
+    """Pull a curated pool of top reviews so the LLM can cite verbatim."""
+    with conn.cursor() as cur:
+        cur.execute(REVIEW_POOL_QUERY, (appid, appid))
+        rows = cur.fetchall()
+    pool: list[ReviewSnippet] = []
+    for r in rows:
+        body = (r["body"] or "").strip()
+        if not body:
+            continue
+        if len(body) > REVIEW_BODY_MAX_CHARS:
+            body = body[:REVIEW_BODY_MAX_CHARS]
+        pool.append(
+            ReviewSnippet(
+                review_id=int(r["id"]),
+                voted_up=bool(r["voted_up"]),
+                votes_helpful=int(r["votes_helpful"] or 0),
+                votes_funny=int(r["votes_funny"] or 0),
+                playtime_hours=int(r["playtime_hours"] or 0),
+                body=body,
+            )
+        )
+    return pool
+
 
 def load_source_bundle(
     conn: psycopg2.extensions.connection, appid: int
 ) -> SourceBundle:
-    """Pull the GameReport row plus the joined games metadata."""
+    """Pull the GameReport row, joined games metadata, and review citation pool."""
     with conn.cursor() as cur:
         cur.execute(SOURCE_QUERY, (appid,))
         row = cur.fetchone()
@@ -292,6 +397,8 @@ def load_source_bundle(
     if isinstance(report_json, str):
         report_json = json.loads(report_json)
 
+    review_pool = load_review_pool(conn, appid)
+
     return SourceBundle(
         appid=int(row["appid"]),
         game_name=row["game_name"] or "",
@@ -304,6 +411,7 @@ def load_source_bundle(
         positive_pct=int(row["positive_pct"] or 0),
         genres=list(row["genres"] or []),
         report_json=report_json,
+        review_pool=review_pool,
     )
 
 

@@ -5,9 +5,11 @@ import { SITEMAP_BASE_URL, SITEMAP_TOTAL_CHUNKS } from "../sitemap-config";
 export const dynamic = "force-static";
 
 export async function GET() {
+  const lastmod = new Date().toISOString();
   const sitemaps = Array.from(
     { length: SITEMAP_TOTAL_CHUNKS },
-    (_, id) => `  <sitemap><loc>${SITEMAP_BASE_URL}/sitemap/${id}.xml</loc></sitemap>`,
+    (_, id) =>
+      `  <sitemap><loc>${SITEMAP_BASE_URL}/sitemap/${id}.xml</loc><lastmod>${lastmod}</lastmod></sitemap>`,
   ).join("\n");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

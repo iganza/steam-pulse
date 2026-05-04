@@ -138,102 +138,72 @@ Pinned numbers and Stripe-side configuration:
 - Subscription has ≥ 5 active subscribers and monthly churn < 10%: hold pricing.
 - Subscription falls short of either threshold: revisit. Annual rate moves with monthly (always ~17% off the monthly-times-12 rate).
 
-## 5. User identity and entitlements schema
+## 5. User identity and entitlements
 
-Forward-compatible with adding Auth0 (or any OIDC provider) later without migration. v1 ships with magic-link-only auth; Auth0 plugs in as an additional auth method against the same `users` table.
+Identity is owned by **Clerk** (Next.js SDK, free tier covers ≥ 10K MAU which is far above launch volume). Magic link, Google OAuth, logout, and the `<UserProfile>` account UI are out of the box. Entitlements (subscriptions, one-time report purchases) live in our Postgres, keyed on Clerk's `user_id` string.
+
+The Clerk integration prompt is `scripts/prompts/clerk-auth-setup.md`. This section pins the schema and lifecycle that Clerk + Stripe wiring satisfies.
 
 ### Tables
 
 ```sql
-users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email TEXT UNIQUE NOT NULL,
-  stripe_customer_id TEXT UNIQUE,
-  -- Future: populated when Auth0 lands. Multiple auth methods resolve to the same user.
-  auth0_sub TEXT UNIQUE,
-  display_name TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)
-
 subscriptions (
   id BIGSERIAL PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id),
+  clerk_user_id TEXT NOT NULL,
+  stripe_customer_id TEXT NOT NULL,
   stripe_subscription_id TEXT UNIQUE NOT NULL,
   status TEXT NOT NULL,  -- active, canceled, past_due, trialing, unpaid
   current_period_end TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )
+CREATE INDEX subscriptions_clerk_user_idx ON subscriptions (clerk_user_id);
 
 report_purchases (
   id BIGSERIAL PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id),
+  clerk_user_id TEXT NOT NULL,
   report_slug TEXT NOT NULL,
   stripe_session_id TEXT UNIQUE NOT NULL,
   purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   access_until TIMESTAMPTZ NOT NULL  -- purchased_at + INTERVAL '30 days'
 )
-
-magic_link_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id),
-  token_hash TEXT UNIQUE NOT NULL,  -- sha256 of the token shipped in the email
-  expires_at TIMESTAMPTZ NOT NULL,  -- typically created_at + INTERVAL '7 days'
-  used_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)
+CREATE INDEX report_purchases_clerk_user_slug_idx
+  ON report_purchases (clerk_user_id, report_slug);
 ```
 
-All entitlement reads in the genre page render-mode decision use `user_id`, never email. Email lives on `users` for delivery and recovery only.
+We do not maintain a local `users` table. Clerk's user record is the source of truth for identity (email, display name, auth methods used). Local DB stores entitlements only, FK-equivalent on the Clerk user_id string.
 
-### Lifecycle: subscription purchase
+If we ever need to denormalise email or display name into our DB for query/reporting, do it as a sidecar cache table (e.g., `clerk_user_cache`) refreshed via Clerk webhooks; never make it a hard FK target.
 
-1. Stripe Checkout completes; webhook receives `customer.subscription.created` with `customer_email`.
-2. Upsert `users` by email (create if missing); set `users.stripe_customer_id` on the row.
-3. Insert `subscriptions` row keyed on `user_id`.
-4. Generate magic-link token (`base64url(random 32 bytes)`), insert `magic_link_sessions` row with `sha256(token)`, `expires_at = now() + INTERVAL '7 days'`.
-5. Resend sends `https://steampulse.io/unlock/{token}` to the user's email.
+### Purchase flow (gate behind Clerk signup)
 
-### Lifecycle: one-time purchase
+1. Buyer clicks "Subscribe" or "Buy this report" on `/genre/[slug]/`.
+2. If not signed in: Clerk's `<SignIn />` modal opens (magic link OR Google OAuth, whichever they prefer). Implicit signup if email is new.
+3. After auth, the click resumes: backend creates a Stripe Checkout Session with `metadata.clerk_user_id` set to the authenticated user's id.
+4. Stripe Checkout completes (subscription or one-time).
+5. Webhook receives `customer.subscription.created` (or `checkout.session.completed` for one-time) with metadata. Inserts the entitlement row keyed on `clerk_user_id`.
+6. Buyer redirected back to `/genre/[slug]/`. Clerk session is already live; server-side render reads `auth()`, queries entitlements, renders paid mode.
 
-Same shape, but the webhook is `checkout.session.completed` with `metadata.tier = 'one_time'` and `metadata.report_slug`. Insert `report_purchases` row with `access_until = purchased_at + INTERVAL '30 days'`. Magic-link email also sent.
+No magic-link email is required for the purchase flow itself. Clerk's session cookie carries the buyer through. Resend is still used for transactional emails ("Thanks for subscribing", "Your report is ready"), but not for auth.
 
-### Lifecycle: magic-link redeem
+### Render-mode decision (every server-side request to `/genre/[slug]/`)
 
-1. User clicks `/unlock/{token}`.
-2. Server computes `sha256(token)` and queries `magic_link_sessions WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`.
-3. Marks `used_at = now()` (single-use tokens; reuse fails).
-4. Issues an `sp_session` cookie: signed JWT, 90-day expiry, httpOnly, secure, sameSite=lax, payload `{ user_id, iat }`.
-5. Redirects to `/` for subscription unlocks, or `/genre/{slug}/` for one-time unlocks (slug pulled from the purchase metadata).
-
-### Lifecycle: render-mode decision (every server-side request to `/genre/[slug]/`)
-
-1. Read `sp_session` cookie. If absent or signature invalid, render free mode.
-2. Decode `user_id`.
-3. Subscription check: `SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND current_period_end > now()`.
-4. One-time check: `SELECT 1 FROM report_purchases WHERE user_id = $1 AND report_slug = $2 AND access_until > now()`.
+1. Call Clerk's `auth()` helper to read the current session. If unauthenticated, render free mode.
+2. Get `userId` from the auth helper.
+3. Subscription check: `SELECT 1 FROM subscriptions WHERE clerk_user_id = $1 AND status = 'active' AND current_period_end > now()`.
+4. One-time check: `SELECT 1 FROM report_purchases WHERE clerk_user_id = $1 AND report_slug = $2 AND access_until > now()`.
 5. Either match: paid mode. No match: free mode.
 
-### `/login` page
+### Logout, account, and recovery
 
-Simple form, single email input. On submit:
+- **Logout:** Clerk's `<UserButton>` component in the page header gives "Sign out" out of the box. No custom endpoint needed.
+- **Account UI:** Clerk's `<UserProfile />` route handles email management, connected accounts (Google/GitHub etc.), and password (if enabled). Mounted at `/account`. We do not build this.
+- **Recovery:** "I lost my session" is handled by Clerk's sign-in flow itself. The buyer enters their email, Clerk sends a magic link, they're back in.
+- **Billing portal:** A "Manage subscription" button in `<UserProfile />` (or a custom page) hits Stripe's Customer Portal. Stripe owns the UI; we just create the portal session.
 
-1. Look up `users` by email. If not found, render a generic "If that email matches an account, we sent a link" message (no enumeration).
-2. If found, create a fresh `magic_link_sessions` row and send the link via Resend.
+### Why Clerk vs custom
 
-This is the recovery path for buyers who lose their cookie or want to log in from a new device. No passwords, no signup form (signup is implicit at first purchase).
-
-### Auth0 plug-in path (future, zero migration)
-
-When Auth0 (or another OIDC provider) is added later:
-
-1. Add an Auth0 callback endpoint that exchanges the auth code and resolves the Auth0 sub claim.
-2. Find user by `auth0_sub` first. If not found, fall through to email match. If still not found, create a new `users` row with the Auth0 sub and email both populated.
-3. On match, populate `users.auth0_sub` if not already set.
-4. Issue the same `sp_session` cookie. The cookie shape and the render-mode decision logic do not change.
-5. Magic-link auth stays as a fallback for users who prefer not to use Auth0.
-
-`subscriptions`, `report_purchases`, and the genre-page render flow stay identical. No backfill, no email-to-user-id rewrite, no schema migration.
+Building magic-link auth ourselves was ~2 days of focused engineering plus permanent maintenance burden (token issuance, session JWT, recovery flow, account UI). Clerk handles all of that for $0 at launch volume, adds Google OAuth as a meaningful conversion lever, and provides battle-tested session security. The schema (`subscriptions`, `report_purchases`) is keyed on the Clerk `user_id` string, so swapping to a different provider later is a focused day of rewriting the integration, not a data migration.
 
 ## What this spec does not decide
 

@@ -194,54 +194,52 @@
           is anchored on industry comps (GameDiscoverCo $15/mo,
           VGInsights $20/mo).
 
-*** Step 2: Stripe + Resend backend with user identity + subscription (~2 to 3 days)
-    Goal: =POST /api/checkout/start= creates a Stripe Checkout
-    Session for either a subscription or a single report; webhooks
-    handle both flows against a forward-compatible user identity
-    schema; subscribers and one-time buyers can both fetch any
-    unlocked report. Schema and lifecycle details are in
-    =scripts/prompts/rdb-launch-spec.md= Section 5; this step
-    implements that spec.
+*** Step 2: Clerk + Stripe + Resend backend (~1 to 2 days)
+    Goal: identity owned by Clerk (magic link + Google OAuth +
+    logout + account UI out of the box); Stripe Checkout creates
+    subscriptions or one-time purchases keyed on Clerk =user_id=;
+    webhooks insert entitlement rows; Resend sends transactional
+    confirmation emails. Schema and lifecycle in
+    =scripts/prompts/rdb-launch-spec.md= Section 5. Detailed Clerk
+    integration steps in =scripts/prompts/clerk-auth-setup.md=.
 
-    - [ ] Stripe account; two Products with Prices per the spec:
+    - [ ] Clerk account (free tier); Next.js SDK installed; provider
+          + middleware wired. Magic link and Google OAuth enabled
+    - [ ] =<UserButton>= in the page header for sign in / sign out
+    - [ ] =/account= route mounting Clerk's =<UserProfile />= for
+          email and connected-accounts management
+    - [ ] Stripe account; two Products with Prices:
           - "SteamPulse Subscription" (monthly $19, annual $190)
           - "SteamPulse Genre Report: Roguelike Deckbuilder" ($79
             one-time, metadata report_slug=roguelike-deckbuilder)
     - [ ] Stripe webhook endpoint with signing secret in SSM
-    - [ ] Tables per spec Section 5: =users=, =subscriptions=,
-          =report_purchases=, =magic_link_sessions=. All
-          entitlement tables FK to =users.id= (UUID), never email.
+    - [ ] Tables per spec Section 5: =subscriptions= and
+          =report_purchases= only. Both have =clerk_user_id TEXT
+          NOT NULL= as the identity column (no local =users= table)
     - [ ] =reports= catalog row: slug, display_name, published_at,
-          s3_pdf_key, s3_csv_key, benchmark_appids (int[]),
-          stripe_one_time_price_id
-    - [ ] =POST /api/checkout/start= accepts ={mode: "subscription"|"one_time",
-          report_slug?, email}=; creates Session accordingly;
-          returns Session URL
-    - [ ] Webhook handlers per spec Section 5 lifecycle:
-          - =checkout.session.completed= (one-time): upsert =users=,
-            insert =report_purchases= keyed on user_id, mint magic
-            link
+          benchmark_appids (int[]), stripe_one_time_price_id
+    - [ ] =POST /api/checkout/start= requires Clerk auth (uses
+          =auth()= helper), accepts ={mode, report_slug?}=,
+          creates a Stripe Checkout Session with
+          =metadata.clerk_user_id= set, returns the Session URL
+    - [ ] Webhook handlers:
+          - =checkout.session.completed= (one-time): read
+            =metadata.clerk_user_id= and =metadata.report_slug=,
+            insert =report_purchases= row with =access_until =
+            now() + INTERVAL '30 days'=
           - =customer.subscription.created= and =.updated=: upsert
-            =users=, upsert =subscriptions= keyed on user_id, mint
-            magic link on first activation
-          - =customer.subscription.deleted=: mark status, preserve
-            row
-    - [ ] =/unlock/[token]= page: validate
-          =magic_link_sessions=, mark used, set =sp_session= cookie
-          (signed JWT with user_id, 90-day expiry, httpOnly,
-          secure, sameSite=lax)
-    - [ ] =/login= page: email-only form; if user exists, mint a
-          fresh magic link. No-enumeration response copy.
-    - [ ] =GET /api/reports/{slug}/download?asset=pdf|csv=:
-          validates =sp_session= cookie + entitlement, serves a
-          fresh signed S3 URL
-    - [ ] S3 bucket =steampulse-reports-{env}= (versioning on,
-          public access blocked, signed-URL only)
+            =subscriptions= row keyed on =clerk_user_id=
+          - =customer.subscription.deleted=: mark status,
+            preserve row
+    - [ ] Buy block on =/genre/[slug]/=: if user is signed in,
+          opens Stripe Checkout directly; if not, opens Clerk
+          =<SignIn />= modal first, then resumes Checkout
+    - [ ] Stripe Customer Portal session endpoint for "Manage
+          subscription" link
     - [ ] Resend account, verified sending domain, transactional
-          templates: "subscription confirmed (here's your unlock
-          link)", "your report is ready (here's your unlock link)",
-          "report updated" (sent to subscribers when S3 keys change),
-          "log in (here's your link)" for the /login flow
+          templates: "subscription confirmed", "your report
+          purchase is confirmed", "report updated" (sent to
+          subscribers when an editorial revision lands)
 
 *** Step 3: Canonical-free game set (~half day)
     Goal: a stable, sticky set of "always fully visible" per-game

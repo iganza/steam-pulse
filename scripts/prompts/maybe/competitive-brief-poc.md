@@ -2,11 +2,10 @@
 
 > **Status: possibly-do-later.** Pure POC to validate a future product
 > feature ("if I were building a game like this, what do I need to
-> know?"). No infra, no schema, no UI — just an ops script that reads
-> existing data. Revisit when (a) the Pro-tier subscription model is
-> being designed and per-game developer briefs are on the table, or
-> (b) a genre PDF needs a "building in this space" appendix and we
-> want to validate the section quality first.
+> know?"). No infra, no schema, no UI, just an ops script that reads
+> existing data. Revisit when per-game developer briefs become a
+> candidate add-on to the per-game report, or when we want to validate
+> the section quality before any UI/infra work.
 
 ## Goal
 
@@ -19,8 +18,8 @@ entirely from data the platform already produces:
 3. **Where current offerings fall down** — recurring friction points.
 
 POC validates whether the output is sharp enough to be a flagship
-feature (Pro-tier add-on or genre-PDF appendix) before any UI/infra
-work is scoped.
+feature (per-game report add-on or section in the gated full report)
+before any UI/infra work is scoped.
 
 ## Why now / why script first
 
@@ -42,8 +41,8 @@ that would otherwise stall a UI build:
   de-duplicate. Easier to iterate in a script than a React view.
 - **No-synthesis fallback.** Many tags don't have a Phase-4 synthesis
   yet. Script either degrades to per-game-only ("limited brief") or
-  refuses. Choice cascades into pricing/SLA if this becomes a paid
-  feature.
+  refuses. Choice cascades into the SLA story if this becomes a
+  surfaced feature.
 
 Cost to build: ~80 lines, zero infra, no new dependencies.
 
@@ -138,22 +137,18 @@ These are deliberately NOT pre-decided — the POC's job is to inform them:
   explicit `--anchor-tag`.
 - **No-synthesis behavior.** Refuse, degrade gracefully, or trigger
   on-demand synthesis (~$1.30, async, minutes of latency).
-- **Free vs Pro placement.** Per the packaging principle in memory,
-  this is Pro-toolkit territory ("ask your own questions"). Confirm by
-  checking whether the brief's signal lives mostly in the genre PDF
-  already (then it's PDF-appendix material) or whether per-game
-  blending materially sharpens it (then it's a per-game Pro feature).
-- **Async vs interactive.** Business model is async-transactional
-  ($49/$149/$499). If briefs are an appendix in the genre PDF —
-  async, fits cleanly. If interactive per-game — needs a separate SKU
-  and on-demand fulfillment story.
+- **Where the brief lives.** Whether the brief's signal lives mostly
+  in the genre synthesis already (in which case the script is just an
+  inventory tool) or whether per-game blending materially sharpens it
+  (in which case it deserves to surface as part of the per-game
+  report).
 
 ## Out of scope (POC)
 
 - Site UI integration / per-game page tab.
 - Caching the brief output anywhere persistent.
 - Triggering Phase-4 synthesis on demand from the script.
-- Paywall / Pro-tier gating logic.
+- Any gating logic.
 - New schema, matviews, or batch jobs.
 - Anything that costs LLM tokens — POC reads existing artifacts only.
 

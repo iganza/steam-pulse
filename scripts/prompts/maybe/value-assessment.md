@@ -47,12 +47,11 @@ Read and analyze the following before writing your assessment. Do not skip any o
   `frontend/app/compare/page.tsx` — discovery and comparison surfaces
 - `frontend/app/genre/[slug]/page.tsx`, `frontend/app/tag/[slug]/page.tsx`,
   `frontend/app/developer/[slug]/page.tsx` — cross-linking index pages
-- `frontend/app/pro/page.tsx` — the premium upsell page, what's promised
 - `frontend/lib/types.ts` — the full GameReport type as the frontend sees it
 
 ### API Surface
 - `src/lambda-functions/lambda_functions/api/routes/` — all API endpoints, what data
-  is returned, what is gated behind premium
+  is returned
 - `src/library-layer/library_layer/repositories/` — what data is actually stored and
   queryable (games, reviews, reports, analytics)
 
@@ -60,11 +59,6 @@ Read and analyze the following before writing your assessment. Do not skip any o
 - `src/library-layer/library_layer/schema.py` — full DB schema
 - Understand what fields are populated vs. nullable/optional in practice
 - Note any sections that are defined but not yet implemented or always empty
-
-### Premium Gating
-- What sections are locked behind premium (`ProLockOverlay`, `usePro` hook)
-- Whether the free tier provides enough value to create upgrade desire
-- Whether the premium tier's additional value is clearly communicated
 
 ---
 
@@ -93,10 +87,6 @@ this stakeholder? Be specific.
 What in the current product would cause this stakeholder to leave without getting value?
 (Confusing UI, stale data, gated content before they see value, etc.)
 
-### 6. Monetization Fit
-Would this stakeholder pay? If yes, what would they pay for specifically, and does
-the current premium offering match that?
-
 ---
 
 ## Output Format
@@ -120,12 +110,11 @@ Which has the lowest? What is the single highest-leverage improvement?
 **Data quality threshold:** specific recommendation (e.g., "hide dev_priorities below 200 reviews")
 **Key gaps:** bulleted list
 **Friction points:** bulleted list
-**Monetization fit:** paragraph with specific price/value observations
 
 [repeat for each stakeholder]
 
 ## Cross-Cutting Issues
-Issues that affect multiple stakeholders (freshness, quality gates, premium gating UX, etc.)
+Issues that affect multiple stakeholders (freshness, quality gates, etc.)
 
 ## Highest-Leverage Improvements
 Ranked list of 5-8 specific changes (not vague suggestions) that would most increase

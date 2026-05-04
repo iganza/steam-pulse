@@ -43,8 +43,8 @@ Default visible (in order):
 6. **Positive %** — Steam positive_pct, right-aligned, colored (red/amber/green thresholds)
 7. **Review score** — Steam review_score_desc ("Very Positive" etc.)
 8. **Hidden gem** — hidden_gem_score as 0–100, right-aligned, sortable
-9. **Est. revenue** — `revenue_estimate_usd` Boxleiter v1, right-aligned, sortable, **Pro-gated cell**
-10. **Est. owners** — `estimated_owners`, right-aligned, sortable, **Pro-gated cell**
+9. **Est. revenue** — `revenue_estimate_usd` Boxleiter v1, right-aligned, sortable
+10. **Est. owners** — `estimated_owners`, right-aligned, sortable
 11. **Analyzed** — checkmark if `has_analysis`, click → game page's Analysis section
 
 Available but hidden by default (toggle via column picker):
@@ -62,15 +62,6 @@ Available but hidden by default (toggle via column picker):
 - **Pagination**: virtualized infinite scroll (TanStack Virtual) — load 50 rows at a time as the user scrolls. Show loading skeleton rows at the bottom. Show total count ("Showing 1–50 of 2,341") in a sticky footer.
 - **Empty state**: if filters match zero games, show "No games match these filters" with a "Clear filters" button.
 - **Error state**: if the API errors, show "Couldn't load games" with retry button. Don't blank the page.
-
-## Pro gating
-
-The table itself is **free**. Two things are Pro:
-
-1. **Revenue/owners columns**: the cell values render as a blurred bar for free users with a tiny lock icon. Tooltip → /pro. Matches existing `ProLockOverlay` pattern on other Pro-gated cells.
-2. **CSV export**: button in the lens toolbar. Free users see the button disabled with a "Pro" badge + tooltip → /pro. Pro users get a proper CSV of all currently-visible columns across all rows matching the filters (not just the visible page) via a server endpoint.
-
-Everything else — sorting, filtering, column visibility, density, row click-through — is free. Don't pay-wall browsing.
 
 ## UI/UX research — patterns this should follow
 
@@ -97,13 +88,13 @@ Anti-patterns to avoid (seen in many SaaS tables, don't copy them):
 
 ## Implementation plan
 
-### Phase 1 — core grid (free tier, no Pro features)
+### Phase 1 — core grid
 
 1. Add `t_sort`, `t_cols`, `t_density` parsers to `lib/toolkit-state.ts`. `t_sort` uses a compact `col,dir;col,dir` format to support multi-sort in a URL.
 2. Extend `getGames()` in `lib/api.ts` (and the `/api/games` handler if needed) to accept `sort` as a repeatable param and `limit`/`offset` for pagination. Verify `GameRepository.list_games()` returns every column in the Columns list above. Add missing columns (this is the one place backend work may be needed).
 3. Install TanStack Table v8 and TanStack Virtual if not already present.
 4. Rebuild `components/toolkit/lenses/ExplorerLens.tsx`:
-   - Read filters via `usePro()` + the effective filters prop the shell passes.
+   - Read filters from the effective filters prop the shell passes.
    - Query games via a custom hook `useTableData(filters, sort, offset)` that paginates and assembles rows.
    - Render via `useReactTable` + `useVirtualizer`.
    - Sticky header + sticky first column (Game).
@@ -111,14 +102,13 @@ Anti-patterns to avoid (seen in many SaaS tables, don't copy them):
    - Row click → Link to game page.
    - Skeleton rows during load.
    - Empty/error states.
-5. Toolbar above the grid: density toggle, column picker popover, result count, CSV export button (disabled for free).
+5. Toolbar above the grid: density toggle, column picker popover, result count, CSV export button.
 6. Persist `t_sort`, `t_cols`, `t_density` in URL via `nuqs`.
 
-### Phase 2 — Pro gating + export
+### Phase 2 — export
 
-7. Revenue and owners columns: wrap cell content in a `ProLockedCell` that blurs and shows a lock for free users. Reuse existing `ProLockOverlay` visual language.
-8. CSV export endpoint: add `GET /api/games/export` that streams a CSV of all rows matching the filters. Pro-only (auth check). Default columns = currently visible (pass via query param `cols=...`).
-9. Wire the CSV button to fetch the endpoint and trigger a browser download. Show a progress toast for large exports.
+7. CSV export endpoint: add `GET /api/games/export` that streams a CSV of all rows matching the filters. Default columns = currently visible (pass via query param `cols=...`).
+8. Wire the CSV button to fetch the endpoint and trigger a browser download. Show a progress toast for large exports.
 
 ### Phase 3 — polish
 
@@ -137,13 +127,12 @@ Anti-patterns to avoid (seen in many SaaS tables, don't copy them):
   - empty state when filters match zero rows
   - column picker shows and hides columns, URL updates
   - density toggle changes row height
-  - Pro-gated cells are blurred for free users
-  - CSV button is disabled for free users
+  - CSV export button works
 
 ## Non-goals for v1
 
 - Inline editing / any mutation — read-only view.
-- Saved views (name a filter+sort+columns combo, load it later) — cut. Defer to a "Saved Views" prompt if/when `/pro` has auth.
+- Saved views (name a filter+sort+columns combo, load it later) — cut. Defer to a "Saved Views" prompt if/when auth lands.
 - Per-cell charts or sparklines — defer.
 - Bulk row selection and bulk actions — defer.
 - Column resize handles — defer. `minmax()` + sensible defaults is enough for v1.

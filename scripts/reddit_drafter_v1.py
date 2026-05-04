@@ -1,35 +1,27 @@
-"""Reddit Drafter v1: turn a Phase 3 GameReport into a Reddit-ready draft."""
+"""Reddit Drafter v2: deterministic skeleton from a Phase 3 GameReport.
 
-from __future__ import annotations
+No LLM call. Pull report_json from prod, render a Reddit markdown draft,
+attach the review pool as an appendix the operator picks quotes from.
+"""
 
 import argparse
 import json
 import os
+import re
 import sys
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
 from pydantic import BaseModel
 
 REPORTS_DIR = Path("reports/reddit_drafts")
-MODEL = "claude-opus-4-7"
-MAX_TOKENS = 8192
-BATCH_POLL_SECONDS = 30
-CUSTOM_ID = "reddit_drafter_v1"
 
 EXIT_BAD_ENV = 2
 EXIT_NO_REPORT = 3
-EXIT_BATCH_TERMINAL = 5
-EXIT_BATCH_FAILED = 6
-EXIT_BATCH_NO_TEXT = 7
-EXIT_BATCH_NO_RESULT = 8
-EXIT_BATCH_PARSE = 9
 
 
 class ReviewSnippet(BaseModel):
@@ -56,233 +48,17 @@ class SourceBundle(BaseModel):
     review_pool: list[ReviewSnippet]
 
 
-class SubredditRecommendation(BaseModel):
-    name: str
-    confidence: str
-    rationale: str
-    body_tweaks: str
-
-
-class RedditDraft(BaseModel):
-    candidate_titles: list[str]
-    recommended_subreddits: list[SubredditRecommendation]
-    chosen_audience: str
-    post_body: str
-    tldr: str
-    self_edit_checklist: list[str]
+class Finding(BaseModel):
+    claim: str
+    evidence: str
 
 
 class RedditDrafterData(BaseModel):
     generated_at: str
     source: SourceBundle
-    target_subreddit: str
-    requested_audience: str
-    draft: RedditDraft
-
-
-SYSTEM_PROMPT = """\
-You are a Reddit-savvy indie game analyst writing a draft post grounded
-in one Phase 3 GameReport. The operator will hand-edit before posting,
-so prioritize structure, evidence, and substance over voice perfection.
-
-<inputs>
-A single SourceBundle JSON document containing:
-- appid, game_name: the target game
-- total_reviews_analyzed: the headline number; use the EXACT integer in
-  titles, never round
-- review_date_range_start, review_date_range_end: temporal hook for
-  longevity or recency angles
-- pipeline_version, report_created_at: metadata only
-- review_count_total: Steam's all-language total (for context)
-- positive_pct: Steam's positive percentage (for context)
-- genres: list of Steam genre slugs (for subreddit suggestions)
-- report_json: the full Phase 3 GameReport. Quote verbatim from
-  design_strengths, gameplay_friction, churn_triggers, dev_priorities,
-  audience_profile, store_page_alignment, content_depth,
-  competitive_context, hidden_strengths
-- review_pool: a curated list of top reviews (sorted by helpful and
-  funny vote counts) you may cite verbatim. Each entry has review_id,
-  voted_up, votes_helpful, votes_funny, playtime_hours, body. Use
-  these reviews as primary-source evidence under each finding. NEVER
-  invent a review or cite text not present in review_pool.
-
-Two trailing lines in the user message:
-- Target subreddit: a canonical name like "r/gamedev", or "none
-  specified" meaning recommend 1-3
-- Requested audience: "devs" or "players", or "let the model pick"
-</inputs>
-
-<goal>
-Produce a Reddit post draft modeled on the "I analyzed [N] reviews of
-[Game] and here's what I found" format. Optimize for upvotes from
-craft-focused indie devs OR thoughtful players depending on
-chosen_audience. Three title candidates, ranked. 1-3 subreddit
-recommendations with body-tweak notes (or, if target_subreddit is set,
-return exactly that one entry, confidence "high", body_tweaks empty).
-</goal>
-
-<grounding_rules>
-- Every numeric claim cites a field from report_json. No invented
-  stats. Use total_reviews_analyzed exactly, never round.
-- Pick the most counterintuitive finding for the title. Strong
-  candidates: a store_page_alignment.promises_broken item that
-  contradicts marketing, a hidden_strengths item the store page
-  underplays, a churn trigger with a specific time window, a
-  dev_priority with a high mention count, longevity if
-  review_date_range_start is more than 5 years ago. This
-  counterintuitive rule applies to title #1 only -- it does NOT
-  mean the body findings should all be negative.
-- Include 1 to 3 positive findings as their OWN numbered items
-  in the body, drawn from design_strengths, hidden_strengths,
-  audience_profile praise drivers, or
-  store_page_alignment.hidden_strengths. Each positive finding
-  must stand alone (e.g., "**The soundtrack is a top-cited praise
-  driver.** Yoko Shimomura on the title screen, X mentions, cited
-  as a major reason players recommended the game.") -- NOT a
-  subclause buried inside a negative finding. If positive_pct
-  is 80 or higher, you must include at least 1 positive finding
-  no matter what. Mix positives in with friction findings; do not
-  stack all positives or all negatives.
-- Positive findings draw from design_strengths and hidden_strengths
-  regardless of chosen_audience. The audience rule below shapes the
-  framing of negative/friction findings, not whether positives appear.
-- When dev_priorities[i].why_it_matters contains mention counts like
-  "28+ explicit mentions", quote them in the body. Mention counts are
-  credibility multipliers. Use at least two when available.
-- Quote churn_triggers as specific behaviors with their time window or
-  trigger condition (e.g. "players expecting RPG progression drop out
-  within 3-9 hours"), not as paraphrase.
-- Each numbered finding MUST include exactly one supporting review
-  quote drawn from review_pool. Pull body text VERBATIM. You may
-  trim middle sections by replacing them with [...] (square brackets,
-  three dots), but do not paraphrase, edit, or rewrite the words.
-  Pick the review whose body is most directly on-point for the
-  finding's specific claim, not the highest-voted review by default.
-  Trim aggressively to 1-2 punchy sentences; reviewers ramble.
-  Never cite a review whose review_id is not in review_pool.
-- If chosen_audience is "devs": frame findings as design and marketing
-  lessons. Pull from dev_priorities, churn_triggers,
-  store_page_alignment, competitive_context. Body 600-900 words.
-- If chosen_audience is "players": frame as whether to buy, what to
-  expect, who it's for. Pull from audience_profile, design_strengths,
-  content_depth, store_page_alignment.hidden_strengths, playtime
-  correlation if present. Body 400-700 words.
-- If target_subreddit is set, override chosen_audience accordingly:
-  r/gamedev, r/IndieDev, r/SoloDevelopment -> devs.
-  r/patient_gamers, r/Steam, r/pcgaming -> players. Genre subs
-  (r/towerdefense, r/roguelikedev, etc.) -> players by default
-  unless the source data is exceptionally design-focused.
-- Limitations paragraph mandatory. Use these honest limits for Phase 3
-  reports: English-language reviews only, post-launch only (no
-  pre-release wishlist signal), Steam-only (no console/Epic/GOG),
-  self-selected reviewers (Steam reviewers skew positive vs silent
-  majority), total_reviews_analyzed is a cap (large games sample 2000
-  of many more). Pick 2-3 that fit; do not list all of them.
-- Soft CTA only. Accepted forms: "happy to run this on your game,
-  drop the appid", "DM me if you want the methodology". Forbidden:
-  "check out my SaaS", "sign up at", any link to steam-pulse.org or
-  any domain.
-- First-person. "I" not "we". One mention of "a small tool I built"
-  allowed, late, in passing. The post is about the findings, not the
-  tool.
-- Mild self-deprecation when honest. "I expected X but the data said
-  Y" works when supported by the report.
-- Do not use em-dashes (the long horizontal dash, U+2014). Use commas,
-  colons, parentheses, or short sentences instead. Hard rule, applies
-  to titles and body.
-- Banned words and phrases (anti-AI tells): "delve", "tapestry",
-  "navigate the landscape", "in today's rapidly evolving", "crucial"
-  (as adjective), "leverage" (as verb), "myriad", "robust", "seamless".
-- Reddit markdown only: **bold**, *italic*, "1." ordered lists, "*"
-  unordered, ">" block quotes, code via 4-space indent. No tables.
-  No HTML.
-- Skip r/IndieDev as a recommendation when the game is clearly not
-  indie (heuristic: a AAA studio shows up in
-  report_json.competitive_context, or review_count_total is very
-  large).
-</grounding_rules>
-
-<output_rubric>
-You return ONE JSON object matching the RedditDraft schema below.
-No code fences, no preamble, no trailing prose. JSON only.
-
-{
-  "candidate_titles": [string, string, string],
-  "recommended_subreddits": [
-    {
-      "name": "r/...",
-      "confidence": "high" | "medium" | "low",
-      "rationale": "1-2 sentences",
-      "body_tweaks": "how to adjust the draft for this sub, or empty"
-    }
-  ],
-  "chosen_audience": "devs" | "players",
-  "post_body": "Reddit-flavored markdown",
-  "tldr": "2-3 sentences",
-  "self_edit_checklist": [string, string, string, string, string]
-}
-
-Section requirements:
-- candidate_titles: exactly 3, ranked. Each title 60-110 characters.
-  Title #1 has the sharpest specific number plus game name plus a
-  counterintuitive claim. Titles 2 and 3 vary the angle (one drier or
-  methodological, one bolder or contrarian) so the operator has real
-  choices.
-- recommended_subreddits: 1-3 entries. Each names the sub, confidence,
-  rationale (1-2 sentences), body_tweaks (what to change for that sub).
-  If target_subreddit is set, return exactly one entry, confidence
-  "high", body_tweaks empty.
-- chosen_audience: a single word, "devs" or "players". Echoes
-  requested_audience if set, otherwise picks based on report strengths.
-- post_body: structure, in order:
-  1. Hook: 1-2 sentences leading with total_reviews_analyzed and the
-     surprise.
-  2. Methodology: 1-2 casual sentences; mention the review-date range
-     if it strengthens the angle.
-  3. 3-5 numbered findings. Each finding has, in this order:
-     a. Bold claim line.
-     b. 1-3 sentences of evidence (cite stat or mention count, quote
-        a specific behavior or time window verbatim from report_json).
-     c. What-it-means line.
-     d. ONE supporting review quote pulled from review_pool. Format
-        as Reddit blockquote (each line starting with `>`), then a
-        blank `>` line, then an italic attribution line. Example:
-
-          > "Quote text trimmed to 1-2 punchy sentences. Use [...]
-          > to indicate trimmed middle text."
-          >
-          > *N helpful, M funny (Xh playtime, recommended)*
-
-        Attribution rules: include votes_helpful, votes_funny,
-        playtime_hours from the source review. Append "recommended"
-        if voted_up=true, "did not recommend" if voted_up=false. If
-        playtime_hours is 0, omit the playtime parenthetical. NO
-        em-dashes anywhere; if you would write "—", omit it.
-  4. Limitations: 1 paragraph with 2-3 honest limits from the list
-     in grounding_rules.
-  5. Soft CTA: 1 line, per grounding_rules.
-  Do NOT include the title (separate field). Do NOT include the TLDR
-  (separate field; the operator pastes it). Word band depends on
-  chosen_audience (see grounding_rules).
-- tldr: 2-3 sentences. Distilled. Operator pastes at top or bottom;
-  you do not position it.
-- self_edit_checklist: 5-7 items. Each is a concrete edit. Required
-  items: confirm appid and game name accuracy; add one personal
-  sentence only the operator could write (why they ran this, current
-  project, a confession); read limitations aloud for tone; verify
-  subreddit self-promo rules; double-check any quoted mention counts
-  against the source. Other 1-2 items are draft-specific.
-</output_rubric>
-
-<style>
-- Indie-dev-to-indie-devs (or thoughtful-player-to-thoughtful-players)
-  voice. Blunt. Lightly self-deprecating when honest. No marketing
-  adjectives. No corporate voice.
-- Use real numbers, real game names, real tag names from the source.
-  No placeholders.
-- The operator hand-edits, so prioritize structure and substance over
-  voice perfection.
-</style>"""
+    titles: list[str]
+    tldr: str
+    findings: list[Finding]
 
 
 def open_readonly_conn() -> psycopg2.extensions.connection:
@@ -355,7 +131,7 @@ REVIEW_BODY_MAX_CHARS = 1200
 def load_review_pool(
     conn: psycopg2.extensions.connection, appid: int
 ) -> list[ReviewSnippet]:
-    """Pull a curated pool of top reviews so the LLM can cite verbatim."""
+    """Pull a curated pool of top reviews so the operator can cite verbatim."""
     with conn.cursor() as cur:
         cur.execute(REVIEW_POOL_QUERY, (appid, appid))
         rows = cur.fetchall()
@@ -415,107 +191,200 @@ def load_source_bundle(
     )
 
 
-def build_user_message(
-    bundle: SourceBundle, target_subreddit: str, requested_audience: str
-) -> str:
-    """Compose the user message: bundle JSON, target sub line, audience line, kicker."""
-    sub_line = target_subreddit if target_subreddit else "none specified"
-    audience_line = requested_audience if requested_audience else "let the model pick"
-    return (
-        f"{bundle.model_dump_json(indent=2)}\n\n"
-        f"Target subreddit: {sub_line}.\n"
-        f"Requested audience: {audience_line}.\n\n"
-        f"Produce the draft."
+MENTION_COUNT_RE = re.compile(
+    r"(\d+)\+?\s*(?:explicit\s+)?(?:mention|request)", re.IGNORECASE
+)
+
+
+def _extract_mention_count(text: str) -> int:
+    """Pull the largest mention/request count out of a why_it_matters string."""
+    if not text:
+        return 0
+    matches = MENTION_COUNT_RE.findall(text)
+    return max((int(m) for m in matches), default=0)
+
+
+def _rank_dev_priorities(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Sort dev_priorities by parsed mention count, descending."""
+    priorities = report.get("dev_priorities") or []
+    return sorted(
+        priorities,
+        key=lambda p: _extract_mention_count(p.get("why_it_matters", "")),
+        reverse=True,
     )
 
 
-def _strip_code_fences(text: str) -> str:
-    """If the LLM wrapped the JSON in a fenced block, strip the fences."""
-    s = text.strip()
-    if s.startswith("```"):
-        first_nl = s.find("\n")
-        if first_nl != -1:
-            s = s[first_nl + 1 :]
-        if s.endswith("```"):
-            s = s[: -len("```")]
-    return s.strip()
+def _first_sentence(text: str) -> str:
+    """Return the first sentence of a string, stripped of trailing punctuation."""
+    if not text:
+        return ""
+    parts = re.split(r"[.!?](?:\s|$)", text, maxsplit=1)
+    return parts[0].strip() if parts else text.strip()
 
 
-def submit_batch_and_wait(api_key: str, user_text: str) -> RedditDraft:
-    """Submit one batch request and parse the JSON result into a RedditDraft."""
-    client = anthropic.Anthropic(api_key=api_key)
-    requests = [
-        {
-            "custom_id": CUSTOM_ID,
-            "params": {
-                "model": MODEL,
-                "max_tokens": MAX_TOKENS,
-                "system": SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": user_text}],
-            },
-        }
-    ]
+def _strip_trailing_period(text: str) -> str:
+    s = (text or "").strip()
+    while s.endswith("."):
+        s = s[:-1]
+    return s
 
-    batch = client.messages.batches.create(requests=requests)
-    batch_id = batch.id
-    print(
-        f"Submitted Anthropic batch {batch_id}; polling every {BATCH_POLL_SECONDS}s.",
-        flush=True,
-    )
 
-    started = time.monotonic()
-    while True:
-        time.sleep(BATCH_POLL_SECONDS)
-        info = client.messages.batches.retrieve(batch_id)
-        elapsed = int(time.monotonic() - started)
-        print(
-            f"  batch {batch_id}: status={info.processing_status} (elapsed {elapsed}s)",
-            flush=True,
+def _sanitize(text: str) -> str:
+    """Strip dashes that read as AI tells: em-dash to comma, en-dash to hyphen."""
+    s = text or ""
+    s = s.replace(" \u2014 ", ", ").replace("\u2014", ", ")
+    s = s.replace(" \u2013 ", "-").replace("\u2013", "-")
+    return s
+
+
+def _pick_titles(bundle: SourceBundle) -> list[str]:
+    """Three ranked title candidates for the operator to choose from."""
+    report = bundle.report_json
+    n = bundle.total_reviews_analyzed
+    name = bundle.game_name
+    pos = bundle.positive_pct
+    ranked = _rank_dev_priorities(report)
+    titles: list[str] = []
+
+    if ranked:
+        why = ranked[0].get("why_it_matters") or ""
+        first = _first_sentence(why)
+        if first:
+            titles.append(f"I analyzed {n:,} reviews of {name}: {first}.")
+
+    sp = report.get("store_page_alignment") or {}
+    promises_broken = sp.get("promises_broken") or []
+    if promises_broken:
+        titles.append(
+            f"{name} ({pos}% positive): {_strip_trailing_period(promises_broken[0])}"
         )
-        if info.processing_status == "ended":
-            break
-        if info.processing_status in ("canceling", "canceled", "expired"):
-            print(
-                f"ERROR: batch ended in terminal state {info.processing_status}",
-                file=sys.stderr,
+
+    hidden = sp.get("hidden_strengths") or []
+    if hidden:
+        titles.append(
+            f"What {name} is hiding from its own store page: "
+            f"{_strip_trailing_period(hidden[0])}"
+        )
+
+    friction = report.get("gameplay_friction") or []
+    fallback_idx = 0
+    while len(titles) < 3 and fallback_idx < len(friction):
+        titles.append(
+            f"After {n:,} reviews of {name}, the loudest complaint: "
+            f"{_strip_trailing_period(friction[fallback_idx])}"
+        )
+        fallback_idx += 1
+
+    while len(titles) < 3:
+        titles.append(f"What {n:,} reviews of {name} actually say")
+
+    return titles[:3]
+
+
+def _build_tldr(bundle: SourceBundle) -> str:
+    """One-paragraph TLDR stitched from one_liner, top why_it_matters, audience note."""
+    report = bundle.report_json
+    parts: list[str] = []
+    parts.append(
+        f"{bundle.total_reviews_analyzed:,} reviews of {bundle.game_name} "
+        f"({bundle.positive_pct}% positive)"
+    )
+    one_liner = report.get("one_liner")
+    if one_liner:
+        parts.append(_strip_trailing_period(one_liner))
+    ranked = _rank_dev_priorities(report)
+    if ranked and ranked[0].get("why_it_matters"):
+        parts.append(_strip_trailing_period(ranked[0]["why_it_matters"]))
+    sp = report.get("store_page_alignment") or {}
+    note = sp.get("audience_match_note")
+    if note:
+        parts.append(_strip_trailing_period(note))
+    return ". ".join(parts) + "."
+
+
+def _pick_findings(bundle: SourceBundle) -> list[Finding]:
+    """Five fixed-slot findings drawn from report_json."""
+    report = bundle.report_json
+    ranked = _rank_dev_priorities(report)
+    sp = report.get("store_page_alignment") or {}
+    findings: list[Finding] = []
+
+    if ranked:
+        action = _strip_trailing_period(ranked[0].get("action", ""))
+        evidence = (ranked[0].get("why_it_matters") or "").strip()
+        if action:
+            findings.append(Finding(claim=action, evidence=evidence))
+
+    strengths = report.get("design_strengths") or []
+    if strengths:
+        findings.append(Finding(claim=_strip_trailing_period(strengths[0]), evidence=""))
+
+    second_priority = ranked[1] if len(ranked) > 1 else None
+    second_evidence = (
+        (second_priority.get("why_it_matters") or "").strip()
+        if second_priority
+        else ""
+    )
+    promises_broken = sp.get("promises_broken") or []
+    friction = report.get("gameplay_friction") or []
+    if promises_broken:
+        findings.append(
+            Finding(
+                claim=_strip_trailing_period(promises_broken[0]),
+                evidence=second_evidence,
             )
-            sys.exit(EXIT_BATCH_TERMINAL)
-
-    text = ""
-    for entry in client.messages.batches.results(batch_id):
-        if entry.custom_id != CUSTOM_ID:
-            continue
-        if entry.result.type != "succeeded":
-            print(f"ERROR: batch result type was {entry.result.type}", file=sys.stderr)
-            sys.exit(EXIT_BATCH_FAILED)
-        for block in entry.result.message.content:
-            if getattr(block, "type", None) == "text":
-                text = block.text
-                break
-        if not text:
-            print("ERROR: no text content in batch result", file=sys.stderr)
-            sys.exit(EXIT_BATCH_NO_TEXT)
-        break
-    else:
-        print(f"ERROR: batch result for custom_id {CUSTOM_ID} not found", file=sys.stderr)
-        sys.exit(EXIT_BATCH_NO_RESULT)
-
-    cleaned = _strip_code_fences(text)
-    try:
-        return RedditDraft.model_validate_json(cleaned)
-    except Exception as exc:
-        print(
-            f"ERROR: failed to parse RedditDraft JSON from LLM: {exc}\n"
-            f"--- raw response (first 800 chars) ---\n{cleaned[:800]}",
-            file=sys.stderr,
         )
-        sys.exit(EXIT_BATCH_PARSE)
+    elif friction:
+        findings.append(
+            Finding(
+                claim=_strip_trailing_period(friction[0]),
+                evidence=second_evidence,
+            )
+        )
+
+    hidden = sp.get("hidden_strengths") or []
+    if hidden:
+        findings.append(
+            Finding(
+                claim=f"The store page is hiding a real strength: {_strip_trailing_period(hidden[0])}",
+                evidence="",
+            )
+        )
+    elif len(strengths) > 1:
+        findings.append(Finding(claim=_strip_trailing_period(strengths[1]), evidence=""))
+
+    churn = report.get("churn_triggers") or []
+    wishlist = report.get("player_wishlist") or []
+    content_signals = (report.get("content_depth") or {}).get("signals") or []
+    extra_evidence = content_signals[0].strip() if content_signals else ""
+    if churn:
+        findings.append(
+            Finding(claim=_strip_trailing_period(churn[0]), evidence=extra_evidence)
+        )
+    elif wishlist:
+        findings.append(
+            Finding(
+                claim=f"The most-requested addition: {_strip_trailing_period(wishlist[0])}",
+                evidence=extra_evidence,
+            )
+        )
+
+    return findings
+
+
+LIMITATIONS_PARAGRAPH = (
+    "A few honest limits: English-language reviews only, post-launch only "
+    "(no pre-release wishlist signal), Steam-only (no console / Epic / GOG), "
+    "and Steam reviewers self-select toward the engaged minority, not the "
+    "silent majority."
+)
+
+CTA_LINE = "Happy to run this on your game, drop the appid. DM me if you want the methodology."
 
 
 def render_markdown(data: RedditDrafterData) -> str:
-    """Render a human-friendly markdown view of the draft."""
+    """Render the full draft skeleton plus the review pool appendix."""
     src = data.source
-    draft = data.draft
     lines: list[str] = []
 
     lines.append(f"# Reddit Draft: {src.game_name} (appid {src.appid})")
@@ -526,60 +395,97 @@ def render_markdown(data: RedditDrafterData) -> str:
         f"created_at={src.report_created_at}"
     )
     lines.append(
-        f"- Reviews analyzed: {src.total_reviews_analyzed} "
-        f"(Steam total all languages: {src.review_count_total}, "
+        f"- Reviews analyzed: {src.total_reviews_analyzed:,} "
+        f"(Steam total all languages: {src.review_count_total:,}, "
         f"positive {src.positive_pct}%)"
     )
     lines.append(
         f"- Review date range: {src.review_date_range_start} to "
         f"{src.review_date_range_end}"
     )
-    lines.append(
-        f"- Target subreddit: {data.target_subreddit or '(model recommends)'}"
-    )
-    lines.append(
-        f"- Requested audience: {data.requested_audience or '(model picks)'}"
-    )
-    lines.append(f"- Chosen audience: {draft.chosen_audience}")
     lines.append("")
 
     lines.append("## Candidate titles")
     lines.append("")
-    for i, t in enumerate(draft.candidate_titles, 1):
-        lines.append(f"{i}. {t}")
-    lines.append("")
-
-    lines.append("## Recommended subreddits")
-    lines.append("")
-    for s in draft.recommended_subreddits:
-        lines.append(f"- **{s.name}** (confidence: {s.confidence})")
-        lines.append(f"  - Rationale: {s.rationale}")
-        if s.body_tweaks:
-            lines.append(f"  - Body tweaks: {s.body_tweaks}")
-    lines.append("")
-
-    lines.append("## Post body")
-    lines.append("")
-    lines.append(draft.post_body.rstrip())
+    for i, t in enumerate(data.titles, 1):
+        lines.append(f"{i}. {_sanitize(t)}")
     lines.append("")
 
     lines.append("## TLDR")
     lines.append("")
-    lines.append(draft.tldr.rstrip())
+    lines.append(_sanitize(data.tldr))
     lines.append("")
 
-    lines.append("## Self-edit checklist")
+    lines.append("## Post body")
     lines.append("")
-    for item in draft.self_edit_checklist:
-        lines.append(f"- [ ] {item}")
+    lines.append(
+        "[Personal hook: 1-2 sentences in your voice. Why you ran this, "
+        "current project, a confession.]"
+    )
     lines.append("")
+    lines.append(
+        f"I pulled {src.total_reviews_analyzed:,} English Steam reviews of "
+        f"**{src.game_name}** through a small tool I built. The game sits at "
+        f"{src.positive_pct}% positive. Reviews span "
+        f"{src.review_date_range_start} to {src.review_date_range_end}."
+    )
+    lines.append("")
+    lines.append("Some findings I found most interesting:")
+    lines.append("")
+
+    for i, f in enumerate(data.findings, 1):
+        claim = _sanitize(_strip_trailing_period(f.claim))
+        lines.append(f"**{i}. {claim}.**")
+        lines.append("")
+        if f.evidence:
+            lines.append(_sanitize(f.evidence))
+            lines.append("")
+        lines.append(
+            "> [Pick a verbatim quote from the review pool below that supports "
+            "this finding. Trim middle text to `[...]` if needed; do not "
+            "paraphrase.]"
+        )
+        lines.append(">")
+        lines.append("> *N helpful, M funny (Xh playtime, recommended)*")
+        lines.append("")
+
+    lines.append(LIMITATIONS_PARAGRAPH)
+    lines.append("")
+    lines.append(CTA_LINE)
+    lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("## Review pool (operator picks quotes from here)")
+    lines.append("")
+    lines.append(
+        "Sorted by helpful votes, then funny votes. Pick the review whose body "
+        "most directly supports each finding's claim. Trim to 1-2 punchy "
+        "sentences with `[...]` for elided middles. Do NOT paraphrase."
+    )
+    lines.append("")
+
+    for i, r in enumerate(src.review_pool, 1):
+        verdict = "recommended" if r.voted_up else "did not recommend"
+        playtime_part = (
+            f", {r.playtime_hours}h playtime" if r.playtime_hours > 0 else ""
+        )
+        lines.append(
+            f"### {i}. id={r.review_id} | {r.votes_helpful} helpful, "
+            f"{r.votes_funny} funny ({verdict}{playtime_part})"
+        )
+        lines.append("")
+        body_lines = r.body.splitlines() or [r.body]
+        for bl in body_lines:
+            lines.append(f"> {bl}")
+        lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Reddit Drafter v1: turn a Phase 3 GameReport into a Reddit-ready draft."
+        description="Reddit Drafter v2: turn a Phase 3 GameReport into a Reddit-ready markdown skeleton."
     )
     parser.add_argument(
         "--appid",
@@ -588,22 +494,9 @@ def main() -> None:
         help="Steam appid whose Phase 3 report drives the draft.",
     )
     parser.add_argument(
-        "--subreddit",
-        type=str,
-        default="",
-        help="Canonical subreddit name (e.g. r/gamedev). Empty -> model recommends.",
-    )
-    parser.add_argument(
-        "--audience",
-        type=str,
-        default="",
-        choices=["", "devs", "players"],
-        help="Force the audience framing. Empty -> model picks.",
-    )
-    parser.add_argument(
         "--data-only",
         action="store_true",
-        help="Skip the LLM call and print the parsed SourceBundle.",
+        help="Skip rendering and print the parsed SourceBundle JSON.",
     )
     args = parser.parse_args()
 
@@ -620,23 +513,12 @@ def main() -> None:
         print(bundle.model_dump_json(indent=2))
         return
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        print(
-            "ERROR: ANTHROPIC_API_KEY not set (use --data-only to skip the LLM call).",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_BAD_ENV)
-
-    user_text = build_user_message(bundle, args.subreddit, args.audience)
-    draft = submit_batch_and_wait(api_key, user_text)
-
     data = RedditDrafterData(
         generated_at=generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         source=bundle,
-        target_subreddit=args.subreddit,
-        requested_audience=args.audience,
-        draft=draft,
+        titles=_pick_titles(bundle),
+        tldr=_build_tldr(bundle),
+        findings=_pick_findings(bundle),
     )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

@@ -236,10 +236,11 @@
           =<SignIn />= modal first, then resumes Checkout
     - [ ] Stripe Customer Portal session endpoint for "Manage
           subscription" link
-    - [ ] Resend account, verified sending domain, transactional
-          templates: "subscription confirmed", "your report
-          purchase is confirmed", "report updated" (sent to
-          subscribers when an editorial revision lands)
+    - [ ] Add new SQS message types in =library_layer/events.py=
+          (=subscription_confirmed=, =report_purchase_confirmed=,
+          =report_updated=) and matching dispatcher cases in the
+          existing email Lambda. Reuse =ResendEmailSender= and the
+          existing email queue; no new Resend setup needed.
 
 *** Step 3: Canonical-free game set (~half day)
     Goal: a stable, sticky set of "always fully visible" per-game

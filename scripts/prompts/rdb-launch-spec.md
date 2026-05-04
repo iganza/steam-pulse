@@ -1,56 +1,40 @@
 # RDB launch spec
 
-The concrete specification for Step 1 of the Active Launch Plan in `steam-pulse.org`. RDB-specific numbers and field mappings that downstream implementation prompts (Step 2 PDF formatter, Step 3 Stripe + Resend backend, Step 5 genre buy block, Step 5 per-game preview frontend) consume without further clarification.
+The concrete specification for Step 1 of the Active Launch Plan in `steam-pulse.org`. RDB-specific numbers and field mappings that downstream implementation prompts consume without further clarification.
 
 The pricing and packaging model lives in `scripts/prompts/monetization-direction.md`. This file does not restate the model; it pins the model to RDB.
 
-## 1. v1 RDB genre report PDF contents
+## 1. v1 source of truth
 
-The v1 RDB report is the auto-generated Phase 4 synthesis output formatted as a print-ready PDF. The matview row is `mv_genre_synthesis WHERE slug = 'roguelike-deckbuilder'`. The PDF formatter walks the JSONB `synthesis` field plus the operator-curated columns (`editorial_intro`, `churn_interpretation`) and renders the sections below.
+The site is the deliverable. The buyable artifact for RDB is the paid-mode rendering of `/genre/roguelike-deckbuilder/` (described in Section 2). The data source is the existing `mv_genre_synthesis` row at `WHERE slug = 'roguelike-deckbuilder'`, augmented by two operator-curated columns (`editorial_intro`, `churn_interpretation`) that may be empty at v1.
 
-### Field-to-section mapping
+There is no PDF in v1. PDF and CSV export are deferred Tier-2 SKUs (gate: ≥ 3 buyers explicitly request offline / sharable export). The `Deferred` table in `steam-pulse.org` carries the gate.
 
-The synthesis JSON shape (defined in `src/library-layer/library_layer/models/genre_synthesis.py`):
+### Field-to-rendering mapping
 
-| Synthesis field | PDF section | Render rule |
-|---|---|---|
-| `narrative_summary` | "Genre at a glance" (page 2, after TOC) | Full text, single paragraph |
-| `editorial_intro` | "From the editor" (page 2, before "Genre at a glance") | Render only if non-empty; v1 may be empty |
-| `friction_points[]` | "Cross-game friction" | Full list, no truncation. Each item: title (h3), description, representative_quote (blockquote with appid attribution), mention_count badge |
-| `wishlist_items[]` | "Cross-game wishlist" | Full list. Same shape as friction items |
-| `benchmark_games[]` | "Benchmark games" | One card per game: name (h3), why_benchmark, link annotation noting the per-game showcase page exists |
-| `churn_insight` (singular) | "Where players drop off" (callout box) | typical_dropout_hour as headline number, primary_reason as subtitle, representative_quote as blockquote, source_appid attribution |
-| `churn_interpretation` | Inside the churn callout, after the quote | Render only if non-empty |
-| `dev_priorities[]` | "Ranked dev priorities" | Full table: rank, action, why_it_matters, frequency, effort. Effort cells colored per `EFFORT_COLOR` from `fill_report.py` |
+The synthesis JSON shape (defined in `src/library-layer/library_layer/models/genre_synthesis.py`) maps to existing genre-page components:
 
-### PDF wrapper additions (added by the formatter, not from the matview)
-
-- **Cover page:** title "Roguelike Deckbuilder Player Intelligence Report", subtitle "Synthesised from 141 games, computed [date]", byline (author name from `frontend/lib/author.ts`)
-- **Table of contents:** auto-generated from the section headings present
-- **Methodology section:** input_count (141), median review count, avg positive_pct (87.5%), `computed_at` timestamp, one paragraph explaining the chunk-merge-synthesise pipeline
-- **Single-game appendix:** all 141 RDB games sorted by review_count desc, with appid, name, review_count, positive_pct. Sourced via `JOIN games ON games.appid = ANY(...)` keyed on the cohort the matview row was built from
-
-### Charts (all already implemented in `scripts/fill_report.py`)
-
-Reuse these functions directly; do not roll new chart code:
-
-- `chart_friction_counts(synthesis['friction_points'], out)` for the friction section
-- `chart_wishlist_counts(synthesis['wishlist_items'], out)` for the wishlist section
-- `chart_dev_priorities(synthesis['dev_priorities'], out)` for the dev priorities section
-- `chart_top_games_by_reviews(games, out, n=10)` for the appendix
-- `chart_releases_per_year(games, out)` and `chart_price_distribution(games, out)` for the methodology section
-- All charts are saved as both PDF (vector) and PNG via `_save(fig, out)`
-- Call `setup_chart_style()` once at formatter init
+| Synthesis field | Component | Free mode | Paid mode |
+|---|---|---|---|
+| `narrative_summary` | `EditorialIntro` | full | full |
+| `editorial_intro` (curated) | `EditorialIntro` (front) | full when non-empty | full when non-empty |
+| `friction_points[]` | `FrictionList` | top 5 + upsell CTA | full list |
+| `wishlist_items[]` | `WishlistList` | top 3 + upsell CTA | full list |
+| `benchmark_games[]` | `BenchmarkGrid` | full (these are showcase anchors) | full |
+| `churn_insight` | `ChurnWall` | full callout | full callout |
+| `churn_interpretation` (curated) | `ChurnWall` extension | full when non-empty | full when non-empty |
+| `dev_priorities[]` | `DevPrioritiesTeaser` | top 3 + upsell CTA | full ranked table |
 
 ### Out of scope for v1
 
-These are explicit non-goals for the v1 ship; they become editorial polish items post-launch:
+These are explicit non-goals for the v1 ship; they become editorial polish items post-launch (launch plan Step 8) or Tier-2 deferrals:
 
-- Hand-written executive summary
-- Section reordering (synthesis-natural order is the v1 order)
+- Hand-written executive summary as a separate page section
+- Section reordering on paid mode (synthesis-natural order is the v1 order)
 - Cross-references between benchmark deep-dive cards
-- Strategic recommendations narrative
-- Print-quality cover art beyond a typeset title
+- Strategic recommendations narrative as its own section
+- Inline charts (Recharts components for friction counts, wishlist counts, dev priorities), possible v2 visual polish
+- PDF or CSV export, deferred Tier-2
 
 ## 2. Genre page render modes
 
@@ -78,8 +62,8 @@ This is the current rendering. It stays exactly as-is for free traffic.
   - `DevPrioritiesTeaser` shows the full ranked table
   - `BenchmarkGrid` shows every benchmark card with cross-links to the showcase per-game pages
   - `ChurnWall` shows the full churn detail
-- Any post-launch editorial sections (executive summary, framing paragraphs, additional charts as the operator polishes) render here too. The same matview revisions land for paid users live, with no PDF download required.
-- `ReportBuyBlock` is replaced by a `ReportDownloadBlock`: "Download PDF" + "Download CSV" buttons that hit `GET /api/reports/{slug}/download?asset=pdf|csv`, which re-validates the cookie and returns a fresh signed S3 URL.
+- Any post-launch editorial revisions land for paid users live (the matview re-renders on next page load; no offline artifact to regenerate).
+- `ReportBuyBlock` is replaced by a small `PaidStatusBlock` that confirms the buyer's access ("You have access through [date]" for one-time, "Subscriber" for active subscriptions) and offers a "Manage subscription" link to a Stripe customer portal session.
 - `noindex` meta is set so search engines crawl only the free shape.
 
 ### Auth mechanism
@@ -96,9 +80,16 @@ The cookie carries `user_id`, not email, so adding Auth0 (or any other auth meth
 
 `frontend/app/games/[appid]/[slug]/` (rendered via `GameReportClient.tsx`) currently shows every section in full for every analyzed game. The spec splits per-game pages into two render modes triggered by appid membership.
 
-### Showcase mode
+A page renders in **full mode** when EITHER of two rules matches:
 
-An appid is in showcase mode if and only if it appears in `benchmark_appids` of any published `reports` row. Render is identical to today:
+- **Showcase rule:** the appid appears in `benchmark_appids` of any published `reports` row.
+- **Canonical rule:** `games.is_canonical_free = true`. Defined and populated per `scripts/prompts/canonical-free-games.md` (top 200 by `review_count` with quality floor and stickiness).
+
+Otherwise the page renders the abbreviated **preview mode**.
+
+### Full mode (formerly "showcase mode")
+
+Render is identical to today:
 
 - All `design_strengths`
 - All `gameplay_friction`
@@ -106,7 +97,7 @@ An appid is in showcase mode if and only if it appears in `benchmark_appids` of 
 - Full `player_wishlist`, `churn_triggers`, `dev_priorities`, `competitive_context`
 - All non-narrative blocks (Verdict, Steam Facts, QuickStats, MarketReach, Sentiment History, Playtime Sentiment, Competitive Benchmark)
 
-For RDB launch, the seed showcase set is the 5 RDB benchmark appids: Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons.
+For RDB launch, the seed showcase set is the 5 RDB benchmark appids: Slay the Spire, Balatro, Inscryption, Monster Train, Dicey Dungeons. The canonical-free set adds up to 200 more, picked by `review_count` across the full sentiment range (no quality floor) so the public surface demonstrates the engine on positive, mixed, and negatively-received games.
 
 ### Preview mode (default for every other analyzed game)
 
@@ -246,7 +237,7 @@ When Auth0 (or another OIDC provider) is added later:
 
 ## What this spec does not decide
 
-- The exact PDF typography and layout: defined when writing the formatter (Step 2). The spec names sections and field mapping; visual choices land in the formatter prompt.
-- JWT signing key management (rotation, KMS, etc.): infra concern, defined in launch-plan Step 3 implementation.
-- Editorial polish content: continuous post-launch (Step 8 in the launch plan).
+- JWT signing key management (rotation, KMS, etc.): infra concern, defined in the launch plan Step 2 (Stripe + Resend backend) implementation.
+- Editorial polish content: continuous post-launch (launch plan Step 8).
 - Profile page UI: deferred until a buyer asks for it (no gate value at launch; magic-link recovery via `/login` covers the only common need).
+- PDF and CSV export: deferred Tier-2 SKUs. Gate: ≥ 3 buyers explicitly request offline / sharable export.

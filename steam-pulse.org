@@ -194,26 +194,7 @@
           is anchored on industry comps (GameDiscoverCo $15/mo,
           VGInsights $20/mo).
 
-*** Step 2: PDF formatter for Phase 4 output (~1 day)
-    Goal: a small script =scripts/format_genre_report_pdf.py= that
-    reads =mv_genre_synthesis= for a slug and outputs a print-ready
-    PDF. Reused for every future genre report.
-
-    - [ ] Read the synthesis row by slug
-    - [ ] Render to PDF: cover page, TOC, friction synthesis,
-          wishlist synthesis, dev priorities, benchmark games list,
-          methodology, full game list appendix
-    - [ ] Use the existing matplotlib styling (chart helpers in
-          =scripts/fill_report.py=) for any charts the synthesis
-          row supports
-    - [ ] Generate the matching CSV dataset
-    - [ ] Run for RDB; eyeball the v1 output. If anything reads
-          poorly, fix the formatter (not the synthesis)
-    - [ ] Re-runnable: editorial revisions land by re-running the
-          formatter against an updated synthesis row or against
-          editorial overrides stored alongside =mv_genre_synthesis=
-
-*** Step 3: Stripe + Resend backend with user identity + subscription (~2 to 3 days)
+*** Step 2: Stripe + Resend backend with user identity + subscription (~2 to 3 days)
     Goal: =POST /api/checkout/start= creates a Stripe Checkout
     Session for either a subscription or a single report; webhooks
     handle both flows against a forward-compatible user identity
@@ -262,24 +243,51 @@
           "report updated" (sent to subscribers when S3 keys change),
           "log in (here's your link)" for the /login flow
 
+*** Step 3: Canonical-free game set (~half day)
+    Goal: a stable, sticky set of "always fully visible" per-game
+    pages on top of the showcase rule. Big-name games (Cyberpunk,
+    BG3, Elden Ring, etc.) become full free pages so they pull SEO
+    traffic and prove the engine across positive, mixed, and
+    negative sentiment.
+
+    Schema and lifecycle live in
+    =scripts/prompts/canonical-free-games.md=; this step ships that.
+
+    - [ ] Migration: add =games.is_canonical_free BOOLEAN NOT NULL
+          DEFAULT false= plus the partial index on =WHERE
+          is_canonical_free = true=
+    - [ ] =scripts/populate_canonical_free.py=: idempotent operator
+          script that selects the top 200 by =review_count= among
+          analyzed games (no sentiment filter), sets
+          =is_canonical_free = true= on each, never reverses the
+          flag. Supports =--dry-run= and =--list= flags
+    - [ ] Run the populator once on production; verify the count
+          matches the dry-run
+    - [ ] Optional: run the companion query for top-200 unanalyzed
+          big-name games and decide whether to spend the LLM
+          analysis cost to fill out the set
+
 *** Step 4: Per-game preview frontend (~1 day)
-    Goal: per-game pages render preview-only by default, full
-    report only for showcase appids.
+    Goal: per-game pages render preview by default, full report
+    when EITHER the appid is in any published report's
+    =benchmark_appids= OR =games.is_canonical_free = true=.
 
     - [ ] Backend: =GET /api/games/{appid}/report= returns the full
-          =GameReport= when appid is in any published report's
-          =benchmark_appids=, otherwise returns the abbreviated
-          preview shape
+          =GameReport= when the showcase rule OR the canonical rule
+          matches; otherwise returns the abbreviated preview shape
+    - [ ] Add =is_canonical_free?: boolean= to the =game= block of
+          the =getGameReport= response in =frontend/lib/api.ts=
     - [ ] Frontend =frontend/app/games/[appid]/[slug]/= renders
           based on the response shape
     - [ ] =GenreReportUpsell= component on preview pages: upsell
           line + "View the [Genre] report" button linking to
           =/genre/[slug]/= (no email capture; link straight there)
     - [ ] If no published report covers the appid: show a "Request
-          a genre report covering this niche" form (one input,
-          email capture). Sentinel for future-genre demand only.
+          a genre report covering this niche" form (single email
+          input, capture into =genre_request_signals= for future
+          cohort scoping)
 
-*** Step 5: Genre page buy block (subscribe + one-time) + Plausible (~1 day)
+*** Step 5: Genre page buy block + paid-mode rendering + Plausible (~1 day)
     Goal: =/genre/[slug]/= offers two CTAs side by side: subscribe
     or buy one-time. Both go through Stripe Checkout.
 
@@ -301,25 +309,26 @@
           =Sample Downloaded=
     - [ ] Update =frontend/tests/= specs for the dual-CTA flow
 
-*** Step 6: Generate the v1 RDB PDF and upload (~few hours)
-    Goal: the RDB report is in S3, =reports.published_at= is set,
-    the buy block goes live.
+*** Step 6: Publish the RDB report (~30 minutes)
+    Goal: the =reports= row exists with =published_at= set; the
+    genre page paid mode renders against the existing matview; the
+    buy block goes live.
 
-    - [ ] Run =scripts/format_genre_report_pdf.py
-          --slug=roguelike-deckbuilder=
-    - [ ] Eyeball the v1 output (tolerable, not perfect; editorial
-          polish is post-launch)
-    - [ ] Upload PDF + CSV to S3 at =reports.s3_pdf_key= and
-          =reports.s3_csv_key=
-    - [ ] Set =reports.published_at = now()=
-    - [ ] Generate a public 5-page sample (executive summary
-          fragment) and upload to a public S3 path; link from the
-          buy block
+    - [ ] Insert =reports= catalog row for roguelike-deckbuilder:
+          slug, display_name, =published_at = now()=,
+          =benchmark_appids= (the 5 RDB benchmarks: Slay the Spire,
+          Balatro, Inscryption, Monster Train, Dicey Dungeons),
+          =stripe_one_time_price_id=
     - [ ] Manual end-to-end test:
-          - Subscribe with a test email + real card; verify magic
-            link arrives, unlocks the RDB report, refund yourself
-          - Buy the RDB report one-time with a different test email;
-            verify download link arrives, refund yourself
+          - Visit =/genre/roguelike-deckbuilder/= unauthenticated;
+            confirm free mode renders with subscribe + one-time
+            CTAs in the buy block
+          - Subscribe via real card with a test email; refund self;
+            verify the magic link arrives, unlocks paid mode, the
+            full synthesis renders on the page
+          - Buy one-time with a different test email; refund self;
+            verify the magic link arrives, unlocks paid mode for
+            this slug only
 
 *** Step 7: Soft launch (no announcement)
     Goal: live, indexed, instrumented. Let SEO and any organic
@@ -339,20 +348,21 @@
     - [ ] Watch GSC Pages report for 2 weeks for crawl errors
 
 *** Step 8: Editorial polish on RDB (continuous, post-launch)
-    Goal: the RDB report gets sharper over time. Subscribers receive
-    every revision automatically.
+    Goal: the RDB paid view gets sharper over time. Subscribers and
+    one-time buyers (within their access window) see every revision
+    on their next page load. No regenerate-and-redeliver cycle.
 
-    - [ ] Write a 1-2 page executive summary, prepend to the report
-    - [ ] Sequence sections for narrative flow (rather than the
-          synthesis order)
-    - [ ] Add framing paragraphs at the top of each section
-    - [ ] Generate any missing charts and visuals
-    - [ ] Cross-reference benchmark games (link to their per-game
-          showcase pages)
-    - [ ] Re-run the formatter; re-upload to S3
-    - [ ] Trigger "report updated" Resend email to active subscribers
-    - [ ] One-time buyers within their =access_until= window get the
-          new version on next download
+    - [ ] Write/update =mv_genre_synthesis.editorial_intro= for
+          roguelike-deckbuilder
+    - [ ] Write/update =mv_genre_synthesis.churn_interpretation=
+    - [ ] As additional editorial sections become valuable
+          (executive summary as its own block, framing paragraphs
+          at the top of each section, cross-references between
+          benchmark cards), add the corresponding columns to the
+          synthesis table or an =editorial_overrides= sidecar and
+          extend the genre page render
+    - [ ] Inline charts (Recharts components for friction counts,
+          wishlist counts, dev priorities) optionally added here
 
 *** Step 9: Wait and measure (4 weeks from Step 7)
     Watch =subscriptions= + =report_purchases= + Plausible. Don't
@@ -360,7 +370,7 @@
 
     | After 4 weeks                                  | Action                                                                                                |
     |------------------------------------------------+-------------------------------------------------------------------------------------------------------|
-    | ≥ 5 subscribers OR ≥ 3 one-time sales          | Step 10 fires. Pick the next genre. Restart at Steps 1 + 2 + 6                                        |
+    | ≥ 5 subscribers OR ≥ 3 one-time sales          | Step 10 fires. Pick the next genre. Restart at Steps 1 + 6                                            |
     | 1 to 4 subscribers OR 1 to 2 one-time sales    | Marginal. Email each buyer, ask what made them pay. Tighten Step 10 amplification before report #2    |
     | 0 sales of either                              | Investigate: pricing (try $59 one-time and $14/mo), copy, upsell path, traffic quality                |
 
@@ -381,16 +391,17 @@
 
 *** Step 11: Pick the next genre and ship report #2
     Goal: the catalog compounds. Stripe + frontend plumbing from
-    Steps 3 to 5 is reused as-is. Each new report ships in days,
-    not weeks, because the formatter is reusable and editorial
-    polish happens incrementally.
+    Steps 2 to 5 is reused as-is. Each new report ships in hours,
+    not weeks, because there is no formatter and no editorial
+    pre-launch slog: insert the row, the matview renders.
 
     - [ ] Pick the next niche by (a) traffic on per-game pages in
           that niche, (b) review-richness of the cohort, (c) clear
           benchmark games for the showcase set
     - [ ] Run Phase 4 synthesiser if not already (~$70 to $145 LLM
           cost)
-    - [ ] Run the formatter; eyeball; upload; insert =reports= row
+    - [ ] Insert the =reports= row for the new slug; verify paid
+          mode renders on =/genre/{slug}/=
     - [ ] Each new report adds 3 to 5 showcase games to the
           per-game frontend automatically via the =benchmark_appids=
           rule
@@ -415,6 +426,7 @@
    | Pro tier (ongoing analysis updates, $50 to $99/mo)              | 10+ published genre reports AND recurring buyer demand                                                 |
    | Toolkit / chat / project workspace                              | Sustained MRR ≥ $1k/mo for 3 consecutive months                                                        |
    | Add-on micro-tools as paid SKUs (Tag Doctor, Page Doctor, etc.) | First genre report ships AND ≥ 3 buyers explicitly ask for the tool standalone                         |
+   | PDF or CSV export of any genre report                           | ≥ 3 buyers explicitly request offline / sharable export                                                |
    | Course or paid newsletter                                       | Subscriber list > 200 AND ≥ 5 buyers asking                                                            |
 
    If a gate fires, the SKU earns the right to ship. Otherwise it

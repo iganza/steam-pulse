@@ -621,11 +621,8 @@ export interface GenreInsights {
   churn_interpretation: string;
 }
 
-// ---------------------------------------------------------------------------
-// Paid-PDF report summary — served from GET /api/genres/{slug}/report.
-// Owned by stripe-checkout-report-delivery.md; absent today, so the client
-// getter returns null on any non-200.
-// ---------------------------------------------------------------------------
+// Genre report summary — served from GET /api/genres/{slug}/report.
+// Endpoint ships in Active Launch Plan Step 3.
 
 export interface ReportSummary {
   slug: string;

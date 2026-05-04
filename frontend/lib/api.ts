@@ -467,13 +467,10 @@ export async function getGenreInsights(slug: string): Promise<GenreInsights | nu
   }
 }
 
-/** GET /api/genres/{slug}/report — paid-PDF report summary.
- *
- * Endpoint ships with stripe-checkout-report-delivery.md; until then,
- * FastAPI returns 404 for the unwired route. 404 and 501 resolve to null
- * so the pre-order/buy block simply doesn't render. 5xx and network
- * errors are rethrown so real production failures stay visible in logs
- * instead of being silently suppressed into a missing buy block.
+/** GET /api/genres/{slug}/report — genre report summary. Endpoint ships
+ * in Active Launch Plan Step 3; until then FastAPI returns 404. 404 and
+ * 501 resolve to null so the buy block simply doesn't render. 5xx and
+ * network errors rethrow so real production failures stay visible.
  */
 export async function getReportForGenre(slug: string): Promise<ReportSummary | null> {
   try {

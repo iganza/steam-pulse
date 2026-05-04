@@ -1,0 +1,153 @@
+#+TITLE: SteamPulse Career Visibility Plan
+#+AUTHOR: Ivan Z. Ganza
+#+DATE: 2026-05-04
+#+STARTUP: overview
+#+TODO: TODO(t) NEXT(n) IN-PROGRESS(p) WAIT(w) | DONE(d) CANCELLED(c)
+
+* Goal
+  Use SteamPulse as a portfolio artifact to showcase senior backend /
+  platform / staff engineering skills. Job growth, not customers.
+
+  Sister doc: =docs/reddit-launch-plan.org= covers customer
+  acquisition (gamedev subs). This doc covers engineer-peer visibility
+  (LinkedIn, engineering subs, HN). Different audience, different
+  framing.
+
+* Positioning angle
+  Most "I built an AI app" posts skip the economics. The differentiator
+  for a senior-eng audience is engineering judgment, not the fact that
+  Claude was wired into an API.
+
+  Lead with the tradeoffs:
+  - Anthropic batch API only (50% discount, 24h SLA acceptable).
+  - Tiered refresh cadence keyed to review velocity, not fixed cron.
+  - Fixed-cost RDS over Aurora Serverless v2 (per-ACU punishes bursty
+    crawler workload).
+  - No speculative LLM calls; operator scripts verify upstream
+    coverage before spending.
+
+* LinkedIn post draft (cost-engineering angle)
+  #+begin_src markdown
+  I spent the last few months building SteamPulse, an AI-powered
+  intelligence platform that synthesizes Steam reviews across ~6,000
+  games. Solo build, end to end.
+
+  The interesting part wasn't wiring Claude to an API. It was making
+  the economics work.
+
+  A naive design (refresh every game's analysis every 6 hours via the
+  sync API) blows past $10K/mo in LLM spend before anyone subscribes.
+  So the system is built around a few hard rules:
+
+  - **Batch API only.** Anthropic's batch endpoint is 50% cheaper. The
+    24h SLA is fine for an analysis layer that doesn't need to be
+    real-time.
+  - **Tiered refresh cadence.** Hot games update often, long-tail
+    games rarely. Cadence is computed from review velocity, not a
+    fixed cron.
+  - **Fixed-cost infra where it matters.** Provisioned RDS instead of
+    Aurora Serverless v2, since per-ACU billing punishes the bursty
+    crawler workload.
+  - **No speculative LLM calls.** Operator scripts verify upstream
+    data coverage before spending a cent.
+
+  The stack: Python, FastAPI, AWS Lambda + SQS + Step Functions, RDS
+  Postgres, Next.js on CloudFront via OpenNext, all in CDK. Claude on
+  Bedrock for synthesis. Tests use moto + pytest-httpx so CI runs
+  offline.
+
+  Code is structured around a shared library layer for crawler,
+  analyzer, and API Lambdas, so the same domain models and retry
+  logic ship everywhere without drift.
+
+  If anyone is hiring for senior backend / platform / staff roles
+  where these tradeoffs are the day job, I'd love to chat.
+
+  #AWS #Serverless #Python #LLM #AIEngineering #Claude
+  #+end_src
+
+* Alternate hooks
+** Architecture-led
+   Open with one-line stack summary + architecture diagram screenshot.
+   Less differentiated, but visual posts perform well on LinkedIn.
+
+** Story-led
+   Open with the problem ("Steam has 100K+ games and review summaries
+   that don't actually summarize"). More relatable, less senior-eng-
+   flavored.
+
+* Where to post
+** LinkedIn (own feed)
+   Highest ROI. Tag 3-5 people who'd genuinely engage. Pin the post
+   to your profile. Put GitHub / live demo link as the *first
+   comment*, not in the post body. LinkedIn down-ranks posts with
+   external links.
+
+** LinkedIn groups (active ones, low expectations)
+   Most LinkedIn groups are dead or spammy. These are passable:
+   - AWS Serverless Community
+   - Python Developers Community
+   - Generative AI Professional Community
+   - Cloud Native Computing Foundation
+   - The Pragmatic Engineer (members only)
+
+** Engineer-audience reddit subs (different from customer subs)
+   These target peers, not gamedev customers. Different framing.
+   - r/aws (Show & Tell threads)
+   - r/Python (Saturday showcase thread)
+   - r/SideProject
+   - r/devops
+   - r/gamedev only if framed as engineering writeup, not product
+
+** External engineer venues
+   - Hacker News Show HN
+   - lobste.rs (if invited)
+   - Anthropic / Claude Discord, =#showcase= channel
+   - AWS Community Builders Slack (if a member)
+
+** Skip
+   - Indie Hackers (audience is monetization-focused, off-goal)
+   - Generic "Software Engineers" mega-groups (dead)
+   - Reddit subs from the customer-acquisition plan (different framing
+     needed; don't double-dip)
+
+* Tactical notes
+  - Pin a comment with GitHub repo or live demo URL on LinkedIn (links
+    in body get throttled).
+  - Update LinkedIn profile bio + headline before posting so curious
+    clickers land on a coherent story.
+  - One coherent post beats five scattered ones. Hold the post until
+    profile + bio + pinned comment are ready.
+  - Cross-post the same writeup to HN Show HN and r/aws on the same
+    day to compound visibility. Different audiences, no overlap risk.
+
+* TODO checklist
+** TODO Update LinkedIn profile bio / headline to mention SteamPulse
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:
+
+** TODO Decide which hook (cost-engineering vs architecture vs story)
+   :PROPERTIES:
+   :EFFORT: 15m
+   :END:
+
+** TODO Confirm public sample-report URL is live (overlap with reddit plan)
+   :PROPERTIES:
+   :EFFORT: 5m
+   :END:
+
+** TODO Post to LinkedIn own feed
+   :PROPERTIES:
+   :EFFORT: 30m post + 1-2h engagement
+   :END:
+
+** TODO Cross-post to HN Show HN same day
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:
+
+** TODO Post to r/aws (engineering-writeup framing, not product)
+   :PROPERTIES:
+   :EFFORT: 30m
+   :END:

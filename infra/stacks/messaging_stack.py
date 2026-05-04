@@ -42,41 +42,49 @@ class MessagingStack(cdk.Stack):
             self,
             "MetadataEnrichmentDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.review_crawl_dlq = sqs.Queue(
             self,
             "ReviewCrawlDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.batch_staging_dlq = sqs.Queue(
             self,
             "BatchStagingDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.cache_invalidation_dlq = sqs.Queue(
             self,
             "CacheInvalidationDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.spoke_results_dlq = sqs.Queue(
             self,
             "SpokeResultsDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.email_dlq = sqs.Queue(
             self,
             "EmailDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.frontend_revalidation_dlq = sqs.Queue(
             self,
             "FrontendRevalidationDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         self.opennext_revalidation_dlq = sqs.Queue(
             self,
             "OpenNextRevalidationDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
         )
         # Deterministic names — spokes in other regions construct ARN/URL
         # strings from these names (CDK tokens can't cross regions).
@@ -85,6 +93,7 @@ class MessagingStack(cdk.Stack):
             "MetadataEnrichmentQueue",
             queue_name=f"steampulse-app-crawl-{env}",
             visibility_timeout=cdk.Duration.minutes(10),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.metadata_enrichment_dlq,
@@ -95,6 +104,7 @@ class MessagingStack(cdk.Stack):
             "ReviewCrawlQueue",
             queue_name=f"steampulse-review-crawl-{env}",
             visibility_timeout=cdk.Duration.minutes(10),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.review_crawl_dlq,
@@ -104,6 +114,7 @@ class MessagingStack(cdk.Stack):
             self,
             "BatchStagingQueue",
             visibility_timeout=cdk.Duration.minutes(10),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.batch_staging_dlq,
@@ -113,6 +124,7 @@ class MessagingStack(cdk.Stack):
             self,
             "CacheInvalidationQueue",
             visibility_timeout=cdk.Duration.minutes(5),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.cache_invalidation_dlq,
@@ -123,6 +135,7 @@ class MessagingStack(cdk.Stack):
             "SpokeResultsQueue",
             queue_name=f"steampulse-spoke-results-{env}",
             visibility_timeout=cdk.Duration.minutes(15),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.spoke_results_dlq,
@@ -133,6 +146,7 @@ class MessagingStack(cdk.Stack):
             self,
             "EmailQueue",
             visibility_timeout=cdk.Duration.minutes(5),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.email_dlq,
@@ -143,6 +157,7 @@ class MessagingStack(cdk.Stack):
             self,
             "FrontendRevalidationQueue",
             visibility_timeout=cdk.Duration.minutes(2),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.frontend_revalidation_dlq,
@@ -153,6 +168,7 @@ class MessagingStack(cdk.Stack):
             self,
             "OpenNextRevalidationQueue",
             visibility_timeout=cdk.Duration.minutes(5),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.opennext_revalidation_dlq,

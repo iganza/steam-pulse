@@ -108,6 +108,7 @@ class CrawlSpokeStack(cdk.Stack):
             self,
             "SpokeCrawlerDlq",
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
@@ -120,6 +121,7 @@ class CrawlSpokeStack(cdk.Stack):
             queue_name=queue_name,
             visibility_timeout=cdk.Duration.minutes(12),
             retention_period=cdk.Duration.days(14),
+            receive_message_wait_time_seconds=cdk.Duration.seconds(20),
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=spoke_dlq,

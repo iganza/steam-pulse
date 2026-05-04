@@ -1,6 +1,6 @@
 # Stripe + Resend setup
 
-Wire Stripe Checkout (subscription + one-time SKUs) and Resend (transactional emails) for SteamPulse. This prompt is the implementation spec for the payment + email half of launch-plan Step 2. The auth half is `scripts/prompts/clerk-auth-setup.md`.
+Wire Stripe Checkout (subscription + one-time SKUs) and Resend (transactional emails) for SteamPulse. This prompt is the implementation spec for the payment + email half of launch-plan Step 2. The auth half is `scripts/prompts/better-auth-setup.md`.
 
 The schema and lifecycle this delivers is defined in `scripts/prompts/rdb-launch-spec.md` Sections 4 (pricing + Stripe Product names) and 5 (entitlement schema). This prompt makes it concrete and actionable.
 
@@ -54,7 +54,7 @@ For local dev: same names in `.env.local` under `STRIPE_PUBLISHABLE_KEY`, `STRIP
 
 CREATE TABLE subscriptions (
     id BIGSERIAL PRIMARY KEY,
-    clerk_user_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     stripe_customer_id TEXT NOT NULL,
     stripe_subscription_id TEXT UNIQUE NOT NULL,
     status TEXT NOT NULL,
@@ -62,18 +62,18 @@ CREATE TABLE subscriptions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX subscriptions_clerk_user_idx ON subscriptions (clerk_user_id);
+CREATE INDEX subscriptions_user_idx ON subscriptions (user_id);
 
 CREATE TABLE report_purchases (
     id BIGSERIAL PRIMARY KEY,
-    clerk_user_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     report_slug TEXT NOT NULL,
     stripe_session_id TEXT UNIQUE NOT NULL,
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     access_until TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX report_purchases_clerk_user_slug_idx
-    ON report_purchases (clerk_user_id, report_slug);
+CREATE INDEX report_purchases_user_slug_idx
+    ON report_purchases (user_id, report_slug);
 
 CREATE TABLE reports (
     slug TEXT PRIMARY KEY,
@@ -90,11 +90,11 @@ CREATE TABLE reports (
 
 `src/library-layer/library_layer/repositories/entitlement_repo.py` (new):
 
-- `get_active_subscription(clerk_user_id) -> Subscription | None`
-- `get_one_time_purchase(clerk_user_id, report_slug) -> ReportPurchase | None`
+- `get_active_subscription(user_id) -> Subscription | None`
+- `get_one_time_purchase(user_id, report_slug) -> ReportPurchase | None`
 - `upsert_subscription(...)` for webhook handlers
 - `insert_report_purchase(...)` for webhook handlers
-- All methods accept `clerk_user_id: str`. No email lookups in entitlement queries.
+- All methods accept `user_id: str`. No email lookups in entitlement queries.
 
 `src/library-layer/library_layer/repositories/report_repo.py` (new or extend):
 
@@ -114,26 +114,26 @@ Per the workflow rule, all domain objects use `pydantic.BaseModel`. Add to `src/
 
 These live in the existing FastAPI handler at `src/lambda-functions/lambda_functions/api/...`.
 
-- [ ] `POST /api/checkout/start` (auth required via Clerk):
-  - Read `clerk_user_id` from Clerk's server-side `auth()` (the FastAPI handler proxies through Clerk's middleware via the Next.js app's API route or directly via Clerk SDK).
+- [ ] `POST /api/checkout/start` (auth required):
+  - Read `user_id` from `auth.api.getSession({ headers })` (Better Auth, server-side; see `scripts/prompts/better-auth-setup.md`). 401 if unauthenticated.
   - Body: `{mode: "subscription" | "one_time", period?: "monthly" | "annual", report_slug?: string}`.
   - Look up the right Stripe Price ID:
     - `mode=subscription` + `period=monthly` → fixed env var `STRIPE_SUB_MONTHLY_PRICE_ID`
     - `mode=subscription` + `period=annual` → fixed env var `STRIPE_SUB_ANNUAL_PRICE_ID`
     - `mode=one_time` → `reports.stripe_one_time_price_id` for the slug
-  - Create Stripe Checkout Session with `metadata.clerk_user_id` and `metadata.report_slug` (if one-time). Set `success_url` to `/genre/[slug]/?welcome=1`, `cancel_url` to `/genre/[slug]/`.
+  - Create Stripe Checkout Session with `metadata.user_id` and `metadata.report_slug` (if one-time). Set `success_url` to `/genre/[slug]/?welcome=1`, `cancel_url` to `/genre/[slug]/`.
   - Return `{url: session.url}`.
 
 - [ ] `POST /api/webhook/stripe` (no auth, signature-verified):
   - Verify signature using `stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)`.
   - Idempotency: check `event.id` against a small `processed_webhook_events` cache table OR rely on the unique constraints on `stripe_subscription_id` / `stripe_session_id` to swallow duplicates.
   - Event handlers:
-    - `checkout.session.completed` (mode=payment, i.e. one-time): read `metadata.clerk_user_id` and `metadata.report_slug`, insert `report_purchases` row with `access_until = now() + INTERVAL '30 days'`. Send Resend confirmation email.
+    - `checkout.session.completed` (mode=payment, i.e. one-time): read `metadata.user_id` and `metadata.report_slug`, insert `report_purchases` row with `access_until = now() + INTERVAL '30 days'`. Send Resend confirmation email.
     - `customer.subscription.created` and `.updated`: upsert `subscriptions` row keyed on `stripe_subscription_id`. On `created`, send subscription confirmation email.
     - `customer.subscription.deleted`: update status to `canceled`, preserve row.
   - Return 200 quickly. Heavy work (Resend sends) can be inline at v1; consider SQS dispatch later if webhook latency becomes a problem.
 
-- [ ] `POST /api/billing-portal` (auth required): create a Stripe Billing Portal session for the authenticated user's `stripe_customer_id` and return the URL. Used by the "Manage subscription" link in `<UserProfile />`.
+- [ ] `POST /api/billing-portal` (auth required): create a Stripe Billing Portal session for the authenticated user's `stripe_customer_id` and return the URL. Used by the "Manage subscription" link on the `/account` page.
 
 ### New SQS message types and email handler dispatch
 
@@ -170,22 +170,22 @@ Email infrastructure is already in place; this step only adds new message types 
 - **Report purchase confirmed:** "Thanks for buying the [Genre] report. You have on-site access at https://steampulse.io/genre/[slug]/ for 30 days. Subscribe at https://steampulse.io to get every report and never lose access."
 - **Report updated** (sent when an editorial revision lands; v1 gated off behind a config flag, enable later): "The [Genre] report just got an update. View the latest at https://steampulse.io/genre/[slug]/."
 
-No magic-link or auth emails. Clerk handles auth emails directly through its own infrastructure.
+Magic-link emails for sign-in are owned by `scripts/prompts/better-auth-setup.md` (a `magic_link` SQS message type sent via the same email Lambda). The three messages above are pure transactional confirmations for purchases.
 
 ### Frontend wiring
 
-The Clerk integration handles the sign-in modal. Buy block work:
+Better Auth owns sign-in. Buy block work:
 
-- [ ] `frontend/components/genre/ReportBuyBlock.tsx`: wire the Subscribe and Buy buttons to call `POST /api/checkout/start` with the right `mode`. If user is signed out, open Clerk `<SignIn />` modal first; on success, resume the click. Redirect to the returned `session.url`.
-- [ ] `frontend/lib/entitlements.ts` (called by the genre page server-side render): given `clerk_user_id` and `slug`, call backend to read `subscriptions` and `report_purchases` and return `{ paid: boolean, source: 'subscription' | 'one_time' | null, expires_at: string | null }`.
+- [ ] `frontend/components/genre/ReportBuyBlock.tsx`: wire the Subscribe and Buy buttons to call `POST /api/checkout/start` with the right `mode`. If `useSession()` returns no session, redirect to `/sign-in?redirect=/genre/${slug}` first; the user signs in, returns, and re-clicks. After a session exists, the POST resolves to a Stripe Checkout URL; redirect there.
+- [ ] `frontend/lib/entitlements.ts` (called by the genre page server-side render): given `user_id` and `slug`, run the two SQL queries from `rdb-launch-spec.md` Section 5 against `subscriptions` and `report_purchases`. Return `{ paid: boolean, source: 'subscription' | 'one_time' | null, expires_at: string | null }`.
 
 ## Verification
 
-- [ ] Local: trigger Stripe webhook with `stripe trigger checkout.session.completed --add metadata.clerk_user_id=user_test --add metadata.report_slug=roguelike-deckbuilder`. Confirm a `report_purchases` row appears.
+- [ ] Local: trigger Stripe webhook with `stripe trigger checkout.session.completed --add 'metadata.user_id=<a-real-test-uuid>' --add 'metadata.report_slug=roguelike-deckbuilder'`. Confirm a `report_purchases` row appears (the user_id must match an existing `users.id` for the FK constraint to satisfy).
 - [ ] Local: trigger `customer.subscription.created`. Confirm a `subscriptions` row appears with `status='active'`.
 - [ ] End-to-end test against Stripe test mode:
-  - Sign in as test user via Clerk.
-  - Click Subscribe on `/genre/roguelike-deckbuilder/`. Stripe Checkout opens with the user's email pre-filled by Clerk.
+  - Sign in as test user via Better Auth (Google OAuth or magic link).
+  - Click Subscribe on `/genre/roguelike-deckbuilder/`. Backend reads the session, creates the Stripe Checkout Session with `metadata.user_id`, redirects to Stripe.
   - Complete with test card `4242 4242 4242 4242`. Webhook fires. Page reloads in paid mode.
   - Click "Manage subscription" → Stripe Customer Portal session opens.
   - Cancel from the portal. Webhook fires `subscription.deleted`. Reload `/genre/roguelike-deckbuilder/`. Page renders free mode (current_period_end may still be in the future, in which case paid mode persists until the period ends, per Stripe defaults).
@@ -194,14 +194,14 @@ The Clerk integration handles the sign-in modal. Buy block work:
 
 ## What this prompt does not decide
 
-- Clerk integration: `scripts/prompts/clerk-auth-setup.md` owns it.
+- Better Auth integration (sign-in / sign-out / sessions / magic-link emails): `scripts/prompts/better-auth-setup.md` owns it.
 - Per-game preview frontend (showcase / canonical / preview decision): launch-plan Step 4.
 - Genre page paid-mode rendering (the full synthesis layout): launch-plan Step 5.
 - Editorial polish content (`editorial_intro`, `churn_interpretation` updates): launch-plan Step 8.
 
 ## Failure modes worth handling explicitly
 
-- **Webhook arrives before Clerk session is established.** Defensive: the webhook reads `metadata.clerk_user_id` set by `/api/checkout/start`, which itself required Clerk auth. So `clerk_user_id` is always present at checkout.session.completed time. If absent (defensive log), fail loud rather than insert a row with NULL identity.
+- **Webhook arrives without metadata.user_id.** Defensive: the webhook reads `metadata.user_id` set by `/api/checkout/start`, which itself required an authenticated Better Auth session. So `user_id` is always present at `checkout.session.completed` time. If absent (defensive log), fail loud rather than insert a row with NULL identity. The FK constraint on `subscriptions.user_id` and `report_purchases.user_id` would also reject a NULL or invalid id.
 - **Refund or chargeback.** Stripe sends `charge.refunded` / `charge.dispute.created`. v1 logs these and emails the operator; manual `UPDATE` on the affected `subscriptions` or `report_purchases` row. Don't auto-revoke at v1; the operator's reaction is part of the loop.
 - **Webhook duplicate delivery.** Stripe retries failed webhooks. Unique constraints on `stripe_subscription_id` and `stripe_session_id` make repeat inserts no-ops. The `customer.subscription.updated` handler is naturally idempotent (it upserts by `stripe_subscription_id`).
-- **Customer changes their email.** Clerk owns email; if a buyer changes their Clerk email, their `clerk_user_id` does not change, so entitlements survive. Stripe's `customer.email` may diverge; not a problem because we never key on email.
+- **Customer changes their email.** Better Auth's email-update flow keeps the same `users.id`. Entitlements survive untouched. Stripe's `customer.email` may diverge from the Better Auth email; not a problem because we never key on email.

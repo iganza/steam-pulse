@@ -140,16 +140,18 @@ Pinned numbers and Stripe-side configuration:
 
 ## 5. User identity and entitlements
 
-Identity is owned by **Clerk** (Next.js SDK, free tier covers ≥ 10K MAU which is far above launch volume). Magic link, Google OAuth, logout, and the `<UserProfile>` account UI are out of the box. Entitlements (subscriptions, one-time report purchases) live in our Postgres, keyed on Clerk's `user_id` string.
+Identity runs on **Better Auth**, an open-source TypeScript framework that lives inside our Next.js app and persists to our own Postgres. Magic link + Google OAuth + sessions + logout are built in via plugins. The user database is ours: zero recurring cost, zero vendor lock-in, no migration ever required because the user table sits next to our entitlement tables.
 
-The Clerk integration prompt is `scripts/prompts/clerk-auth-setup.md`. This section pins the schema and lifecycle that Clerk + Stripe wiring satisfies.
+The implementation prompt is `scripts/prompts/better-auth-setup.md`. This section pins the schema and lifecycle the Better Auth + Stripe wiring satisfies.
 
 ### Tables
+
+Better Auth manages four tables (`users`, `sessions`, `accounts`, `verifications`); see the auth prompt for the full migration. Entitlement tables FK to `users.id` (UUID):
 
 ```sql
 subscriptions (
   id BIGSERIAL PRIMARY KEY,
-  clerk_user_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   stripe_customer_id TEXT NOT NULL,
   stripe_subscription_id TEXT UNIQUE NOT NULL,
   status TEXT NOT NULL,  -- active, canceled, past_due, trialing, unpaid
@@ -157,53 +159,61 @@ subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )
-CREATE INDEX subscriptions_clerk_user_idx ON subscriptions (clerk_user_id);
+CREATE INDEX subscriptions_user_idx ON subscriptions (user_id);
 
 report_purchases (
   id BIGSERIAL PRIMARY KEY,
-  clerk_user_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   report_slug TEXT NOT NULL,
   stripe_session_id TEXT UNIQUE NOT NULL,
   purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   access_until TIMESTAMPTZ NOT NULL  -- purchased_at + INTERVAL '30 days'
 )
-CREATE INDEX report_purchases_clerk_user_slug_idx
-  ON report_purchases (clerk_user_id, report_slug);
+CREATE INDEX report_purchases_user_slug_idx
+  ON report_purchases (user_id, report_slug);
 ```
 
-We do not maintain a local `users` table. Clerk's user record is the source of truth for identity (email, display name, auth methods used). Local DB stores entitlements only, FK-equivalent on the Clerk user_id string.
+Real foreign-key constraints. If a user is deleted, their entitlements cascade. If a `users.id` is referenced by a subscription, the user row cannot be silently dropped.
 
-If we ever need to denormalise email or display name into our DB for query/reporting, do it as a sidecar cache table (e.g., `clerk_user_cache`) refreshed via Clerk webhooks; never make it a hard FK target.
-
-### Purchase flow (gate behind Clerk signup)
+### Purchase flow (gate behind sign-in)
 
 1. Buyer clicks "Subscribe" or "Buy this report" on `/genre/[slug]/`.
-2. If not signed in: Clerk's `<SignIn />` modal opens (magic link OR Google OAuth, whichever they prefer). Implicit signup if email is new.
-3. After auth, the click resumes: backend creates a Stripe Checkout Session with `metadata.clerk_user_id` set to the authenticated user's id.
-4. Stripe Checkout completes (subscription or one-time).
-5. Webhook receives `customer.subscription.created` (or `checkout.session.completed` for one-time) with metadata. Inserts the entitlement row keyed on `clerk_user_id`.
-6. Buyer redirected back to `/genre/[slug]/`. Clerk session is already live; server-side render reads `auth()`, queries entitlements, renders paid mode.
+2. If not signed in: client redirects to `/sign-in?redirect=/genre/[slug]/`. The sign-in page offers two CTAs: "Continue with Google" and "Send me a sign-in link" (magic link via the existing email Lambda).
+3. After auth, the redirect query param returns the buyer to `/genre/[slug]/`; they click again.
+4. Backend creates a Stripe Checkout Session with `metadata.user_id` set to the authenticated `users.id`.
+5. Stripe Checkout completes (subscription or one-time).
+6. Webhook receives `customer.subscription.created` (or `checkout.session.completed` for one-time) with metadata. Inserts the entitlement row keyed on `user_id`.
+7. Buyer redirected back to `/genre/[slug]/`. Better Auth session cookie is already live; server-side render reads `auth.api.getSession({ headers })`, queries entitlements, renders paid mode.
 
-No magic-link email is required for the purchase flow itself. Clerk's session cookie carries the buyer through. Resend is still used for transactional emails ("Thanks for subscribing", "Your report is ready"), but not for auth.
+Resend is used for magic-link emails (via the existing `ResendEmailSender` and email Lambda) and for transactional confirmations ("subscription confirmed", "report purchase confirmed").
 
 ### Render-mode decision (every server-side request to `/genre/[slug]/`)
 
-1. Call Clerk's `auth()` helper to read the current session. If unauthenticated, render free mode.
-2. Get `userId` from the auth helper.
-3. Subscription check: `SELECT 1 FROM subscriptions WHERE clerk_user_id = $1 AND status = 'active' AND current_period_end > now()`.
-4. One-time check: `SELECT 1 FROM report_purchases WHERE clerk_user_id = $1 AND report_slug = $2 AND access_until > now()`.
+1. Call `auth.api.getSession({ headers })` to read the current Better Auth session. If unauthenticated, render free mode.
+2. Read `session.user.id` (UUID).
+3. Subscription check: `SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND current_period_end > now()`.
+4. One-time check: `SELECT 1 FROM report_purchases WHERE user_id = $1 AND report_slug = $2 AND access_until > now()`.
 5. Either match: paid mode. No match: free mode.
 
 ### Logout, account, and recovery
 
-- **Logout:** Clerk's `<UserButton>` component in the page header gives "Sign out" out of the box. No custom endpoint needed.
-- **Account UI:** Clerk's `<UserProfile />` route handles email management, connected accounts (Google/GitHub etc.), and password (if enabled). Mounted at `/account`. We do not build this.
-- **Recovery:** "I lost my session" is handled by Clerk's sign-in flow itself. The buyer enters their email, Clerk sends a magic link, they're back in.
-- **Billing portal:** A "Manage subscription" button in `<UserProfile />` (or a custom page) hits Stripe's Customer Portal. Stripe owns the UI; we just create the portal session.
+- **Logout:** the auth client exposes `signOut()`. Wired to the avatar dropdown in the page header. Server-side, this invalidates the row in `sessions`, so revocation is immediate (not just stateless-JWT-best-effort).
+- **Account UI:** `/account` is a small custom page showing email, connected accounts (Google), and a "Sign out" button. Built with Better Auth's React hooks; ~half day of work. Stripe Customer Portal handles billing.
+- **Recovery:** "I lost my session" is the same flow as initial sign-in. Buyer visits `/sign-in`, enters email, receives a magic link. No separate `/login` route needed; sign-in IS recovery.
+- **Billing portal:** "Manage subscription" link from `/account` hits a backend endpoint that creates a Stripe Billing Portal session and redirects.
 
-### Why Clerk vs custom
+### Why Better Auth
 
-Building magic-link auth ourselves was ~2 days of focused engineering plus permanent maintenance burden (token issuance, session JWT, recovery flow, account UI). Clerk handles all of that for $0 at launch volume, adds Google OAuth as a meaningful conversion lever, and provides battle-tested session security. The schema (`subscriptions`, `report_purchases`) is keyed on the Clerk `user_id` string, so swapping to a different provider later is a focused day of rewriting the integration, not a data migration.
+- **Open source.** $0 at any scale; no vendor risk.
+- **You own the data.** `users`, `sessions`, `accounts`, `verifications` live in our Postgres alongside `subscriptions` and `report_purchases`. Real FK constraints possible.
+- **TypeScript-first.** Plugin types flow through end-to-end (`signIn.magicLink({ email })` is fully typed once the magic-link plugin is enabled).
+- **Active stewardship.** The Better Auth team is the current maintainer of Auth.js (NextAuth); new Next.js projects in 2026 are recommended to start with Better Auth directly.
+- **Plugin breadth.** Magic link, Google OAuth, passkeys, 2FA, MFA, organisations, all available as opt-in plugins. v1 enables magic link + Google OAuth only.
+
+Sources:
+- https://better-auth.com/
+- https://better-auth.com/blog/authjs-joins-better-auth
+- https://better-auth.com/docs/integrations/next
 
 ## What this spec does not decide
 

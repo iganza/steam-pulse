@@ -194,53 +194,69 @@
           is anchored on industry comps (GameDiscoverCo $15/mo,
           VGInsights $20/mo).
 
-*** Step 2: Clerk + Stripe + Resend backend (~1 to 2 days)
-    Goal: identity owned by Clerk (magic link + Google OAuth +
-    logout + account UI out of the box); Stripe Checkout creates
-    subscriptions or one-time purchases keyed on Clerk =user_id=;
-    webhooks insert entitlement rows; Resend sends transactional
-    confirmation emails. Schema and lifecycle in
-    =scripts/prompts/rdb-launch-spec.md= Section 5. Detailed Clerk
-    integration steps in =scripts/prompts/clerk-auth-setup.md=.
+*** Step 2: Better Auth + Stripe + Resend backend (~1 to 2 days)
+    Goal: identity owned by Better Auth (open-source, the user
+    table lives in our Postgres); Stripe Checkout creates
+    subscriptions or one-time purchases keyed on =users.id= (UUID);
+    webhooks insert entitlement rows with real FK constraints;
+    Resend sends transactional confirmation emails through the
+    existing email Lambda. Schema and lifecycle in
+    =scripts/prompts/rdb-launch-spec.md= Section 5. Auth
+    integration in =scripts/prompts/better-auth-setup.md=. Stripe +
+    transactional email integration in
+    =scripts/prompts/stripe-resend-setup.md=.
 
-    - [ ] Clerk account (free tier); Next.js SDK installed; provider
-          + middleware wired. Magic link and Google OAuth enabled
-    - [ ] =<UserButton>= in the page header for sign in / sign out
-    - [ ] =/account= route mounting Clerk's =<UserProfile />= for
-          email and connected-accounts management
+    - [ ] Install =better-auth=; configure =frontend/lib/auth.ts=
+          with the Postgres adapter, magic-link plugin, and
+          Google social provider
+    - [ ] Migration adds the four Better Auth tables (=users=,
+          =sessions=, =accounts=, =verifications=)
+    - [ ] =frontend/app/api/auth/[...all]/route.ts= mounts the
+          Better Auth handler via =toNextJsHandler(auth)=
+    - [ ] =frontend/app/sign-in/page.tsx=: minimal page with
+          "Continue with Google" + magic-link email form
+    - [ ] =frontend/app/account/page.tsx=: small profile page
+          (email, connected accounts, sign-out, manage-billing
+          link). Uses Better Auth's React hooks
+    - [ ] Header avatar / sign-in toggle wired to =useSession()=
+    - [ ] Magic-link emails: new =MagicLinkMessage= SQS type +
+          dispatcher case in the existing email Lambda. Reuses
+          =ResendEmailSender= and the existing queue; no new
+          Resend setup
     - [ ] Stripe account; two Products with Prices:
           - "SteamPulse Subscription" (monthly $19, annual $190)
           - "SteamPulse Genre Report: Roguelike Deckbuilder" ($79
             one-time, metadata report_slug=roguelike-deckbuilder)
     - [ ] Stripe webhook endpoint with signing secret in SSM
-    - [ ] Tables per spec Section 5: =subscriptions= and
-          =report_purchases= only. Both have =clerk_user_id TEXT
-          NOT NULL= as the identity column (no local =users= table)
+    - [ ] Migration adds entitlement tables: =subscriptions= and
+          =report_purchases=, both with =user_id UUID NOT NULL
+          REFERENCES users(id) ON DELETE CASCADE=
     - [ ] =reports= catalog row: slug, display_name, published_at,
           benchmark_appids (int[]), stripe_one_time_price_id
-    - [ ] =POST /api/checkout/start= requires Clerk auth (uses
-          =auth()= helper), accepts ={mode, report_slug?}=,
-          creates a Stripe Checkout Session with
-          =metadata.clerk_user_id= set, returns the Session URL
+    - [ ] =POST /api/checkout/start= requires an authenticated
+          Better Auth session (=auth.api.getSession({ headers })=),
+          accepts ={mode, period?, report_slug?}=, creates a
+          Stripe Checkout Session with =metadata.user_id= set,
+          returns the Session URL
     - [ ] Webhook handlers:
           - =checkout.session.completed= (one-time): read
-            =metadata.clerk_user_id= and =metadata.report_slug=,
-            insert =report_purchases= row with =access_until =
-            now() + INTERVAL '30 days'=
+            =metadata.user_id= and =metadata.report_slug=, insert
+            =report_purchases= row with =access_until = now() +
+            INTERVAL '30 days'=
           - =customer.subscription.created= and =.updated=: upsert
-            =subscriptions= row keyed on =clerk_user_id=
-          - =customer.subscription.deleted=: mark status,
-            preserve row
-    - [ ] Buy block on =/genre/[slug]/=: if user is signed in,
-          opens Stripe Checkout directly; if not, opens Clerk
-          =<SignIn />= modal first, then resumes Checkout
-    - [ ] Stripe Customer Portal session endpoint for "Manage
-          subscription" link
+            =subscriptions= row keyed on =stripe_subscription_id=
+          - =customer.subscription.deleted=: mark status, preserve
+            row
+    - [ ] Buy block on =/genre/[slug]/=: if =useSession()= returns
+          a session, post to =/api/checkout/start= and redirect to
+          the returned Stripe URL; otherwise redirect to
+          =/sign-in?redirect=/genre/${slug}/=
+    - [ ] Stripe Customer Portal session endpoint for the
+          "Manage subscription" link on =/account=
     - [ ] Add new SQS message types in =library_layer/events.py=
           (=subscription_confirmed=, =report_purchase_confirmed=,
           =report_updated=) and matching dispatcher cases in the
-          existing email Lambda. Reuse =ResendEmailSender= and the
-          existing email queue; no new Resend setup needed.
+          existing email Lambda
 
 *** Step 3: Canonical-free game set (~half day)
     Goal: a stable, sticky set of "always fully visible" per-game

@@ -1074,7 +1074,7 @@ class ComputeStack(cdk.Stack):
             self,
             "CatalogRefreshRule",
             schedule=events.Schedule.cron(minute="15", hour="6"),
-            enabled=config.is_production,
+            enabled=False,
         )
         catalog_rule.add_target(events_targets.LambdaFunction(crawler_fn))
 
@@ -1088,7 +1088,7 @@ class ComputeStack(cdk.Stack):
             "RefreshMetaRule",
             schedule=events.Schedule.cron(minute="0", hour="*"),
             description="Hourly tiered metadata refresh dispatcher (:00)",
-            enabled=config.is_production,
+            enabled=False,
         )
         refresh_meta_rule.add_target(
             events_targets.LambdaFunction(

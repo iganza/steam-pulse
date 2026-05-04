@@ -213,50 +213,54 @@
           formatter against an updated synthesis row or against
           editorial overrides stored alongside =mv_genre_synthesis=
 
-*** Step 3: Stripe + Resend backend with subscription support (~2 days)
+*** Step 3: Stripe + Resend backend with user identity + subscription (~2 to 3 days)
     Goal: =POST /api/checkout/start= creates a Stripe Checkout
     Session for either a subscription or a single report; webhooks
-    handle both flows; subscribers and one-time buyers can both
-    fetch any unlocked report.
+    handle both flows against a forward-compatible user identity
+    schema; subscribers and one-time buyers can both fetch any
+    unlocked report. Schema and lifecycle details are in
+    =scripts/prompts/rdb-launch-spec.md= Section 5; this step
+    implements that spec.
 
-    - [ ] Stripe account; two Products:
-          - "SteamPulse Subscription" with two Prices (monthly $19,
-            annual $190)
-          - "SteamPulse Genre Report" with a single Price ($79) and
-            a metadata key for the report slug
+    - [ ] Stripe account; two Products with Prices per the spec:
+          - "SteamPulse Subscription" (monthly $19, annual $190)
+          - "SteamPulse Genre Report: Roguelike Deckbuilder" ($79
+            one-time, metadata report_slug=roguelike-deckbuilder)
     - [ ] Stripe webhook endpoint with signing secret in SSM
-    - [ ] =subscriptions= table: id, email, stripe_customer_id,
-          stripe_subscription_id, status (=active=, =canceled=,
-          =past_due=), current_period_end TIMESTAMPTZ NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL
-    - [ ] =report_purchases= table: id, report_slug, email,
-          stripe_session_id, purchased_at TIMESTAMPTZ NOT NULL,
-          access_until TIMESTAMPTZ NOT NULL (purchase time + 30
-          days for revisions)
+    - [ ] Tables per spec Section 5: =users=, =subscriptions=,
+          =report_purchases=, =magic_link_sessions=. All
+          entitlement tables FK to =users.id= (UUID), never email.
     - [ ] =reports= catalog row: slug, display_name, published_at,
           s3_pdf_key, s3_csv_key, benchmark_appids (int[]),
           stripe_one_time_price_id
     - [ ] =POST /api/checkout/start= accepts ={mode: "subscription"|"one_time",
           report_slug?, email}=; creates Session accordingly;
           returns Session URL
-    - [ ] Webhook handlers:
-          - =checkout.session.completed= for one-time: write
-            =report_purchases= row, generate 7-day signed S3 URL,
-            email via Resend
-          - =customer.subscription.created/updated= for subscription:
-            upsert =subscriptions= row; on first activation, email
-            magic-link unlock URL with cookie token
-          - =customer.subscription.deleted=: mark status, do not
-            delete the row (preserve history)
-    - [ ] =GET /api/reports/{slug}/download?token=...=: validates
-          subscription (active + email match) OR one-time purchase
-          (access_until > now()) and serves a fresh signed S3 URL
+    - [ ] Webhook handlers per spec Section 5 lifecycle:
+          - =checkout.session.completed= (one-time): upsert =users=,
+            insert =report_purchases= keyed on user_id, mint magic
+            link
+          - =customer.subscription.created= and =.updated=: upsert
+            =users=, upsert =subscriptions= keyed on user_id, mint
+            magic link on first activation
+          - =customer.subscription.deleted=: mark status, preserve
+            row
+    - [ ] =/unlock/[token]= page: validate
+          =magic_link_sessions=, mark used, set =sp_session= cookie
+          (signed JWT with user_id, 90-day expiry, httpOnly,
+          secure, sameSite=lax)
+    - [ ] =/login= page: email-only form; if user exists, mint a
+          fresh magic link. No-enumeration response copy.
+    - [ ] =GET /api/reports/{slug}/download?asset=pdf|csv=:
+          validates =sp_session= cookie + entitlement, serves a
+          fresh signed S3 URL
     - [ ] S3 bucket =steampulse-reports-{env}= (versioning on,
           public access blocked, signed-URL only)
     - [ ] Resend account, verified sending domain, transactional
-          templates: "subscription confirmed", "one-time report
-          delivery", "report updated" (sent to subscribers when a
-          report's S3 keys change)
+          templates: "subscription confirmed (here's your unlock
+          link)", "your report is ready (here's your unlock link)",
+          "report updated" (sent to subscribers when S3 keys change),
+          "log in (here's your link)" for the /login flow
 
 *** Step 4: Per-game preview frontend (~1 day)
     Goal: per-game pages render preview-only by default, full
